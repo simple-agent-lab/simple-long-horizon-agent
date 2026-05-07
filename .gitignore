@@ -17,6 +17,9 @@ env/
 .ruff_cache/
 .python-version
 
+# Local eval artifacts
+evals/out/
+
 # uv
 # (commit uv.lock; ignore the local cache only)
 

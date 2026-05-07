@@ -1,92 +1,112 @@
-"""Provider boundary for the event-driven loop."""
+"""Provider boundary for the event-driven loop.
+
+Single `ModelClient` implementation that delegates to
+`simple_agent_lab.llm.complete` for any registered provider. All the
+provider-specific logic (Anthropic / OpenAI / fake / future endpoints)
+lives behind that one entry point — this file does not import any
+provider SDK directly.
+"""
 
 from __future__ import annotations
 
-import os
+from typing import Any, Optional
 
-from dataclasses import dataclass
-
-from core import Message, MetaMode, ModelClient, model_messages
-
-
-@dataclass(frozen=True)
-class ModelConfig:
-    provider: str = "fake"
-    model: str = "fake-model"
-    api_key_env: str = "OPENAI_API_KEY"
-    base_url: str | None = None
-    temperature: float = 0.0
-
-    def __post_init__(self) -> None:
-        if not self.provider:
-            raise ValueError("provider must be non-empty")
-        if not self.model:
-            raise ValueError("model must be non-empty")
-        if not 0 <= self.temperature <= 2:
-            raise ValueError("temperature must be between 0 and 2")
+from core import (
+    Message,
+    MetaMode,
+    ModelClient,
+)
+from simple_agent_lab.llm import (
+    LLMRequest,
+    llm_response_to_assistant_message,
+    messages_to_llm_messages,
+    tool_to_llm_tool,
+)
+from simple_agent_lab.llm import Provider as LLMProvider
+from simple_agent_lab.llm import complete as llm_complete
+from simple_agent_lab.tools import AgentTool, Tool
 
 
-@dataclass(frozen=True)
-class FakeModel(ModelClient):
-    name: str = "fake-model"
+class LLMModelClient(ModelClient):
+    """`ModelClient` backed by `simple_agent_lab.llm`.
 
-    def generate(self, messages: list[Message], meta: MetaMode = "none") -> Message:
-        payload = model_messages(messages, meta=meta)
-        assistant_turns = [
-            message for message in messages if message.role == "assistant"
-        ]
-        if not assistant_turns:
-            return Message(
-                "assistant",
-                f"{self.name} generated a first response from {len(payload)} message(s).",
-                sender=self.name,
-                kind="thought",
-                data={"provider": "fake", "payload": payload},
-            )
-        return Message(
-            "assistant",
-            "Final: runtime events expose every loop transition.",
-            sender=self.name,
-            kind="final",
-            data={"provider": "fake", "payload": payload},
+    Construct one per (provider, system_prompt) pair. The client itself
+    is stateless across calls; conversation state lives in the agent
+    loop's `RuntimeState`.
+
+    `request_extra` is forwarded into `LLMRequest.extra` for request options
+    that only a specific provider adapter understands (e.g. `extra_headers`).
+    """
+
+    def __init__(
+        self,
+        provider: LLMProvider,
+        system_prompt: str = "",
+        request_extra: Optional[dict[str, Any]] = None,
+    ):
+        self.provider = provider
+        self.system_prompt = system_prompt
+        self.request_extra = dict(request_extra or {})
+
+    def generate(
+        self,
+        messages: list[Message],
+        meta: MetaMode = "none",
+        tools: list[Tool] | None = None,
+    ) -> Message:
+        req = LLMRequest(
+            provider=self.provider,
+            messages=messages_to_llm_messages(messages, with_header=meta == "header"),
+            tools=[tool_to_llm_tool(t) for t in (tools or [])],
+            system_prompt=self.system_prompt or None,
+            extra=self.request_extra,
+        )
+        resp = llm_complete(req)
+        return llm_response_to_assistant_message(
+            resp,
+            sender=self.provider.model,
+            target="user" if resp.stop_reason == "end_turn" else "assistant",
+            kind="final" if resp.stop_reason == "end_turn" else "thought",
+            data={"provider": self.provider.api},
         )
 
 
-class OpenAIResponsesClient(ModelClient):
-    def __init__(self, config: ModelConfig):
-        api_key = os.getenv(config.api_key_env)
-        if not api_key:
-            raise RuntimeError(f"missing API key env var: {config.api_key_env}")
+def fake_client(
+    model: str = "fake-model",
+    system_prompt: str = "",
+    request_extra: Optional[dict[str, Any]] = None,
+) -> LLMModelClient:
+    """Convenience factory: an `LLMModelClient` bound to the fake adapter.
 
-        try:
-            from openai import OpenAI
-        except ImportError as exc:
-            raise RuntimeError("install openai to use OpenAIResponsesClient") from exc
+    Equivalent to::
 
-        self.config = config
-        self.client = OpenAI(api_key=api_key, base_url=config.base_url)
-
-    def generate(self, messages: list[Message], meta: MetaMode = "none") -> Message:
-        response = self.client.responses.create(
-            model=self.config.model,
-            input=model_messages(messages, meta=meta),
-            temperature=self.config.temperature,
+        LLMModelClient(
+            Provider(id="fake", api="fake", model=model),
+            system_prompt=system_prompt,
+            request_extra=request_extra,
         )
-        return Message(
-            "assistant",
-            response.output_text,
-            sender=self.config.model,
-            kind="final",
-            data={
-                "provider": "openai",
-                "response_id": response.id,
-            },
-        )
+    """
+    return LLMModelClient(
+        LLMProvider(id="fake", api="fake", model=model),
+        system_prompt=system_prompt,
+        request_extra=request_extra,
+    )
 
 
-def load_model(config: ModelConfig) -> ModelClient:
-    if config.provider == "fake":
-        return FakeModel(config.model)
-    if config.provider == "openai":
-        return OpenAIResponsesClient(config)
-    raise ValueError(f"unknown provider {config.provider!r}")
+def make_client(
+    provider_id: str = "fake",
+    model: str = "fake-model",
+    system_prompt: str = "",
+    request_extra: Optional[dict[str, Any]] = None,
+) -> LLMModelClient:
+    """One-line factory for the common case.
+
+    For real providers supply the full `LLMProvider` via the `provider_id` path
+    or construct `LLMModelClient` directly. This keeps the 03 surface small
+    while making the happy path obvious.
+    """
+    if provider_id == "fake":
+        return fake_client(model, system_prompt, request_extra)
+    # For real providers the caller is expected to build LLMProvider from env
+    # or config; we keep the example deterministic by defaulting to fake.
+    return fake_client(model, system_prompt, request_extra)

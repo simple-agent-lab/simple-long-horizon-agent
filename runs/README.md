@@ -9,13 +9,17 @@ The style follows nanochat's `runs/` convention: a script should be readable, co
 ```bash
 bash runs/run_examples.sh
 bash runs/run_design_versions.sh
+bash runs/run_self_evolution_probe.sh
+bash runs/run_training_trace_eval.sh
 ```
 
-There is no default test runner yet. Testing and feedback are documented as a
-first-priority design constraint, and the concrete suite will be added after the
-core architecture is settled.
+The first focused tests cover the promoted balanced runtime:
 
-This runs the tiny message-runtime demo:
+```bash
+PYTHONPATH=src python3 -m unittest discover -s tests
+```
+
+This runs the recipe demo on the canonical runtime:
 
 ```bash
 python3 scripts/run_tiny_demo.py --recipe all
@@ -31,4 +35,24 @@ To compare the three architecture sketches:
 
 ```bash
 bash runs/run_design_versions.sh
+```
+
+To run the first self-evolution harness probe:
+
+```bash
+bash runs/run_self_evolution_probe.sh
+```
+
+To run the full local harness pipeline for the three design-version demos:
+
+```bash
+bash runs/run_training_trace_eval.sh
+```
+
+That script performs three separate steps:
+
+```bash
+python3 scripts/collect_design_version_trajectories.py
+python3 evals/evaluate_design_version_traces.py
+python3 scripts/export_training_examples.py
 ```

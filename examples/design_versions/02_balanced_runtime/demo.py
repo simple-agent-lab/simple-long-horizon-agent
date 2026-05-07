@@ -1,112 +1,178 @@
-"""Balanced runtime demo.
+"""Balanced runtime demo — agent-as-tool delegation.
 
-Shows the four borrowed-from-pi-mono ideas in one run:
+A coordinator agent can call a `run_agent` tool. The tool launches a focused
+child agent, waits for its result, and returns that result as a normal
+`tool_result` message.
 
-1. transform: drop noisy old turns before the LLM-boundary view
-2. convert_to_llm: filter out UI-only messages at the boundary
-3. steer(): inject a mid-run nudge between turns
-4. AgentRuntime + subscribe(): observe lifecycle events live
+This follows the Claude Code AgentTool shape:
 
-Run:
+    coordinator step
+      -> tool_call: run_agent(agent_name="tweet_writer", prompt=...)
+      -> tool execution runs tweet_writer as a child agent
+      -> tool_result returns to coordinator
+      -> coordinator finalizes
 
-    python3 examples/design_versions/02_balanced_runtime/demo.py
+Swap `Provider(api="fake", ...)` for a real provider once an adapter is
+registered (Anthropic / OpenAI). Nothing else in this file changes.
 """
 
 from __future__ import annotations
+
+from typing import Any, Callable
 
 from agent import AgentRuntime
 from core import (
     Agent,
     Event,
-    Message,
     State,
-    default_convert_to_llm,
     last_message,
-    message_text,
+    make_llm_step,
     print_trace,
+    run_to_completion,
     sequence,
+)
+from simple_agent_lab.llm import Provider as LLMProvider
+from simple_agent_lab.tools import (
+    AbortFlag,
+    AgentTool,
+    ToolResult,
+    ToolUpdateFn,
+    text_result,
 )
 
 
-def proposer(agent: Agent, visible: list[Message], state: State) -> Message:
-    task = last_message(visible, kind="task").content
-    return Message(
-        role="assistant",
-        content=f"For '{task}': use Agent + Message + State + run.",
-        sender=agent.name,
-        target="all",
-        kind="proposal",
+_FAKE = LLMProvider(id="fake", api="fake", model="fake-model")
+TASK = "Write a tweet about Python decorators."
+
+
+def tweet_writer_agent() -> Agent:
+    return Agent(
+        name="tweet_writer",
+        role="Write one concise tweet.",
+        step=make_llm_step(
+            _FAKE,
+            system_prompt="You polish a draft into a single tweet (<=280 chars).",
+            target="user",
+        ),
     )
 
 
-def critic(agent: Agent, visible: list[Message], state: State) -> Message:
-    proposal = last_message(visible, sender="proposer")
-    nudge = next(
-        (m.content for m in visible if m.kind == "steer"),
-        "",
+def run_agent_tool() -> AgentTool:
+    def execute(
+        call_id: str,
+        args: dict[str, Any],
+        abort: AbortFlag,
+        on_update: ToolUpdateFn | None,
+    ) -> ToolResult:
+        del call_id, on_update
+        if abort():
+            return text_result("Subagent run aborted before start.", is_error=True)
+
+        agent_name = str(args.get("agent_name", "tweet_writer"))
+        if agent_name != "tweet_writer":
+            return text_result(f"Unknown subagent {agent_name!r}.", is_error=True)
+
+        prompt = str(args.get("prompt", "")).strip()
+        child = tweet_writer_agent()
+        child_state = State(prompt)
+        child_state.send("task", "user", child.name, prompt)
+        run_to_completion(
+            {child.name: child},
+            child_state,
+            sequence(child.name),
+        )
+        result = last_message(child_state, sender=child.name)
+        return text_result(
+            str(result.content),
+            details={
+                "agent_name": child.name,
+                "child_event_count": len(child_state.events),
+                "child_events": child_state.events,
+            },
+        )
+
+    return AgentTool(
+        name="run_agent",
+        description="Run a focused child agent and return its final result.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "agent_name": {
+                    "type": "string",
+                    "description": "Child agent to run, e.g. tweet_writer.",
+                },
+                "prompt": {
+                    "type": "string",
+                    "description": "Task prompt for the child agent.",
+                },
+            },
+            "required": ["agent_name", "prompt"],
+        },
+        execute=execute,
+        label="Run child agent",
+        execution_mode="sequential",
     )
-    note = f" steer={nudge}" if nudge else ""
-    return Message(
-        role="assistant",
-        content=f"Length={len(message_text(proposal))}.{note}",
-        sender=agent.name,
-        target="all",
-        kind="critique",
+
+
+def coordinator_agent() -> Agent:
+    return Agent(
+        name="coordinator",
+        role="Delegate focused writing work to child agents.",
+        step=make_llm_step(
+            _FAKE,
+            system_prompt=(
+                "You are a coordinator. Use `run_agent` for focused writing "
+                "tasks, then return the child agent result to the user."
+            ),
+            target="user",
+        ),
     )
 
 
-def judge(agent: Agent, visible: list[Message], state: State) -> Message:
-    return Message(
-        role="assistant",
-        content="Final: schedule via NextFn; trace via Events; tweak via steer().",
-        sender=agent.name,
-        target="user",
-        kind="final",
+def coordinator_until_final(state: State) -> str | None:
+    if any(
+        message.sender == "coordinator" and message.kind == "final"
+        for message in state.messages
+    ):
+        return None
+
+    turns = sum(
+        1
+        for event in state.events
+        if event.kind == "turn_end" and event.data.get("agent") == "coordinator"
     )
+    return "coordinator" if turns < 3 else None
 
 
-def keep_recent(messages: list[Message]) -> list[Message]:
-    """Transform: drop blocked messages before convert_to_llm sees them."""
-    return [m for m in messages if m.kind != "blocked"]
+def run_demo(on_event: Callable[[Event], None] | None = None) -> AgentRuntime:
+    runtime = AgentRuntime([coordinator_agent()], tools=[run_agent_tool()])
+    stream = runtime.prompt(
+        TASK,
+        target="coordinator",
+        next_agent=coordinator_until_final,
+    )
+    for event in stream:
+        if on_event is not None:
+            on_event(event)
+    return runtime
 
 
 def main() -> None:
-    agents = [
-        Agent("proposer", "proposes a design", proposer),
-        Agent("critic", "checks the proposal", critic),
-        Agent("judge", "writes the final answer", judge),
-    ]
+    def print_live_event(event: Event) -> None:
+        if event.kind == "message":
+            message = event.message
+            if message is not None and message.sender in {"coordinator", "run_agent"}:
+                print(f"  [{message.sender:>11}] {message.content}")
+        elif event.kind == "tool_execution_start":
+            print(f"  [       tool] start {event.data.get('tool_name')}")
+        elif event.kind == "tool_execution_end":
+            print(f"  [       tool] end {event.data.get('tool_name')}")
 
-    runtime = AgentRuntime(
-        agents,
-        transform=keep_recent,
-        convert_to_llm=default_convert_to_llm,
-    )
+    print("=== agent-as-tool delegation ===")
+    runtime = run_demo(on_event=print_live_event)
 
-    seen: list[str] = []
-    runtime.subscribe(lambda event: seen.append(event.kind))
-
-    stream = runtime.prompt(
-        "Design a balanced multi-agent runtime.",
-        target="proposer",
-        next_agent=sequence("proposer", "critic", "judge"),
-    )
-
-    for event in stream:
-        if event.kind == "turn_end" and event.payload.get("agent") == "proposer":
-            runtime.steer(
-                Message(
-                    role="user",
-                    content="be terse",
-                    sender="user",
-                    target="critic",
-                    kind="steer",
-                )
-            )
-
+    print("\n=== full trace ===")
     print_trace(runtime.state)
-    print(f"\nevent kinds observed: {seen}")
-    print(f"last LLM payload size: {len(runtime.state.data.get('last_llm_payload', []))}")
 
 
 if __name__ == "__main__":

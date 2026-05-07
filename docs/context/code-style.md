@@ -62,8 +62,8 @@ both humans and coding agents.
 
 - Use names that match the project vocabulary: `Message`, `State`,
   `context_view`, `run`, `model_messages`.
-- Put the important fields first. For example, `Message(role, content, ...)`
-  should feel close to the model API shape.
+- Put the important fields first. For example, `user_message(content, ...)`
+  should make the role and payload obvious at the call site.
 - Keep control flow direct. Avoid decorators, metaclasses, dynamic imports, or
   implicit plugin loading in the core.
 - Prefer short files with a clear top-to-bottom reading order.
@@ -82,23 +82,24 @@ both humans and coding agents.
 - Avoid clever compression of concepts. If two ideas are different in the
   research question, give them different names.
 - Preserve local reasoning: an agent should understand a recipe by reading one
-  script plus `simple_agent_lab/core.py`.
+  script plus `src/simple_agent_lab/core.py`.
 
 ## Repository Shape
 
-Use this shape as the project grows:
+Use this shape as the project grows (PyPA-recommended src-layout):
 
 ```text
-simple_agent_lab/   # small reusable runtime pieces
-scripts/            # command-line entrypoints
-runs/               # reproducible experiment shell scripts
-examples/           # readable standalone examples
-tests/              # focused behavioral tests
-docs/               # design notes and decisions
+src/simple_agent_lab/   # installable package (core + llm/ + future modules)
+scripts/                # command-line entrypoints
+runs/                   # reproducible experiment shell scripts
+examples/               # readable standalone examples
+tests/                  # focused behavioral tests
+docs/                   # design notes and decisions
 ```
 
-For now, `simple_agent_lab/core.py` is the small reusable runtime, and
-`scripts/run_tiny_demo.py` is the reference demo.
+For now, `src/simple_agent_lab/core.py` is the canonical balanced runtime,
+`src/simple_agent_lab/llm/` is the shared provider-agnostic LLM access
+layer, and `scripts/run_tiny_demo.py` is the reference demo.
 
 ## Script Style
 

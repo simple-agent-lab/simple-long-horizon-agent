@@ -1,12 +1,12 @@
 # Tests
 
-This directory is reserved for the future test suite.
+This directory contains focused behavioral tests for the promoted runtime.
 
-Testing and feedback are first-priority design concerns, but concrete tests are
-intentionally deferred until the core architecture is settled.
+Testing and feedback are first-priority design concerns. Now that the balanced
+runtime has been promoted into `src`, tests should stay focused on behavior
+that helps the project remain simple and understandable.
 
-When implementation begins, tests should focus on behavior that helps the
-project stay simple and understandable:
+Useful test targets:
 
 - Agent loop control flow.
 - Message and state shape.
@@ -15,5 +15,8 @@ project stay simple and understandable:
 - Trace or run record behavior.
 - Example workflows.
 
-Until then, architecture notes and task specs should describe the intended
-feedback signal instead of adding premature tests.
+Run the current suite from the repo root:
+
+```bash
+PYTHONPATH=src python3 -m unittest discover -s tests
+```

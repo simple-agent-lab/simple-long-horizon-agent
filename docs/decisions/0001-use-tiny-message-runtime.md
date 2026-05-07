@@ -4,6 +4,11 @@
 
 Accepted
 
+Updated by [ADR 0009](0009-promote-balanced-runtime-to-src-core.md): the
+message-first direction remains, but the canonical `src` runtime now uses
+`Agent.step(...) -> Message`, simple `Event(index, kind, data)` records,
+`next_agent(state)` scheduling, and tool dispatch.
+
 ## Context
 
 Simple Agent Lab is aimed at students and small research groups exploring
@@ -25,9 +30,9 @@ Agent + Message + State + context_view() + run()
 ```
 
 - `Agent` is a named role with one `act` function.
-- `Message` is the communication unit and the provider-neutral model message.
-  It contains model-facing `role` and `content`, plus lab-facing `sender`,
-  `target`, `kind`, `channel`, and structured `data`.
+- `Message` is the communication and transcript unit inside the runtime. It
+  contains model-adjacent `role` and `content`, plus lab-facing
+  `sender`, `target`, `kind`, `channel`, and structured `data`.
 - `State` is the shared world. It contains the task, all events, and small
   experiment data.
 - `context_view()` is the context management boundary. It decides which
@@ -37,14 +42,14 @@ Agent + Message + State + context_view() + run()
 `Event` is still useful, but only as trace structure: it wraps one `Message`
 with a step number inside `State.events`.
 
-The core exposes `model_messages(...)` as the bridge from lab messages to a
-common chat-model payload. Provider adapters can transform that payload further
-for OpenAI-compatible, Anthropic-style, or local model APIs.
+The core exposes `model_messages(...)` as the bridge from `Message` values to
+`ModelMessage` values. Provider adapters can transform that payload further for
+OpenAI-compatible, Anthropic-style, or local model APIs.
 
-The direct constructor keeps model fields first:
+Constructor helpers keep the role-specific message variants explicit:
 
 ```python
-Message("user", "hello")
+user_message("hello")
 ```
 
 Do not add separate `Artifact`, `RunTraceStore`, `EvaluationObserver`, or

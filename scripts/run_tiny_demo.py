@@ -7,7 +7,7 @@ Examples:
     python3 scripts/run_tiny_demo.py --recipe parallel
     python3 scripts/run_tiny_demo.py --recipe all --last-messages 2
 
-The agents are deterministic toy functions. Replace an agent's act function
+The agents are deterministic toy functions. Replace an agent's step function
 with an LLM call to make the recipe live.
 """
 
@@ -20,18 +20,20 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
 
 from simple_agent_lab import (
     Agent,
     Message,
     State,
-    context_view,
+    assistant_message,
     last_message,
     message_text,
     print_trace,
-    run,
+    run_to_completion,
+    sequence,
 )
 
 
@@ -44,11 +46,11 @@ def run_recipe(
     schedule: list[str],
     last_messages: int | None,
 ) -> State:
-    return run(
-        agents,
+    return run_to_completion(
+        {agent.name: agent for agent in agents},
         state,
-        schedule,
-        view=lambda agent, state: context_view(agent, state, last=last_messages),
+        sequence(*schedule),
+        last=last_messages,
     )
 
 
@@ -56,47 +58,47 @@ def run_recipe(
 # Debate recipe
 
 
-def proposer(agent: Agent, visible: list[Message], state: State) -> None:
+def proposer(agent: Agent, visible: list[Message], state: State) -> Message:
     task = last_message(visible, kind="task").content if visible else state.task
-    state.send(
-        "message",
-        agent.name,
-        "all",
+    return assistant_message(
         (
             f"For '{task}', start with one tiny message runtime. Agents read "
-            "a context_view and send messages. Debate, pipeline, and workspace "
-            "are recipes, not separate frameworks."
+            "a context_view, emit one message per step, and leave typed events. "
+            "Debate, pipeline, and workspace are recipes, not separate frameworks."
         ),
+        sender=agent.name,
+        target="all",
+        kind="message",
     )
 
 
-def critic(agent: Agent, visible: list[Message], state: State) -> None:
+def critic(agent: Agent, visible: list[Message], state: State) -> Message:
     proposal = last_message(visible, sender="proposer")
-    state.send(
-        "critique",
-        agent.name,
-        "all",
+    return assistant_message(
         (
             "The proposal is good. Keep context management as context_view(), "
-            f"not a class. Visible messages for critic={len(visible)}. "
+            f"not a framework. Visible messages for critic={len(visible)}. "
             f"Proposal length={len(message_text(proposal))}."
         ),
+        sender=agent.name,
+        target="all",
+        kind="critique",
     )
 
 
-def judge(agent: Agent, visible: list[Message], state: State) -> None:
+def judge(agent: Agent, visible: list[Message], state: State) -> Message:
     proposal = maybe_message_text(visible, sender="proposer")
     critique = maybe_message_text(visible, sender="critic")
-    state.send(
-        "final",
-        agent.name,
-        "user",
+    return assistant_message(
         (
             "Use Agent + Message + State + context_view() + run(). "
             "It is small enough to teach and still supports research into "
             "communication, staged handoff, and visibility policies. "
             f"Visible evidence: {proposal} | {critique}"
         ),
+        sender=agent.name,
+        target="user",
+        kind="final",
     )
 
 
@@ -115,37 +117,37 @@ def run_debate(task: str, last_messages: int | None) -> State:
 # Pipeline recipe
 
 
-def researcher_a(agent: Agent, visible: list[Message], state: State) -> None:
-    state.send(
-        "note",
-        agent.name,
-        "synthesizer",
+def researcher_a(agent: Agent, visible: list[Message], state: State) -> Message:
+    return assistant_message(
         (
             "Message runtime makes communication explicit. "
             f"I saw {len(visible)} message(s)."
         ),
+        sender=agent.name,
+        target="synthesizer",
+        kind="note",
     )
 
 
-def researcher_b(agent: Agent, visible: list[Message], state: State) -> None:
-    state.send(
-        "note",
-        agent.name,
-        "synthesizer",
+def researcher_b(agent: Agent, visible: list[Message], state: State) -> Message:
+    return assistant_message(
         (
             "Recipes model pipeline, debate, voting, and workspace collaboration. "
             f"I saw {len(visible)} message(s)."
         ),
+        sender=agent.name,
+        target="synthesizer",
+        kind="note",
     )
 
 
-def synthesizer(agent: Agent, visible: list[Message], state: State) -> None:
+def synthesizer(agent: Agent, visible: list[Message], state: State) -> Message:
     notes = " ".join(message.content for message in visible if message.kind == "note")
-    state.send(
-        "final",
-        agent.name,
-        "user",
+    return assistant_message(
         f"Pipeline result: keep the runtime tiny; compose recipes on top. Notes: {notes}",
+        sender=agent.name,
+        target="user",
+        kind="final",
     )
 
 
@@ -170,38 +172,43 @@ def run_pipeline(task: str, last_messages: int | None) -> State:
 # Parallel synthesis recipe, inspired by SWALM AgentTool
 
 
-def angle_core(agent: Agent, visible: list[Message], state: State) -> None:
-    state.send(
-        "finding",
-        agent.name,
-        "synthesizer",
+def angle_core(agent: Agent, visible: list[Message], state: State) -> Message:
+    return assistant_message(
         "Core: Agent + Message + State + context_view() + run().",
+        sender=agent.name,
+        target="synthesizer",
+        kind="finding",
     )
 
 
-def angle_trace(agent: Agent, visible: list[Message], state: State) -> None:
-    state.send(
-        "finding",
-        agent.name,
-        "synthesizer",
+def angle_trace(agent: Agent, visible: list[Message], state: State) -> Message:
+    return assistant_message(
         "Trace: state.events is the trace; no extra Trace class needed.",
+        sender=agent.name,
+        target="synthesizer",
+        kind="finding",
     )
 
 
-def angle_teaching(agent: Agent, visible: list[Message], state: State) -> None:
-    state.send(
-        "finding",
-        agent.name,
-        "synthesizer",
+def angle_teaching(agent: Agent, visible: list[Message], state: State) -> Message:
+    return assistant_message(
         "Teaching: recipes are easier to modify than frameworks.",
+        sender=agent.name,
+        target="synthesizer",
+        kind="finding",
     )
 
 
-def parallel_synthesizer(agent: Agent, visible: list[Message], state: State) -> None:
+def parallel_synthesizer(agent: Agent, visible: list[Message], state: State) -> Message:
     findings = " ".join(
         message.content for message in visible if message.kind == "finding"
     )
-    state.send("final", agent.name, "user", f"Parallel synthesis: {findings}")
+    return assistant_message(
+        f"Parallel synthesis: {findings}",
+        sender=agent.name,
+        target="user",
+        kind="final",
+    )
 
 
 def run_parallel(task: str, last_messages: int | None) -> State:

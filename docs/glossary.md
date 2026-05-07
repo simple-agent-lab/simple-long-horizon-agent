@@ -10,17 +10,39 @@ The repeated control flow where the system observes state, asks a model for the 
 
 ## Message
 
-The unit of communication between agents and the provider-neutral model message.
-In the current core it has model-facing `role` and `content`, plus lab-facing
-`sender`, `target`, `kind`, `channel`, and structured `data`.
+The runtime transcript unit exchanged between agents. In the current core it
+has model-adjacent `role` and `content`, plus lab-facing `sender`, `target`,
+`kind`, `channel`, and structured `data`. It is projected into a model-facing
+payload before a provider call.
+
+## SystemMessage
+
+A message variant for system, instruction, summary, or runtime guidance that should stay visible in transcript state.
+
+## ModelMessage
+
+The provider-facing payload derived from runtime messages for a model call.
+
+## Content Block
+
+A typed unit of model-visible content such as text, image, thinking, or tool call.
+
+## Message Sidecar
+
+Rare escape-hatch metadata attached to a message before a stable field or type exists.
 
 ## Event
 
-A timestamped record in the run trace. In the current core, each event wraps one message and gives it a step number.
+A typed record in the run trace. In the current core, message events wrap
+transcript messages, while lifecycle, model request/response, and tool
+execution events record the rest of the run.
 
 ## Tool
 
-A callable capability exposed to the agent, such as reading a file, searching data, calling an API, or running a calculation.
+A callable capability exposed to the agent, such as reading a file, searching
+data, calling an API, or running a calculation. In this repo, shared tool
+values live in `simple_agent_lab.tools`; each runtime owns its own dispatch
+semantics.
 
 ## Model Adapter
 
