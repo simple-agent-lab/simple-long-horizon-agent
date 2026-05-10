@@ -121,8 +121,15 @@ not yet wired up.
 - [tests](tests/README.md): future test strategy.
 - [runs](runs/README.md): small reproducible commands for examples and future experiments.
 
+## Contributing
+
+Contributions are welcome. Start with [AGENTS.md](AGENTS.md) for the
+collaboration contract and [docs/context/development.md](docs/context/development.md)
+for the local quality gate. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
+short version.
+
 ## License
 
-License is TBD.
-
-No `LICENSE` file is included yet, so this repository should not be treated as legally open source until a license is chosen.
+Licensed under the [Apache License, Version 2.0](LICENSE). By contributing
+to this project you agree that your contributions will be licensed under the
+same terms (see [CONTRIBUTING.md](CONTRIBUTING.md) for details).

@@ -1,10 +1,36 @@
 [project]
 name = "simple-agent-lab"
-version = "0.0.0"
-description = "Tiny message-first multi-agent runtime for learning and comparison."
+version = "0.1.0"
+description = "Tiny message-first agent runtime for learning, comparing, and building small agent systems."
 readme = "README.md"
 requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [
+    { name = "yesiyu.andy", email = "andyyesiyu@gmail.com" },
+]
+keywords = ["agent", "llm", "runtime", "education", "research", "tool-use"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/simple-agent-lab/simple-agent-lab"
+Repository = "https://github.com/simple-agent-lab/simple-agent-lab"
+Issues = "https://github.com/simple-agent-lab/simple-agent-lab/issues"
+Changelog = "https://github.com/simple-agent-lab/simple-agent-lab/blob/main/CHANGELOG.md"
 
 [dependency-groups]
 dev = [
