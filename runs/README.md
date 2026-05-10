@@ -7,52 +7,43 @@ The style follows nanochat's `runs/` convention: a script should be readable, co
 ## Available Runs
 
 ```bash
+bash runs/run_ci.sh
 bash runs/run_examples.sh
-bash runs/run_design_versions.sh
-bash runs/run_self_evolution_probe.sh
-bash runs/run_training_trace_eval.sh
+bash runs/run_bash_agent_demo.sh
+bash runs/run_swebench_smoke.sh
 ```
 
-The first focused tests cover the promoted balanced runtime:
+`runs/run_ci.sh` mirrors the GitHub Actions workflow at
+`.github/workflows/ci.yml`: it syncs the dev dependency group, runs `ty` on
+`src/`, and runs the full unittest suite. Use it as the local pre-push gate.
+
+The focused tests cover the canonical runtime:
 
 ```bash
-PYTHONPATH=src python3 -m unittest discover -s tests
+uv run python -m unittest discover -s tests
 ```
 
 This runs the recipe demo on the canonical runtime:
 
 ```bash
-python3 scripts/run_tiny_demo.py --recipe all
+bash runs/run_examples.sh
+```
+
+This runs a deterministic mini-SWE-style bash-use agent demo:
+
+```bash
+bash runs/run_bash_agent_demo.sh
+```
+
+This verifies the local SWE-bench adapter plumbing without installing
+SWE-bench or running Docker:
+
+```bash
+bash runs/run_swebench_smoke.sh
 ```
 
 To inspect context management behavior:
 
 ```bash
-python3 scripts/run_tiny_demo.py --recipe debate --last-messages 1
-```
-
-To compare the three architecture sketches:
-
-```bash
-bash runs/run_design_versions.sh
-```
-
-To run the first self-evolution harness probe:
-
-```bash
-bash runs/run_self_evolution_probe.sh
-```
-
-To run the full local harness pipeline for the three design-version demos:
-
-```bash
-bash runs/run_training_trace_eval.sh
-```
-
-That script performs three separate steps:
-
-```bash
-python3 scripts/collect_design_version_trajectories.py
-python3 evals/evaluate_design_version_traces.py
-python3 scripts/export_training_examples.py
+uv run python scripts/run_tiny_demo.py --recipe debate --last-messages 1
 ```

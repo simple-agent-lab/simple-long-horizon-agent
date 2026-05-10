@@ -16,7 +16,9 @@ Use [template.md](template.md) for new entries.
 ## Entries
 
 - [Claude Code-Style Single Loop Runtime](claude-code-style-agent-runtime.md)
+- [Context Management Pipelines](context-management-pipelines.md)
 - [Hermes Agent Runtime](hermes-agent-runtime.md)
+- [mini-SWE-agent](mini-swe-agent.md)
 - [OpenAI Agents SDK Run Items](openai-agents-sdk-run-items.md)
 - [opencode Agent Runtime](opencode-agent-runtime.md)
 - [pi-mono Agent Runtime](pi-mono-agent-runtime.md)

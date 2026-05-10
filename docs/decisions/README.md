@@ -16,3 +16,4 @@ Use [0000-template.md](0000-template.md) for new records. Number accepted decisi
 - [ADR 0006: Use A Role-Specific Message Protocol](0006-use-role-specific-message-protocol.md)
 - [ADR 0008: Separate Trajectory, Evaluation, and Training Data Records](0008-collect-training-trajectories-across-design-versions.md)
 - [ADR 0009: Promote Balanced Runtime To Src Core](0009-promote-balanced-runtime-to-src-core.md)
+- [ADR 0010: Make Context View An Explicit Projection](0010-make-context-view-an-explicit-projection.md)

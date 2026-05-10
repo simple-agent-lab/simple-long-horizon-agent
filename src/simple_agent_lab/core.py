@@ -13,8 +13,8 @@ explicitly to `State` and call `resume()` when they want another run.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Callable, Iterator, Union
+from dataclasses import dataclass, field, replace
+from typing import Any, Callable, Iterator, Union, cast
 
 from .llm import (
     LLMRequest,
@@ -24,6 +24,7 @@ from .llm import (
     messages_to_llm_messages,
     tool_to_llm_tool,
 )
+from .context_view import ContextPolicy, ContextView, build_context_view
 from .messages import (
     AgentName,
     Message,
@@ -130,16 +131,33 @@ TransformFn = Callable[[list[Message]], list[Message]]
 NextFn = Callable[[State], AgentName | None]
 
 
-def context_view(agent: Agent, state: State, last: int | None = None) -> list[Message]:
-    """Return messages visible to this agent for its next step."""
-    visible = [
-        message
-        for message in state.messages
-        if message.target in {agent.name, "all"} or message.sender == agent.name
-    ]
+def build_agent_context_view(
+    agent: Agent,
+    state: State,
+    *,
+    last: int | None = None,
+    policy: ContextPolicy | None = None,
+) -> ContextView:
+    """Return the detailed context projection for an agent step.
+
+    The positional `last` keeps the legacy "show only the last N visible
+    messages" knob; if both `last` and `policy.last` are set, `last` wins.
+    """
+    resolved = policy or ContextPolicy()
     if last is not None:
-        visible = visible[-last:]
-    return visible
+        resolved = replace(resolved, last=last)
+    return build_context_view(agent.name, state.messages, policy=resolved)
+
+
+def context_view(
+    agent: Agent,
+    state: State,
+    last: int | None = None,
+    *,
+    policy: ContextPolicy | None = None,
+) -> list[Message]:
+    """Return messages visible to this agent for its next step."""
+    return list(build_agent_context_view(agent, state, last=last, policy=policy).messages)
 
 
 def make_tool_result_message(
@@ -175,7 +193,8 @@ def _execute_one(
     tool = tools.get(tool_call.name)
     if tool is None:
         return text_result(f"Tool {tool_call.name!r} not found", is_error=True)
-    if tool.execute is None:
+    execute = tool.execute
+    if execute is None:
         return text_result(
             f"Tool {tool_call.name!r} has no execute function",
             is_error=True,
@@ -183,7 +202,7 @@ def _execute_one(
 
     def run_tool() -> ToolResult:
         try:
-            return tool.execute(tool_call.id, dict(tool_call.arguments), abort, on_update)
+            return execute(tool_call.id, dict(tool_call.arguments), abort, on_update)
         except Exception as exc:
             return text_result(f"{type(exc).__name__}: {exc}", is_error=True)
 
@@ -293,8 +312,10 @@ def dispatch_tool_calls(
         )
 
 
+from collections.abc import Mapping
+
 RequestExtraSpec = Union[
-    dict[str, Any],
+    Mapping[str, Any],
     Callable[[list[Message]], dict[str, Any]],
 ]
 
@@ -312,9 +333,11 @@ def make_llm_step(
     def resolve_request_extra(visible: list[Message]) -> dict[str, Any]:
         if request_extra is None:
             return {}
-        if callable(request_extra):
-            return dict(request_extra(visible))
-        return dict(request_extra)
+        if isinstance(request_extra, Mapping):
+            # ty narrows to Mapping[Unknown, Unknown] after isinstance, so
+            # cast back to the declared element types of RequestExtraSpec.
+            return cast("dict[str, Any]", dict(request_extra))
+        return dict(request_extra(visible))
 
     def step(agent: Agent, visible: list[Message], state: State) -> Message:
         tools = state.data.get("tools") or {}
@@ -345,6 +368,25 @@ def sequence(*names: AgentName) -> NextFn:
 
     def next_agent(_: State) -> AgentName | None:
         return next(iterator, None)
+
+    return next_agent
+
+
+def until_final(name: AgentName, *, max_turns: int = 3) -> NextFn:
+    """Scheduler that re-runs `name` until it emits a final message or hits a turn cap."""
+
+    def next_agent(state: State) -> AgentName | None:
+        if any(
+            message.sender == name and message.kind == "final"
+            for message in state.messages
+        ):
+            return None
+        turns = sum(
+            1
+            for event in state.events
+            if event.kind == "turn_end" and event.data.get("agent") == name
+        )
+        return name if turns < max_turns else None
 
     return next_agent
 
@@ -393,6 +435,7 @@ def run(
     *,
     transform: TransformFn = lambda messages: messages,
     last: int | None = None,
+    context_policy: ContextPolicy | None = None,
     tools: dict[str, AgentTool] | list[AgentTool] | None = None,
     abort: AbortFlag = lambda: False,
 ) -> Iterator[Event]:
@@ -417,7 +460,13 @@ def run(
         agent = agent_by_name[name]
         yield state.emit("turn_start", agent=name)
 
-        visible = transform(context_view(agent, state, last=last))
+        context = build_agent_context_view(
+            agent,
+            state,
+            last=last,
+            policy=context_policy,
+        )
+        visible = transform(list(context.messages))
         llm_payload = to_model_messages(visible)
         state.data["last_llm_payload"] = llm_payload
 
@@ -427,6 +476,7 @@ def run(
             "visible_count": len(visible),
             "llm_message_count": len(llm_payload),
             "visible": _message_outline(visible),
+            "context_view": context.as_dict(),
             "tools": _tool_specs(tool_by_name),
             "llm_payload": llm_payload,
         }
@@ -493,11 +543,13 @@ class AgentRuntime:
         *,
         transform: TransformFn = lambda messages: messages,
         last: int | None = None,
+        context_policy: ContextPolicy | None = None,
         tools: list[AgentTool] | None = None,
     ) -> None:
         self._agents = {agent.name: agent for agent in agents}
         self._transform = transform
         self._last = last
+        self._context_policy = context_policy
         self.tools: dict[str, AgentTool] = {tool.name: tool for tool in (tools or [])}
         self._listeners: list[Listener] = []
         self._aborted = False
@@ -539,6 +591,7 @@ class AgentRuntime:
             next_agent,
             transform=self._transform,
             last=self._last,
+            context_policy=self._context_policy,
             tools=self.tools,
             abort=lambda: self._aborted,
         )

@@ -13,7 +13,10 @@ state) lives in the agent loop.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union
+
+if TYPE_CHECKING:
+    from .provider import Provider
 
 
 Role = Literal["system", "user", "assistant", "tool_result"]

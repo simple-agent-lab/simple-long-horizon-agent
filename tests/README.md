@@ -14,9 +14,10 @@ Useful test targets:
 - Model adapter boundaries.
 - Trace or run record behavior.
 - Example workflows.
+- Bash tool execution and the deterministic bash-use demo.
 
 Run the current suite from the repo root:
 
 ```bash
-PYTHONPATH=src python3 -m unittest discover -s tests
+uv run python -m unittest discover -s tests
 ```

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Literal, TypeAlias, cast
+from typing import Any, Literal, TypeAlias
 
 
 Role: TypeAlias = Literal["system", "user", "assistant", "tool_result"]
@@ -55,6 +55,31 @@ class ToolCallBlock:
     kind: Literal["tool_call"] = field(default="tool_call", init=False)
 
 
+@dataclass(frozen=True)
+class TokenUsage:
+    """Provider-reported token counts for one model call.
+
+    Attached to the AssistantMessage produced from that call. Providers report
+    per-call totals: `input_tokens` covers ALL inputs the call saw (system +
+    history + tool results), while `output_tokens` is just this assistant
+    message. We therefore only persist usage on AssistantMessage — splitting
+    the input total across earlier messages would require re-tokenizing.
+
+    `output_tokens` doubles as a precise estimate of how many tokens this
+    message will cost when re-sent in a future call's context, so context_view
+    prefers it over char-based estimation when present.
+    """
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+
+    @property
+    def total_tokens(self) -> int:
+        return self.input_tokens + self.output_tokens
+
+
 MessageContentBlock: TypeAlias = TextBlock | ImageBlock
 MessageContent: TypeAlias = str | tuple[MessageContentBlock, ...]
 ModelContentBlock: TypeAlias = TextBlock | ImageBlock | ThinkingBlock | ToolCallBlock
@@ -94,6 +119,7 @@ class AssistantMessage:
     channel: MessageChannel = "main"
     thinking: tuple[ThinkingBlock, ...] = ()
     tool_calls: tuple[ToolCallBlock, ...] = ()
+    usage: TokenUsage | None = None
     data: Sidecar = field(default_factory=dict)
 
 
@@ -193,6 +219,7 @@ def assistant_message(
     channel: MessageChannel = "main",
     thinking: Sequence[ThinkingBlock] = (),
     tool_calls: Sequence[ToolCallBlock] = (),
+    usage: TokenUsage | None = None,
     data: Sidecar | None = None,
 ) -> AssistantMessage:
     message = AssistantMessage(
@@ -203,6 +230,7 @@ def assistant_message(
         channel=channel,
         thinking=tuple(thinking),
         tool_calls=tuple(tool_calls),
+        usage=usage,
         data=dict(data or {}),
     )
     validate_message(message)
@@ -394,7 +422,7 @@ def _normalize_model_blocks(content: MessageContent | ModelContent) -> ModelCont
     for block in content:
         if not isinstance(block, TextBlock | ImageBlock | ThinkingBlock | ToolCallBlock):
             raise TypeError(f"Unexpected model content block: {type(block)!r}")
-        blocks.append(cast(ModelContentBlock, block))
+        blocks.append(block)
     return tuple(blocks)
 
 

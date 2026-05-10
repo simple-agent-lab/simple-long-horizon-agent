@@ -70,6 +70,20 @@ def _complete_from_request(req: LLMRequest) -> tuple[str, list[ToolCall]]:
     lower = text.lower()
     tool_names = {tool.name for tool in req.tools}
 
+    if "bash" in tool_names:
+        if _has_tool_result(req):
+            return _bash_answer(req), []
+        return "I'll run the requested command with bash.", [
+            ToolCall(
+                "bash_1",
+                "bash",
+                {
+                    "command": _bash_command_from_request(req),
+                    "description": "Run the requested local shell command.",
+                },
+            )
+        ]
+
     if "run_agent" in tool_names:
         if _has_tool_result(req):
             return _last_tool_result_text(req), []
@@ -178,6 +192,27 @@ def _agent_tool_prompt(req: LLMRequest) -> str:
     if "casual" not in task.lower():
         task = f"{task} Make it casual."
     return task
+
+
+def _bash_command_from_request(req: LLMRequest) -> str:
+    text = _last_message_text(req, role="user") or _request_text(req)
+    patterns = (
+        r"command:\s*`([^`]+)`",
+        r"<bash>(.*?)</bash>",
+        r"^\s*\$\s+(.+)$",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE | re.DOTALL | re.MULTILINE)
+        if match:
+            command = match.group(1).strip()
+            if command:
+                return command
+    return "pwd && find src/simple_agent_lab -maxdepth 1 -type f -name '*.py' | sort"
+
+
+def _bash_answer(req: LLMRequest) -> str:
+    result = _last_tool_result_text(req)
+    return f"Bash observation:\n{result}" if result else "Bash completed."
 
 
 def _shopping_expression(text: str) -> str:

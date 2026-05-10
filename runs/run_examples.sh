@@ -4,5 +4,6 @@
 
 set -e
 export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}src"
+source "$(dirname "$0")/_python.sh"
 
-python3 scripts/run_tiny_demo.py --recipe all
+"${PYTHON[@]}" scripts/run_tiny_demo.py --recipe all

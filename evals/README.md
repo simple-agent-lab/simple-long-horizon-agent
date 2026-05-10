@@ -6,18 +6,13 @@ Unit tests live in `tests/`. Evals are for feedback that compares agent
 behavior across prompts, recipes, context views, runtime designs, or model
 adapters.
 
-Trajectory collection lives outside this directory because trajectories are
-fact records, not scores. The temporary design-version collector is:
+Trajectory collection for shared demos can live outside this directory because
+trajectories are fact records, not scores. Scene-level suite adapters can keep
+their collector beside their scorer when that makes the suite easier to read.
+The first example is:
 
 ```bash
-PYTHONPATH=src python3 scripts/collect_design_version_trajectories.py
-```
-
-The first runnable eval reads those trajectory records and writes separate
-evaluation results:
-
-```bash
-PYTHONPATH=src python3 evals/evaluate_design_version_traces.py
+bash runs/run_swebench_smoke.sh
 ```
 
 Generated files under `evals/out/` are local artifacts and are ignored by git.

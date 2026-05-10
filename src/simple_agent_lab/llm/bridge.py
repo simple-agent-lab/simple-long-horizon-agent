@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import asdict
 from typing import Any
 
 from simple_agent_lab.messages import (
@@ -13,13 +14,14 @@ from simple_agent_lab.messages import (
     ModelToolResultMessage,
     TextBlock,
     ThinkingBlock,
+    TokenUsage,
     ToolCallBlock,
     assistant_message,
     to_model_message,
 )
 from simple_agent_lab.tools import AgentTool, Tool
 
-from .types import ContentBlock, LLMMessage, LLMTool, LLMResponse, ToolCall
+from .types import ContentBlock, LLMMessage, LLMTool, LLMResponse, ToolCall, Usage
 
 
 def message_to_llm_message(message: Message, *, with_header: bool = False) -> LLMMessage:
@@ -104,8 +106,22 @@ def llm_response_to_assistant_message(
         kind=kind,
         thinking=thinking,
         tool_calls=tool_calls,
+        usage=_translate_usage(response.usage),
         data=data,
     )
+
+
+def _translate_usage(usage: Usage) -> TokenUsage | None:
+    """Project the LLM-layer Usage onto the runtime TokenUsage.
+
+    Returns None when every field is zero so the message-side default ("we have
+    no usage info") is preserved instead of fabricating a zero-token record
+    that downstream consumers would treat as authoritative.
+    """
+    fields = asdict(usage)
+    if not any(fields.values()):
+        return None
+    return TokenUsage(**fields)
 
 
 def _llm_content(

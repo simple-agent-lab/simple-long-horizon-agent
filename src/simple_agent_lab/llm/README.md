@@ -1,11 +1,9 @@
 # `simple_agent_lab.llm` — LLM Access Layer
 
-Provider-agnostic, sync-first wire layer. Used by `simple_agent_lab.core`
-and by the design-version demos in `examples/design_versions/01..03`.
+Provider-agnostic, sync-first wire layer. Used by `simple_agent_lab.core`.
 
 Lives at `src/simple_agent_lab/llm/` — inside the installable package
-(PyPA src-layout). Not under `examples/` because it's a shared library,
-not a teaching demo. Importable as `from simple_agent_lab.llm import ...`
+(PyPA src-layout). Importable as `from simple_agent_lab.llm import ...`
 once the package is installed (`uv sync` / `pip install -e .`).
 
 This package knows **nothing** about agent loops, scheduling, tool dispatch,
