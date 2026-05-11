@@ -5,14 +5,21 @@ Examples:
     uv run python scripts/run_bash_agent_demo.py
     uv run python scripts/run_bash_agent_demo.py --command "printf 'hello\\n'"
 
-The demo is deterministic: it uses the fake LLM adapter, but still goes through
-the real runtime path of model request, tool call, bash execution, tool result,
-and final answer.
+    # Real end-to-end run against an OpenAI-compatible chat endpoint.
+    # Reads OPENAI_MODEL, OPENAI_BASE_URL, OPENAI_AUTH_TOKEN from the env.
+    uv run --with openai python scripts/run_bash_agent_demo.py \\
+        --provider openai --command "echo 'hello, world!'"
+
+By default the demo is deterministic: it uses the fake LLM adapter, but still
+goes through the real runtime path of model request, tool call, bash execution,
+tool result, and final answer. With ``--provider openai`` it instead calls the
+configured chat model end-to-end.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -31,6 +38,41 @@ from simple_agent_lab import (  # noqa: E402
     print_trace,
     run_bash_agent_demo,
 )
+from simple_agent_lab.llm import Provider  # noqa: E402
+
+
+OPENAI_AUTH_ENV = "OPENAI_AUTH_TOKEN"
+
+
+def build_openai_provider() -> Provider:
+    model = (os.environ.get("OPENAI_MODEL") or "").strip()
+    base_url = (os.environ.get("OPENAI_BASE_URL") or "").strip() or None
+    auth_token = (os.environ.get(OPENAI_AUTH_ENV) or "").strip()
+
+    missing = [
+        name
+        for name, value in (
+            ("OPENAI_MODEL", model),
+            (OPENAI_AUTH_ENV, auth_token),
+        )
+        if not value
+    ]
+    if missing:
+        raise SystemExit(
+            "Missing required env vars for --provider openai: " + ", ".join(missing)
+        )
+
+    # Re-export the stripped token so the adapter (which reads os.environ
+    # directly) gets a clean value even if the user's export had stray spaces.
+    os.environ[OPENAI_AUTH_ENV] = auth_token
+
+    return Provider(
+        id="openai-chat",
+        api="openai-chat",
+        model=model,
+        base_url=base_url,
+        api_key_env=OPENAI_AUTH_ENV,
+    )
 
 
 def print_live_event(event: Event) -> None:
@@ -65,13 +107,22 @@ def main() -> None:
         default=DEFAULT_BASH_DEMO_COMMAND,
         help="Bash command for the demo agent to run",
     )
+    parser.add_argument(
+        "--provider",
+        choices=["fake", "openai"],
+        default="fake",
+        help="LLM provider: 'fake' (deterministic, default) or 'openai' (real chat call)",
+    )
     parser.add_argument("--no-trace", action="store_true")
     args = parser.parse_args()
 
-    print("=== bash-use agent ===")
+    provider = build_openai_provider() if args.provider == "openai" else None
+
+    print(f"=== bash-use agent (provider={args.provider}) ===")
     runtime = run_bash_agent_demo(
         command=args.command,
         cwd=ROOT,
+        provider=provider,
         on_event=print_live_event,
     )
 
