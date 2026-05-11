@@ -95,10 +95,8 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
 
     raw = client.messages.create(**kwargs)
 
-    # Preserve the wire order: Anthropic returns content blocks in the order
-    # the model produced them (thinking → text → tool_use is the common case
-    # for extended thinking + tools), and that order matters for replay —
-    # the API rejects messages where thinking does not lead.
+    # Preserve the wire order: replay rejects assistant messages where
+    # thinking does not lead text and tool_use.
     blocks: list[ContentBlock] = []
     for block in getattr(raw, "content", []) or []:
         btype = getattr(block, "type", None)
@@ -196,12 +194,11 @@ def _to_anthropic_messages(req: LLMRequest) -> tuple[str | None, list[dict[str, 
             continue
         if message.role == "assistant":
             blocks: list[dict[str, Any]] = []
-            # Replay thinking blocks first — Anthropic requires thinking to
-            # precede text/tool_use, and rejects the message if signatures
-            # are missing or out of order. Gated by Provider.replay_reasoning
-            # so callers can opt out.
+            # Anthropic rejects assistant messages whose thinking blocks
+            # do not lead the content list or whose signatures are missing,
+            # so replay them first when enabled.
             if req.provider.replay_reasoning:
-                for thinking_block in _message_thinking_blocks(message):
+                for thinking_block in message.thinking_blocks():
                     if thinking_block.redacted:
                         blocks.append(
                             {
@@ -271,12 +268,6 @@ def _message_text(message: LLMMessage) -> str:
     if isinstance(message.content, str):
         return message.content
     return "".join(block.text for block in message.content if block.kind == "text")
-
-
-def _message_thinking_blocks(message: LLMMessage) -> list[ContentBlock]:
-    if isinstance(message.content, str):
-        return []
-    return [block for block in message.content if block.kind == "thinking"]
 
 
 def _to_anthropic_tools(tools: list[LLMTool]) -> list[dict[str, Any]]:

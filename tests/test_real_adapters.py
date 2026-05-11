@@ -127,13 +127,26 @@ def _anthropic_response(
     *,
     text: str = "ok",
     tool_uses: list[dict[str, Any]] | None = None,
+    thinking_blocks: list[dict[str, Any]] | None = None,
     stop_reason: str = "end_turn",
     input_tokens: int = 11,
     output_tokens: int = 5,
     cache_read: int = 0,
     cache_write: int = 0,
 ) -> Any:
+    # Wire order matters: Anthropic's reply (and our adapter) puts thinking
+    # blocks before text/tool_use, so build the stub content the same way.
     content: list[Any] = []
+    for tb in thinking_blocks or []:
+        block_type = "redacted_thinking" if tb.get("redacted") else "thinking"
+        content.append(
+            SimpleNamespace(
+                type=block_type,
+                thinking=tb.get("thinking", ""),
+                data=tb.get("data", ""),
+                signature=tb.get("signature"),
+            )
+        )
     if text:
         content.append(SimpleNamespace(type="text", text=text))
     for tu in tool_uses or []:
@@ -745,39 +758,14 @@ class OpenAIChatReasoningTest(unittest.TestCase):
 
 
 class AnthropicReasoningReplayTest(unittest.TestCase):
-    def _anthropic_response_with_thinking(self, captured: dict[str, Any]) -> types.ModuleType:
-        module = types.ModuleType("anthropic")
-
-        class FakeMessages:
-            def create(self, **kwargs):
-                captured.update(kwargs)
-                return SimpleNamespace(
-                    id="msg_1",
-                    content=[
-                        SimpleNamespace(
-                            type="thinking", thinking="careful step", signature="sig-1"
-                        ),
-                        SimpleNamespace(type="text", text="done"),
-                    ],
-                    stop_reason="end_turn",
-                    usage=SimpleNamespace(
-                        input_tokens=1,
-                        output_tokens=1,
-                        cache_read_input_tokens=0,
-                        cache_creation_input_tokens=0,
-                    ),
-                )
-
-        class Anthropic:
-            def __init__(self, *, api_key=None, base_url=None):
-                self.messages = FakeMessages()
-
-        module.Anthropic = Anthropic
-        return module
+    _RESPONSE_KW = {
+        "text": "done",
+        "thinking_blocks": [{"thinking": "careful step", "signature": "sig-1"}],
+    }
 
     def test_inbound_captures_thinking_with_signature(self) -> None:
         captured: dict[str, Any] = {}
-        module = self._anthropic_response_with_thinking(captured)
+        module = _stub_anthropic(_anthropic_response(**self._RESPONSE_KW), captured)
         req = LLMRequest(
             provider=ANTHROPIC_PROVIDER,
             messages=[LLMMessage(role="user", content="hi")],
@@ -793,12 +781,11 @@ class AnthropicReasoningReplayTest(unittest.TestCase):
         self.assertEqual(block.thinking, "careful step")
         self.assertEqual(block.signature, "sig-1")
         self.assertFalse(block.redacted)
-        # Content order matches the wire order Anthropic returned.
         self.assertEqual([b.kind for b in response.content], ["thinking", "text"])
 
     def test_outbound_replays_thinking_block_first(self) -> None:
         captured: dict[str, Any] = {}
-        module = self._anthropic_response_with_thinking(captured)
+        module = _stub_anthropic(_anthropic_response(**self._RESPONSE_KW), captured)
         req = LLMRequest(
             provider=ANTHROPIC_PROVIDER,
             messages=[
@@ -826,7 +813,6 @@ class AnthropicReasoningReplayTest(unittest.TestCase):
 
         assistant_msg = next(m for m in captured["messages"] if m["role"] == "assistant")
         blocks = assistant_msg["content"]
-        # Anthropic requires thinking to lead text and tool_use; verify order.
         self.assertEqual(blocks[0]["type"], "thinking")
         self.assertEqual(blocks[0]["thinking"], "careful step")
         self.assertEqual(blocks[0]["signature"], "sig-1")
@@ -835,7 +821,7 @@ class AnthropicReasoningReplayTest(unittest.TestCase):
 
     def test_outbound_skips_replay_when_opted_out(self) -> None:
         captured: dict[str, Any] = {}
-        module = self._anthropic_response_with_thinking(captured)
+        module = _stub_anthropic(_anthropic_response(**self._RESPONSE_KW), captured)
         provider = Provider(
             id="claude-test",
             api="anthropic-messages",
@@ -860,9 +846,7 @@ class AnthropicReasoningReplayTest(unittest.TestCase):
         ):
             complete(req)
 
-        assistant_messages = [m for m in captured["messages"] if m["role"] == "assistant"]
-        # No assistant message should slip through carrying a thinking block.
-        for msg in assistant_messages:
+        for msg in (m for m in captured["messages"] if m["role"] == "assistant"):
             for block in msg["content"]:
                 self.assertNotEqual(block["type"], "thinking")
 

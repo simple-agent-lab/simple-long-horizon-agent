@@ -8,13 +8,6 @@ agent loop, producing the types in this file.
 All types are frozen dataclasses — they represent immutable values that
 flow through the protocol. The mutable part (streaming accumulation,
 state) lives in the agent loop.
-
-`LLMResponse.content` is the canonical, ordered view of what the model
-emitted: a list of `ContentBlock` values in the exact order the model
-produced them (thinking → text → tool_call, or any provider-specific
-interleaving). Reasoning is a first-class block here, not a side field.
-The `text`, `thinking`, `thinking_blocks`, and `tool_calls` properties
-are read-only derived views for callers that only care about one slice.
 """
 
 from __future__ import annotations
@@ -89,6 +82,11 @@ class LLMMessage:
     name: Optional[str] = None                 # speaker label (some APIs use it)
     cache_breakpoint: bool = False
 
+    def thinking_blocks(self) -> list[ContentBlock]:
+        if isinstance(self.content, str):
+            return []
+        return [block for block in self.content if block.kind == "thinking"]
+
 
 @dataclass(frozen=True)
 class LLMTool:
@@ -126,15 +124,12 @@ class LLMRequest:
 
 @dataclass(frozen=True)
 class LLMResponse:
-    """Drained result of a stream — ordered content blocks + metadata.
+    """Drained result of a stream.
 
-    `content` is the source of truth: an in-order list of `ContentBlock`
-    values, one per output piece the model emitted. The provider-shaped
-    layout (thinking before text, tool_calls after text, etc.) is preserved
-    so callers can faithfully replay it on the next turn.
-
+    `content` is the source of truth: blocks in the order the model
+    produced them, so callers can replay the exact shape on the next turn.
     `text` / `thinking` / `thinking_blocks` / `tool_calls` are derived
-    convenience views; they never disagree with `content`.
+    views over `content`.
     """
     content: list[ContentBlock] = field(default_factory=list)
     stop_reason: StopReason = "end_turn"

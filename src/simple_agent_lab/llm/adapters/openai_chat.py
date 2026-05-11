@@ -127,9 +127,6 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
             ToolCall(id=getattr(tool_call, "id", ""), name=name, arguments=arguments)
         )
 
-    # Build ordered content: thinking first (matches what the model produced
-    # internally), then text, then tool_calls. This mirrors the chunk order
-    # for streaming endpoints and lets replay reconstruct the exact shape.
     blocks: list[ContentBlock] = []
     if reasoning_text:
         blocks.append(ContentBlock(kind="thinking", thinking=reasoning_text))
@@ -181,21 +178,12 @@ def _api_key(req: LLMRequest) -> str | None:
 def _extract_reasoning(message: Any) -> str:
     """Read reasoning_content from the SDK message object.
 
-    `reasoning_content` is not in the official OpenAI Chat schema, so the
-    SDK's typed accessors don't expose it. It rides along on
-    `model_extra` (pydantic v2) for compatible endpoints (DeepSeek, mimo,
-    Moonshot, etc.). We fall back to a plain attribute read so the path
-    also works with non-pydantic stub responses used in unit tests.
+    Not part of OpenAI's official Chat schema, so pydantic v2 SDK
+    responses expose it through `__getattr__` (extra="allow"); plain
+    attribute access also covers the SimpleNamespace stubs used in tests.
     """
-    extras = getattr(message, "model_extra", None)
-    if isinstance(extras, dict):
-        value = extras.get("reasoning_content")
-        if isinstance(value, str) and value:
-            return value
-    direct = getattr(message, "reasoning_content", None)
-    if isinstance(direct, str):
-        return direct
-    return ""
+    value = getattr(message, "reasoning_content", None)
+    return value if isinstance(value, str) else ""
 
 
 def _to_chat_messages(req: LLMRequest) -> list[dict[str, Any]]:
@@ -264,12 +252,8 @@ def _message_text(message: LLMMessage) -> str:
 
 
 def _message_reasoning(message: LLMMessage) -> str:
-    if isinstance(message.content, str):
-        return ""
     return "\n\n".join(
-        block.thinking
-        for block in message.content
-        if block.kind == "thinking" and block.thinking
+        block.thinking for block in message.thinking_blocks() if block.thinking
     )
 
 

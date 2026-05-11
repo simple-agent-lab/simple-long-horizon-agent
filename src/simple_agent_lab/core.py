@@ -27,6 +27,7 @@ from .llm import (
 from .context_view import ContextPolicy, ContextView, build_context_view
 from .messages import (
     AgentName,
+    AssistantMessage,
     Message,
     MessageChannel,
     MessageContent,
@@ -737,12 +738,13 @@ def print_trace(state: State) -> None:
                 f"{event.index:02d} {event.kind:<21} {message.kind:<10} "
                 f"{route:<24} {message_text(message)}"
             )
-            for thinking_block in getattr(message, "thinking", ()) or ():
-                preview = thinking_block.text.replace("\n", " ")
-                if len(preview) > 200:
-                    preview = preview[:200] + "..."
-                tag = "redacted_thinking" if thinking_block.redacted else "thinking"
-                print(f"   {tag:<21} {preview}")
+            if isinstance(message, AssistantMessage):
+                for thinking_block in message.thinking:
+                    preview = thinking_block.text.replace("\n", " ")
+                    if len(preview) > 200:
+                        preview = preview[:200] + "..."
+                    tag = "redacted_thinking" if thinking_block.redacted else "thinking"
+                    print(f"   {tag:<21} {preview}")
         elif event.kind == "model_request":
             candidate = event.data.get("candidate_id")
             suffix = f" candidate={candidate}" if candidate is not None else ""

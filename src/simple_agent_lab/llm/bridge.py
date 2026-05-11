@@ -95,10 +95,8 @@ def llm_response_to_assistant_message(
 ) -> Message:
     """Convert a drained LLM response into a runtime assistant message.
 
-    Thinking blocks ride along as their own first-class field on the
-    AssistantMessage with `signature` and `redacted` preserved, so the
-    next turn's outbound adapter can replay them verbatim and the
-    trajectory stays continuous.
+    Thinking blocks land on `AssistantMessage.thinking` with `signature`
+    and `redacted` preserved so the next outbound adapter can replay them.
     """
     thinking = tuple(
         ThinkingBlock(
