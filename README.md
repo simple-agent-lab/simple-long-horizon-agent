@@ -111,7 +111,6 @@ not yet wired up.
 
 - [AGENTS.md](AGENTS.md): collaboration rules for coding agents and contributors.
 - [docs/agent-native](docs/agent-native/README.md): the single future-agent loading map, plus project intent, code style, development workflow, doc inventory, source-of-truth routing, and unresolved owner questions.
-- [docs/reference-architectures](docs/reference-architectures/README.md): notes on agent architectures we want to learn from.
 - [docs/decisions](docs/decisions/README.md): architecture decision records.
 - [docs/glossary.md](docs/glossary.md): shared vocabulary.
 - [src/simple_agent_lab](src/simple_agent_lab/core.py): the installable package - `core.py` (canonical balanced runtime), `bash_tool.py` / `bash_agent.py` (minimal bash-use agent demo), `context_view.py` (model-visible context projection), `messages.py` (shared message protocol), `tools.py` (shared tool values), `trajectory.py` / `evaluation.py` / `training_data.py` (runtime-neutral harness records), and `llm/` (shared LLM access layer and message bridge).

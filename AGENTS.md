@@ -15,7 +15,7 @@ Simple Agent Lab should make agent systems easier to understand, modify, and tea
 - Prefer small, explicit modules over clever abstractions.
 - Preserve beginner readability unless there is a clear reason not to.
 - Document important architectural choices in `docs/decisions/`.
-- Put reference architecture notes in `docs/reference-architectures/` before using them to drive implementation.
+- Capture reference-architecture research notes locally under `docs/reference-architectures/` before borrowing a pattern; the directory's contents are gitignored except for the README and template, so notes stay on your disk and only the durable commitment lands in an ADR.
 - Keep examples small and runnable once code exists.
 
 ## Agent-Native Documentation
@@ -70,6 +70,6 @@ Maintenance principles:
    or validation docs.
 3. Inspect the current source of truth before editing; do not rely on chat memory alone.
 4. Define the feedback signal: unit test, smoke run, eval, trace, or review checklist.
-5. If the task depends on an external idea, add or update a note in `docs/reference-architectures/`.
+5. If the task depends on an external idea, capture or update a local note under `docs/reference-architectures/` (the dir is gitignored; only the convention is shared). Promote the durable commitment to an ADR.
 6. If the task creates an architectural commitment, add a decision record in `docs/decisions/`.
 7. Run the narrowest useful check and report the command.

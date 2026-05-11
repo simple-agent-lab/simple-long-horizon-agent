@@ -35,8 +35,8 @@ Sources:
 | `docs/decisions/README.md` | ADR index | Canonical | Architecture decision lookup | Updated 2026-05-11 | Keep accepted ADR list complete. |
 | `docs/decisions/0000-template.md` | ADR template | Canonical template | Creating a new ADR | Current | Link only. |
 | `docs/decisions/0001-0011*.md` | Accepted ADRs | Canonical historical decisions | Architecture or hard-to-reverse changes | Current | Link from agent-native loading map. |
-| `docs/reference-architectures/README.md` | Reference architecture index | Canonical | Borrowing from external systems | Current | Link only. |
-| `docs/reference-architectures/*.md` | External architecture notes | Supporting references | Specific external design comparison | Mixed | Use as evidence/rationale, not current runtime authority. |
+| `docs/reference-architectures/README.md` | Local reference-architecture notes workspace (convention) | Canonical | Borrowing from external systems | Updated 2026-05-11 | Convention is tracked; individual research notes are gitignored except for `template.md`. |
+| `docs/reference-architectures/template.md` | Template for local reference notes | Canonical template | Starting a new reference note | Current | Link only. |
 | `docs/glossary.md` | Shared vocabulary | Supporting | Term clarification | Current | Link only. |
 | `docs/README.md` | Human-facing docs navigation | Canonical support doc | Browsing the doc tree from the repo root | Added 2026-05-11 | Keep in sync with the three doc roots and `glossary.md`. |
 | `runs/README.md` | Runnable command index | Canonical validation map | Smoke runs and local checks | Current | Link only. |
@@ -50,15 +50,17 @@ Sources:
 
 ## Historical Or Supporting Docs
 
-| Doc | Role | Canonical source today | Action |
-| --- | --- | --- | --- |
-| Long reference notes under `docs/reference-architectures/` | Generated or researched external references | Accepted ADRs plus current `src/` for committed behavior | Keep; load only when the task names that reference. |
-
 The earlier `docs/architecture-options/` tree (three pre-consolidation
 runtime write-ups) was removed on 2026-05-11. Use ADRs 0001, 0005, and
 0009 plus `src/simple_agent_lab/core.py` for the accepted direction. The
 former `docs/tasks/` task-spec tree was removed the same day; handoff
 context now lives in conversation, ADRs, or the relevant agent-native doc.
+
+The `docs/reference-architectures/*.md` research notes were untracked on
+2026-05-11 and moved to a local-only workspace. The directory itself is
+preserved with a tracked `README.md` and `template.md` so the convention
+survives; `.gitignore` carves out the rest. Individual notes stay on
+contributors' local disks and out of the public repo.
 
 ## Duplicates And Overlaps
 
@@ -94,8 +96,8 @@ future-agent doc surface.
 | Release ownership after open-source prep | `bf026ac` prepared the first open-source release, but reviewer/release owner flow is not documented beyond CI | See `owner-questions.md`. |
 
 No separate `repo-map.md` is needed while normal work remains self-contained in
-`/Users/bytedance/Documents/simple_agent`. Add one only if a future task makes a
-related repo or external system load-bearing.
+the repo root. Add one only if a future task makes a related repo or external
+system load-bearing.
 
 The first live provider adapter target is no longer a missing answer: owner
 confirmation on 2026-05-11 chose `openai-chat`.

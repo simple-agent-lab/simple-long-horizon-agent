@@ -20,6 +20,13 @@ env/
 # Local eval artifacts
 evals/out/
 
+# Local reference-architecture research notes — kept off the public repo.
+# Drop your own `<system-name>.md` notes under docs/reference-architectures/;
+# the dir's contents are gitignored except for README.md and template.md.
+docs/reference-architectures/*
+!docs/reference-architectures/README.md
+!docs/reference-architectures/template.md
+
 # uv
 # (commit uv.lock; ignore the local cache only)
 

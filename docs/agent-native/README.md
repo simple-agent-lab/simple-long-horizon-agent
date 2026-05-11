@@ -24,8 +24,10 @@ Sources:
   source-of-truth routing, owner questions, stop conditions, and validation map.
 - `docs/decisions/`: accepted ADRs. This repo uses `docs/decisions/` instead
   of `docs/adr/`.
-- `docs/reference-architectures/`: external architecture notes to study before
-  using an external design as implementation evidence.
+- `docs/reference-architectures/`: local workspace for reference-architecture
+  research notes. The directory's contents are gitignored except for the
+  README and template; the convention is shared, but individual notes stay
+  on the contributor's local disk.
 
 ## Repo Map
 
@@ -33,9 +35,9 @@ Simple Agent Lab is a small Python package for teaching and experimenting with
 agent runtimes. The canonical package lives under `src/simple_agent_lab/`.
 
 For normal work, this checkout is self-contained. Future agents should treat
-`/Users/bytedance/Documents/simple_agent` as the only required repo unless a
-task explicitly names an external repository, service, benchmark fixture source,
-or release automation system.
+the repo root as the only required workspace unless a task explicitly names an
+external repository, service, benchmark fixture source, or release automation
+system.
 
 The current source-of-truth layers are:
 
@@ -85,7 +87,8 @@ Stop and collect more evidence before changing behavior when:
   confirmed first target; keep live-provider smoke opt-in and outside required
   CI unless the owner changes that policy.
 - A new external reference architecture starts to drive implementation. Add or
-  update a note under `docs/reference-architectures/` before changing code.
+  update a local note under `docs/reference-architectures/` (gitignored
+  workspace) and capture the durable commitment in an ADR before changing code.
 
 ## Loading Map
 
@@ -100,7 +103,7 @@ Stop and collect more evidence before changing behavior when:
 | Context visibility or budgeting | ADR 0010, `src/simple_agent_lab/context_view.py`, `tests/test_core.py`, `tests/test_token_usage.py` | Projection behavior and token-estimate constraints. |
 | Tool execution or bash demo | `src/simple_agent_lab/tools.py`, `src/simple_agent_lab/bash_tool.py`, `src/simple_agent_lab/bash_agent.py`, `tests/test_bash_agent.py` | Tool result semantics and deterministic demo checks. |
 | Trajectories, evals, or training data | ADR 0008, ADR 0011, `evals/README.md`, `evals/swebench/README.md` | Separation between fact records, scores, and suite adapters. |
-| External architecture borrowing | `docs/reference-architectures/README.md` plus the relevant reference note | Reference notes must precede implementation. |
+| External architecture borrowing | `docs/reference-architectures/README.md` (local notes workspace, gitignored) plus your own reference note | Capture rationale locally; record durable commitments in an ADR. |
 | Agent-native doc maintenance | `docs/agent-native/doc-inventory.md`, `docs/agent-native/operating-rules.md` | Canonical doc roles and stop conditions. |
 
 ## Maintenance Workflow

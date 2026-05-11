@@ -1,8 +1,16 @@
-# Reference Architectures
+# Reference Architectures (local notes)
 
-Use this directory to collect and compare agent architectures before implementation begins.
+This directory is a local workspace for reference-architecture research
+notes — sketches of how external agent systems are built, captured
+before you borrow a pattern in `src/` or commit to a decision in
+`docs/decisions/`.
 
-Each reference should describe:
+The directory's contents are **gitignored by design** (see the project
+`.gitignore`), except for this README and `template.md`. Drop your own
+notes here as `<system-name>.md`; they stay on your local disk and out
+of the public repository.
+
+Each note should describe:
 
 - What the architecture is optimized for.
 - The core loop or control flow.
@@ -13,12 +21,6 @@ Each reference should describe:
 
 Use [template.md](template.md) for new entries.
 
-## Entries
-
-- [Claude Code-Style Single Loop Runtime](claude-code-style-agent-runtime.md)
-- [Context Management Pipelines](context-management-pipelines.md)
-- [Hermes Agent Runtime](hermes-agent-runtime.md)
-- [mini-SWE-agent](mini-swe-agent.md)
-- [OpenAI Agents SDK Run Items](openai-agents-sdk-run-items.md)
-- [opencode Agent Runtime](opencode-agent-runtime.md)
-- [pi-mono Agent Runtime](pi-mono-agent-runtime.md)
+When a reference note actually drives an implementation choice, capture
+the resulting commitment in an ADR under `docs/decisions/` — that part
+*is* tracked and forms the public, durable record.

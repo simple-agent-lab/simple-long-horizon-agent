@@ -33,8 +33,8 @@ In practice:
    relevant context, decision, or validation docs.
 2. Define the feedback signal before editing: test, smoke script, eval,
    screenshot, trace, or explicit review checklist.
-3. If the task depends on external architecture ideas, check or update
-   `docs/reference-architectures/`.
+3. If the task depends on external architecture ideas, capture or update a
+   local note under `docs/reference-architectures/` (gitignored workspace).
 4. If the task changes architecture, add or update an ADR in `docs/decisions/`.
 5. Make the smallest implementation or documentation change that satisfies the
    task.
@@ -101,7 +101,8 @@ Use progressive disclosure:
 - `docs/agent-native/project-intent.md`, `code-style.md`, and `development.md`:
   supporting product, style, and development process docs loaded through the
   agent-native map.
-- `docs/reference-architectures/`: external systems we learn from.
+- `docs/reference-architectures/`: local workspace for external-system research
+  notes (gitignored; convention is documented, individual notes stay personal).
 - `docs/decisions/`: accepted architecture choices.
 - `runs/`: reproducible commands for demos, checks, and experiments.
 

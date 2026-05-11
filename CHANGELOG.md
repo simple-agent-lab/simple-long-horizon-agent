@@ -17,11 +17,23 @@ While the runtime is in `0.x`, public APIs may change between minor versions.
 - `docs/context/` — topic docs merged into `docs/agent-native/`
   (`project-intent.md`, `code-style.md`, `harness-engineering.md`,
   `development.md`).
+- `docs/reference-architectures/*.md` research notes — untracked. The
+  directory is now a local workspace; its contents are gitignored
+  except for `README.md` and `template.md`. The convention is shared,
+  but individual notes stay on the contributor's local disk and out
+  of the public repo.
+
+### Changed
+- `docs/agent-native/` — replaced absolute repo-checkout paths with
+  relative phrasing so the docs read correctly for any contributor.
 
 ### Added
-- `docs/README.md` — human-facing navigation across the three doc roots
-  (`agent-native/`, `decisions/`, `reference-architectures/`) plus
-  `glossary.md`.
+- `docs/README.md` — human-facing navigation across the two doc roots
+  (`agent-native/`, `decisions/`) plus `glossary.md` and the local
+  `reference-architectures/` workspace.
+- `.gitignore` rules carving out the local
+  `docs/reference-architectures/` workspace (allow-list `README.md`
+  and `template.md`).
 
 ## [0.1.0] - 2026-05-11
 
