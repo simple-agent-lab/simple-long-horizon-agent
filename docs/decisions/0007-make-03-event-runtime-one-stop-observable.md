@@ -2,7 +2,13 @@
 
 ## Status
 
-Proposed
+Withdrawn (2026-05-11). Superseded by ADR 0009, which promoted the
+balanced runtime to `src/simple_agent_lab/core.py` and retired the
+`03_event_runtime` design version this ADR was scoped to. The
+observability and replay direction this ADR proposed is no longer
+attached to a live runtime; if a future "one-stop observable" surface
+is wanted, capture it as a new ADR against the canonical `core.py`
+instead of resuming this one.
 
 ## Context
 
