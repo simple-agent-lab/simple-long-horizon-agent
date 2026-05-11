@@ -40,6 +40,19 @@ class BashToolTest(unittest.TestCase):
         self.assertEqual(result.details["exit_code"], 0)
         self.assertEqual(result.details["raw_stdout"], "hello")
 
+    def test_successful_empty_output_reports_done(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = _execute(make_bash_tool(cwd=tmp), {"command": "true"})
+
+        self.assertFalse(result.is_error)
+        self.assertIn("Done. Command completed with no output.", tool_result_text(result))
+
+    def test_bash_tool_schema_is_strict_for_model_arguments(self) -> None:
+        tool = make_bash_tool(cwd=ROOT)
+
+        self.assertEqual(tool.parameters["required"], ["command", "description"])
+        self.assertFalse(tool.parameters["additionalProperties"])
+
     def test_grep_no_match_is_observation_not_tool_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             execution = run_bash(

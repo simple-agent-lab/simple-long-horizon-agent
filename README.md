@@ -86,12 +86,12 @@ and the promotion into `src` is recorded in
 ## Development Process
 
 Development follows the
-[harness engineering workflow](docs/context/harness-engineering.md): keep the
+[harness engineering workflow](docs/agent-native/harness-engineering.md): keep the
 repo itself as the source of truth, make changes small and verifiable, and
 improve docs, examples, scripts, or tests when an agent workflow is ambiguous.
 Concrete day-to-day commands and the quality gate (ty + unittest, run by
 `runs/run_ci.sh` locally and `.github/workflows/ci.yml` remotely) are spelled
-out in [docs/context/development.md](docs/context/development.md).
+out in [docs/agent-native/development.md](docs/agent-native/development.md).
 
 The training-data direction (deterministic trajectory → eval → training
 example pipeline) is recorded in
@@ -110,11 +110,9 @@ not yet wired up.
 ## Repository Map
 
 - [AGENTS.md](AGENTS.md): collaboration rules for coding agents and contributors.
-- [docs/context](docs/context/README.md): product intent, users, and design principles.
-- [docs/architecture-options](docs/architecture-options/README.md): historical architecture documentation for the three runtime candidates that were considered before the consolidation.
+- [docs/agent-native](docs/agent-native/README.md): the single future-agent loading map, plus project intent, code style, development workflow, doc inventory, source-of-truth routing, and unresolved owner questions.
 - [docs/reference-architectures](docs/reference-architectures/README.md): notes on agent architectures we want to learn from.
 - [docs/decisions](docs/decisions/README.md): architecture decision records.
-- [docs/tasks](docs/tasks/README.md): agent-friendly implementation task specs.
 - [docs/glossary.md](docs/glossary.md): shared vocabulary.
 - [src/simple_agent_lab](src/simple_agent_lab/core.py): the installable package - `core.py` (canonical balanced runtime), `bash_tool.py` / `bash_agent.py` (minimal bash-use agent demo), `context_view.py` (model-visible context projection), `messages.py` (shared message protocol), `tools.py` (shared tool values), `trajectory.py` / `evaluation.py` / `training_data.py` (runtime-neutral harness records), and `llm/` (shared LLM access layer and message bridge).
 - [evals](evals/README.md): future behavior checks and comparisons.
@@ -124,7 +122,7 @@ not yet wired up.
 ## Contributing
 
 Contributions are welcome. Start with [AGENTS.md](AGENTS.md) for the
-collaboration contract and [docs/context/development.md](docs/context/development.md)
+collaboration contract and [docs/agent-native/development.md](docs/agent-native/development.md)
 for the local quality gate. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
 short version.
 

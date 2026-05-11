@@ -149,11 +149,15 @@ Then use `Provider(api="my-api", ...)` like any built-in.
 | Step | Adapter | Status |
 | ---- | ------- | ------ |
 | 1    | `fake`  | ✅ done (this PR) |
-| 2    | `anthropic-messages` | TODO |
+| 2    | `openai-chat`        | TODO - first live adapter target |
 | 3    | `openai-responses`   | TODO |
-| 4    | `openai-chat`        | TODO |
+| 4    | `anthropic-messages` | TODO |
 
-Once Step 2 lands, 03 can swap its `Provider(api=...)` value while keeping
-the same `LLMModelClient`, and 02 can add streaming by consuming
-`text_delta` events into update events rather than mutating recorded
-transcript messages.
+Owner confirmation on 2026-05-11 chose `openai-chat` as the first live
+provider adapter target. Its smoke should be opt-in: skip cleanly when no API
+key or compatible local `base_url` is configured, and do not add it to required
+CI until the owner explicitly accepts that dependency.
+
+Once Step 2 lands, demos can swap their `Provider(api=...)` value while keeping
+the same LLM request path, and streaming can be added by consuming `text_delta`
+events rather than mutating recorded transcript messages.

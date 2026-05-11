@@ -8,6 +8,21 @@ While the runtime is in `0.x`, public APIs may change between minor versions.
 
 ## [Unreleased]
 
+### Removed
+- `docs/architecture-options/` — the three pre-consolidation runtime
+  write-ups. The accepted runtime direction lives in ADRs 0001, 0005,
+  and 0009 plus `src/simple_agent_lab/core.py`.
+- `docs/tasks/` — the dedicated task-spec doc tree. Handoff context now
+  lives in conversation, ADRs, or the relevant agent-native doc.
+- `docs/context/` — topic docs merged into `docs/agent-native/`
+  (`project-intent.md`, `code-style.md`, `harness-engineering.md`,
+  `development.md`).
+
+### Added
+- `docs/README.md` — human-facing navigation across the three doc roots
+  (`agent-native/`, `decisions/`, `reference-architectures/`) plus
+  `glossary.md`.
+
 ## [0.1.0] - 2026-05-11
 
 First public release. Promotes the canonical balanced runtime, ships a

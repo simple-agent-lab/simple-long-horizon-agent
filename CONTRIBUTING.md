@@ -12,7 +12,7 @@ Read these in order:
 1. [`README.md`](README.md) — what this project is and how to set it up.
 2. [`AGENTS.md`](AGENTS.md) — collaboration contract for humans and coding
    agents (working principles, goals, non-goals, editing expectations).
-3. [`docs/context/development.md`](docs/context/development.md) — day-to-day
+3. [`docs/agent-native/development.md`](docs/agent-native/development.md) — day-to-day
    commands and the quality gate.
 
 If you are introducing an architectural commitment, add a decision record
@@ -38,7 +38,7 @@ install with zero third-party deps.
 ## Pull requests
 
 - Keep changes small and focused. One commit per logical change is preferred.
-- Update the relevant README, ADR, or `docs/context/` note in the same PR
+- Update the relevant README, ADR, or `docs/agent-native/` note in the same PR
   when behavior or contracts change.
 - If your change touches an area covered by an ADR, link the ADR in the PR
   description and call out whether it confirms, extends, or supersedes the

@@ -29,19 +29,17 @@ read map -> define feedback signal -> inspect source of truth
 
 In practice:
 
-1. Read `AGENTS.md`, `README.md`, and the most relevant file under
-   `docs/context/`.
+1. Read `AGENTS.md`, then use `docs/agent-native/README.md` to pick the
+   relevant context, decision, or validation docs.
 2. Define the feedback signal before editing: test, smoke script, eval,
    screenshot, trace, or explicit review checklist.
 3. If the task depends on external architecture ideas, check or update
    `docs/reference-architectures/`.
 4. If the task changes architecture, add or update an ADR in `docs/decisions/`.
-5. If the task is large enough to hand off, write or update a task spec in
-   `docs/tasks/`.
-6. Make the smallest implementation or documentation change that satisfies the
+5. Make the smallest implementation or documentation change that satisfies the
    task.
-7. Run the narrowest useful command from `runs/`, `scripts/`, or `tests/`.
-8. If the check is missing or hard to run, improve the harness instead of only
+6. Run the narrowest useful command from `runs/`, `scripts/`, or `tests/`.
+7. If the check is missing or hard to run, improve the harness instead of only
    explaining the gap.
 
 ## Testing And Feedback First
@@ -98,11 +96,13 @@ Context is scarce. Do not solve that by making one giant instruction file.
 Use progressive disclosure:
 
 - `AGENTS.md`: entry point and working contract.
-- `README.md`: public project map and current status.
-- `docs/context/`: product intent, code style, and development process.
+- `docs/agent-native/README.md`: the single future-agent loading map.
+- `README.md`: public project map and current status, not the agent loading map.
+- `docs/agent-native/project-intent.md`, `code-style.md`, and `development.md`:
+  supporting product, style, and development process docs loaded through the
+  agent-native map.
 - `docs/reference-architectures/`: external systems we learn from.
 - `docs/decisions/`: accepted architecture choices.
-- `docs/tasks/`: executable task specs and acceptance criteria.
 - `runs/`: reproducible commands for demos, checks, and experiments.
 
 When adding documentation, prefer a small page with a clear owner and purpose
@@ -131,7 +131,7 @@ Human taste should become repository-local guidance.
 
 If a review discovers a better convention, do one of these:
 
-- Update `docs/context/code-style.md` for style or readability preferences.
+- Update `docs/agent-native/code-style.md` for style or readability preferences.
 - Update an ADR when the choice affects architecture.
 - Update a task template when future work should include a missing step.
 - Add a small test or run script when the rule can be checked mechanically.

@@ -1,0 +1,123 @@
+# Agent Native Context: Simple Agent Lab
+
+This is the single loading map for future agents. Read this file after
+`AGENTS.md`, then load only the docs relevant to the task.
+
+Sources:
+
+- Current code snapshot: working tree inspected on 2026-05-11.
+- Recent first-parent history: `bf026ac`, `ddff527`, `312d5a9`, `5a90e1f`.
+- Primary anchors: `README.md`, `CONTEXT.md`, `docs/agent-native/`,
+  `docs/decisions/`, `runs/README.md`, `tests/README.md`,
+  `evals/README.md`, `src/simple_agent_lab/`, and
+  `evals/swebench/README.md`.
+- Owner interview: not yet completed. Open prompts live in
+  `docs/agent-native/owner-questions.md`.
+
+## Documentation Roots
+
+- `AGENTS.md`: primary collaboration contract and first-hop instructions.
+- `CONTEXT.md`: root vocabulary and resolved terminology boundaries for
+  `Message`, `ModelMessage`, provider adapters, content blocks, and sidecars.
+- `docs/agent-native/`: living agent context, loading map, project intent, code
+  style, harness workflow, development commands, doc inventory,
+  source-of-truth routing, owner questions, stop conditions, and validation map.
+- `docs/decisions/`: accepted ADRs. This repo uses `docs/decisions/` instead
+  of `docs/adr/`.
+- `docs/reference-architectures/`: external architecture notes to study before
+  using an external design as implementation evidence.
+
+## Repo Map
+
+Simple Agent Lab is a small Python package for teaching and experimenting with
+agent runtimes. The canonical package lives under `src/simple_agent_lab/`.
+
+For normal work, this checkout is self-contained. Future agents should treat
+`/Users/bytedance/Documents/simple_agent` as the only required repo unless a
+task explicitly names an external repository, service, benchmark fixture source,
+or release automation system.
+
+The current source-of-truth layers are:
+
+- `src/simple_agent_lab/core.py`: canonical message-first runtime.
+- `src/simple_agent_lab/messages.py`: runtime and provider-neutral message
+  protocol.
+- `src/simple_agent_lab/context_view.py`: model-visible context projection.
+- `src/simple_agent_lab/tools.py`: shared tool/result values.
+- `src/simple_agent_lab/llm/`: provider-agnostic model access layer.
+- `src/simple_agent_lab/trajectory.py`, `evaluation.py`, and
+  `training_data.py`: runtime-neutral harness records.
+- `evals/swebench/`: optional benchmark adapter, outside the core runtime.
+
+## Core Mental Model
+
+The repo is intentionally docs-first and harness-first. A good change should
+make the next human or agent better able to inspect, modify, verify, and explain
+the system.
+
+The canonical runtime direction is:
+
+```text
+Agent + Message + State + context_view() + run()
+```
+
+Do not treat historical architecture options as live runtime copies. Use them
+as rationale and teaching context, then verify current behavior against `src/`
+and accepted ADRs.
+
+## Global Stop Conditions
+
+Stop and collect more evidence before changing behavior when:
+
+- A change would add a framework-style abstraction to the core runtime. Read
+  ADR 0001 and ADR 0009 first.
+- A change modifies `Message`, `ModelMessage`, role names, tool-call blocks, or
+  provider-boundary conversion. Read ADR 0006, `src/simple_agent_lab/messages.py`,
+  and `src/simple_agent_lab/llm/README.md`.
+- A change alters context trimming, token estimates, or tool-call/tool-result
+  grouping. Read ADR 0010 and `tests/test_core.py`.
+- A change mixes raw trajectories, eval scores, or training labels. Read ADR
+  0008 and ADR 0011.
+- A change requires a live model provider or external benchmark dependency.
+  Preserve deterministic local smoke paths unless the owner explicitly accepts
+  the extra setup cost.
+- A change implements the first live provider adapter. `openai-chat` is the
+  confirmed first target; keep live-provider smoke opt-in and outside required
+  CI unless the owner changes that policy.
+- A new external reference architecture starts to drive implementation. Add or
+  update a note under `docs/reference-architectures/` before changing code.
+
+## Loading Map
+
+| If the task touches... | Read next | Why |
+| --- | --- | --- |
+| Current status or repo tour | `README.md`, `docs/agent-native/doc-inventory.md` | Public map plus role/freshness notes. |
+| Product direction, audience, or teaching taste | `docs/agent-native/project-intent.md` | Mission, audience, design principles, and current phase. |
+| Day-to-day implementation | `docs/agent-native/development.md`, `docs/agent-native/code-style.md`, `runs/README.md` | Commands, quality gate, and style constraints. |
+| Harness workflow or docs-first process | `docs/agent-native/harness-engineering.md`, ADR 0002, ADR 0003 | Feedback signal and repository-as-harness rules. |
+| Core runtime shape | ADR 0001, ADR 0005, ADR 0009, `src/simple_agent_lab/core.py` | Canonical runtime boundary and historical rationale. |
+| Message protocol or provider conversion | `CONTEXT.md`, ADR 0006, `src/simple_agent_lab/messages.py`, `src/simple_agent_lab/llm/README.md` | Runtime-vs-model message boundary and vocabulary. |
+| Context visibility or budgeting | ADR 0010, `src/simple_agent_lab/context_view.py`, `tests/test_core.py`, `tests/test_token_usage.py` | Projection behavior and token-estimate constraints. |
+| Tool execution or bash demo | `src/simple_agent_lab/tools.py`, `src/simple_agent_lab/bash_tool.py`, `src/simple_agent_lab/bash_agent.py`, `tests/test_bash_agent.py` | Tool result semantics and deterministic demo checks. |
+| Trajectories, evals, or training data | ADR 0008, ADR 0011, `evals/README.md`, `evals/swebench/README.md` | Separation between fact records, scores, and suite adapters. |
+| External architecture borrowing | `docs/reference-architectures/README.md` plus the relevant reference note | Reference notes must precede implementation. |
+| Agent-native doc maintenance | `docs/agent-native/doc-inventory.md`, `docs/agent-native/operating-rules.md` | Canonical doc roles and stop conditions. |
+
+## Maintenance Workflow
+
+1. Start from the loading map above.
+2. Update the canonical topic doc first.
+3. Update `doc-inventory.md` if doc roles, freshness, or loading triggers changed.
+4. Update this loading map if future agents should read a different doc first.
+5. Move unresolved owner or external-system facts to `owner-questions.md`.
+6. Create or update an ADR under `docs/decisions/` only for hard-to-reverse
+   decisions with real tradeoffs.
+
+## ADR Index
+
+Use `docs/decisions/README.md` as the canonical ADR index. The loading map
+above names only the ADRs most relevant to each task trigger.
+
+## Open Questions
+
+See `docs/agent-native/owner-questions.md`.

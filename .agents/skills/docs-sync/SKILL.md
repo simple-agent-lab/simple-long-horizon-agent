@@ -17,10 +17,11 @@ doc sync should preserve the source of truth for future humans and agents.
 2. Check `git status --short --branch`. Work with the current dirty worktree;
    do not switch branches, revert files, or overwrite user edits.
 3. Compare the source of truth with the docs:
-   - source: `src/simple_agent_lab/`, `examples/`, `scripts/`, `runs/`,
-     `tests/`, `evals/`, `pyproject.toml`
-   - docs: `README.md`, `docs/`, `examples/**/README.md`, `runs/README.md`,
-     `tests/README.md`, `evals/README.md`
+   - source: `src/simple_agent_lab/`, `scripts/`, `runs/`, `tests/`,
+     `evals/`, `pyproject.toml`, `.github/workflows/ci.yml`
+   - docs: `README.md`, `CONTEXT.md`, `CHANGELOG.md`, `CONTRIBUTING.md`,
+     `docs/`, `runs/README.md`, `tests/README.md`, `evals/README.md`,
+     `evals/swebench/README.md`, `src/simple_agent_lab/llm/README.md`
 4. Look for only practical mismatches: missing behavior, outdated paths,
    stale commands, conflicting architecture/status claims, or docs that promise
    more than the repo can verify.
@@ -38,18 +39,18 @@ Start with targeted searches:
 
 ```bash
 git status --short --branch
-rg -n "bash runs/|python3|uv run|PYTHONPATH|Current Status|ADR|TODO|TBD" README.md docs examples runs tests evals
-rg -n "Message|State|Agent|Tool|context_view|run_agent|trajectory|evaluation|training" src examples docs
+rg -n "bash runs/|python3|uv run|PYTHONPATH|Current Status|ADR|TODO|TBD" README.md CONTEXT.md CHANGELOG.md docs runs tests evals
+rg -n "Message|State|Agent|Tool|context_view|run_agent|trajectory|evaluation|training" src docs tests evals runs
 ```
 
 Common checks:
 
 ```bash
-PYTHONPATH=src python3 -m unittest discover -s tests
+bash runs/run_ci.sh
+uv run python -m unittest discover -s tests
 bash runs/run_examples.sh
-bash runs/run_design_versions.sh
-bash runs/run_self_evolution_probe.sh
-bash runs/run_training_trace_eval.sh
+bash runs/run_bash_agent_demo.sh
+bash runs/run_swebench_smoke.sh
 ```
 
 ## Report Format

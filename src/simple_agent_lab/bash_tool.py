@@ -25,23 +25,6 @@ DEFAULT_BASH_TIMEOUT_SECONDS = 10.0
 DEFAULT_BASH_MAX_OUTPUT_CHARS = 4000
 MAX_BASH_TIMEOUT_SECONDS = 60.0
 
-_SILENT_COMMANDS = {
-    "mv",
-    "cp",
-    "rm",
-    "mkdir",
-    "rmdir",
-    "chmod",
-    "chown",
-    "chgrp",
-    "touch",
-    "ln",
-    "cd",
-    "export",
-    "unset",
-    "wait",
-}
-
 
 @dataclass(frozen=True)
 class CommandInterpretation:
@@ -66,7 +49,6 @@ class BashExecution:
     timed_out: bool = False
     timeout_seconds: float | None = None
     interpretation: str = ""
-    no_output_expected: bool = False
     stdout_truncated: bool = False
     stderr_truncated: bool = False
     is_error: bool = False
@@ -114,7 +96,7 @@ def make_bash_tool(
 
         try:
             timeout_seconds = _resolve_timeout(
-                args.get("timeout_seconds", args.get("timeout")),
+                args.get("timeout_seconds"),
                 default_timeout_seconds,
                 max_timeout_seconds,
             )
@@ -153,7 +135,8 @@ def make_bash_tool(
                     "description": f"Optional timeout in seconds, capped at {max_timeout_seconds:g}.",
                 },
             },
-            "required": ["command"],
+            "required": ["command", "description"],
+            "additionalProperties": False,
         },
         execute=execute,
         label="Run bash command",
@@ -178,7 +161,7 @@ def run_bash(
     if max_output_chars <= 0:
         raise ValueError("max_output_chars must be > 0")
 
-    root = cwd if isinstance(cwd, Path) else Path(cwd or ".").resolve()
+    root = Path(cwd or ".").resolve()
     start = time.monotonic()
     try:
         completed = subprocess.run(
@@ -228,7 +211,6 @@ def run_bash(
         timed_out=timed_out,
         timeout_seconds=timeout_seconds,
         interpretation=interpretation.message,
-        no_output_expected=is_silent_command(command),
         stdout_truncated=stdout_truncated,
         stderr_truncated=stderr_truncated,
         is_error=is_error,
@@ -254,8 +236,8 @@ def format_bash_observation(execution: BashExecution) -> str:
     if execution.stderr:
         lines.extend(["stderr:", execution.stderr])
     if not execution.stdout and not execution.stderr:
-        if execution.no_output_expected and not execution.is_error:
-            lines.append("Done. Command completed with no output, as expected.")
+        if not execution.is_error:
+            lines.append("Done. Command completed with no output.")
         else:
             lines.append("(no output)")
     if execution.interpretation:
@@ -306,13 +288,6 @@ def detect_blocked_sleep_pattern(command: str) -> str | None:
         return None
     rest = parts[1].strip() if len(parts) > 1 else ""
     return f"sleep {seconds} before {rest}" if rest else f"standalone sleep {seconds}"
-
-
-def is_silent_command(command: str) -> bool:
-    """Return whether a successful command usually produces no stdout."""
-
-    base_command = _last_base_command(command)
-    return base_command in _SILENT_COMMANDS
 
 
 def strip_empty_lines(content: str) -> str:

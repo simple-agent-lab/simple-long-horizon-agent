@@ -22,7 +22,7 @@ Use harness engineering as the default development workflow for Simple Agent
 Lab.
 
 The working contract is documented in
-[`docs/context/harness-engineering.md`](../context/harness-engineering.md).
+[`docs/agent-native/harness-engineering.md`](../agent-native/harness-engineering.md).
 
 Concretely:
 

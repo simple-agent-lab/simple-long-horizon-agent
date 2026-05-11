@@ -22,6 +22,6 @@ labels: ["enhancement"]
 
 This project's mission is to keep the agent loop small, readable, and
 modifiable for students and small teams (see [`AGENTS.md`](../../AGENTS.md)
-and [`docs/context/product-intent.md`](../../docs/context/product-intent.md)).
+and [`docs/agent-native/project-intent.md`](../../docs/agent-native/project-intent.md)).
 A short note on how this proposal is consistent with that mission helps the
 discussion move faster.
