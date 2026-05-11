@@ -8,12 +8,15 @@ Examples:
     # Real end-to-end run against an OpenAI-compatible chat endpoint.
     # Reads OPENAI_MODEL, OPENAI_BASE_URL, OPENAI_AUTH_TOKEN from the env.
     uv run --with openai python scripts/run_bash_agent_demo.py \\
-        --provider openai --command "echo 'hello, world!'"
+        --provider openai \\
+        --task "Create a file at /tmp/hello.txt with the content 'hello, world!'."
 
 By default the demo is deterministic: it uses the fake LLM adapter, but still
 goes through the real runtime path of model request, tool call, bash execution,
 tool result, and final answer. With ``--provider openai`` it instead calls the
-configured chat model end-to-end.
+configured chat model end-to-end. Use ``--task`` for a free-form prompt
+(letting the model pick the command); use ``--command`` to pin the exact bash
+command the agent should run.
 """
 
 from __future__ import annotations
@@ -103,9 +106,17 @@ def full_message_text(message: Message) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Tiny bash-use agent demo")
     parser.add_argument(
+        "--task",
+        default=None,
+        help=(
+            "High-level task text for the agent; the model chooses the bash "
+            "command. Mutually exclusive with --command (--task wins)."
+        ),
+    )
+    parser.add_argument(
         "--command",
-        default=DEFAULT_BASH_DEMO_COMMAND,
-        help="Bash command for the demo agent to run",
+        default=None,
+        help="Exact bash command for the demo agent to run.",
     )
     parser.add_argument(
         "--provider",
@@ -116,11 +127,19 @@ def main() -> None:
     parser.add_argument("--no-trace", action="store_true")
     args = parser.parse_args()
 
+    task = args.task
+    command = args.command
+    if task is None and command is None:
+        command = DEFAULT_BASH_DEMO_COMMAND
+    elif task is not None and command is not None:
+        parser.error("--task and --command are mutually exclusive")
+
     provider = build_openai_provider() if args.provider == "openai" else None
 
     print(f"=== bash-use agent (provider={args.provider}) ===")
     runtime = run_bash_agent_demo(
-        command=args.command,
+        task=task,
+        command=command,
         cwd=ROOT,
         provider=provider,
         on_event=print_live_event,
