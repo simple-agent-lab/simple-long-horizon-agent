@@ -8,6 +8,13 @@ agent loop, producing the types in this file.
 All types are frozen dataclasses — they represent immutable values that
 flow through the protocol. The mutable part (streaming accumulation,
 state) lives in the agent loop.
+
+`LLMResponse.content` is the canonical, ordered view of what the model
+emitted: a list of `ContentBlock` values in the exact order the model
+produced them (thinking → text → tool_call, or any provider-specific
+interleaving). Reasoning is a first-class block here, not a side field.
+The `text`, `thinking`, `thinking_blocks`, and `tool_calls` properties
+are read-only derived views for callers that only care about one slice.
 """
 
 from __future__ import annotations
@@ -24,27 +31,30 @@ StopReason = Literal["end_turn", "tool_use", "max_tokens", "error"]
 
 
 @dataclass(frozen=True)
-class ContentBlock:
-    """One block inside a message's content. Text, image, or thinking.
+class ToolCall:
+    """A tool invocation emitted by the model."""
+    id: str
+    name: str
+    arguments: dict[str, Any] = field(default_factory=dict)
 
-    Multimodal content is a list of these. Plain-text content can use a
-    bare `str` on `LLMMessage.content` to skip the block ceremony.
+
+@dataclass(frozen=True)
+class ContentBlock:
+    """One block inside a message's content. Text, image, thinking, or tool_call.
+
+    Multimodal/multi-block content is a list of these. Plain-text content
+    can use a bare `str` on `LLMMessage.content` to skip the block ceremony,
+    but `LLMResponse.content` is always a list so reasoning/tool calls
+    retain their order alongside text.
     """
-    kind: Literal["text", "image", "thinking"] = "text"
+    kind: Literal["text", "image", "thinking", "tool_call"] = "text"
     text: str = ""
     data: str = ""
     mime_type: str = ""
     thinking: str = ""
     signature: Optional[str] = None
     redacted: bool = False
-
-
-@dataclass(frozen=True)
-class ToolCall:
-    """A tool invocation emitted by the model."""
-    id: str
-    name: str
-    arguments: dict[str, Any] = field(default_factory=dict)
+    tool_call: Optional[ToolCall] = None
 
 
 @dataclass(frozen=True)
@@ -66,6 +76,11 @@ class LLMMessage:
     format; adapters that don't (OpenAI Chat) ignore it. The decision
     of *where* to place breakpoints is left to the caller — the layer
     does not auto-place them.
+
+    Tool calls stay on a dedicated `tool_calls` field rather than inside
+    `content` because every provider's wire format puts them in a
+    sibling slot. `content` therefore only carries text / image / thinking
+    blocks; the adapter merges them back into the right place per provider.
     """
     role: Role
     content: Union[str, list[ContentBlock]] = ""
@@ -111,13 +126,44 @@ class LLMRequest:
 
 @dataclass(frozen=True)
 class LLMResponse:
-    """Drained result of a stream — what `complete()` returns."""
-    text: str = ""
-    tool_calls: list[ToolCall] = field(default_factory=list)
-    thinking: str = ""
+    """Drained result of a stream — ordered content blocks + metadata.
+
+    `content` is the source of truth: an in-order list of `ContentBlock`
+    values, one per output piece the model emitted. The provider-shaped
+    layout (thinking before text, tool_calls after text, etc.) is preserved
+    so callers can faithfully replay it on the next turn.
+
+    `text` / `thinking` / `thinking_blocks` / `tool_calls` are derived
+    convenience views; they never disagree with `content`.
+    """
+    content: list[ContentBlock] = field(default_factory=list)
     stop_reason: StopReason = "end_turn"
     usage: Usage = field(default_factory=Usage)
     raw: dict[str, Any] = field(default_factory=dict)   # original provider response
+
+    @property
+    def text(self) -> str:
+        return "".join(block.text for block in self.content if block.kind == "text")
+
+    @property
+    def thinking(self) -> str:
+        return "\n\n".join(
+            block.thinking
+            for block in self.content
+            if block.kind == "thinking" and block.thinking
+        )
+
+    @property
+    def thinking_blocks(self) -> list[ContentBlock]:
+        return [block for block in self.content if block.kind == "thinking"]
+
+    @property
+    def tool_calls(self) -> list[ToolCall]:
+        return [
+            block.tool_call
+            for block in self.content
+            if block.kind == "tool_call" and block.tool_call is not None
+        ]
 
 
 @dataclass(frozen=True)

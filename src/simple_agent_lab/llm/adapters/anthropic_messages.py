@@ -37,6 +37,7 @@ from typing import Any, Iterator
 
 from ..stream import register_adapter
 from ..types import (
+    ContentBlock,
     LLMMessage,
     LLMRequest,
     LLMResponse,
@@ -94,42 +95,61 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
 
     raw = client.messages.create(**kwargs)
 
-    text_parts: list[str] = []
-    thinking_parts: list[str] = []
-    tool_calls: list[ToolCall] = []
+    # Preserve the wire order: Anthropic returns content blocks in the order
+    # the model produced them (thinking → text → tool_use is the common case
+    # for extended thinking + tools), and that order matters for replay —
+    # the API rejects messages where thinking does not lead.
+    blocks: list[ContentBlock] = []
     for block in getattr(raw, "content", []) or []:
         btype = getattr(block, "type", None)
         if btype == "text":
-            text_parts.append(getattr(block, "text", "") or "")
+            text = getattr(block, "text", "") or ""
+            if text:
+                blocks.append(ContentBlock(kind="text", text=text))
         elif btype == "thinking":
-            thinking_parts.append(getattr(block, "thinking", "") or "")
+            blocks.append(
+                ContentBlock(
+                    kind="thinking",
+                    thinking=getattr(block, "thinking", "") or "",
+                    signature=getattr(block, "signature", None),
+                )
+            )
+        elif btype == "redacted_thinking":
+            blocks.append(
+                ContentBlock(
+                    kind="thinking",
+                    thinking=getattr(block, "data", "") or "",
+                    signature=getattr(block, "signature", None),
+                    redacted=True,
+                )
+            )
         elif btype == "tool_use":
-            tool_calls.append(
-                ToolCall(
-                    id=getattr(block, "id", ""),
-                    name=getattr(block, "name", ""),
-                    arguments=dict(getattr(block, "input", {}) or {}),
+            blocks.append(
+                ContentBlock(
+                    kind="tool_call",
+                    tool_call=ToolCall(
+                        id=getattr(block, "id", ""),
+                        name=getattr(block, "name", ""),
+                        arguments=dict(getattr(block, "input", {}) or {}),
+                    ),
                 )
             )
 
-    text = "".join(text_parts)
-    thinking = "\n\n".join(part for part in thinking_parts if part)
     stop_reason = _map_anthropic_stop(getattr(raw, "stop_reason", None))
     usage = _anthropic_usage(getattr(raw, "usage", None))
 
-    if text:
-        yield StreamEvent(kind="text_delta", payload={"delta": text})
-    if thinking:
-        yield StreamEvent(kind="thinking_delta", payload={"delta": thinking})
-    for tool_call in tool_calls:
-        yield StreamEvent(kind="tool_call_start", payload={"tool_call": tool_call})
-        yield StreamEvent(kind="tool_call_complete", payload={"tool_call": tool_call})
+    for block in blocks:
+        if block.kind == "thinking" and block.thinking:
+            yield StreamEvent(kind="thinking_delta", payload={"delta": block.thinking})
+        elif block.kind == "text" and block.text:
+            yield StreamEvent(kind="text_delta", payload={"delta": block.text})
+        elif block.kind == "tool_call" and block.tool_call is not None:
+            yield StreamEvent(kind="tool_call_start", payload={"tool_call": block.tool_call})
+            yield StreamEvent(kind="tool_call_complete", payload={"tool_call": block.tool_call})
     yield StreamEvent(kind="usage_update", payload={"usage": usage})
 
     response = LLMResponse(
-        text=text,
-        tool_calls=tool_calls,
-        thinking=thinking,
+        content=blocks,
         stop_reason=stop_reason,
         usage=usage,
         raw={
@@ -176,6 +196,32 @@ def _to_anthropic_messages(req: LLMRequest) -> tuple[str | None, list[dict[str, 
             continue
         if message.role == "assistant":
             blocks: list[dict[str, Any]] = []
+            # Replay thinking blocks first — Anthropic requires thinking to
+            # precede text/tool_use, and rejects the message if signatures
+            # are missing or out of order. Gated by Provider.replay_reasoning
+            # so callers can opt out.
+            if req.provider.replay_reasoning:
+                for thinking_block in _message_thinking_blocks(message):
+                    if thinking_block.redacted:
+                        blocks.append(
+                            {
+                                "type": "redacted_thinking",
+                                "data": thinking_block.thinking,
+                                **(
+                                    {"signature": thinking_block.signature}
+                                    if thinking_block.signature
+                                    else {}
+                                ),
+                            }
+                        )
+                    elif thinking_block.thinking:
+                        entry: dict[str, Any] = {
+                            "type": "thinking",
+                            "thinking": thinking_block.thinking,
+                        }
+                        if thinking_block.signature:
+                            entry["signature"] = thinking_block.signature
+                        blocks.append(entry)
             text = _message_text(message)
             if text:
                 blocks.append({"type": "text", "text": text})
@@ -225,6 +271,12 @@ def _message_text(message: LLMMessage) -> str:
     if isinstance(message.content, str):
         return message.content
     return "".join(block.text for block in message.content if block.kind == "text")
+
+
+def _message_thinking_blocks(message: LLMMessage) -> list[ContentBlock]:
+    if isinstance(message.content, str):
+        return []
+    return [block for block in message.content if block.kind == "thinking"]
 
 
 def _to_anthropic_tools(tools: list[LLMTool]) -> list[dict[str, Any]]:

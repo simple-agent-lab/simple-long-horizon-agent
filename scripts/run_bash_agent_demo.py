@@ -82,6 +82,12 @@ def print_live_event(event: Event) -> None:
     if event.kind == "message":
         message = event.message
         if message is not None and message.sender in {"bash_agent", "bash"}:
+            for thinking_block in getattr(message, "thinking", ()) or ():
+                preview = thinking_block.text.replace("\n", " ")
+                if len(preview) > 240:
+                    preview = preview[:240] + "..."
+                tag = "thinking*" if thinking_block.redacted else "thinking"
+                print(f"  [{tag:>10}] {preview}")
             print(f"  [{message.sender:>10}] {message_text(message)}")
     elif event.kind == "tool_execution_start":
         print(f"  [      tool] start {event.data.get('tool_name')}")

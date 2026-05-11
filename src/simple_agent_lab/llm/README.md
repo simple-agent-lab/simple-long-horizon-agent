@@ -93,13 +93,19 @@ for event in iter_stream(req):
 ### Custom provider
 
 ```python
-from llm import register_adapter, LLMRequest, StreamEvent, LLMResponse, Usage
+from llm import (
+    register_adapter, LLMRequest, StreamEvent, LLMResponse, ContentBlock, Usage,
+)
 
 def my_adapter(req: LLMRequest):
     # ...talk to your endpoint...
     yield StreamEvent(kind="text_delta", payload={"delta": "..."})
     yield StreamEvent(kind="done", payload={
-        "response": LLMResponse(text="...", stop_reason="end_turn", usage=Usage()),
+        "response": LLMResponse(
+            content=[ContentBlock(kind="text", text="...")],
+            stop_reason="end_turn",
+            usage=Usage(),
+        ),
     })
 
 register_adapter("my-api", my_adapter)

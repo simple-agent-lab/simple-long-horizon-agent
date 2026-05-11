@@ -39,3 +39,10 @@ class Provider:
     default_temperature: float = 1.0
     default_max_tokens: Optional[int] = None
     context_window: Optional[int] = None  # advisory only; not enforced
+    # Replay the model's prior reasoning blocks back to it on the next turn.
+    # Default True because every reasoning-capable provider we currently
+    # target (mimo, DeepSeek-style, Anthropic extended thinking) either
+    # accepts or requires this for multi-turn tool-use continuity. Flip to
+    # False for the rare endpoint (e.g. OpenAI o-series Responses with
+    # previous_response_id) that handles reasoning continuity server-side.
+    replay_reasoning: bool = True

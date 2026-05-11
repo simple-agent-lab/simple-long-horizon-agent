@@ -20,7 +20,7 @@ import time
 from typing import Any, Iterator, Optional
 
 from ..stream import register_adapter
-from ..types import LLMRequest, LLMResponse, StreamEvent, ToolCall, Usage
+from ..types import ContentBlock, LLMRequest, LLMResponse, StreamEvent, ToolCall, Usage
 
 
 _DEFAULT_TEXT = "Fake response generated from the provided messages."
@@ -55,9 +55,13 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
     )
     yield StreamEvent(kind="usage_update", payload={"usage": usage})
 
+    blocks: list[ContentBlock] = []
+    if text:
+        blocks.append(ContentBlock(kind="text", text=text))
+    for tc in tool_calls:
+        blocks.append(ContentBlock(kind="tool_call", tool_call=tc))
     response = LLMResponse(
-        text=text,
-        tool_calls=tool_calls,
+        content=blocks,
         stop_reason="tool_use" if tool_calls else "end_turn",
         usage=usage,
         raw={"provider": "fake", "model": req.provider.model},

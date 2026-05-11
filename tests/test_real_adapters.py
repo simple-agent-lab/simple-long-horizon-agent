@@ -19,6 +19,7 @@ from typing import Any
 from unittest import mock
 
 from simple_agent_lab.llm import (
+    ContentBlock,
     LLMMessage,
     LLMRequest,
     LLMTool,
@@ -311,6 +312,7 @@ def _chat_response(
     prompt_tokens: int = 13,
     completion_tokens: int = 4,
     cached: int = 0,
+    reasoning_content: str | None = None,
 ) -> Any:
     tcs = []
     for tc in tool_calls or []:
@@ -321,7 +323,10 @@ def _chat_response(
                 function=SimpleNamespace(name=tc["name"], arguments=tc["arguments"]),
             )
         )
-    message = SimpleNamespace(content=text, tool_calls=tcs or None)
+    message_kwargs: dict[str, Any] = {"content": text, "tool_calls": tcs or None}
+    if reasoning_content is not None:
+        message_kwargs["reasoning_content"] = reasoning_content
+    message = SimpleNamespace(**message_kwargs)
     choice = SimpleNamespace(message=message, finish_reason=finish_reason)
     usage = SimpleNamespace(
         prompt_tokens=prompt_tokens,
@@ -621,6 +626,270 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
         ):
             response = complete(req)
         self.assertEqual(response.stop_reason, "max_tokens")
+
+
+# ---------------------------------------------------------------------------
+# Reasoning continuity across multi-turn tool use
+#
+# These tests cover the contract that makes reasoning a first-class citizen
+# of the trajectory:
+#   1. Inbound:  the adapter lifts the model's reasoning into a thinking
+#                ContentBlock on LLMResponse.content (so the response carries
+#                reasoning alongside text and tool_calls in stable order).
+#   2. Outbound: when an assistant message carries thinking blocks, the next
+#                request replays them in whatever wire shape the provider
+#                expects — `reasoning_content` field for OpenAI-compat,
+#                `{"type": "thinking", ...}` blocks for Anthropic.
+#   3. Opt-out:  flipping Provider.replay_reasoning=False suppresses the
+#                outbound side for endpoints that reject the replay shape.
+# ---------------------------------------------------------------------------
+
+
+class OpenAIChatReasoningTest(unittest.TestCase):
+    def test_inbound_reasoning_content_becomes_thinking_block(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(
+            _chat_response(
+                text="Result: 6.",
+                reasoning_content="2*3 is 6.",
+                finish_reason="stop",
+            ),
+            captured,
+            kind="chat",
+        )
+        req = LLMRequest(
+            provider=OPENAI_CHAT_PROVIDER,
+            messages=[LLMMessage(role="user", content="2*3?")],
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            events = list(iter_stream(req))
+
+        kinds = [event.kind for event in events]
+        self.assertIn("thinking_delta", kinds)
+        # Thinking arrives before text so consumers see the model's
+        # reasoning step before the user-visible answer.
+        self.assertLess(kinds.index("thinking_delta"), kinds.index("text_delta"))
+
+        response = events[-1].payload["response"]
+        thinking_blocks = response.thinking_blocks
+        self.assertEqual(len(thinking_blocks), 1)
+        self.assertEqual(thinking_blocks[0].thinking, "2*3 is 6.")
+        # Derived views agree with content.
+        self.assertEqual(response.thinking, "2*3 is 6.")
+        self.assertEqual(response.text, "Result: 6.")
+        # Content preserves order: thinking, then text.
+        self.assertEqual([block.kind for block in response.content], ["thinking", "text"])
+
+    def test_outbound_replays_thinking_as_reasoning_content(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(_chat_response(text="ok"), captured, kind="chat")
+        req = LLMRequest(
+            provider=OPENAI_CHAT_PROVIDER,  # replay_reasoning=True by default
+            messages=[
+                LLMMessage(role="user", content="Compute 2*3."),
+                LLMMessage(
+                    role="assistant",
+                    content=[
+                        ContentBlock(kind="thinking", thinking="2*3 is 6."),
+                        ContentBlock(kind="text", text="6"),
+                    ],
+                ),
+                LLMMessage(role="user", content="now double it"),
+            ],
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            complete(req)
+
+        assistant_entry = next(m for m in captured["messages"] if m["role"] == "assistant")
+        self.assertEqual(assistant_entry["reasoning_content"], "2*3 is 6.")
+        self.assertEqual(assistant_entry["content"], "6")
+
+    def test_outbound_skips_replay_when_opted_out(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(_chat_response(text="ok"), captured, kind="chat")
+        provider = Provider(
+            id="gpt-chat-test",
+            api="openai-chat",
+            model="gpt-test-1",
+            api_key_env="TEST_OPENAI_KEY",
+            replay_reasoning=False,
+        )
+        req = LLMRequest(
+            provider=provider,
+            messages=[
+                LLMMessage(role="user", content="hi"),
+                LLMMessage(
+                    role="assistant",
+                    content=[
+                        ContentBlock(kind="thinking", thinking="careful now"),
+                        ContentBlock(kind="text", text="hello"),
+                    ],
+                ),
+                LLMMessage(role="user", content="again"),
+            ],
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            complete(req)
+
+        assistant_entry = next(m for m in captured["messages"] if m["role"] == "assistant")
+        self.assertNotIn("reasoning_content", assistant_entry)
+
+
+class AnthropicReasoningReplayTest(unittest.TestCase):
+    def _anthropic_response_with_thinking(self, captured: dict[str, Any]) -> types.ModuleType:
+        module = types.ModuleType("anthropic")
+
+        class FakeMessages:
+            def create(self, **kwargs):
+                captured.update(kwargs)
+                return SimpleNamespace(
+                    id="msg_1",
+                    content=[
+                        SimpleNamespace(
+                            type="thinking", thinking="careful step", signature="sig-1"
+                        ),
+                        SimpleNamespace(type="text", text="done"),
+                    ],
+                    stop_reason="end_turn",
+                    usage=SimpleNamespace(
+                        input_tokens=1,
+                        output_tokens=1,
+                        cache_read_input_tokens=0,
+                        cache_creation_input_tokens=0,
+                    ),
+                )
+
+        class Anthropic:
+            def __init__(self, *, api_key=None, base_url=None):
+                self.messages = FakeMessages()
+
+        module.Anthropic = Anthropic
+        return module
+
+    def test_inbound_captures_thinking_with_signature(self) -> None:
+        captured: dict[str, Any] = {}
+        module = self._anthropic_response_with_thinking(captured)
+        req = LLMRequest(
+            provider=ANTHROPIC_PROVIDER,
+            messages=[LLMMessage(role="user", content="hi")],
+        )
+        with (
+            _stub_module("anthropic", module),
+            mock.patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "k"}, clear=False),
+        ):
+            response = complete(req)
+
+        self.assertEqual(len(response.thinking_blocks), 1)
+        block = response.thinking_blocks[0]
+        self.assertEqual(block.thinking, "careful step")
+        self.assertEqual(block.signature, "sig-1")
+        self.assertFalse(block.redacted)
+        # Content order matches the wire order Anthropic returned.
+        self.assertEqual([b.kind for b in response.content], ["thinking", "text"])
+
+    def test_outbound_replays_thinking_block_first(self) -> None:
+        captured: dict[str, Any] = {}
+        module = self._anthropic_response_with_thinking(captured)
+        req = LLMRequest(
+            provider=ANTHROPIC_PROVIDER,
+            messages=[
+                LLMMessage(role="user", content="go"),
+                LLMMessage(
+                    role="assistant",
+                    content=[
+                        ContentBlock(
+                            kind="thinking",
+                            thinking="careful step",
+                            signature="sig-1",
+                        ),
+                        ContentBlock(kind="text", text="done"),
+                    ],
+                    tool_calls=[ToolCall(id="t1", name="bash", arguments={"command": "ls"})],
+                ),
+                LLMMessage(role="tool_result", content="out", tool_call_id="t1", name="bash"),
+            ],
+        )
+        with (
+            _stub_module("anthropic", module),
+            mock.patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "k"}, clear=False),
+        ):
+            complete(req)
+
+        assistant_msg = next(m for m in captured["messages"] if m["role"] == "assistant")
+        blocks = assistant_msg["content"]
+        # Anthropic requires thinking to lead text and tool_use; verify order.
+        self.assertEqual(blocks[0]["type"], "thinking")
+        self.assertEqual(blocks[0]["thinking"], "careful step")
+        self.assertEqual(blocks[0]["signature"], "sig-1")
+        self.assertEqual(blocks[1]["type"], "text")
+        self.assertEqual(blocks[2]["type"], "tool_use")
+
+    def test_outbound_skips_replay_when_opted_out(self) -> None:
+        captured: dict[str, Any] = {}
+        module = self._anthropic_response_with_thinking(captured)
+        provider = Provider(
+            id="claude-test",
+            api="anthropic-messages",
+            model="claude-test-1",
+            api_key_env="TEST_ANTHROPIC_KEY",
+            replay_reasoning=False,
+        )
+        req = LLMRequest(
+            provider=provider,
+            messages=[
+                LLMMessage(role="user", content="go"),
+                LLMMessage(
+                    role="assistant",
+                    content=[ContentBlock(kind="thinking", thinking="x", signature="s")],
+                ),
+                LLMMessage(role="user", content="again"),
+            ],
+        )
+        with (
+            _stub_module("anthropic", module),
+            mock.patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "k"}, clear=False),
+        ):
+            complete(req)
+
+        assistant_messages = [m for m in captured["messages"] if m["role"] == "assistant"]
+        # No assistant message should slip through carrying a thinking block.
+        for msg in assistant_messages:
+            for block in msg["content"]:
+                self.assertNotEqual(block["type"], "thinking")
+
+
+class BridgeThinkingPreservationTest(unittest.TestCase):
+    def test_thinking_blocks_carry_signature_into_assistant_message(self) -> None:
+        from simple_agent_lab.llm.bridge import llm_response_to_assistant_message
+        from simple_agent_lab.llm.types import LLMResponse
+        from simple_agent_lab.messages import AssistantMessage
+
+        response = LLMResponse(
+            content=[
+                ContentBlock(kind="thinking", thinking="step 1", signature="s1"),
+                ContentBlock(kind="thinking", thinking="step 2", signature="s2", redacted=True),
+                ContentBlock(kind="text", text="answer"),
+            ],
+        )
+        msg = llm_response_to_assistant_message(
+            response, sender="agent", target="user", kind="final"
+        )
+        assert isinstance(msg, AssistantMessage)
+        self.assertEqual(len(msg.thinking), 2)
+        self.assertEqual(msg.thinking[0].text, "step 1")
+        self.assertEqual(msg.thinking[0].signature, "s1")
+        self.assertFalse(msg.thinking[0].redacted)
+        self.assertEqual(msg.thinking[1].signature, "s2")
+        self.assertTrue(msg.thinking[1].redacted)
 
 
 if __name__ == "__main__":  # pragma: no cover

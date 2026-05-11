@@ -93,8 +93,21 @@ def llm_response_to_assistant_message(
     kind: str,
     data: dict[str, Any] | None = None,
 ) -> Message:
-    """Convert a drained LLM response into a runtime assistant message."""
-    thinking = (ThinkingBlock(text=response.thinking),) if response.thinking else ()
+    """Convert a drained LLM response into a runtime assistant message.
+
+    Thinking blocks ride along as their own first-class field on the
+    AssistantMessage with `signature` and `redacted` preserved, so the
+    next turn's outbound adapter can replay them verbatim and the
+    trajectory stays continuous.
+    """
+    thinking = tuple(
+        ThinkingBlock(
+            text=block.thinking,
+            signature=block.signature,
+            redacted=block.redacted,
+        )
+        for block in response.thinking_blocks
+    )
     tool_calls = [
         ToolCallBlock(tool_call.id, tool_call.name, dict(tool_call.arguments))
         for tool_call in response.tool_calls

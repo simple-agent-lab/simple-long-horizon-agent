@@ -36,6 +36,7 @@ from typing import Any, Iterator
 
 from ..stream import register_adapter
 from ..types import (
+    ContentBlock,
     LLMMessage,
     LLMRequest,
     LLMResponse,
@@ -91,42 +92,50 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
 
     raw = client.responses.create(**kwargs)
 
-    text_parts: list[str] = []
-    tool_calls: list[ToolCall] = []
+    blocks: list[ContentBlock] = []
     for item in getattr(raw, "output", None) or []:
         itype = getattr(item, "type", None)
         if itype == "message":
             for block in getattr(item, "content", None) or []:
                 if getattr(block, "type", None) == "output_text":
-                    text_parts.append(getattr(block, "text", "") or "")
+                    text = getattr(block, "text", "") or ""
+                    if text:
+                        blocks.append(ContentBlock(kind="text", text=text))
         elif itype == "function_call":
             args_str = getattr(item, "arguments", "") or ""
             try:
                 arguments = json.loads(args_str) if args_str else {}
             except json.JSONDecodeError:
                 arguments = {"_raw_arguments": args_str}
-            tool_calls.append(
-                ToolCall(
-                    id=getattr(item, "call_id", None) or getattr(item, "id", ""),
-                    name=getattr(item, "name", "") or "",
-                    arguments=arguments,
+            blocks.append(
+                ContentBlock(
+                    kind="tool_call",
+                    tool_call=ToolCall(
+                        id=getattr(item, "call_id", None) or getattr(item, "id", ""),
+                        name=getattr(item, "name", "") or "",
+                        arguments=arguments,
+                    ),
                 )
             )
 
-    text = "".join(text_parts)
+    tool_calls = [
+        block.tool_call
+        for block in blocks
+        if block.kind == "tool_call" and block.tool_call is not None
+    ]
     stop_reason = _map_responses_stop(raw, tool_calls)
     usage = _responses_usage(getattr(raw, "usage", None))
 
-    if text:
-        yield StreamEvent(kind="text_delta", payload={"delta": text})
-    for tool_call in tool_calls:
-        yield StreamEvent(kind="tool_call_start", payload={"tool_call": tool_call})
-        yield StreamEvent(kind="tool_call_complete", payload={"tool_call": tool_call})
+    for block in blocks:
+        if block.kind == "text" and block.text:
+            yield StreamEvent(kind="text_delta", payload={"delta": block.text})
+        elif block.kind == "tool_call" and block.tool_call is not None:
+            yield StreamEvent(kind="tool_call_start", payload={"tool_call": block.tool_call})
+            yield StreamEvent(kind="tool_call_complete", payload={"tool_call": block.tool_call})
     yield StreamEvent(kind="usage_update", payload={"usage": usage})
 
     response = LLMResponse(
-        text=text,
-        tool_calls=tool_calls,
+        content=blocks,
         stop_reason=stop_reason,
         usage=usage,
         raw={

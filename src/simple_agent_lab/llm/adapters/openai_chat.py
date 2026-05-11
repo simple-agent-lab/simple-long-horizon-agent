@@ -4,6 +4,15 @@ Uses the official `openai` SDK. Blocking-only. Same call path also serves
 OpenAI-compatible endpoints (Ollama, vLLM, OpenRouter, LM Studio, ...)
 when `Provider.base_url` is set.
 
+Reasoning content is treated as a first-class content block. On the way
+in, the adapter reads `message.reasoning_content` (DeepSeek / mimo style)
+and surfaces it as a `ContentBlock(kind="thinking", ...)` ahead of the
+text and tool_call blocks in `LLMResponse.content`. On the way out, prior
+assistant thinking blocks are replayed via the same `reasoning_content`
+field on the outbound assistant dict so multi-turn tool-use chains stay
+continuous. The replay step is gated by `Provider.replay_reasoning`
+(default True; flip to False for endpoints that reject the field).
+
 The SDK import is deferred to `stream()` so the module registers even
 without `[openai]` installed.
 
@@ -45,6 +54,7 @@ from typing import Any, Iterator
 
 from ..stream import register_adapter
 from ..types import (
+    ContentBlock,
     LLMMessage,
     LLMRequest,
     LLMResponse,
@@ -102,6 +112,7 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
     choice = raw.choices[0]
     message = choice.message
 
+    reasoning_text = _extract_reasoning(message)
     text = getattr(message, "content", None) or ""
     tool_calls: list[ToolCall] = []
     for tool_call in getattr(message, "tool_calls", None) or []:
@@ -116,9 +127,22 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
             ToolCall(id=getattr(tool_call, "id", ""), name=name, arguments=arguments)
         )
 
+    # Build ordered content: thinking first (matches what the model produced
+    # internally), then text, then tool_calls. This mirrors the chunk order
+    # for streaming endpoints and lets replay reconstruct the exact shape.
+    blocks: list[ContentBlock] = []
+    if reasoning_text:
+        blocks.append(ContentBlock(kind="thinking", thinking=reasoning_text))
+    if text:
+        blocks.append(ContentBlock(kind="text", text=text))
+    for tool_call in tool_calls:
+        blocks.append(ContentBlock(kind="tool_call", tool_call=tool_call))
+
     stop_reason = _map_openai_finish(getattr(choice, "finish_reason", None))
     usage = _openai_chat_usage(getattr(raw, "usage", None))
 
+    if reasoning_text:
+        yield StreamEvent(kind="thinking_delta", payload={"delta": reasoning_text})
     if text:
         yield StreamEvent(kind="text_delta", payload={"delta": text})
     for tool_call in tool_calls:
@@ -127,8 +151,7 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
     yield StreamEvent(kind="usage_update", payload={"usage": usage})
 
     response = LLMResponse(
-        text=text,
-        tool_calls=tool_calls,
+        content=blocks,
         stop_reason=stop_reason,
         usage=usage,
         raw={
@@ -153,6 +176,26 @@ def _api_key(req: LLMRequest) -> str | None:
             f"Provider {req.provider.id!r} requires env var {env!r}; not set."
         )
     return api_key
+
+
+def _extract_reasoning(message: Any) -> str:
+    """Read reasoning_content from the SDK message object.
+
+    `reasoning_content` is not in the official OpenAI Chat schema, so the
+    SDK's typed accessors don't expose it. It rides along on
+    `model_extra` (pydantic v2) for compatible endpoints (DeepSeek, mimo,
+    Moonshot, etc.). We fall back to a plain attribute read so the path
+    also works with non-pydantic stub responses used in unit tests.
+    """
+    extras = getattr(message, "model_extra", None)
+    if isinstance(extras, dict):
+        value = extras.get("reasoning_content")
+        if isinstance(value, str) and value:
+            return value
+    direct = getattr(message, "reasoning_content", None)
+    if isinstance(direct, str):
+        return direct
+    return ""
 
 
 def _to_chat_messages(req: LLMRequest) -> list[dict[str, Any]]:
@@ -180,6 +223,10 @@ def _to_chat_messages(req: LLMRequest) -> list[dict[str, Any]]:
                     }
                     for tool_call in message.tool_calls
                 ]
+            if req.provider.replay_reasoning:
+                reasoning = _message_reasoning(message)
+                if reasoning:
+                    entry["reasoning_content"] = reasoning
             out.append(entry)
         elif message.role == "tool_result":
             out.append(
@@ -214,6 +261,16 @@ def _message_text(message: LLMMessage) -> str:
     if isinstance(message.content, str):
         return message.content
     return "".join(block.text for block in message.content if block.kind == "text")
+
+
+def _message_reasoning(message: LLMMessage) -> str:
+    if isinstance(message.content, str):
+        return ""
+    return "\n\n".join(
+        block.thinking
+        for block in message.content
+        if block.kind == "thinking" and block.thinking
+    )
 
 
 def _to_chat_tools(tools: list[LLMTool]) -> list[dict[str, Any]]:
