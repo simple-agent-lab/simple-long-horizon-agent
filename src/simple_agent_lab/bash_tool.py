@@ -17,8 +17,8 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from .messages import encode_image_data_url
-from .tools import AbortFlag, AgentTool, ToolContent, ToolResult, ToolUpdateFn, text_result
+from .messages import ImageBlock, TextBlock
+from .tools import AbortFlag, AgentTool, ToolResult, ToolUpdateFn, text_result
 
 
 BASH_TOOL_NAME = "bash"
@@ -405,7 +405,7 @@ def _attach_files(
     if not isinstance(paths, (list, tuple)):
         return _attach_error(result, f"`attach` must be a list of paths, got {type(paths).__name__}")
 
-    extras: list[ToolContent] = []
+    extras: list[ImageBlock] = []
     notes: list[str] = []
     for raw in paths:
         if not isinstance(raw, str) or not raw:
@@ -441,19 +441,15 @@ def _attach_files(
         except OSError as exc:
             notes.append(f"failed to read attach path {raw!r}: {exc}")
             continue
-        encoded = base64.b64encode(data).decode("ascii")
-        extras.append(ToolContent(
-            kind="image",
-            image_url=encode_image_data_url(mime, encoded),
-        ))
+        extras.append(ImageBlock(data=base64.b64encode(data).decode("ascii"), mime_type=mime))
 
     if not extras and not notes:
         return result
 
-    new_content = list(result.content)
+    new_content: list[TextBlock | ImageBlock] = list(result.content)
     if notes:
         note_text = "attach notes:\n" + "\n".join(f"- {n}" for n in notes)
-        new_content.append(ToolContent(kind="text", text=note_text))
+        new_content.append(TextBlock(text=note_text))
     new_content.extend(extras)
     new_details = dict(result.details) if isinstance(result.details, dict) else {"details": result.details}
     if notes:
@@ -462,13 +458,12 @@ def _attach_files(
     all_failed = bool(notes) and not extras
     return replace(
         result,
-        content=new_content,
+        content=tuple(new_content),
         details=new_details,
         is_error=result.is_error or all_failed,
     )
 
 
 def _attach_error(result: ToolResult, message: str) -> ToolResult:
-    new_content = list(result.content)
-    new_content.append(ToolContent(kind="text", text=f"attach error: {message}"))
+    new_content = (*result.content, TextBlock(text=f"attach error: {message}"))
     return replace(result, content=new_content, is_error=True)

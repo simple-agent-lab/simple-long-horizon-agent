@@ -22,12 +22,14 @@ def make_bash_use_agent(provider: LLMProvider | None = None) -> Agent:
 
     return Agent(
         name="bash_agent",
-        role="Use bash for one local command, then summarize the observation.",
+        role="Use bash for local commands, then summarize what you observed.",
         step=make_llm_step(
             provider or _FAKE_PROVIDER,
             system_prompt=(
-                "You are a tiny bash-use agent. If the task names a command, "
-                "call the bash tool once. After the tool_result, return a short final answer."
+                "You are a tiny bash-use agent. Use the bash tool to satisfy the task "
+                "— parallel tool calls are fine when the steps are independent, and "
+                "set `attach` on the call when you want to surface an image file. "
+                "After the tool_result, return a short final answer."
             ),
             target="user",
         ),

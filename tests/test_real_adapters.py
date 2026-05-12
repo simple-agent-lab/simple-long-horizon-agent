@@ -719,7 +719,6 @@ class OpenAIChatReasoningTest(unittest.TestCase):
         self.assertEqual(len(thinking_blocks), 1)
         self.assertEqual(thinking_blocks[0].text, "2*3 is 6.")
         # Derived views agree with content.
-        self.assertEqual(response.thinking, "2*3 is 6.")
         self.assertEqual(response.text, "Result: 6.")
         # Content preserves order: thinking, then text.
         self.assertEqual([block.kind for block in response.content], ["thinking", "text"])

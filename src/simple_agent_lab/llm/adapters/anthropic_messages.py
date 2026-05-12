@@ -43,7 +43,6 @@ from ...messages import (
     ToolCallBlock,
     ToolResultBlock,
     text_of,
-    tool_result_text,
 )
 from ..stream import register_adapter
 from ..types import (
@@ -154,12 +153,6 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         content=tuple(blocks),
         stop_reason=stop_reason,
         usage=usage,
-        raw={
-            "provider": "anthropic-messages",
-            "model": req.provider.model,
-            "id": getattr(raw, "id", None),
-            "stop_reason": getattr(raw, "stop_reason", None),
-        },
         wire=wire,
     )
     yield StreamEvent(kind="done", payload={"response": response})
@@ -307,7 +300,7 @@ def _anthropic_tool_result_content(block: ToolResultBlock) -> Any:
     """
     has_image = any(isinstance(b, ImageBlock) for b in block.content)
     if not has_image:
-        return tool_result_text(block)
+        return text_of(block.content)
     rendered: list[dict[str, Any]] = []
     for inner in block.content:
         if isinstance(inner, TextBlock) and inner.text:

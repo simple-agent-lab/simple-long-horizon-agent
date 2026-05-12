@@ -135,8 +135,8 @@ class LLMResponse:
 
     `content` is the source of truth: blocks in the order the model
     produced them, so callers can replay the exact shape on the next turn.
-    `text` / `thinking` / `thinking_blocks` / `tool_calls` are derived
-    views over `content`.
+    `text` / `thinking_blocks` / `tool_calls` are derived views over
+    `content`.
 
     `wire` is the verbatim HTTP-level snapshot the adapter captured:
     ``{"request": <kwargs sent to the SDK>, "response": <dumped SDK
@@ -148,18 +148,11 @@ class LLMResponse:
     content: MessageContent = ()
     stop_reason: StopReason = "end_turn"
     usage: TokenUsage = field(default_factory=TokenUsage)
-    raw: dict[str, Any] = field(default_factory=dict)   # adapter-extracted metadata
-    wire: dict[str, Any] = field(default_factory=dict)  # raw {request, response} dump
+    wire: dict[str, Any] = field(default_factory=dict)
 
     @property
     def text(self) -> str:
         return text_of(self.content)
-
-    @property
-    def thinking(self) -> str:
-        return "\n\n".join(
-            block.text for block in thinking_blocks_of(self.content) if block.text
-        )
 
     @property
     def thinking_blocks(self) -> tuple[ThinkingBlock, ...]:

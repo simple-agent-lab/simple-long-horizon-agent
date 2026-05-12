@@ -275,7 +275,8 @@ class BashAttachTest(unittest.TestCase):
             )
         image_blocks = [b for b in result.content if b.kind == "image"]
         self.assertEqual(len(image_blocks), 1)
-        self.assertTrue(image_blocks[0].image_url.startswith("data:image/png;base64,"))
+        self.assertEqual(image_blocks[0].mime_type, "image/png")
+        self.assertTrue(image_blocks[0].data)  # non-empty base64 payload
 
     def test_attach_resolves_paths_against_cwd(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

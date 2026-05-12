@@ -64,7 +64,6 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         content=tuple(blocks),
         stop_reason="tool_use" if tool_calls else "end_turn",
         usage=usage,
-        raw={"provider": "fake", "model": req.provider.model},
     )
     yield StreamEvent(kind="done", payload={"response": response})
 
@@ -190,12 +189,12 @@ def _has_tool_result(req: LLMRequest) -> bool:
 
 
 def _last_tool_result_text(req: LLMRequest) -> str:
+    from ...messages import text_of
+
     for message in reversed(req.messages):
         results = getattr(message, "tool_results", ())
         if results:
-            from ...messages import tool_result_text as _tool_result_text
-
-            return _tool_result_text(results[-1])
+            return text_of(results[-1].content)
     return ""
 
 

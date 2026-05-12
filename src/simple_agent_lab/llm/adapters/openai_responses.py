@@ -42,7 +42,6 @@ from ...messages import (
     ToolResultBlock,
     encode_image_data_url,
     text_of,
-    tool_result_text,
 )
 from . import TOOL_RESULT_VISUAL_CAPTION
 from ..stream import register_adapter
@@ -141,12 +140,6 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         content=tuple(blocks),
         stop_reason=stop_reason,
         usage=usage,
-        raw={
-            "provider": "openai-responses",
-            "model": req.provider.model,
-            "id": getattr(raw, "id", None),
-            "status": getattr(raw, "status", None),
-        },
         wire=wire,
     )
     yield StreamEvent(kind="done", payload={"response": response})
@@ -193,7 +186,7 @@ def _to_responses_input(req: LLMRequest) -> list[dict[str, Any]]:
                     {
                         "type": "function_call_output",
                         "call_id": tool_result.tool_call_id,
-                        "output": tool_result_text(tool_result),
+                        "output": text_of(tool_result.content),
                     }
                 )
                 images = [b for b in tool_result.content if isinstance(b, ImageBlock)]

@@ -45,7 +45,6 @@ from simple_agent_lab import (  # noqa: E402
     tool_results_of,
 )
 from simple_agent_lab.llm import Provider  # noqa: E402
-from simple_agent_lab.messages import tool_result_text  # noqa: E402
 
 
 OPENAI_AUTH_ENV = "OPENAI_AUTH_TOKEN"
@@ -97,7 +96,7 @@ def print_live_event(event: Event) -> None:
             print(f"  [{message.sender:>10}] {message_text(message)}")
         elif message.kind == "tool_result":
             for block in tool_results_of(message.content):
-                inner = tool_result_text(block).replace("\n", " ")
+                inner = text_of(block.content).replace("\n", " ")
                 if len(inner) > 240:
                     inner = inner[:240] + "..."
                 tag = "tool*" if block.is_error else block.tool_name

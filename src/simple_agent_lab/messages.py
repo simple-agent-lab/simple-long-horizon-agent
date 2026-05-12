@@ -28,7 +28,6 @@ from typing import Any, Literal, TypeAlias
 
 
 Role: TypeAlias = Literal["system", "user", "assistant"]
-MessageRole: TypeAlias = Role
 MessageKind: TypeAlias = str
 MessageChannel: TypeAlias = str
 AgentName: TypeAlias = str
@@ -318,32 +317,17 @@ def tool_results_of(content: Iterable[ContentBlock]) -> tuple[ToolResultBlock, .
 def text_of(content: Iterable[ContentBlock]) -> str:
     """Concatenate top-level TextBlock text.
 
-    Tool result blocks are skipped here — their inner text is reachable
-    via `tool_result_text(block)` so callers don't accidentally pull
-    tool-result payloads into a user-facing message preview.
+    Tool result blocks are skipped here — their inner text lives one level
+    down and would surprise a caller asking for the message's own preview.
+    For a tool-result bundle, callers can iterate `tool_results_of(content)`
+    and apply `text_of(block.content)` to each.
     """
     return "".join(block.text for block in content if isinstance(block, TextBlock))
-
-
-def tool_result_text(block: ToolResultBlock) -> str:
-    """Flatten the visible text inside a ToolResultBlock."""
-    return "".join(b.text for b in block.content if isinstance(b, TextBlock))
 
 
 def encode_image_data_url(mime: str, data: str) -> str:
     """Build a `data:<mime>;base64,<data>` URL from an ImageBlock's parts."""
     return f"data:{mime or 'image/png'};base64,{data}"
-
-
-def decode_image_data_url(url: str) -> tuple[str, str] | None:
-    """Split `data:<mime>;base64,<data>` into `(mime, base64)`; None when malformed."""
-    if not url.startswith("data:"):
-        return None
-    head, _, payload = url.partition(",")
-    if not payload or ";base64" not in head:
-        return None
-    mime = head[len("data:") :].split(";", 1)[0] or "image/png"
-    return mime, payload
 
 
 def message_text(message: Message) -> str:
@@ -360,7 +344,7 @@ def message_text(message: Message) -> str:
         return text[:120]
     for block in message.content:
         if isinstance(block, ToolResultBlock):
-            inner = tool_result_text(block).replace("\n", " ").strip()
+            inner = text_of(block.content).replace("\n", " ").strip()
             if inner:
                 return inner[:120]
     return ""

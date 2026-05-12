@@ -32,7 +32,6 @@ from .messages import (
     MessageChannel,
     ContentInput,
     MessageKind,
-    MessageRole,
     Role,
     ImageBlock,
     TextBlock,
@@ -40,7 +39,6 @@ from .messages import (
     ToolResultBlock,
     UserMessage,
     assistant_message,
-    decode_image_data_url,
     is_tool_result_message,
     message_text,
     message_tool_calls,
@@ -102,7 +100,7 @@ class State:
         sender: AgentName,
         target: AgentName,
         content: ContentInput = "",
-        role: MessageRole | None = None,
+        role: Role | None = None,
         channel: MessageChannel = "main",
         **data: Any,
     ) -> Message:
@@ -170,38 +168,15 @@ def make_tool_result_block(
     tool_name: str,
     result: ToolResult,
 ) -> ToolResultBlock:
-    """Convert a tool's `ToolResult` into a runtime `ToolResultBlock`.
+    """Wrap a tool's `ToolResult` as a `ToolResultBlock`.
 
-    Each `ToolContent` becomes one inner block:
-      * `kind="text"`  -> `TextBlock`
-      * `kind="image"` -> `ImageBlock` (data URL is decoded into raw base64
-        plus a mime type). A malformed image URL is skipped with a text
-        note so the model still sees something useful.
+    `ToolResult.content` already carries `TextBlock | ImageBlock` values
+    in the runtime block shape, so this is just a re-tag.
     """
-    inner: list[TextBlock | ImageBlock] = []
-    text_buffer: list[str] = []
-    for block in result.content:
-        if block.kind == "text":
-            if block.text:
-                text_buffer.append(block.text)
-        elif block.kind == "image":
-            if text_buffer:
-                inner.append(TextBlock(text="\n".join(text_buffer)))
-                text_buffer = []
-            decoded = decode_image_data_url(block.image_url)
-            if decoded is None:
-                inner.append(
-                    TextBlock(text=f"[image attachment skipped: {block.image_url[:60]}...]")
-                )
-            else:
-                mime, data = decoded
-                inner.append(ImageBlock(data=data, mime_type=mime))
-    if text_buffer:
-        inner.append(TextBlock(text="\n".join(text_buffer)))
     return ToolResultBlock(
         tool_call_id=call_id,
         tool_name=tool_name,
-        content=tuple(inner),
+        content=tuple(result.content),
         is_error=result.is_error,
     )
 
