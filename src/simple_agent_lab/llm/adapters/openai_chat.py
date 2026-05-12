@@ -108,6 +108,7 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
             kwargs[key] = req.extra[key]
 
     raw = client.chat.completions.create(**kwargs)
+    wire = {"request": kwargs, "response": _wire_dump(raw)}
     if not raw.choices:
         raise RuntimeError("openai-chat: response had no choices")
     choice = raw.choices[0]
@@ -157,8 +158,20 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
             "id": getattr(raw, "id", None),
             "finish_reason": getattr(choice, "finish_reason", None),
         },
+        wire=wire,
     )
     yield StreamEvent(kind="done", payload={"response": response})
+
+
+def _wire_dump(raw: Any) -> Any:
+    """Best-effort serialization snapshot of an SDK response object."""
+    dump = getattr(raw, "model_dump", None)
+    if callable(dump):
+        try:
+            return dump()
+        except Exception:
+            pass
+    return raw
 
 
 def _api_key(req: LLMRequest) -> str | None:

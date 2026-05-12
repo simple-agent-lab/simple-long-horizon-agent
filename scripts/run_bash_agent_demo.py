@@ -127,6 +127,11 @@ def main() -> None:
         help="LLM provider: 'fake' (deterministic, default) or 'openai' (real chat call)",
     )
     parser.add_argument("--no-trace", action="store_true")
+    parser.add_argument(
+        "--wire",
+        action="store_true",
+        help="In the trace, also dump the verbatim HTTP request/response under each assistant turn.",
+    )
     args = parser.parse_args()
 
     task = args.task
@@ -153,7 +158,7 @@ def main() -> None:
 
     if not args.no_trace:
         print("\n=== full trace ===")
-        print_trace(runtime.state)
+        print_trace(runtime.state, wire=args.wire)
 
 
 if __name__ == "__main__":

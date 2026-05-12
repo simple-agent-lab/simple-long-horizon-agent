@@ -711,7 +711,10 @@ def last_event(
     raise LookupError(f"No event found for kind={kind!r}, sender={sender!r}")
 
 
-def print_trace(state: State) -> None:
+def print_trace(state: State, *, wire: bool = False) -> None:
+    """Print the standardized trace. `wire=True` also dumps the HTTP-level
+    request / response snapshot the adapter captured on each model call.
+    """
     print("\ntrace")
     print("-----")
     for event in state.events:
@@ -731,6 +734,10 @@ def print_trace(state: State) -> None:
                         preview = preview[:200] + "..."
                     tag = "redacted_thinking" if thinking_block.redacted else "thinking"
                     print(f"   {tag:<21} {preview}")
+                if wire:
+                    wire_payload = (message.data or {}).get("wire")
+                    if wire_payload:
+                        _print_wire(wire_payload)
         elif event.kind == "model_request":
             candidate = event.data.get("candidate_id")
             suffix = f" candidate={candidate}" if candidate is not None else ""
@@ -753,3 +760,19 @@ def print_trace(state: State) -> None:
         else:
             extras = " ".join(f"{key}={value}" for key, value in event.data.items())
             print(f"{event.index:02d} {event.kind:<21} {extras}")
+
+
+def _print_wire(wire: Any) -> None:
+    import json
+
+    for label in ("request", "response"):
+        body = wire.get(label) if isinstance(wire, dict) else None
+        if body is None:
+            continue
+        print(f"   wire.{label}:")
+        try:
+            rendered = json.dumps(body, indent=2, default=str, ensure_ascii=False)
+        except (TypeError, ValueError):
+            rendered = repr(body)
+        for line in rendered.splitlines():
+            print(f"     {line}")

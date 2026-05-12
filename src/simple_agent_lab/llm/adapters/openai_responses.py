@@ -96,6 +96,7 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
             kwargs[key] = req.extra[key]
 
     raw = client.responses.create(**kwargs)
+    wire = {"request": kwargs, "response": _wire_dump(raw)}
 
     blocks: list[ContentBlock] = []
     for item in getattr(raw, "output", None) or []:
@@ -142,8 +143,20 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
             "id": getattr(raw, "id", None),
             "status": getattr(raw, "status", None),
         },
+        wire=wire,
     )
     yield StreamEvent(kind="done", payload={"response": response})
+
+
+def _wire_dump(raw: Any) -> Any:
+    """Best-effort serialization snapshot of an SDK response object."""
+    dump = getattr(raw, "model_dump", None)
+    if callable(dump):
+        try:
+            return dump()
+        except Exception:
+            pass
+    return raw
 
 
 def _api_key(req: LLMRequest) -> str | None:

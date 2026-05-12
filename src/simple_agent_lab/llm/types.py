@@ -139,11 +139,19 @@ class LLMResponse:
     produced them, so callers can replay the exact shape on the next turn.
     `text` / `thinking` / `thinking_blocks` / `tool_calls` are derived
     views over `content`.
+
+    `wire` is the verbatim HTTP-level snapshot the adapter captured:
+    ``{"request": <kwargs sent to the SDK>, "response": <dumped SDK
+    response>}``. Empty when the adapter doesn't make a real call
+    (e.g. fake). It rides along to the runtime AssistantMessage via the
+    bridge so `print_trace(state, wire=True)` can show the wire layer
+    alongside the standardized content blocks.
     """
     content: MessageContent = ()
     stop_reason: StopReason = "end_turn"
     usage: TokenUsage = field(default_factory=TokenUsage)
-    raw: dict[str, Any] = field(default_factory=dict)   # original provider response
+    raw: dict[str, Any] = field(default_factory=dict)   # adapter-extracted metadata
+    wire: dict[str, Any] = field(default_factory=dict)  # raw {request, response} dump
 
     @property
     def text(self) -> str:

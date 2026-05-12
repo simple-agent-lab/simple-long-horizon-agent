@@ -100,6 +100,7 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
             kwargs[key] = req.extra[key]
 
     raw = client.messages.create(**kwargs)
+    wire = {"request": kwargs, "response": _wire_dump(raw)}
 
     # Preserve the wire order: replay rejects assistant messages where
     # thinking does not lead text and tool_use.
@@ -157,8 +158,20 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
             "id": getattr(raw, "id", None),
             "stop_reason": getattr(raw, "stop_reason", None),
         },
+        wire=wire,
     )
     yield StreamEvent(kind="done", payload={"response": response})
+
+
+def _wire_dump(raw: Any) -> Any:
+    """Best-effort serialization snapshot of an SDK response object."""
+    dump = getattr(raw, "model_dump", None)
+    if callable(dump):
+        try:
+            return dump()
+        except Exception:
+            pass
+    return raw
 
 
 def _api_key(req: LLMRequest) -> str | None:

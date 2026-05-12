@@ -261,12 +261,7 @@ def text_of(content: Iterable[ContentBlock]) -> str:
 
 
 def message_text(message: Message) -> str:
-    text = text_of(message.content).replace("\n", " ").strip()
-    if text:
-        return text[:120]
-    if message.data:
-        return str(dict(message.data))[:120]
-    return ""
+    return text_of(message.content).replace("\n", " ").strip()[:120]
 
 
 def validate_message(message: Message) -> None:
