@@ -199,18 +199,15 @@ def _to_anthropic_messages(req: LLMRequest) -> tuple[str | None, list[dict[str, 
                 system_parts.append(text)
             continue
         if message.role == "tool_result":
-            messages.append(
+            wire_blocks: list[dict[str, Any]] = [
                 {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": message.tool_call_id or "",
-                            "content": text_of(message.content),
-                        }
-                    ],
+                    "type": "tool_result",
+                    "tool_use_id": message.tool_call_id or "",
+                    "content": text_of(message.content),
                 }
-            )
+            ]
+            _apply_message_extra(wire_blocks, message)
+            messages.append({"role": "user", "content": wire_blocks})
             continue
         if message.role == "assistant":
             blocks: list[dict[str, Any]] = []
@@ -242,15 +239,30 @@ def _to_anthropic_messages(req: LLMRequest) -> tuple[str | None, list[dict[str, 
                     }
                 )
             if blocks:
+                _apply_message_extra(blocks, message)
                 messages.append({"role": "assistant", "content": blocks})
             continue
         # user
         content = _to_anthropic_user_content(message)
         if content:
+            _apply_message_extra(content, message)
             messages.append({"role": "user", "content": content})
 
     system = "\n\n".join(part for part in system_parts if part) or None
     return system, messages
+
+
+def _apply_message_extra(wire_blocks: list[dict[str, Any]], message: LLMMessage) -> None:
+    """Translate `LLMMessage.extra` provider-namespaced hints to wire shape.
+
+    Currently understood: `anthropic.cache_breakpoint=True` → attach
+    `cache_control: {"type": "ephemeral"}` to the last wire block of
+    this message (Anthropic's documented anchor pattern).
+    """
+    if not message.extra or not wire_blocks:
+        return
+    if message.extra.get("anthropic.cache_breakpoint"):
+        wire_blocks[-1]["cache_control"] = {"type": "ephemeral"}
 
 
 def _to_anthropic_user_content(message: LLMMessage) -> Any:

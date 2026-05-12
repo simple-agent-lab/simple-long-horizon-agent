@@ -130,14 +130,14 @@ Then use `Provider(api="my-api", ...)` like any built-in.
   Anthropic → `role="user"` + a `tool_result` content block). Keeping
   the internal name distinct from any provider's role lets the same
   transcript reach either provider with no caller-side shimming.
-- **`LLMMessage.cache_breakpoint`** is the unified caching marker. The
-  layer doesn't auto-place breakpoints; the caller decides where to
-  anchor cache reads. Adapters translate at the wire boundary; adapters
-  for providers without caching ignore the field.
-- **`req.extra: dict[str, Any]`** carries request options that only a
-  specific provider adapter understands (e.g., Anthropic `extra_headers`,
-  OpenAI `seed`). Adapters are free to read keys they recognize. The fake
-  adapter only uses it for streaming mechanics such as chunk size and delay.
+- **`LLMMessage.extra` and `LLMRequest.extra`** are the two
+  provider-specific opt-in channels: a namespaced bag of hints on one
+  message (`extra["anthropic.cache_breakpoint"] = True`) and a
+  namespaced bag of options on one request (`extra["seed"] = 1`).
+  Adapters read only the keys they recognize; unknown keys are
+  silently ignored so a transcript stays portable across providers.
+  The runtime side stashes `extra` under `Message.data["extra"]`; the
+  bridge lifts it to `LLMMessage.extra` so it reaches the adapter.
 
 ## What this layer does NOT do
 

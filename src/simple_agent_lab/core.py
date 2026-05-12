@@ -727,6 +727,10 @@ def print_trace(state: State, *, wire: bool = False) -> None:
                 f"{event.index:02d} {event.kind:<21} {message.kind:<10} "
                 f"{route:<24} {message_text(message)}"
             )
+            extra = (message.data or {}).get("extra")
+            if extra:
+                preview = ", ".join(f"{k}={v!r}" for k, v in extra.items())
+                print(f"   {'extra':<21} {preview[:200]}")
             if isinstance(message, AssistantMessage):
                 for thinking_block in message.thinking:
                     preview = thinking_block.text.replace("\n", " ")

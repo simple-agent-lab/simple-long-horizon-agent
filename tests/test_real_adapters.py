@@ -83,7 +83,7 @@ def _tool_use_request() -> LLMRequest:
                     ToolCall(id="t1", name="bash", arguments={"command": "echo hello"}),
                 ],
             ),
-            LLMMessage(role="tool_result", content="hello", tool_call_id="t1", name="bash"),
+            LLMMessage(role="tool_result", content="hello", tool_call_id="t1"),
         ],
         tools=[_bash_tool()],
     )
@@ -387,7 +387,6 @@ class OpenAIChatAdapterTest(unittest.TestCase):
                     role="tool_result",
                     content="hello",
                     tool_call_id="t1",
-                    name="bash",
                 ),
             ],
             tools=[_bash_tool()],
@@ -578,7 +577,6 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
                     role="tool_result",
                     content="out",
                     tool_call_id="prev",
-                    name="bash",
                 ),
             ],
             tools=[_bash_tool()],
@@ -808,7 +806,7 @@ class AnthropicReasoningReplayTest(unittest.TestCase):
                         ToolCall(id="t1", name="bash", arguments={"command": "ls"}),
                     ],
                 ),
-                LLMMessage(role="tool_result", content="out", tool_call_id="t1", name="bash"),
+                LLMMessage(role="tool_result", content="out", tool_call_id="t1"),
             ],
         )
         with (
@@ -880,6 +878,74 @@ class BridgeThinkingPreservationTest(unittest.TestCase):
         self.assertFalse(msg.thinking[0].redacted)
         self.assertEqual(msg.thinking[1].signature, "s2")
         self.assertTrue(msg.thinking[1].redacted)
+
+
+class MessageExtraTest(unittest.TestCase):
+    """`LLMMessage.extra` is the per-message twin of `LLMRequest.extra`.
+
+    Adapters read provider-namespaced keys; unknown namespaces are
+    silently ignored so a transcript stays portable across providers.
+    """
+
+    def test_anthropic_cache_breakpoint_attaches_cache_control(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_anthropic(_anthropic_response(text="ok"), captured)
+        req = LLMRequest(
+            provider=ANTHROPIC_PROVIDER,
+            messages=[
+                LLMMessage(
+                    role="user",
+                    content="cache this",
+                    extra={"anthropic.cache_breakpoint": True},
+                ),
+            ],
+        )
+        with (
+            _stub_module("anthropic", module),
+            mock.patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "k"}, clear=False),
+        ):
+            complete(req)
+
+        user_msg = next(m for m in captured["messages"] if m["role"] == "user")
+        last_block = user_msg["content"][-1]
+        self.assertEqual(last_block.get("cache_control"), {"type": "ephemeral"})
+
+    def test_unknown_namespace_silently_ignored(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_anthropic(_anthropic_response(text="ok"), captured)
+        req = LLMRequest(
+            provider=ANTHROPIC_PROVIDER,
+            messages=[
+                LLMMessage(
+                    role="user",
+                    content="hi",
+                    extra={"openai.name": "alice", "gemini.safety": "low"},
+                ),
+            ],
+        )
+        with (
+            _stub_module("anthropic", module),
+            mock.patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "k"}, clear=False),
+        ):
+            complete(req)
+
+        user_msg = next(m for m in captured["messages"] if m["role"] == "user")
+        for block in user_msg["content"]:
+            self.assertNotIn("cache_control", block)
+
+    def test_bridge_lifts_runtime_data_extra_to_llm_message(self) -> None:
+        from simple_agent_lab.llm.bridge import message_to_llm_message
+        from simple_agent_lab.messages import user_message
+
+        msg = user_message(
+            "hello",
+            data={"extra": {"anthropic.cache_breakpoint": True, "openai.name": "bob"}},
+        )
+        llm = message_to_llm_message(msg)
+        self.assertEqual(
+            dict(llm.extra),
+            {"anthropic.cache_breakpoint": True, "openai.name": "bob"},
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover

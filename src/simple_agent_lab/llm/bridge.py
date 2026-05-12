@@ -27,17 +27,23 @@ from .types import LLMMessage, LLMResponse, LLMTool
 
 
 def message_to_llm_message(message: Message, *, with_header: bool = False) -> LLMMessage:
-    """Project a runtime Message into the LLM layer's provider-neutral shape."""
+    """Project a runtime Message into the LLM layer's provider-neutral shape.
+
+    Per-message provider hints stashed under ``message.data["extra"]``
+    are lifted to ``LLMMessage.extra`` so adapters that opt in can
+    apply them on the wire.
+    """
+    extra = dict(message.data.get("extra") or {}) if message.data else {}
     if isinstance(message, ToolResultMessage):
         return LLMMessage(
             role="tool_result",
             content=message.content,
             tool_call_id=message.tool_call_id,
-            name=message.tool_name,
+            extra=extra,
         )
     header = _routing_header(message) if with_header else ""
     content = (TextBlock(header), *message.content) if header else message.content
-    return LLMMessage(role=message.role, content=content)
+    return LLMMessage(role=message.role, content=content, extra=extra)
 
 
 def messages_to_llm_messages(

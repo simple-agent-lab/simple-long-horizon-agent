@@ -18,6 +18,7 @@ LLM-layer block or usage types.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -57,21 +58,23 @@ class LLMMessage:
     means the same transcript can be sent to either provider without
     a translation step at the call site.
 
-    `cache_breakpoint` marks this message as a prompt-caching anchor.
-    Adapters that support caching (Anthropic) translate it to the wire
-    format; adapters that don't (OpenAI Chat) ignore it. The decision
-    of *where* to place breakpoints is left to the caller — the layer
-    does not auto-place them.
-
     `content` carries every block the message emits — text, image,
     thinking, and tool_call — in the order the model produced them.
     Adapters split blocks into the right wire slot per provider.
+
+    `extra` is the per-message twin of `LLMRequest.extra`: a namespaced
+    bag of provider-specific instructions on this particular message
+    (e.g. `extra["anthropic.cache_breakpoint"] = True` to mark this
+    message as a prompt-caching anchor on Anthropic). Adapters read
+    only their own namespace; unknown keys are silently ignored so a
+    transcript stays portable across providers. Trace renders `extra`
+    so the standardized view shows these instructions; `--wire` shows
+    the translated wire shape an adapter produced.
     """
     role: Role
     content: MessageContent = ()
     tool_call_id: Optional[str] = None         # only set when role="tool_result"
-    name: Optional[str] = None                 # speaker label (some APIs use it)
-    cache_breakpoint: bool = False
+    extra: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         # Accept str / list at construction for ergonomics; canonicalize to
@@ -93,16 +96,14 @@ def llm_message(
     content: ContentInput = "",
     *,
     tool_call_id: Optional[str] = None,
-    name: Optional[str] = None,
-    cache_breakpoint: bool = False,
+    extra: Mapping[str, Any] | None = None,
 ) -> LLMMessage:
     """Factory that accepts a str shorthand or a block sequence."""
     return LLMMessage(
         role=role,
         content=normalize_content(content),
         tool_call_id=tool_call_id,
-        name=name,
-        cache_breakpoint=cache_breakpoint,
+        extra=dict(extra or {}),
     )
 
 
