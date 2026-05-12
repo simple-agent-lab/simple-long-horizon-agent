@@ -185,12 +185,35 @@ def _to_responses_input(req: LLMRequest) -> list[dict[str, Any]]:
                 }
             )
         elif message.role == "user":
+            visual_blocks: list[dict[str, Any]] = []
             for tool_result in message.tool_results:
                 items.append(
                     {
                         "type": "function_call_output",
                         "call_id": tool_result.tool_call_id,
                         "output": tool_result_text(tool_result),
+                    }
+                )
+                images = [b for b in tool_result.content if isinstance(b, ImageBlock)]
+                if images:
+                    visual_blocks.append(
+                        {"type": "input_text",
+                         "text": f"Visual output from {tool_result.tool_name}:"}
+                    )
+                    for image in images:
+                        mime = image.mime_type or "image/png"
+                        visual_blocks.append(
+                            {
+                                "type": "input_image",
+                                "image_url": f"data:{mime};base64,{image.data}",
+                            }
+                        )
+            if visual_blocks:
+                items.append(
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": visual_blocks,
                     }
                 )
             if any(

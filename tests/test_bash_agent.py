@@ -238,5 +238,97 @@ def _execute(tool: AgentTool, args: dict[str, object]) -> ToolResult:
     return execute("call_1", args, lambda: False, None)
 
 
+def _make_red_png(side: int = 32) -> bytes:
+    import struct
+    import zlib
+
+    raw = b"".join(b"\x00" + b"\xff\x00\x00" * side for _ in range(side))
+
+    def _chunk(tag: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data))
+            + tag
+            + data
+            + struct.pack(">I", zlib.crc32(tag + data))
+        )
+
+    ihdr = struct.pack(">IIBBBBB", side, side, 8, 2, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + _chunk(b"IHDR", ihdr)
+        + _chunk(b"IDAT", zlib.compress(raw))
+        + _chunk(b"IEND", b"")
+    )
+
+
+class BashAttachTest(unittest.TestCase):
+    """`attach` inlines file paths as image content blocks on the ToolResult."""
+
+    def test_attach_inlines_png_as_image_content(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            png = Path(tmp) / "red.png"
+            png.write_bytes(_make_red_png())
+            tool = make_bash_tool(cwd=tmp)
+            result = _execute(
+                tool,
+                {"command": "ls", "description": "list dir", "attach": ["red.png"]},
+            )
+        image_blocks = [b for b in result.content if b.kind == "image"]
+        self.assertEqual(len(image_blocks), 1)
+        self.assertTrue(image_blocks[0].image_url.startswith("data:image/png;base64,"))
+
+    def test_attach_resolves_paths_against_cwd(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            png_dir = Path(tmp) / "out"
+            png_dir.mkdir()
+            (png_dir / "shot.png").write_bytes(_make_red_png())
+            tool = make_bash_tool(cwd=tmp)
+            result = _execute(
+                tool,
+                {
+                    "command": "true",
+                    "description": "noop",
+                    "attach": ["out/shot.png"],
+                },
+            )
+        image_blocks = [b for b in result.content if b.kind == "image"]
+        self.assertEqual(len(image_blocks), 1)
+
+    def test_attach_records_note_for_missing_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tool = make_bash_tool(cwd=tmp)
+            result = _execute(
+                tool,
+                {
+                    "command": "true",
+                    "description": "noop",
+                    "attach": ["missing.png", "also-missing.jpg"],
+                },
+            )
+        image_blocks = [b for b in result.content if b.kind == "image"]
+        self.assertEqual(len(image_blocks), 0)
+        note_text = "\n".join(b.text for b in result.content if b.kind == "text")
+        self.assertIn("missing.png", note_text)
+        self.assertIn("not a file", note_text)
+
+    def test_attach_rejects_oversize(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            big = Path(tmp) / "big.png"
+            big.write_bytes(_make_red_png())
+            tool = make_bash_tool(cwd=tmp, max_attach_bytes=10)  # absurdly small cap
+            result = _execute(
+                tool,
+                {
+                    "command": "true",
+                    "description": "noop",
+                    "attach": ["big.png"],
+                },
+            )
+        image_blocks = [b for b in result.content if b.kind == "image"]
+        self.assertEqual(len(image_blocks), 0)
+        note_text = "\n".join(b.text for b in result.content if b.kind == "text")
+        self.assertIn("exceeds limit", note_text)
+
+
 if __name__ == "__main__":
     unittest.main()

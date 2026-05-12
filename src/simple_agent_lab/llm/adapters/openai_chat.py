@@ -211,7 +211,12 @@ def _to_chat_messages(req: LLMRequest) -> list[dict[str, Any]]:
         elif message.role == "user":
             # OpenAI Chat wants one `role="tool"` entry per tool result and a
             # separate `role="user"` entry for any leftover text/image. Split
-            # the bundled message accordingly.
+            # the bundled message accordingly. Tool-result images can't ride
+            # inside a `role="tool"` content (the wire schema only accepts a
+            # string), so we surface them in an adjacent user-message after
+            # the role=tool entry — providers that accept image input in user
+            # messages then see the visual output.
+            visual_blocks: list[dict[str, Any]] = []
             for tool_result in message.tool_results:
                 out.append(
                     {
@@ -220,6 +225,16 @@ def _to_chat_messages(req: LLMRequest) -> list[dict[str, Any]]:
                         "content": tool_result_text(tool_result),
                     }
                 )
+                images = [b for b in tool_result.content if isinstance(b, ImageBlock)]
+                if images:
+                    visual_blocks.append(
+                        {"type": "text",
+                         "text": f"Visual output from {tool_result.tool_name}:"}
+                    )
+                    for image in images:
+                        visual_blocks.append(_openai_image_block(image))
+            if visual_blocks:
+                out.append({"role": "user", "content": visual_blocks})
             if any(
                 isinstance(b, (TextBlock, ImageBlock)) for b in message.content
             ):
@@ -255,14 +270,16 @@ def _to_chat_user_content(message: LLMMessage) -> Any:
         if isinstance(block, TextBlock) and block.text:
             parts.append({"type": "text", "text": block.text})
         elif isinstance(block, ImageBlock):
-            mime = block.mime_type or "image/png"
-            parts.append(
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:{mime};base64,{block.data}"},
-                }
-            )
+            parts.append(_openai_image_block(block))
     return parts if parts else ""
+
+
+def _openai_image_block(block: ImageBlock) -> dict[str, Any]:
+    mime = block.mime_type or "image/png"
+    return {
+        "type": "image_url",
+        "image_url": {"url": f"data:{mime};base64,{block.data}"},
+    }
 
 
 def _reasoning_text(message: LLMMessage) -> str:

@@ -203,11 +203,12 @@ def _to_anthropic_messages(req: LLMRequest) -> tuple[str | None, list[dict[str, 
         if message.role == "user" and message.tool_results:
             wire_blocks: list[dict[str, Any]] = []
             for tool_result in message.tool_results:
+                inner = _anthropic_tool_result_content(tool_result)
                 wire_blocks.append(
                     {
                         "type": "tool_result",
                         "tool_use_id": tool_result.tool_call_id,
-                        "content": tool_result_text(tool_result),
+                        "content": inner,
                     }
                 )
             # Any TextBlock / ImageBlock siblings ride along in the same wire user message.
@@ -215,16 +216,7 @@ def _to_anthropic_messages(req: LLMRequest) -> tuple[str | None, list[dict[str, 
                 if isinstance(block, TextBlock) and block.text:
                     wire_blocks.append({"type": "text", "text": block.text})
                 elif isinstance(block, ImageBlock):
-                    wire_blocks.append(
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": block.mime_type or "image/png",
-                                "data": block.data,
-                            },
-                        }
-                    )
+                    wire_blocks.append(_anthropic_image_block(block))
             _apply_message_extra(wire_blocks, message)
             messages.append({"role": "user", "content": wire_blocks})
             continue
@@ -290,17 +282,39 @@ def _to_anthropic_user_content(message: LLMMessage) -> Any:
         if isinstance(block, TextBlock) and block.text:
             blocks.append({"type": "text", "text": block.text})
         elif isinstance(block, ImageBlock):
-            blocks.append(
-                {
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": block.mime_type or "image/png",
-                        "data": block.data,
-                    },
-                }
-            )
+            blocks.append(_anthropic_image_block(block))
     return blocks
+
+
+def _anthropic_image_block(block: ImageBlock) -> dict[str, Any]:
+    return {
+        "type": "image",
+        "source": {
+            "type": "base64",
+            "media_type": block.mime_type or "image/png",
+            "data": block.data,
+        },
+    }
+
+
+def _anthropic_tool_result_content(block: ToolResultBlock) -> Any:
+    """Render the inner content of a tool_result block for Anthropic wire.
+
+    Anthropic accepts either a plain string (text-only) or a list of
+    `text` / `image` content blocks. We use the string form when there
+    are no images so simple cases stay compact; multimodal results get
+    the list form.
+    """
+    has_image = any(isinstance(b, ImageBlock) for b in block.content)
+    if not has_image:
+        return tool_result_text(block)
+    rendered: list[dict[str, Any]] = []
+    for inner in block.content:
+        if isinstance(inner, TextBlock) and inner.text:
+            rendered.append({"type": "text", "text": inner.text})
+        elif isinstance(inner, ImageBlock):
+            rendered.append(_anthropic_image_block(inner))
+    return rendered
 
 
 def _to_anthropic_tools(tools: list[LLMTool]) -> list[dict[str, Any]]:

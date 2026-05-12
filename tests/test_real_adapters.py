@@ -1057,5 +1057,119 @@ class ParallelToolResultBundleTest(unittest.TestCase):
         self.assertEqual(contents["b"], "out-b")
 
 
+class MultimodalToolResultTest(unittest.TestCase):
+    """A tool result carrying an image renders correctly per provider.
+
+    Anthropic accepts a list of `text` / `image` blocks directly inside
+    `tool_result.content`. OpenAI Chat / Responses don't (the role=tool
+    content is a string), so the adapter surfaces the image in an
+    adjacent `role="user"` entry tagged with the tool name.
+    """
+
+    IMAGE_DATA = "ZmFrZS1wbmctYnl0ZXM="  # base64 of "fake-png-bytes"
+
+    def _request_with_image(self, provider: Provider) -> LLMRequest:
+        from simple_agent_lab.messages import ImageBlock
+
+        return LLMRequest(
+            provider=provider,
+            messages=[
+                LLMMessage(role="user", content="screenshot please"),
+                LLMMessage(
+                    role="assistant",
+                    content=[ToolCallBlock("c1", "screenshot", {})],
+                ),
+                LLMMessage(
+                    role="user",
+                    content=[
+                        ToolResultBlock(
+                            tool_call_id="c1",
+                            tool_name="screenshot",
+                            content=(
+                                TextBlock("captured"),
+                                ImageBlock(data=self.IMAGE_DATA, mime_type="image/png"),
+                            ),
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+    def test_anthropic_carries_image_inside_tool_result_content(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_anthropic(_anthropic_response(text="ok"), captured)
+        with (
+            _stub_module("anthropic", module),
+            mock.patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "k"}, clear=False),
+        ):
+            complete(self._request_with_image(ANTHROPIC_PROVIDER))
+
+        bundle = next(
+            m for m in captured["messages"]
+            if m["role"] == "user" and any(b.get("type") == "tool_result" for b in m["content"])
+        )
+        tool_block = next(b for b in bundle["content"] if b["type"] == "tool_result")
+        # Anthropic accepts the list form — text + image blocks side by side.
+        self.assertIsInstance(tool_block["content"], list)
+        kinds = [b["type"] for b in tool_block["content"]]
+        self.assertEqual(kinds, ["text", "image"])
+        image = tool_block["content"][1]
+        self.assertEqual(image["source"]["data"], self.IMAGE_DATA)
+        self.assertEqual(image["source"]["media_type"], "image/png")
+
+    def test_openai_chat_splits_image_into_adjacent_user_message(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(_chat_response(text="red"), captured, kind="chat")
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            complete(self._request_with_image(OPENAI_CHAT_PROVIDER))
+
+        wire = captured["messages"]
+        # Find the role=tool entry — content is a plain string with no image.
+        tool_entries = [m for m in wire if m["role"] == "tool"]
+        self.assertEqual(len(tool_entries), 1)
+        self.assertIsInstance(tool_entries[0]["content"], str)
+        self.assertIn("captured", tool_entries[0]["content"])
+        # The adjacent user entry should follow with the image inlined.
+        tool_idx = wire.index(tool_entries[0])
+        follow = wire[tool_idx + 1]
+        self.assertEqual(follow["role"], "user")
+        types = [part["type"] for part in follow["content"]]
+        self.assertIn("text", types)
+        self.assertIn("image_url", types)
+        image_part = next(p for p in follow["content"] if p["type"] == "image_url")
+        self.assertIn(self.IMAGE_DATA, image_part["image_url"]["url"])
+
+    def test_openai_responses_splits_image_into_adjacent_user_item(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(
+            _responses_response(text_blocks=["red"]),
+            captured,
+            kind="responses",
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            complete(self._request_with_image(OPENAI_RESPONSES_PROVIDER))
+
+        items = captured["input"]
+        # function_call_output stays text-only.
+        outputs = [it for it in items if it.get("type") == "function_call_output"]
+        self.assertEqual(len(outputs), 1)
+        self.assertIn("captured", outputs[0]["output"])
+        # And there is a user message item carrying the image.
+        out_idx = items.index(outputs[0])
+        follow = items[out_idx + 1]
+        self.assertEqual(follow["type"], "message")
+        self.assertEqual(follow["role"], "user")
+        types = [part["type"] for part in follow["content"]]
+        self.assertIn("input_image", types)
+        image_part = next(p for p in follow["content"] if p["type"] == "input_image")
+        self.assertIn(self.IMAGE_DATA, image_part["image_url"])
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

@@ -34,6 +34,7 @@ from .messages import (
     MessageKind,
     MessageRole,
     Role,
+    ImageBlock,
     TextBlock,
     ToolCallBlock,
     ToolResultBlock,
@@ -168,15 +169,51 @@ def make_tool_result_block(
     tool_name: str,
     result: ToolResult,
 ) -> ToolResultBlock:
-    """Convert a tool's `ToolResult` into a runtime `ToolResultBlock`."""
-    text = tool_result_text(result)
-    inner = (TextBlock(text),) if text else ()
+    """Convert a tool's `ToolResult` into a runtime `ToolResultBlock`.
+
+    Each `ToolContent` becomes one inner block:
+      * `kind="text"`  -> `TextBlock`
+      * `kind="image"` -> `ImageBlock` (data URL is decoded into raw base64
+        plus a mime type). A malformed image URL is skipped with a text
+        note so the model still sees something useful.
+    """
+    inner: list[TextBlock | ImageBlock] = []
+    text_buffer: list[str] = []
+    for block in result.content:
+        if block.kind == "text":
+            if block.text:
+                text_buffer.append(block.text)
+        elif block.kind == "image":
+            if text_buffer:
+                inner.append(TextBlock(text="\n".join(text_buffer)))
+                text_buffer = []
+            decoded = _decode_image_data_url(block.image_url)
+            if decoded is None:
+                inner.append(
+                    TextBlock(text=f"[image attachment skipped: {block.image_url[:60]}...]")
+                )
+            else:
+                mime, data = decoded
+                inner.append(ImageBlock(data=data, mime_type=mime))
+    if text_buffer:
+        inner.append(TextBlock(text="\n".join(text_buffer)))
     return ToolResultBlock(
         tool_call_id=call_id,
         tool_name=tool_name,
-        content=inner,
+        content=tuple(inner),
         is_error=result.is_error,
     )
+
+
+def _decode_image_data_url(image_url: str) -> tuple[str, str] | None:
+    """Split `data:<mime>;base64,<data>` into (mime, base64)."""
+    if not image_url.startswith("data:"):
+        return None
+    head, _, payload = image_url.partition(",")
+    if not payload or ";base64" not in head:
+        return None
+    mime = head[len("data:") :].split(";", 1)[0] or "image/png"
+    return mime, payload
 
 
 def _execute_one(
