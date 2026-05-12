@@ -10,11 +10,13 @@ from simple_agent_lab import (
     ContextPolicy,
     Message,
     State,
+    TextBlock,
     ToolCallBlock,
     assistant_message,
     build_agent_context_view,
     last_event,
     last_message,
+    message_text,
     run_to_completion,
     sequence,
 )
@@ -39,7 +41,7 @@ class CoreTest(unittest.TestCase):
             sequence("writer"),
         )
 
-        self.assertEqual(last_message(state, kind="final").content, "done")
+        self.assertEqual(message_text(last_message(state, kind="final")), "done")
         self.assertIn("model_request", [event.kind for event in state.events])
         self.assertIn("model_response", [event.kind for event in state.events])
         self.assertEqual(state.events[-1].kind, "agent_end")
@@ -49,17 +51,19 @@ class CoreTest(unittest.TestCase):
             if any(message.role == "tool_result" for message in visible):
                 result = last_message(visible, kind="tool_result")
                 return assistant_message(
-                    f"final: {result.content}",
+                    f"final: {message_text(result)}",
                     sender=agent.name,
                     target="user",
                     kind="final",
                 )
             return assistant_message(
-                "asking tool",
+                [
+                    TextBlock("asking tool"),
+                    ToolCallBlock("call_1", "echo", {"text": "child ok"}),
+                ],
                 sender=agent.name,
                 target="user",
                 kind="thought",
-                tool_calls=(ToolCallBlock("call_1", "echo", {"text": "child ok"}),),
             )
 
         def echo_tool(
@@ -94,8 +98,12 @@ class CoreTest(unittest.TestCase):
             ],
         )
 
-        self.assertEqual(last_message(state, kind="tool_result").content, "child ok")
-        self.assertEqual(last_message(state, kind="final").content, "final: child ok")
+        self.assertEqual(
+            message_text(last_message(state, kind="tool_result")), "child ok"
+        )
+        self.assertEqual(
+            message_text(last_message(state, kind="final")), "final: child ok"
+        )
         self.assertTrue(any(event.kind == "tool_execution_start" for event in state.events))
         self.assertTrue(any(event.kind == "tool_execution_end" for event in state.events))
 
@@ -134,7 +142,7 @@ class CoreTest(unittest.TestCase):
         )
 
         self.assertEqual(
-            [message.content for message in view.messages],
+            [message_text(message) for message in view.messages],
             ["visible task", "broadcast"],
         )
         self.assertEqual(view.stats.total_messages, 5)
@@ -157,7 +165,7 @@ class CoreTest(unittest.TestCase):
         )
 
         self.assertEqual(
-            [message.content for message in view.messages],
+            [message_text(message) for message in view.messages],
             ["pinned task", "recent answer"],
         )
         self.assertEqual(view.stats.dropped_messages, 1)
@@ -173,11 +181,13 @@ class CoreTest(unittest.TestCase):
         state.send("note", "user", "coordinator", "old " + ("x" * 120))
         state.record(
             assistant_message(
-                "asking tool",
+                [
+                    TextBlock("asking tool"),
+                    ToolCallBlock("call_1", "echo", {"text": "ok"}),
+                ],
                 sender="coordinator",
                 target="user",
                 kind="thought",
-                tool_calls=(ToolCallBlock("call_1", "echo", {"text": "ok"}),),
             )
         )
         state.send(

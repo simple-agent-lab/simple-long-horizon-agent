@@ -1,16 +1,26 @@
 """Shared message protocol for Simple Agent Lab.
 
-`Message` is the runtime transcript union. It keeps routing fields such as
-sender, target, kind, and channel.
+The protocol is built on **one** unified content model:
 
-`ModelMessage` is the provider-neutral model-call union. It strips runtime
-routing fields and is the input shape provider adapters translate to wire
-payloads.
+    TextBlock | ImageBlock | ThinkingBlock | ToolCallBlock   (== ContentBlock)
+
+Every message — runtime and provider-facing — carries the same shape
+``content: tuple[ContentBlock, ...]``. There are no sibling thinking /
+tool_calls fields; they are filtered out of ``content`` on demand
+through `AssistantMessage.thinking` / `.tool_calls` properties or the
+``thinking_blocks_of`` / ``tool_calls_of`` helpers.
+
+`Message` is the runtime transcript union. It keeps routing fields such
+as sender, target, kind, and channel.
+
+`ModelMessage` is the provider-neutral model-call union. It strips
+runtime routing fields and is the input shape provider adapters
+translate to wire payloads.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeAlias
 
@@ -80,17 +90,16 @@ class TokenUsage:
         return self.input_tokens + self.output_tokens
 
 
-MessageContentBlock: TypeAlias = TextBlock | ImageBlock
-MessageContent: TypeAlias = str | tuple[MessageContentBlock, ...]
-ModelContentBlock: TypeAlias = TextBlock | ImageBlock | ThinkingBlock | ToolCallBlock
-ModelContent: TypeAlias = tuple[ModelContentBlock, ...]
+ContentBlock: TypeAlias = TextBlock | ImageBlock | ThinkingBlock | ToolCallBlock
+MessageContent: TypeAlias = tuple[ContentBlock, ...]
+ContentInput: TypeAlias = str | Sequence[ContentBlock]
 Sidecar: TypeAlias = Mapping[str, Any]
 
 
 @dataclass(frozen=True)
 class UserMessage:
     role: Literal["user"] = field(default="user", init=False)
-    content: MessageContent = ""
+    content: MessageContent = ()
     sender: AgentName = "user"
     target: AgentName = "all"
     kind: MessageKind = "message"
@@ -101,7 +110,7 @@ class UserMessage:
 @dataclass(frozen=True)
 class SystemMessage:
     role: Literal["system"] = field(default="system", init=False)
-    content: MessageContent = ""
+    content: MessageContent = ()
     sender: AgentName = "system"
     target: AgentName = "all"
     kind: MessageKind = "system"
@@ -112,21 +121,27 @@ class SystemMessage:
 @dataclass(frozen=True)
 class AssistantMessage:
     role: Literal["assistant"] = field(default="assistant", init=False)
-    content: MessageContent = ""
+    content: MessageContent = ()
     sender: AgentName = "assistant"
     target: AgentName = "all"
     kind: MessageKind = "message"
     channel: MessageChannel = "main"
-    thinking: tuple[ThinkingBlock, ...] = ()
-    tool_calls: tuple[ToolCallBlock, ...] = ()
     usage: TokenUsage | None = None
     data: Sidecar = field(default_factory=dict)
+
+    @property
+    def thinking(self) -> tuple[ThinkingBlock, ...]:
+        return tuple(block for block in self.content if isinstance(block, ThinkingBlock))
+
+    @property
+    def tool_calls(self) -> tuple[ToolCallBlock, ...]:
+        return tuple(block for block in self.content if isinstance(block, ToolCallBlock))
 
 
 @dataclass(frozen=True)
 class ToolResultMessage:
     role: Literal["tool_result"] = field(default="tool_result", init=False)
-    content: MessageContent = ""
+    content: MessageContent = ()
     tool_call_id: str = ""
     tool_name: str = ""
     sender: AgentName = ""
@@ -143,25 +158,33 @@ Message: TypeAlias = UserMessage | SystemMessage | AssistantMessage | ToolResult
 @dataclass(frozen=True)
 class ModelUserMessage:
     role: Literal["user"] = field(default="user", init=False)
-    content: tuple[TextBlock | ImageBlock, ...] = ()
+    content: MessageContent = ()
 
 
 @dataclass(frozen=True)
 class ModelSystemMessage:
     role: Literal["system"] = field(default="system", init=False)
-    content: tuple[TextBlock | ImageBlock, ...] = ()
+    content: MessageContent = ()
 
 
 @dataclass(frozen=True)
 class ModelAssistantMessage:
     role: Literal["assistant"] = field(default="assistant", init=False)
-    content: ModelContent = ()
+    content: MessageContent = ()
+
+    @property
+    def thinking(self) -> tuple[ThinkingBlock, ...]:
+        return tuple(block for block in self.content if isinstance(block, ThinkingBlock))
+
+    @property
+    def tool_calls(self) -> tuple[ToolCallBlock, ...]:
+        return tuple(block for block in self.content if isinstance(block, ToolCallBlock))
 
 
 @dataclass(frozen=True)
 class ModelToolResultMessage:
     role: Literal["tool_result"] = field(default="tool_result", init=False)
-    content: tuple[TextBlock | ImageBlock, ...] = ()
+    content: MessageContent = ()
     tool_call_id: str = ""
     tool_name: str = ""
     is_error: bool = False
@@ -173,7 +196,7 @@ ModelMessage: TypeAlias = (
 
 
 def user_message(
-    content: MessageContent = "",
+    content: ContentInput = "",
     *,
     sender: AgentName = "user",
     target: AgentName = "all",
@@ -182,7 +205,7 @@ def user_message(
     data: Sidecar | None = None,
 ) -> UserMessage:
     return UserMessage(
-        content=_normalize_message_content(content),
+        content=normalize_content(content),
         sender=sender,
         target=target,
         kind=kind,
@@ -192,7 +215,7 @@ def user_message(
 
 
 def system_message(
-    content: MessageContent = "",
+    content: ContentInput = "",
     *,
     sender: AgentName = "system",
     target: AgentName = "all",
@@ -201,7 +224,7 @@ def system_message(
     data: Sidecar | None = None,
 ) -> SystemMessage:
     return SystemMessage(
-        content=_normalize_message_content(content),
+        content=normalize_content(content),
         sender=sender,
         target=target,
         kind=kind,
@@ -211,25 +234,21 @@ def system_message(
 
 
 def assistant_message(
-    content: MessageContent = "",
+    content: ContentInput = "",
     *,
     sender: AgentName = "assistant",
     target: AgentName = "all",
     kind: MessageKind = "message",
     channel: MessageChannel = "main",
-    thinking: Sequence[ThinkingBlock] = (),
-    tool_calls: Sequence[ToolCallBlock] = (),
     usage: TokenUsage | None = None,
     data: Sidecar | None = None,
 ) -> AssistantMessage:
     message = AssistantMessage(
-        content=_normalize_message_content(content),
+        content=normalize_content(content),
         sender=sender,
         target=target,
         kind=kind,
         channel=channel,
-        thinking=tuple(thinking),
-        tool_calls=tuple(tool_calls),
         usage=usage,
         data=dict(data or {}),
     )
@@ -238,7 +257,7 @@ def assistant_message(
 
 
 def tool_result_message(
-    content: MessageContent = "",
+    content: ContentInput = "",
     *,
     tool_call_id: str,
     tool_name: str,
@@ -250,7 +269,7 @@ def tool_result_message(
     data: Sidecar | None = None,
 ) -> ToolResultMessage:
     message = ToolResultMessage(
-        content=_normalize_message_content(content),
+        content=normalize_content(content),
         tool_call_id=tool_call_id,
         tool_name=tool_name,
         sender=sender if sender is not None else tool_name,
@@ -264,40 +283,29 @@ def tool_result_message(
     return message
 
 
-def model_user_message(content: MessageContent = "") -> ModelUserMessage:
-    return ModelUserMessage(content=_normalize_visible_blocks(content))
+def model_user_message(content: ContentInput = "") -> ModelUserMessage:
+    return ModelUserMessage(content=normalize_content(content))
 
 
-def model_system_message(content: MessageContent = "") -> ModelSystemMessage:
-    return ModelSystemMessage(content=_normalize_visible_blocks(content))
+def model_system_message(content: ContentInput = "") -> ModelSystemMessage:
+    return ModelSystemMessage(content=normalize_content(content))
 
 
-def model_assistant_message(
-    content: MessageContent | ModelContent = "",
-    *,
-    thinking: Sequence[ThinkingBlock] = (),
-    tool_calls: Sequence[ToolCallBlock] = (),
-) -> ModelAssistantMessage:
-    message = ModelAssistantMessage(
-        content=(
-            *_normalize_model_blocks(content),
-            *tuple(thinking),
-            *tuple(tool_calls),
-        )
-    )
+def model_assistant_message(content: ContentInput = "") -> ModelAssistantMessage:
+    message = ModelAssistantMessage(content=normalize_content(content))
     validate_model_message(message)
     return message
 
 
 def model_tool_result_message(
-    content: MessageContent = "",
+    content: ContentInput = "",
     *,
     tool_call_id: str,
     tool_name: str,
     is_error: bool = False,
 ) -> ModelToolResultMessage:
     message = ModelToolResultMessage(
-        content=_normalize_visible_blocks(content),
+        content=normalize_content(content),
         tool_call_id=tool_call_id,
         tool_name=tool_name,
         is_error=is_error,
@@ -309,19 +317,16 @@ def model_tool_result_message(
 def to_model_message(message: Message, *, with_header: bool = True) -> ModelMessage:
     """Project one runtime Message to one provider-neutral ModelMessage."""
     header = _routing_header(message) if with_header else ""
+    content = _content_with_header(message.content, header)
     if isinstance(message, UserMessage):
-        return model_user_message(_content_with_header(message.content, header))
+        return ModelUserMessage(content=content)
     if isinstance(message, SystemMessage):
-        return model_system_message(_content_with_header(message.content, header))
+        return ModelSystemMessage(content=content)
     if isinstance(message, AssistantMessage):
-        return model_assistant_message(
-            _content_with_header(message.content, header),
-            thinking=message.thinking,
-            tool_calls=message.tool_calls,
-        )
+        return ModelAssistantMessage(content=content)
     if isinstance(message, ToolResultMessage):
-        return model_tool_result_message(
-            message.content,
+        return ModelToolResultMessage(
+            content=message.content,  # no routing header on tool_result
             tool_call_id=message.tool_call_id,
             tool_name=message.tool_name,
             is_error=message.is_error,
@@ -349,29 +354,36 @@ def message_tool_calls(message: Message) -> tuple[ToolCallBlock, ...]:
     return ()
 
 
+def thinking_blocks_of(content: Iterable[ContentBlock]) -> tuple[ThinkingBlock, ...]:
+    return tuple(block for block in content if isinstance(block, ThinkingBlock))
+
+
+def tool_calls_of(content: Iterable[ContentBlock]) -> tuple[ToolCallBlock, ...]:
+    return tuple(block for block in content if isinstance(block, ToolCallBlock))
+
+
+def text_of(content: Iterable[ContentBlock]) -> str:
+    return "".join(block.text for block in content if isinstance(block, TextBlock))
+
+
 def message_text(message: Message) -> str:
-    content = message.content
-    if isinstance(content, str) and content:
-        return content.replace("\n", " ")[:120]
-    if isinstance(content, tuple) and content:
-        texts = [block.text for block in content if isinstance(block, TextBlock)]
-        if texts:
-            return " ".join(texts).replace("\n", " ")[:120]
-        return str(content)[:120]
+    text = text_of(message.content).replace("\n", " ").strip()
+    if text:
+        return text[:120]
     if message.data:
         return str(dict(message.data))[:120]
     return ""
 
 
 def model_message_text(message: ModelMessage) -> str:
-    texts = [block.text for block in message.content if isinstance(block, TextBlock)]
-    return " ".join(texts)
+    return text_of(message.content)
 
 
 def validate_message(message: Message) -> None:
     if isinstance(message, AssistantMessage):
-        for tool_call in message.tool_calls:
-            validate_tool_call(tool_call)
+        for block in message.content:
+            if isinstance(block, ToolCallBlock):
+                validate_tool_call(block)
     if isinstance(message, ToolResultMessage):
         if not message.tool_call_id:
             raise ValueError("ToolResultMessage.tool_call_id must be non-empty")
@@ -398,30 +410,14 @@ def validate_tool_call(tool_call: ToolCallBlock) -> None:
         raise ValueError("ToolCallBlock.name must be non-empty")
 
 
-def _normalize_message_content(content: MessageContent) -> MessageContent:
-    if isinstance(content, str):
-        return content
-    return _normalize_visible_blocks(content)
-
-
-def _normalize_visible_blocks(content: MessageContent) -> tuple[TextBlock | ImageBlock, ...]:
+def normalize_content(content: ContentInput) -> MessageContent:
+    """Coerce a str-or-sequence input to the canonical tuple-of-blocks form."""
     if isinstance(content, str):
         return (TextBlock(content),) if content else ()
-    blocks: list[TextBlock | ImageBlock] = []
+    blocks: list[ContentBlock] = []
     for block in content:
-        if not isinstance(block, TextBlock | ImageBlock):
-            raise TypeError(f"Expected TextBlock or ImageBlock, got {type(block)!r}")
-        blocks.append(block)
-    return tuple(blocks)
-
-
-def _normalize_model_blocks(content: MessageContent | ModelContent) -> ModelContent:
-    if isinstance(content, str):
-        return (TextBlock(content),) if content else ()
-    blocks: list[ModelContentBlock] = []
-    for block in content:
-        if not isinstance(block, TextBlock | ImageBlock | ThinkingBlock | ToolCallBlock):
-            raise TypeError(f"Unexpected model content block: {type(block)!r}")
+        if not isinstance(block, (TextBlock, ImageBlock, ThinkingBlock, ToolCallBlock)):
+            raise TypeError(f"Unexpected content block: {type(block)!r}")
         blocks.append(block)
     return tuple(blocks)
 
@@ -436,6 +432,4 @@ def _routing_header(message: Message) -> str:
 def _content_with_header(content: MessageContent, header: str) -> MessageContent:
     if not header:
         return content
-    if isinstance(content, str):
-        return f"{header}\n{content}" if content else header
     return (TextBlock(header), *content)

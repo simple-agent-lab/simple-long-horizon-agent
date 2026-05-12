@@ -4,17 +4,12 @@ Uses the official `openai` SDK. Blocking-only. Same call path also serves
 OpenAI-compatible endpoints (Ollama, vLLM, OpenRouter, LM Studio, ...)
 when `Provider.base_url` is set.
 
-Reasoning content is treated as a first-class content block. On the way
-in, the adapter reads `message.reasoning_content` (DeepSeek / mimo style)
-and surfaces it as a `ContentBlock(kind="thinking", ...)` ahead of the
-text and tool_call blocks in `LLMResponse.content`. On the way out, prior
-assistant thinking blocks are replayed via the same `reasoning_content`
-field on the outbound assistant dict so multi-turn tool-use chains stay
-continuous. The replay step is gated by `Provider.replay_reasoning`
-(default True; flip to False for endpoints that reject the field).
-
-The SDK import is deferred to `stream()` so the module registers even
-without `[openai]` installed.
+Reasoning content is treated as a first-class block. On the way in, the
+adapter reads `message.reasoning_content` (DeepSeek / mimo style) and
+surfaces it as a `ThinkingBlock` ahead of the text and tool_call blocks
+on `LLMResponse.content`. On the way out, prior assistant thinking
+blocks are replayed via the same `reasoning_content` field on the
+outbound assistant dict (gated by `Provider.replay_reasoning`).
 
 Provider config:
 
@@ -52,16 +47,22 @@ import json
 import os
 from typing import Any, Iterator
 
+from ...messages import (
+    ContentBlock,
+    ImageBlock,
+    TextBlock,
+    ThinkingBlock,
+    ToolCallBlock,
+    text_of,
+)
 from ..stream import register_adapter
 from ..types import (
-    ContentBlock,
     LLMMessage,
     LLMRequest,
     LLMResponse,
     LLMTool,
     StopReason,
     StreamEvent,
-    ToolCall,
     Usage,
 )
 
@@ -114,7 +115,7 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
 
     reasoning_text = _extract_reasoning(message)
     text = getattr(message, "content", None) or ""
-    tool_calls: list[ToolCall] = []
+    tool_calls: list[ToolCallBlock] = []
     for tool_call in getattr(message, "tool_calls", None) or []:
         function = getattr(tool_call, "function", None)
         name = getattr(function, "name", "") if function else ""
@@ -124,16 +125,15 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         except json.JSONDecodeError:
             arguments = {"_raw_arguments": args_str}
         tool_calls.append(
-            ToolCall(id=getattr(tool_call, "id", ""), name=name, arguments=arguments)
+            ToolCallBlock(id=getattr(tool_call, "id", ""), name=name, arguments=arguments)
         )
 
     blocks: list[ContentBlock] = []
     if reasoning_text:
-        blocks.append(ContentBlock(kind="thinking", thinking=reasoning_text))
+        blocks.append(ThinkingBlock(text=reasoning_text))
     if text:
-        blocks.append(ContentBlock(kind="text", text=text))
-    for tool_call in tool_calls:
-        blocks.append(ContentBlock(kind="tool_call", tool_call=tool_call))
+        blocks.append(TextBlock(text=text))
+    blocks.extend(tool_calls)
 
     stop_reason = _map_openai_finish(getattr(choice, "finish_reason", None))
     usage = _openai_chat_usage(getattr(raw, "usage", None))
@@ -148,7 +148,7 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
     yield StreamEvent(kind="usage_update", payload={"usage": usage})
 
     response = LLMResponse(
-        content=blocks,
+        content=tuple(blocks),
         stop_reason=stop_reason,
         usage=usage,
         raw={
@@ -192,14 +192,15 @@ def _to_chat_messages(req: LLMRequest) -> list[dict[str, Any]]:
         out.append({"role": "system", "content": req.system_prompt})
     for message in req.messages:
         if message.role == "system":
-            out.append({"role": "system", "content": _message_text(message)})
+            out.append({"role": "system", "content": text_of(message.content)})
         elif message.role == "user":
             out.append({"role": "user", "content": _to_chat_user_content(message)})
         elif message.role == "assistant":
             entry: dict[str, Any] = {"role": "assistant"}
-            text = _message_text(message)
+            text = text_of(message.content)
             entry["content"] = text if text else None
-            if message.tool_calls:
+            tool_calls = message.tool_calls
+            if tool_calls:
                 entry["tool_calls"] = [
                     {
                         "id": tool_call.id,
@@ -209,10 +210,10 @@ def _to_chat_messages(req: LLMRequest) -> list[dict[str, Any]]:
                             "arguments": json.dumps(dict(tool_call.arguments)),
                         },
                     }
-                    for tool_call in message.tool_calls
+                    for tool_call in tool_calls
                 ]
             if req.provider.replay_reasoning:
-                reasoning = _message_reasoning(message)
+                reasoning = _reasoning_text(message)
                 if reasoning:
                     entry["reasoning_content"] = reasoning
             out.append(entry)
@@ -221,20 +222,18 @@ def _to_chat_messages(req: LLMRequest) -> list[dict[str, Any]]:
                 {
                     "role": "tool",
                     "tool_call_id": message.tool_call_id or "",
-                    "content": _message_text(message),
+                    "content": text_of(message.content),
                 }
             )
     return out
 
 
 def _to_chat_user_content(message: LLMMessage) -> Any:
-    if isinstance(message.content, str):
-        return message.content
     parts: list[dict[str, Any]] = []
     for block in message.content:
-        if block.kind == "text" and block.text:
+        if isinstance(block, TextBlock) and block.text:
             parts.append({"type": "text", "text": block.text})
-        elif block.kind == "image" and block.data:
+        elif isinstance(block, ImageBlock):
             mime = block.mime_type or "image/png"
             parts.append(
                 {
@@ -245,16 +244,8 @@ def _to_chat_user_content(message: LLMMessage) -> Any:
     return parts if parts else ""
 
 
-def _message_text(message: LLMMessage) -> str:
-    if isinstance(message.content, str):
-        return message.content
-    return "".join(block.text for block in message.content if block.kind == "text")
-
-
-def _message_reasoning(message: LLMMessage) -> str:
-    return "\n\n".join(
-        block.thinking for block in message.thinking_blocks() if block.thinking
-    )
+def _reasoning_text(message: LLMMessage) -> str:
+    return "\n\n".join(block.text for block in message.thinking_blocks if block.text)
 
 
 def _to_chat_tools(tools: list[LLMTool]) -> list[dict[str, Any]]:

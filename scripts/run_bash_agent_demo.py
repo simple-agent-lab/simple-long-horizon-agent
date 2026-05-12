@@ -41,6 +41,7 @@ from simple_agent_lab import (  # noqa: E402
     message_text,
     print_trace,
     run_bash_agent_demo,
+    text_of,
 )
 from simple_agent_lab.llm import Provider  # noqa: E402
 
@@ -101,14 +102,7 @@ def print_live_event(event: Event) -> None:
 
 
 def full_message_text(message: Message) -> str:
-    content = message.content
-    if isinstance(content, str):
-        return content
-    return " ".join(
-        text
-        for block in content
-        if isinstance((text := getattr(block, "text", "")), str) and text
-    )
+    return text_of(message.content)
 
 
 def main() -> None:

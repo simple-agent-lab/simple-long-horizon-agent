@@ -236,17 +236,26 @@ def clip_message(
     message: Message,
     max_chars: int | None,
 ) -> tuple[Message, bool]:
-    """Clip large text content while preserving message identity fields."""
+    """Clip large text content while preserving message identity fields.
+
+    Only the leading TextBlock is clipped — non-text blocks (images,
+    thinking, tool_call) pass through untouched so we keep tool-use
+    continuity even under aggressive budgets.
+    """
     if max_chars is None:
         return message, False
-    content = message.content
-    if not isinstance(content, str) or len(content) <= max_chars:
+    blocks = message.content
+    if not blocks or not isinstance(blocks[0], TextBlock):
+        return message, False
+    head = blocks[0]
+    if len(head.text) <= max_chars:
         return message, False
 
-    marker = f"\n[context clipped: omitted {len(content) - max_chars} chars]"
+    marker = f"\n[context clipped: omitted {len(head.text) - max_chars} chars]"
     keep_chars = max(0, max_chars - len(marker))
-    marker = f"\n[context clipped: omitted {len(content) - keep_chars} chars]"
-    return replace(message, content=f"{content[:keep_chars]}{marker}"), True
+    marker = f"\n[context clipped: omitted {len(head.text) - keep_chars} chars]"
+    clipped = TextBlock(text=f"{head.text[:keep_chars]}{marker}")
+    return replace(message, content=(clipped, *blocks[1:])), True
 
 
 def _group_messages(

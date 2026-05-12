@@ -30,7 +30,7 @@ from .messages import (
     AssistantMessage,
     Message,
     MessageChannel,
-    MessageContent,
+    ContentInput,
     MessageKind,
     MessageRole,
     ModelMessage,
@@ -97,7 +97,7 @@ class State:
         kind: MessageKind,
         sender: AgentName,
         target: AgentName,
-        content: MessageContent = "",
+        content: ContentInput = "",
         role: MessageRole | None = None,
         channel: MessageChannel = "main",
         **data: Any,
@@ -618,7 +618,7 @@ def default_role(sender: str) -> Role:
 
 def make_message(
     role: str,
-    content: MessageContent = "",
+    content: ContentInput = "",
     *,
     sender: str = "",
     target: str = "",

@@ -34,16 +34,21 @@ import json
 import os
 from typing import Any, Iterator
 
+from ...messages import (
+    ContentBlock,
+    ImageBlock,
+    TextBlock,
+    ToolCallBlock,
+    text_of,
+)
 from ..stream import register_adapter
 from ..types import (
-    ContentBlock,
     LLMMessage,
     LLMRequest,
     LLMResponse,
     LLMTool,
     StopReason,
     StreamEvent,
-    ToolCall,
     Usage,
 )
 
@@ -100,7 +105,7 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
                 if getattr(block, "type", None) == "output_text":
                     text = getattr(block, "text", "") or ""
                     if text:
-                        blocks.append(ContentBlock(kind="text", text=text))
+                        blocks.append(TextBlock(text=text))
         elif itype == "function_call":
             args_str = getattr(item, "arguments", "") or ""
             try:
@@ -108,34 +113,27 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
             except json.JSONDecodeError:
                 arguments = {"_raw_arguments": args_str}
             blocks.append(
-                ContentBlock(
-                    kind="tool_call",
-                    tool_call=ToolCall(
-                        id=getattr(item, "call_id", None) or getattr(item, "id", ""),
-                        name=getattr(item, "name", "") or "",
-                        arguments=arguments,
-                    ),
+                ToolCallBlock(
+                    id=getattr(item, "call_id", None) or getattr(item, "id", ""),
+                    name=getattr(item, "name", "") or "",
+                    arguments=arguments,
                 )
             )
 
-    tool_calls = [
-        block.tool_call
-        for block in blocks
-        if block.kind == "tool_call" and block.tool_call is not None
-    ]
+    tool_calls = [block for block in blocks if isinstance(block, ToolCallBlock)]
     stop_reason = _map_responses_stop(raw, tool_calls)
     usage = _responses_usage(getattr(raw, "usage", None))
 
     for block in blocks:
-        if block.kind == "text" and block.text:
+        if isinstance(block, TextBlock) and block.text:
             yield StreamEvent(kind="text_delta", payload={"delta": block.text})
-        elif block.kind == "tool_call" and block.tool_call is not None:
-            yield StreamEvent(kind="tool_call_start", payload={"tool_call": block.tool_call})
-            yield StreamEvent(kind="tool_call_complete", payload={"tool_call": block.tool_call})
+        elif isinstance(block, ToolCallBlock):
+            yield StreamEvent(kind="tool_call_start", payload={"tool_call": block})
+            yield StreamEvent(kind="tool_call_complete", payload={"tool_call": block})
     yield StreamEvent(kind="usage_update", payload={"usage": usage})
 
     response = LLMResponse(
-        content=blocks,
+        content=tuple(blocks),
         stop_reason=stop_reason,
         usage=usage,
         raw={
@@ -168,7 +166,7 @@ def _to_responses_input(req: LLMRequest) -> list[dict[str, Any]]:
                 {
                     "type": "message",
                     "role": "system",
-                    "content": [{"type": "input_text", "text": _message_text(message)}],
+                    "content": [{"type": "input_text", "text": text_of(message.content)}],
                 }
             )
         elif message.role == "user":
@@ -180,7 +178,7 @@ def _to_responses_input(req: LLMRequest) -> list[dict[str, Any]]:
                 }
             )
         elif message.role == "assistant":
-            text = _message_text(message)
+            text = text_of(message.content)
             if text:
                 items.append(
                     {
@@ -189,7 +187,7 @@ def _to_responses_input(req: LLMRequest) -> list[dict[str, Any]]:
                         "content": [{"type": "output_text", "text": text}],
                     }
                 )
-            for tool_call in message.tool_calls or []:
+            for tool_call in message.tool_calls:
                 items.append(
                     {
                         "type": "function_call",
@@ -203,20 +201,18 @@ def _to_responses_input(req: LLMRequest) -> list[dict[str, Any]]:
                 {
                     "type": "function_call_output",
                     "call_id": message.tool_call_id or "",
-                    "output": _message_text(message),
+                    "output": text_of(message.content),
                 }
             )
     return items
 
 
 def _to_responses_user_content(message: LLMMessage) -> list[dict[str, Any]]:
-    if isinstance(message.content, str):
-        return [{"type": "input_text", "text": message.content}]
     parts: list[dict[str, Any]] = []
     for block in message.content:
-        if block.kind == "text" and block.text:
+        if isinstance(block, TextBlock) and block.text:
             parts.append({"type": "input_text", "text": block.text})
-        elif block.kind == "image" and block.data:
+        elif isinstance(block, ImageBlock):
             mime = block.mime_type or "image/png"
             parts.append(
                 {
@@ -225,12 +221,6 @@ def _to_responses_user_content(message: LLMMessage) -> list[dict[str, Any]]:
                 }
             )
     return parts or [{"type": "input_text", "text": ""}]
-
-
-def _message_text(message: LLMMessage) -> str:
-    if isinstance(message.content, str):
-        return message.content
-    return "".join(block.text for block in message.content if block.kind == "text")
 
 
 def _to_responses_tools(tools: list[LLMTool]) -> list[dict[str, Any]]:
@@ -246,7 +236,7 @@ def _to_responses_tools(tools: list[LLMTool]) -> list[dict[str, Any]]:
     ]
 
 
-def _map_responses_stop(raw: Any, tool_calls: list[ToolCall]) -> StopReason:
+def _map_responses_stop(raw: Any, tool_calls: list[ToolCallBlock]) -> StopReason:
     if tool_calls:
         return "tool_use"
     incomplete = getattr(raw, "incomplete_details", None)

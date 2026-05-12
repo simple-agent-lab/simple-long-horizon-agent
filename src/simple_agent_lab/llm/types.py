@@ -1,19 +1,38 @@
 """Wire-format types for the unified LLM access layer.
 
-These are *provider-agnostic*. Each agent loop (01 / 02 / 03) has its own
-`Message` with routing fields (sender, target, kind, channel); none of
-those reach a provider. The boundary is `to_llm_message(...)` in each
-agent loop, producing the types in this file.
+These are *provider-agnostic*. Each agent loop has its own `Message`
+with routing fields (sender, target, kind, channel); none of those reach
+a provider. The boundary is `to_llm_message(...)` (see bridge.py),
+producing the types in this file.
 
 All types are frozen dataclasses — they represent immutable values that
 flow through the protocol. The mutable part (streaming accumulation,
 state) lives in the agent loop.
+
+The content model is shared with the runtime layer: every message and
+response carries `tuple[ContentBlock, ...]`, the union of `TextBlock`,
+`ImageBlock`, `ThinkingBlock`, and `ToolCallBlock` defined in
+`simple_agent_lab.messages`. There is no separate LLM-layer block type.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional
+
+from ..messages import (
+    ContentBlock,
+    ContentInput,
+    MessageContent,
+    TextBlock,
+    ThinkingBlock,
+    ToolCallBlock,
+    normalize_content,
+    text_of,
+    thinking_blocks_of,
+    tool_calls_of,
+)
 
 if TYPE_CHECKING:
     from .provider import Provider
@@ -21,33 +40,6 @@ if TYPE_CHECKING:
 
 Role = Literal["system", "user", "assistant", "tool_result"]
 StopReason = Literal["end_turn", "tool_use", "max_tokens", "error"]
-
-
-@dataclass(frozen=True)
-class ToolCall:
-    """A tool invocation emitted by the model."""
-    id: str
-    name: str
-    arguments: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class ContentBlock:
-    """One block inside a message's content. Text, image, thinking, or tool_call.
-
-    Multimodal/multi-block content is a list of these. Plain-text content
-    can use a bare `str` on `LLMMessage.content` to skip the block ceremony,
-    but `LLMResponse.content` is always a list so reasoning/tool calls
-    retain their order alongside text.
-    """
-    kind: Literal["text", "image", "thinking", "tool_call"] = "text"
-    text: str = ""
-    data: str = ""
-    mime_type: str = ""
-    thinking: str = ""
-    signature: Optional[str] = None
-    redacted: bool = False
-    tool_call: Optional[ToolCall] = None
 
 
 @dataclass(frozen=True)
@@ -70,22 +62,47 @@ class LLMMessage:
     of *where* to place breakpoints is left to the caller — the layer
     does not auto-place them.
 
-    Tool calls stay on a dedicated `tool_calls` field rather than inside
-    `content` because every provider's wire format puts them in a
-    sibling slot. `content` therefore only carries text / image / thinking
-    blocks; the adapter merges them back into the right place per provider.
+    `content` carries every block the message emits — text, image,
+    thinking, and tool_call — in the order the model produced them.
+    Adapters split blocks into the right wire slot per provider.
     """
     role: Role
-    content: Union[str, list[ContentBlock]] = ""
+    content: MessageContent = ()
     tool_call_id: Optional[str] = None         # only set when role="tool_result"
-    tool_calls: Optional[list[ToolCall]] = None  # only set when role="assistant"
     name: Optional[str] = None                 # speaker label (some APIs use it)
     cache_breakpoint: bool = False
 
-    def thinking_blocks(self) -> list[ContentBlock]:
-        if isinstance(self.content, str):
-            return []
-        return [block for block in self.content if block.kind == "thinking"]
+    def __post_init__(self) -> None:
+        # Accept str / list at construction for ergonomics; canonicalize to
+        # a tuple of blocks so downstream readers can assume the typed shape.
+        if isinstance(self.content, (str, list)):
+            object.__setattr__(self, "content", normalize_content(self.content))
+
+    @property
+    def thinking_blocks(self) -> tuple[ThinkingBlock, ...]:
+        return thinking_blocks_of(self.content)
+
+    @property
+    def tool_calls(self) -> tuple[ToolCallBlock, ...]:
+        return tool_calls_of(self.content)
+
+
+def llm_message(
+    role: Role,
+    content: ContentInput = "",
+    *,
+    tool_call_id: Optional[str] = None,
+    name: Optional[str] = None,
+    cache_breakpoint: bool = False,
+) -> LLMMessage:
+    """Factory that accepts a str shorthand or a block sequence."""
+    return LLMMessage(
+        role=role,
+        content=normalize_content(content),
+        tool_call_id=tool_call_id,
+        name=name,
+        cache_breakpoint=cache_breakpoint,
+    )
 
 
 @dataclass(frozen=True)
@@ -131,34 +148,28 @@ class LLMResponse:
     `text` / `thinking` / `thinking_blocks` / `tool_calls` are derived
     views over `content`.
     """
-    content: list[ContentBlock] = field(default_factory=list)
+    content: MessageContent = ()
     stop_reason: StopReason = "end_turn"
     usage: Usage = field(default_factory=Usage)
     raw: dict[str, Any] = field(default_factory=dict)   # original provider response
 
     @property
     def text(self) -> str:
-        return "".join(block.text for block in self.content if block.kind == "text")
+        return text_of(self.content)
 
     @property
     def thinking(self) -> str:
         return "\n\n".join(
-            block.thinking
-            for block in self.content
-            if block.kind == "thinking" and block.thinking
+            block.text for block in thinking_blocks_of(self.content) if block.text
         )
 
     @property
-    def thinking_blocks(self) -> list[ContentBlock]:
-        return [block for block in self.content if block.kind == "thinking"]
+    def thinking_blocks(self) -> tuple[ThinkingBlock, ...]:
+        return thinking_blocks_of(self.content)
 
     @property
-    def tool_calls(self) -> list[ToolCall]:
-        return [
-            block.tool_call
-            for block in self.content
-            if block.kind == "tool_call" and block.tool_call is not None
-        ]
+    def tool_calls(self) -> tuple[ToolCallBlock, ...]:
+        return tool_calls_of(self.content)
 
 
 @dataclass(frozen=True)
@@ -168,9 +179,9 @@ class StreamEvent:
     Payload contracts (by `kind`):
       - "text_delta":         {"delta": str}
       - "thinking_delta":     {"delta": str}
-      - "tool_call_start":    {"tool_call": ToolCall}    # args may be empty
+      - "tool_call_start":    {"tool_call": ToolCallBlock}    # args may be empty
       - "tool_call_delta":    {"tool_call_id": str, "arguments_json_delta": str}
-      - "tool_call_complete": {"tool_call": ToolCall}    # args fully parsed
+      - "tool_call_complete": {"tool_call": ToolCallBlock}    # args fully parsed
       - "usage_update":       {"usage": Usage}
       - "done":               {"response": LLMResponse}
 
@@ -190,6 +201,24 @@ class StreamEvent:
     payload: dict[str, Any] = field(default_factory=dict)
 
 
-# `LLMRequest.provider: "Provider"` is a forward reference. With
-# `from __future__ import annotations` (top of file), all annotations
-# are evaluated lazily, so we don't import Provider at runtime here.
+# Public alias for the legacy `ToolCall` name (now == ToolCallBlock).
+ToolCall = ToolCallBlock
+
+
+__all__ = [
+    "ContentBlock",
+    "LLMMessage",
+    "LLMRequest",
+    "LLMResponse",
+    "LLMTool",
+    "MessageContent",
+    "Role",
+    "StopReason",
+    "StreamEvent",
+    "TextBlock",
+    "ThinkingBlock",
+    "ToolCall",
+    "ToolCallBlock",
+    "Usage",
+    "llm_message",
+]

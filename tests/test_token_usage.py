@@ -29,7 +29,7 @@ from simple_agent_lab.llm.bridge import (
     _translate_usage,
     llm_response_to_assistant_message,
 )
-from simple_agent_lab.llm.types import ContentBlock, LLMResponse, Usage as LLMUsage
+from simple_agent_lab.llm.types import LLMResponse, TextBlock, Usage as LLMUsage
 from simple_agent_lab.messages import tool_result_message
 
 
@@ -124,7 +124,7 @@ class TranslateUsageTest(unittest.TestCase):
 class LLMResponseToAssistantMessageTest(unittest.TestCase):
     def test_usage_rides_into_runtime_message(self) -> None:
         response = LLMResponse(
-            content=[ContentBlock(kind="text", text="ok")],
+            content=[TextBlock(text="ok")],
             usage=LLMUsage(input_tokens=15, output_tokens=3),
         )
         message = llm_response_to_assistant_message(
@@ -143,7 +143,7 @@ class LLMResponseToAssistantMessageTest(unittest.TestCase):
         # Some adapters (or replay paths) emit responses with no usage data.
         # The runtime message should reflect "unknown" rather than fabricate
         # zeros that look authoritative.
-        response = LLMResponse(content=[ContentBlock(kind="text", text="ok")])
+        response = LLMResponse(content=[TextBlock(text="ok")])
         message = llm_response_to_assistant_message(
             response,
             sender="agent",

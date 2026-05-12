@@ -19,16 +19,20 @@ from typing import Any
 from unittest import mock
 
 from simple_agent_lab.llm import (
-    ContentBlock,
     LLMMessage,
     LLMRequest,
     LLMTool,
     Provider,
     StreamEvent,
-    ToolCall,
+    TextBlock,
+    ThinkingBlock,
+    ToolCallBlock,
     complete,
     iter_stream,
 )
+
+# Test code still uses the legacy ToolCall name in places; keep an alias.
+ToolCall = ToolCallBlock
 
 
 ANTHROPIC_PROVIDER = Provider(
@@ -74,8 +78,10 @@ def _tool_use_request() -> LLMRequest:
             LLMMessage(role="user", content="Run: echo hello"),
             LLMMessage(
                 role="assistant",
-                content="Calling bash.",
-                tool_calls=[ToolCall(id="t1", name="bash", arguments={"command": "echo hello"})],
+                content=[
+                    TextBlock("Calling bash."),
+                    ToolCall(id="t1", name="bash", arguments={"command": "echo hello"}),
+                ],
             ),
             LLMMessage(role="tool_result", content="hello", tool_call_id="t1", name="bash"),
         ],
@@ -222,7 +228,10 @@ class AnthropicAdapterTest(unittest.TestCase):
         self.assertIn("max_tokens", captured)
 
         messages = captured["messages"]
-        self.assertEqual(messages[0], {"role": "user", "content": "Run: echo hello"})
+        self.assertEqual(
+            messages[0],
+            {"role": "user", "content": [{"type": "text", "text": "Run: echo hello"}]},
+        )
         self.assertEqual(messages[1]["role"], "assistant")
         assistant_blocks = messages[1]["content"]
         self.assertEqual(assistant_blocks[0], {"type": "text", "text": "Calling bash."})
@@ -370,8 +379,7 @@ class OpenAIChatAdapterTest(unittest.TestCase):
                 LLMMessage(role="user", content="run ls"),
                 LLMMessage(
                     role="assistant",
-                    content="",
-                    tool_calls=[
+                    content=[
                         ToolCall(id="t1", name="bash", arguments={"command": "echo hello"})
                     ],
                 ),
@@ -396,7 +404,10 @@ class OpenAIChatAdapterTest(unittest.TestCase):
 
         messages = captured["messages"]
         self.assertEqual(messages[0], {"role": "system", "content": "be helpful"})
-        self.assertEqual(messages[1], {"role": "user", "content": "run ls"})
+        self.assertEqual(
+            messages[1],
+            {"role": "user", "content": [{"type": "text", "text": "run ls"}]},
+        )
         assistant_entry = messages[2]
         self.assertEqual(assistant_entry["role"], "assistant")
         self.assertIsNone(assistant_entry["content"])
@@ -559,8 +570,7 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
                 LLMMessage(role="user", content="hi"),
                 LLMMessage(
                     role="assistant",
-                    content="",
-                    tool_calls=[
+                    content=[
                         ToolCall(id="prev", name="bash", arguments={"command": "ls"})
                     ],
                 ),
@@ -689,7 +699,7 @@ class OpenAIChatReasoningTest(unittest.TestCase):
         response = events[-1].payload["response"]
         thinking_blocks = response.thinking_blocks
         self.assertEqual(len(thinking_blocks), 1)
-        self.assertEqual(thinking_blocks[0].thinking, "2*3 is 6.")
+        self.assertEqual(thinking_blocks[0].text, "2*3 is 6.")
         # Derived views agree with content.
         self.assertEqual(response.thinking, "2*3 is 6.")
         self.assertEqual(response.text, "Result: 6.")
@@ -706,8 +716,8 @@ class OpenAIChatReasoningTest(unittest.TestCase):
                 LLMMessage(
                     role="assistant",
                     content=[
-                        ContentBlock(kind="thinking", thinking="2*3 is 6."),
-                        ContentBlock(kind="text", text="6"),
+                        ThinkingBlock(text="2*3 is 6."),
+                        TextBlock(text="6"),
                     ],
                 ),
                 LLMMessage(role="user", content="now double it"),
@@ -740,8 +750,8 @@ class OpenAIChatReasoningTest(unittest.TestCase):
                 LLMMessage(
                     role="assistant",
                     content=[
-                        ContentBlock(kind="thinking", thinking="careful now"),
-                        ContentBlock(kind="text", text="hello"),
+                        ThinkingBlock(text="careful now"),
+                        TextBlock(text="hello"),
                     ],
                 ),
                 LLMMessage(role="user", content="again"),
@@ -778,7 +788,7 @@ class AnthropicReasoningReplayTest(unittest.TestCase):
 
         self.assertEqual(len(response.thinking_blocks), 1)
         block = response.thinking_blocks[0]
-        self.assertEqual(block.thinking, "careful step")
+        self.assertEqual(block.text, "careful step")
         self.assertEqual(block.signature, "sig-1")
         self.assertFalse(block.redacted)
         self.assertEqual([b.kind for b in response.content], ["thinking", "text"])
@@ -793,14 +803,10 @@ class AnthropicReasoningReplayTest(unittest.TestCase):
                 LLMMessage(
                     role="assistant",
                     content=[
-                        ContentBlock(
-                            kind="thinking",
-                            thinking="careful step",
-                            signature="sig-1",
-                        ),
-                        ContentBlock(kind="text", text="done"),
+                        ThinkingBlock(text="careful step", signature="sig-1"),
+                        TextBlock(text="done"),
+                        ToolCall(id="t1", name="bash", arguments={"command": "ls"}),
                     ],
-                    tool_calls=[ToolCall(id="t1", name="bash", arguments={"command": "ls"})],
                 ),
                 LLMMessage(role="tool_result", content="out", tool_call_id="t1", name="bash"),
             ],
@@ -835,7 +841,7 @@ class AnthropicReasoningReplayTest(unittest.TestCase):
                 LLMMessage(role="user", content="go"),
                 LLMMessage(
                     role="assistant",
-                    content=[ContentBlock(kind="thinking", thinking="x", signature="s")],
+                    content=[ThinkingBlock(text="x", signature="s")],
                 ),
                 LLMMessage(role="user", content="again"),
             ],
@@ -859,9 +865,9 @@ class BridgeThinkingPreservationTest(unittest.TestCase):
 
         response = LLMResponse(
             content=[
-                ContentBlock(kind="thinking", thinking="step 1", signature="s1"),
-                ContentBlock(kind="thinking", thinking="step 2", signature="s2", redacted=True),
-                ContentBlock(kind="text", text="answer"),
+                ThinkingBlock(text="step 1", signature="s1"),
+                ThinkingBlock(text="step 2", signature="s2", redacted=True),
+                TextBlock(text="answer"),
             ],
         )
         msg = llm_response_to_assistant_message(

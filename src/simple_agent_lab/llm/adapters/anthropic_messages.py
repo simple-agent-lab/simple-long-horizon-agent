@@ -35,16 +35,22 @@ from __future__ import annotations
 import os
 from typing import Any, Iterator
 
+from ...messages import (
+    ContentBlock,
+    ImageBlock,
+    TextBlock,
+    ThinkingBlock,
+    ToolCallBlock,
+    text_of,
+)
 from ..stream import register_adapter
 from ..types import (
-    ContentBlock,
     LLMMessage,
     LLMRequest,
     LLMResponse,
     LLMTool,
     StopReason,
     StreamEvent,
-    ToolCall,
     Usage,
 )
 
@@ -103,33 +109,28 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         if btype == "text":
             text = getattr(block, "text", "") or ""
             if text:
-                blocks.append(ContentBlock(kind="text", text=text))
+                blocks.append(TextBlock(text=text))
         elif btype == "thinking":
             blocks.append(
-                ContentBlock(
-                    kind="thinking",
-                    thinking=getattr(block, "thinking", "") or "",
+                ThinkingBlock(
+                    text=getattr(block, "thinking", "") or "",
                     signature=getattr(block, "signature", None),
                 )
             )
         elif btype == "redacted_thinking":
             blocks.append(
-                ContentBlock(
-                    kind="thinking",
-                    thinking=getattr(block, "data", "") or "",
+                ThinkingBlock(
+                    text=getattr(block, "data", "") or "",
                     signature=getattr(block, "signature", None),
                     redacted=True,
                 )
             )
         elif btype == "tool_use":
             blocks.append(
-                ContentBlock(
-                    kind="tool_call",
-                    tool_call=ToolCall(
-                        id=getattr(block, "id", ""),
-                        name=getattr(block, "name", ""),
-                        arguments=dict(getattr(block, "input", {}) or {}),
-                    ),
+                ToolCallBlock(
+                    id=getattr(block, "id", ""),
+                    name=getattr(block, "name", ""),
+                    arguments=dict(getattr(block, "input", {}) or {}),
                 )
             )
 
@@ -137,17 +138,17 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
     usage = _anthropic_usage(getattr(raw, "usage", None))
 
     for block in blocks:
-        if block.kind == "thinking" and block.thinking:
-            yield StreamEvent(kind="thinking_delta", payload={"delta": block.thinking})
-        elif block.kind == "text" and block.text:
+        if isinstance(block, ThinkingBlock) and block.text:
+            yield StreamEvent(kind="thinking_delta", payload={"delta": block.text})
+        elif isinstance(block, TextBlock) and block.text:
             yield StreamEvent(kind="text_delta", payload={"delta": block.text})
-        elif block.kind == "tool_call" and block.tool_call is not None:
-            yield StreamEvent(kind="tool_call_start", payload={"tool_call": block.tool_call})
-            yield StreamEvent(kind="tool_call_complete", payload={"tool_call": block.tool_call})
+        elif isinstance(block, ToolCallBlock):
+            yield StreamEvent(kind="tool_call_start", payload={"tool_call": block})
+            yield StreamEvent(kind="tool_call_complete", payload={"tool_call": block})
     yield StreamEvent(kind="usage_update", payload={"usage": usage})
 
     response = LLMResponse(
-        content=blocks,
+        content=tuple(blocks),
         stop_reason=stop_reason,
         usage=usage,
         raw={
@@ -180,49 +181,45 @@ def _to_anthropic_messages(req: LLMRequest) -> tuple[str | None, list[dict[str, 
     messages: list[dict[str, Any]] = []
     for message in req.messages:
         if message.role == "system":
-            text = _message_text(message)
+            text = text_of(message.content)
             if text:
                 system_parts.append(text)
             continue
         if message.role == "tool_result":
-            tool_result_block: dict[str, Any] = {
-                "type": "tool_result",
-                "tool_use_id": message.tool_call_id or "",
-                "content": _message_text(message),
-            }
-            messages.append({"role": "user", "content": [tool_result_block]})
+            messages.append(
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": message.tool_call_id or "",
+                            "content": text_of(message.content),
+                        }
+                    ],
+                }
+            )
             continue
         if message.role == "assistant":
             blocks: list[dict[str, Any]] = []
-            # Anthropic rejects assistant messages whose thinking blocks
-            # do not lead the content list or whose signatures are missing,
-            # so replay them first when enabled.
             if req.provider.replay_reasoning:
-                for thinking_block in message.thinking_blocks():
+                for thinking_block in message.thinking_blocks:
                     if thinking_block.redacted:
-                        blocks.append(
-                            {
-                                "type": "redacted_thinking",
-                                "data": thinking_block.thinking,
-                                **(
-                                    {"signature": thinking_block.signature}
-                                    if thinking_block.signature
-                                    else {}
-                                ),
-                            }
-                        )
-                    elif thinking_block.thinking:
                         entry: dict[str, Any] = {
-                            "type": "thinking",
-                            "thinking": thinking_block.thinking,
+                            "type": "redacted_thinking",
+                            "data": thinking_block.text,
                         }
                         if thinking_block.signature:
                             entry["signature"] = thinking_block.signature
                         blocks.append(entry)
-            text = _message_text(message)
+                    elif thinking_block.text:
+                        entry = {"type": "thinking", "thinking": thinking_block.text}
+                        if thinking_block.signature:
+                            entry["signature"] = thinking_block.signature
+                        blocks.append(entry)
+            text = text_of(message.content)
             if text:
                 blocks.append({"type": "text", "text": text})
-            for tool_call in message.tool_calls or []:
+            for tool_call in message.tool_calls:
                 blocks.append(
                     {
                         "type": "tool_use",
@@ -244,13 +241,11 @@ def _to_anthropic_messages(req: LLMRequest) -> tuple[str | None, list[dict[str, 
 
 
 def _to_anthropic_user_content(message: LLMMessage) -> Any:
-    if isinstance(message.content, str):
-        return message.content
     blocks: list[dict[str, Any]] = []
     for block in message.content:
-        if block.kind == "text" and block.text:
+        if isinstance(block, TextBlock) and block.text:
             blocks.append({"type": "text", "text": block.text})
-        elif block.kind == "image" and block.data:
+        elif isinstance(block, ImageBlock):
             blocks.append(
                 {
                     "type": "image",
@@ -262,12 +257,6 @@ def _to_anthropic_user_content(message: LLMMessage) -> Any:
                 }
             )
     return blocks
-
-
-def _message_text(message: LLMMessage) -> str:
-    if isinstance(message.content, str):
-        return message.content
-    return "".join(block.text for block in message.content if block.kind == "text")
 
 
 def _to_anthropic_tools(tools: list[LLMTool]) -> list[dict[str, Any]]:

@@ -1,4 +1,10 @@
-"""Bridge between lab messages and the LLM access layer."""
+"""Bridge between lab messages and the LLM access layer.
+
+With the unified content model, runtime `Message` / `ModelMessage` and
+wire-layer `LLMMessage` all carry the same `tuple[ContentBlock, ...]`
+shape, so the bridge is now mostly a re-roling pass plus runtime usage
+translation.
+"""
 
 from __future__ import annotations
 
@@ -7,21 +13,17 @@ from dataclasses import asdict
 from typing import Any
 
 from simple_agent_lab.messages import (
-    ImageBlock,
     Message,
     ModelAssistantMessage,
     ModelMessage,
     ModelToolResultMessage,
-    TextBlock,
-    ThinkingBlock,
     TokenUsage,
-    ToolCallBlock,
     assistant_message,
     to_model_message,
 )
 from simple_agent_lab.tools import AgentTool, Tool
 
-from .types import ContentBlock, LLMMessage, LLMTool, LLMResponse, ToolCall, Usage
+from .types import LLMMessage, LLMResponse, LLMTool, Usage
 
 
 def message_to_llm_message(message: Message, *, with_header: bool = False) -> LLMMessage:
@@ -44,36 +46,21 @@ def messages_to_llm_messages(
 
 
 def model_message_to_llm_message(message: ModelMessage) -> LLMMessage:
-    """Project a ModelMessage into the current LLM access layer type."""
-    if isinstance(message, ModelAssistantMessage):
-        tool_calls = [
-            ToolCall(block.id, block.name, dict(block.arguments))
-            for block in message.content
-            if isinstance(block, ToolCallBlock)
-        ]
-        content_blocks = [
-            block
-            for block in message.content
-            if not isinstance(block, ToolCallBlock)
-        ]
-        return LLMMessage(
-            role="assistant",
-            content=_llm_content(content_blocks),
-            tool_calls=tool_calls or None,
-        )
+    """Project a ModelMessage into the LLM layer.
 
+    Both layers share the same content shape, so this only re-roles and
+    surfaces the tool-result sidecar fields.
+    """
     if isinstance(message, ModelToolResultMessage):
         return LLMMessage(
             role="tool_result",
-            content=_llm_content(message.content),
+            content=message.content,
             tool_call_id=message.tool_call_id,
             name=message.tool_name,
         )
-
-    return LLMMessage(
-        role=message.role,
-        content=_llm_content(message.content),
-    )
+    if isinstance(message, ModelAssistantMessage):
+        return LLMMessage(role="assistant", content=message.content)
+    return LLMMessage(role=message.role, content=message.content)
 
 
 def tool_to_llm_tool(tool: Tool | AgentTool) -> LLMTool:
@@ -93,30 +80,16 @@ def llm_response_to_assistant_message(
     kind: str,
     data: dict[str, Any] | None = None,
 ) -> Message:
-    """Convert a drained LLM response into a runtime assistant message.
+    """Wrap a drained LLM response in a runtime AssistantMessage.
 
-    Thinking blocks land on `AssistantMessage.thinking` with `signature`
-    and `redacted` preserved so the next outbound adapter can replay them.
+    `response.content` is already the canonical block tuple, so we just
+    pass it through.
     """
-    thinking = tuple(
-        ThinkingBlock(
-            text=block.thinking,
-            signature=block.signature,
-            redacted=block.redacted,
-        )
-        for block in response.thinking_blocks
-    )
-    tool_calls = [
-        ToolCallBlock(tool_call.id, tool_call.name, dict(tool_call.arguments))
-        for tool_call in response.tool_calls
-    ]
     return assistant_message(
-        response.text,
+        response.content,
         sender=sender,
         target=target,
         kind=kind,
-        thinking=thinking,
-        tool_calls=tool_calls,
         usage=_translate_usage(response.usage),
         data=data,
     )
@@ -133,30 +106,3 @@ def _translate_usage(usage: Usage) -> TokenUsage | None:
     if not any(fields.values()):
         return None
     return TokenUsage(**fields)
-
-
-def _llm_content(
-    blocks: Sequence[TextBlock | ImageBlock | ThinkingBlock],
-) -> str | list[ContentBlock]:
-    if not blocks:
-        return ""
-    if len(blocks) == 1 and isinstance(blocks[0], TextBlock):
-        return blocks[0].text
-    return [_llm_content_block(block) for block in blocks]
-
-
-def _llm_content_block(block: TextBlock | ImageBlock | ThinkingBlock) -> ContentBlock:
-    if isinstance(block, TextBlock):
-        return ContentBlock(kind="text", text=block.text)
-    if isinstance(block, ImageBlock):
-        return ContentBlock(
-            kind="image",
-            data=block.data,
-            mime_type=block.mime_type,
-        )
-    return ContentBlock(
-        kind="thinking",
-        thinking=block.text,
-        signature=block.signature,
-        redacted=block.redacted,
-    )
