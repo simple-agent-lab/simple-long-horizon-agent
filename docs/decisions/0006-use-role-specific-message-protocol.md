@@ -2,7 +2,15 @@
 
 ## Status
 
-Accepted
+Accepted; parts superseded by ADR 0012. The role-specific frozen-dataclass
+subtypes, the internal `tool_result` role, the module-level construction
+helpers, and the use of content blocks for multimodal content all stand.
+The `Message` / `ModelMessage` two-layer split, the sibling `thinking`
+and `tool_calls` fields on `AssistantMessage`, and the
+`to_model_message(s)` / `model_*_message` helpers are superseded by
+ADR 0012, which unifies the content model on a single ordered
+`tuple[ContentBlock, ...]` and projects runtime `Message` directly to
+the LLM access layer.
 
 ## Context
 
