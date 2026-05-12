@@ -43,7 +43,7 @@ from ...messages import (
     encode_image_data_url,
     text_of,
 )
-from . import TOOL_RESULT_VISUAL_CAPTION
+from . import TOOL_RESULT_VISUAL_CAPTION, capture_request, sdk_dump
 from ..stream import register_adapter
 from ..types import (
     LLMMessage,
@@ -98,11 +98,10 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         if key in req.extra:
             kwargs[key] = req.extra[key]
 
-    raw = client.responses.create(**kwargs)
-    wire = {"request": kwargs, "response": _wire_dump(raw)}
+    sdk_response = client.responses.create(**kwargs)
 
     blocks: list[ContentBlock] = []
-    for item in getattr(raw, "output", None) or []:
+    for item in getattr(sdk_response, "output", None) or []:
         itype = getattr(item, "type", None)
         if itype == "message":
             for block in getattr(item, "content", None) or []:
@@ -125,8 +124,8 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
             )
 
     tool_calls = [block for block in blocks if isinstance(block, ToolCallBlock)]
-    stop_reason = _map_responses_stop(raw, tool_calls)
-    usage = _responses_usage(getattr(raw, "usage", None))
+    stop_reason = _map_responses_stop(sdk_response, tool_calls)
+    usage = _responses_usage(getattr(sdk_response, "usage", None))
 
     for block in blocks:
         if isinstance(block, TextBlock) and block.text:
@@ -140,20 +139,9 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         content=tuple(blocks),
         stop_reason=stop_reason,
         usage=usage,
-        wire=wire,
+        raw={"request": capture_request(kwargs), "response": sdk_dump(sdk_response)},
     )
     yield StreamEvent(kind="done", payload={"response": response})
-
-
-def _wire_dump(raw: Any) -> Any:
-    """Best-effort serialization snapshot of an SDK response object."""
-    dump = getattr(raw, "model_dump", None)
-    if callable(dump):
-        try:
-            return dump()
-        except Exception:
-            pass
-    return raw
 
 
 def _api_key(req: LLMRequest) -> str | None:

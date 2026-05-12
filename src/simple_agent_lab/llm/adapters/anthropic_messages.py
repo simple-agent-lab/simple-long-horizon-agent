@@ -44,6 +44,7 @@ from ...messages import (
     ToolResultBlock,
     text_of,
 )
+from . import capture_request, sdk_dump
 from ..stream import register_adapter
 from ..types import (
     LLMMessage,
@@ -100,13 +101,12 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         if key in req.extra:
             kwargs[key] = req.extra[key]
 
-    raw = client.messages.create(**kwargs)
-    wire = {"request": kwargs, "response": _wire_dump(raw)}
+    sdk_response = client.messages.create(**kwargs)
 
     # Preserve the wire order: replay rejects assistant messages where
     # thinking does not lead text and tool_use.
     blocks: list[ContentBlock] = []
-    for block in getattr(raw, "content", []) or []:
+    for block in getattr(sdk_response, "content", []) or []:
         btype = getattr(block, "type", None)
         if btype == "text":
             text = getattr(block, "text", "") or ""
@@ -136,8 +136,8 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
                 )
             )
 
-    stop_reason = _map_anthropic_stop(getattr(raw, "stop_reason", None))
-    usage = _anthropic_usage(getattr(raw, "usage", None))
+    stop_reason = _map_anthropic_stop(getattr(sdk_response, "stop_reason", None))
+    usage = _anthropic_usage(getattr(sdk_response, "usage", None))
 
     for block in blocks:
         if isinstance(block, ThinkingBlock) and block.text:
@@ -153,20 +153,9 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         content=tuple(blocks),
         stop_reason=stop_reason,
         usage=usage,
-        wire=wire,
+        raw={"request": capture_request(kwargs), "response": sdk_dump(sdk_response)},
     )
     yield StreamEvent(kind="done", payload={"response": response})
-
-
-def _wire_dump(raw: Any) -> Any:
-    """Best-effort serialization snapshot of an SDK response object."""
-    dump = getattr(raw, "model_dump", None)
-    if callable(dump):
-        try:
-            return dump()
-        except Exception:
-            pass
-    return raw
 
 
 def _api_key(req: LLMRequest) -> str | None:

@@ -1170,5 +1170,75 @@ class MultimodalToolResultTest(unittest.TestCase):
         self.assertIn(self.IMAGE_DATA, image_part["image_url"])
 
 
+class RawCaptureTest(unittest.TestCase):
+    """`LLMResponse.raw` records the SDK call's request + response.
+
+    Messages history is pruned from the request snapshot because it
+    already lives in the runtime trajectory and copying it onto every
+    turn's raw payload turns long sessions into O(N^2) memory.
+    Everything else (model, tools, temperature, our outbound `extra`
+    translations, etc.) is retained so the trace can still answer
+    "did our cache_control / reasoning_content land?".
+    """
+
+    def test_openai_chat_raw_prunes_messages_keeps_other_fields(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(_chat_response(text="ok"), captured, kind="chat")
+        req = LLMRequest(
+            provider=OPENAI_CHAT_PROVIDER,
+            system_prompt="be brief",
+            messages=[LLMMessage(role="user", content="hello")],
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            response = complete(req)
+
+        request_snapshot = response.raw["request"]
+        self.assertEqual(
+            request_snapshot["messages"], {"_pruned": True, "_count": 2}  # system + user
+        )
+        self.assertEqual(request_snapshot["model"], "gpt-test-1")
+        self.assertIn("temperature", request_snapshot)
+        # Response side is captured in full (model_dump for pydantic, raw object otherwise).
+        self.assertTrue(response.raw["response"])
+
+    def test_anthropic_raw_prunes_messages(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_anthropic(_anthropic_response(text="ok"), captured)
+        req = LLMRequest(
+            provider=ANTHROPIC_PROVIDER,
+            messages=[LLMMessage(role="user", content="hi")],
+        )
+        with (
+            _stub_module("anthropic", module),
+            mock.patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "k"}, clear=False),
+        ):
+            response = complete(req)
+        self.assertEqual(
+            response.raw["request"]["messages"], {"_pruned": True, "_count": 1}
+        )
+
+    def test_openai_responses_raw_prunes_input(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(
+            _responses_response(text_blocks=["ok"]), captured, kind="responses"
+        )
+        req = LLMRequest(
+            provider=OPENAI_RESPONSES_PROVIDER,
+            messages=[LLMMessage(role="user", content="hi")],
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            response = complete(req)
+        # OpenAI Responses uses `input` instead of `messages`.
+        self.assertEqual(
+            response.raw["request"]["input"], {"_pruned": True, "_count": 1}
+        )
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

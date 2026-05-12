@@ -74,14 +74,16 @@ def llm_response_to_assistant_message(
     """Wrap a drained LLM response in a runtime AssistantMessage.
 
     `response.content` is already the canonical block tuple, so we just
-    pass it through. The adapter's wire snapshot (verbatim request kwargs
-    + response dump) rides along on `AssistantMessage.data["wire"]` so
-    the runtime trace can show the HTTP-level layer alongside the
-    standardized content blocks.
+    pass it through. The adapter's `raw` snapshot (the request/response
+    pair, with the messages history pruned) rides along on
+    `AssistantMessage.data["raw"]` so the runtime trace can show the
+    provider-level view alongside the standardized content blocks,
+    and so applications can pull provider-specific response fields
+    that the standardized layer doesn't surface.
     """
     merged_data = dict(data or {})
-    if response.wire:
-        merged_data["wire"] = response.wire
+    if response.raw:
+        merged_data["raw"] = response.raw
     return assistant_message(
         response.content,
         sender=sender,

@@ -137,9 +137,9 @@ def main() -> None:
     )
     parser.add_argument("--no-trace", action="store_true")
     parser.add_argument(
-        "--wire",
+        "--raw",
         action="store_true",
-        help="In the trace, also dump the verbatim HTTP request/response under each assistant turn.",
+        help="Also dump each turn's `raw` payload — request snapshot + SDK response dump.",
     )
     args = parser.parse_args()
 
@@ -167,7 +167,7 @@ def main() -> None:
 
     if not args.no_trace:
         print("\n=== full trace ===")
-        print_trace(runtime.state, wire=args.wire)
+        print_trace(runtime.state, raw=args.raw)
 
 
 if __name__ == "__main__":

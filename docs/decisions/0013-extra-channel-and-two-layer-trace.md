@@ -55,13 +55,25 @@ Two-layer trace:
 - **Standardized layer** (already existed; ratified here): every
   `AssistantMessage.content` is a `tuple[ContentBlock, ...]`, threaded into
   `model_request` / `model_response` events. Provider-neutral and stable.
-- **Wire layer** (new): adapters that make a real SDK call populate
-  `LLMResponse.wire: dict[str, Any]` with
-  `{"request": <kwargs sent to SDK>, "response": <dump of SDK response>}`
-  at the moment of the call. The bridge stashes that wire payload under
-  `AssistantMessage.data["wire"]`, so it rides with the message through the
-  trajectory. `print_trace(state, wire=True)` renders both wire halves as
-  pretty-printed JSON under each assistant turn.
+- **Raw layer** (new): adapters that make a real SDK call populate
+  `LLMResponse.raw: dict[str, Any]` with
+  `{"request": <captured kwargs>, "response": <SDK response dump>}`
+  at the moment of the call. The request snapshot prunes the
+  `messages` / `input` history (it already lives canonical in the
+  runtime trajectory, and copying it onto every turn's raw payload
+  would turn long sessions into O(N²) memory); everything else
+  (model, tools, temperature, system, and outbound `extra`
+  translations) is retained so the "did our cache_control or
+  reasoning_content land?" debug question remains answerable from
+  one turn's snapshot alone. The bridge stashes that raw payload
+  under `AssistantMessage.data["raw"]`, so it rides with the message
+  through the trajectory. `print_trace(state, raw=True)` renders both
+  halves as pretty-printed JSON under each assistant turn.
+
+`raw` serves two needs simultaneously: debugging ("what really
+crossed the wire?") and programmatic access to provider-specific
+response fields the standardized layer doesn't surface (`refusal`,
+`prompt_tokens_details.cached_tokens`, `safety_ratings`, …).
 
 `Provider.replay_reasoning: bool = True` (see ADR 0012) is the hidden
 opt-out for the rare endpoint that rejects replayed reasoning. It lives on
@@ -88,12 +100,15 @@ Cross-provider portability is preserved without each agent knowing every
 target's vocabulary.
 
 Trace becomes legibly two-layered. `print_trace` (default) shows the
-standardized view including a dedicated `extra` row per message. `--wire`
-turns on the verbatim HTTP-level dump alongside, so a reader can see:
+standardized view including a dedicated `extra` row per message.
+`--raw` turns on the verbatim adapter snapshot alongside, so a reader
+can see:
 
 1. the agent's protocol-level hint (`extra: anthropic.cache_breakpoint=True`)
-2. the adapter's translation (`wire.request.messages[0].content[-1].cache_control = {"type": "ephemeral"}`)
-3. the model's response on the wire (full SDK dump)
+2. the adapter's translation (e.g. `cache_control: {"type": "ephemeral"}`
+   appearing on the relevant outbound content block)
+3. the model's full response — including fields the standardized layer
+   does not surface
 
 without switching tools.
 
@@ -103,9 +118,10 @@ the provider when constructing the message, defeating the provider-neutral
 transcript property. The convention "namespace your keys; adapters
 whitelist" is the type story.
 
-`message_text(...)` no longer falls back to printing `message.data` when
-content is empty (data carrying wire dumps would have polluted the live
-preview). `data` is now a real debug sidecar.
+`message_text(...)` still falls through to the first ToolResultBlock's
+inner text when top-level content has no TextBlock (so tool-result
+bundles preview correctly), but otherwise treats `data` as a pure debug
+sidecar — `data["raw"]` is for inspection, not for live previews.
 
 ## Alternatives Considered
 
@@ -117,17 +133,22 @@ preview). `data` is now a real debug sidecar.
 - Loud failure on unknown namespace (raise / log warning). Rejected: an
   agent that sets `extra["anthropic.cache_breakpoint"]` should still be
   routable to OpenAI without code changes. Silent ignore is the right
-  default; debugging via `print_trace` or `--wire` shows what happened.
-- Pack the wire dump into the existing `LLMResponse.raw` field. Rejected:
-  `raw` is a small extracted-metadata summary (`provider`, `model`, `id`,
-  `finish_reason`) consumed by the trace. Mixing the full SDK response dump
-  in would obscure the small useful subset.
+  default; debugging via `print_trace` or `--raw` shows what happened.
+- Keep messages history inside `raw["request"]`. Rejected: it
+  duplicates the runtime trajectory and grows the trace memory
+  quadratically over a long session. The pruning placeholder
+  (`{"_pruned": true, "_count": N}`) keeps the snapshot
+  self-describing without the bulk.
+- Earlier draft named the field `wire`. Renamed to `raw` because the
+  field serves two roles — HTTP-level debug AND programmatic access to
+  provider-specific response fields — and "wire" undersells the second
+  by sounding like a transport-only concern.
 - Per-block `extra` (Anthropic's `cache_control` is technically per-block,
   not per-message). Deferred: the per-message anchor with "applies to last
   block" semantics covers every current use case. Add per-block `extra` to
   `TextBlock` / `ThinkingBlock` / etc. when a real workflow needs
   intra-message cache control.
-- Put `wire` on the `model_response` event payload instead of on the
+- Put `raw` on the `model_response` event payload instead of on the
   message. Rejected: the message-attached form rides with the transcript and
   survives event filtering / replay; the event payload is bound to the
   emission moment.

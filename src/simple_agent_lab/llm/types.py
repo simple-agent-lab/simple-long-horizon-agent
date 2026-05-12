@@ -64,8 +64,8 @@ class LLMMessage:
     message as a prompt-caching anchor on Anthropic). Adapters read
     only their own namespace; unknown keys are silently ignored so a
     transcript stays portable across providers. Trace renders `extra`
-    so the standardized view shows these instructions; `--wire` shows
-    the translated wire shape an adapter produced.
+    so the standardized view shows these instructions; `--raw` on the
+    trace shows the translated shape an adapter produced.
     """
     role: Role
     content: MessageContent = ()
@@ -138,17 +138,30 @@ class LLMResponse:
     `text` / `thinking_blocks` / `tool_calls` are derived views over
     `content`.
 
-    `wire` is the verbatim HTTP-level snapshot the adapter captured:
-    ``{"request": <kwargs sent to the SDK>, "response": <dumped SDK
-    response>}``. Empty when the adapter doesn't make a real call
-    (e.g. fake). It rides along to the runtime AssistantMessage via the
-    bridge so `print_trace(state, wire=True)` can show the wire layer
-    alongside the standardized content blocks.
+    `raw` is the verbatim provider-call snapshot: ``{"request": ...,
+    "response": ...}``. Empty when the adapter doesn't make a real
+    call (e.g. fake). Serves two needs:
+
+      * Debugging — `print_trace(state, raw=True)` shows what actually
+        crossed the wire (which fields landed in the request body,
+        which fields the endpoint returned that we abstracted away).
+      * Programmatic access — applications can pull provider-specific
+        response fields the standardized layer doesn't surface
+        (`refusal`, `prompt_tokens_details.cached_tokens`,
+        `safety_ratings`, etc.) directly off `raw["response"]`.
+
+    The `request` half is captured without its `messages` / `input`
+    history — that history is already canonical in the runtime
+    trajectory and would otherwise pin O(N²) memory across a long
+    session. Everything else (model, tools, temperature, system, and
+    our outbound `extra` translations) is retained so the
+    "did our cache_control / reasoning_content land?" question is
+    still answerable from `raw["request"]` alone.
     """
     content: MessageContent = ()
     stop_reason: StopReason = "end_turn"
     usage: TokenUsage = field(default_factory=TokenUsage)
-    wire: dict[str, Any] = field(default_factory=dict)
+    raw: dict[str, Any] = field(default_factory=dict)
 
     @property
     def text(self) -> str:

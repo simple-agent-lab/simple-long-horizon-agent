@@ -57,7 +57,7 @@ from ...messages import (
     encode_image_data_url,
     text_of,
 )
-from . import TOOL_RESULT_VISUAL_CAPTION
+from . import TOOL_RESULT_VISUAL_CAPTION, capture_request, sdk_dump
 from ..stream import register_adapter
 from ..types import (
     LLMMessage,
@@ -110,11 +110,10 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         if key in req.extra:
             kwargs[key] = req.extra[key]
 
-    raw = client.chat.completions.create(**kwargs)
-    wire = {"request": kwargs, "response": _wire_dump(raw)}
-    if not raw.choices:
+    sdk_response = client.chat.completions.create(**kwargs)
+    if not sdk_response.choices:
         raise RuntimeError("openai-chat: response had no choices")
-    choice = raw.choices[0]
+    choice = sdk_response.choices[0]
     message = choice.message
 
     reasoning_text = _extract_reasoning(message)
@@ -140,7 +139,7 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
     blocks.extend(tool_calls)
 
     stop_reason = _map_openai_finish(getattr(choice, "finish_reason", None))
-    usage = _openai_chat_usage(getattr(raw, "usage", None))
+    usage = _openai_chat_usage(getattr(sdk_response, "usage", None))
 
     if reasoning_text:
         yield StreamEvent(kind="thinking_delta", payload={"delta": reasoning_text})
@@ -155,20 +154,9 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         content=tuple(blocks),
         stop_reason=stop_reason,
         usage=usage,
-        wire=wire,
+        raw={"request": capture_request(kwargs), "response": sdk_dump(sdk_response)},
     )
     yield StreamEvent(kind="done", payload={"response": response})
-
-
-def _wire_dump(raw: Any) -> Any:
-    """Best-effort serialization snapshot of an SDK response object."""
-    dump = getattr(raw, "model_dump", None)
-    if callable(dump):
-        try:
-            return dump()
-        except Exception:
-            pass
-    return raw
 
 
 def _api_key(req: LLMRequest) -> str | None:
