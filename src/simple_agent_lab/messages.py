@@ -1,21 +1,20 @@
 """Shared message protocol for Simple Agent Lab.
 
-The protocol is built on **one** unified content model:
+`Message` is the runtime transcript union — every assistant turn, user
+input, system prompt, or tool result lives as one of these four
+dataclasses. Routing fields (sender, target, kind, channel) stay on the
+runtime side; adapters never see them.
 
-    TextBlock | ImageBlock | ThinkingBlock | ToolCallBlock   (== ContentBlock)
+The content model is unified across every layer:
 
-Every message — runtime and provider-facing — carries the same shape
-``content: tuple[ContentBlock, ...]``. There are no sibling thinking /
-tool_calls fields; they are filtered out of ``content`` on demand
-through `AssistantMessage.thinking` / `.tool_calls` properties or the
-``thinking_blocks_of`` / ``tool_calls_of`` helpers.
+    ContentBlock = TextBlock | ImageBlock | ThinkingBlock | ToolCallBlock
 
-`Message` is the runtime transcript union. It keeps routing fields such
-as sender, target, kind, and channel.
+so `message.content` is always `tuple[ContentBlock, ...]`. There are no
+sibling thinking / tool_calls fields on the message; `AssistantMessage`
+exposes those as derived `@property` views over `content`.
 
-`ModelMessage` is the provider-neutral model-call union. It strips
-runtime routing fields and is the input shape provider adapters
-translate to wire payloads.
+Projecting a runtime `Message` into the provider-facing `LLMMessage`
+happens in one step inside `simple_agent_lab.llm.bridge`.
 """
 
 from __future__ import annotations
@@ -155,46 +154,6 @@ class ToolResultMessage:
 Message: TypeAlias = UserMessage | SystemMessage | AssistantMessage | ToolResultMessage
 
 
-@dataclass(frozen=True)
-class ModelUserMessage:
-    role: Literal["user"] = field(default="user", init=False)
-    content: MessageContent = ()
-
-
-@dataclass(frozen=True)
-class ModelSystemMessage:
-    role: Literal["system"] = field(default="system", init=False)
-    content: MessageContent = ()
-
-
-@dataclass(frozen=True)
-class ModelAssistantMessage:
-    role: Literal["assistant"] = field(default="assistant", init=False)
-    content: MessageContent = ()
-
-    @property
-    def thinking(self) -> tuple[ThinkingBlock, ...]:
-        return tuple(block for block in self.content if isinstance(block, ThinkingBlock))
-
-    @property
-    def tool_calls(self) -> tuple[ToolCallBlock, ...]:
-        return tuple(block for block in self.content if isinstance(block, ToolCallBlock))
-
-
-@dataclass(frozen=True)
-class ModelToolResultMessage:
-    role: Literal["tool_result"] = field(default="tool_result", init=False)
-    content: MessageContent = ()
-    tool_call_id: str = ""
-    tool_name: str = ""
-    is_error: bool = False
-
-
-ModelMessage: TypeAlias = (
-    ModelUserMessage | ModelSystemMessage | ModelAssistantMessage | ModelToolResultMessage
-)
-
-
 def user_message(
     content: ContentInput = "",
     *,
@@ -283,71 +242,6 @@ def tool_result_message(
     return message
 
 
-def model_user_message(content: ContentInput = "") -> ModelUserMessage:
-    return ModelUserMessage(content=normalize_content(content))
-
-
-def model_system_message(content: ContentInput = "") -> ModelSystemMessage:
-    return ModelSystemMessage(content=normalize_content(content))
-
-
-def model_assistant_message(content: ContentInput = "") -> ModelAssistantMessage:
-    message = ModelAssistantMessage(content=normalize_content(content))
-    validate_model_message(message)
-    return message
-
-
-def model_tool_result_message(
-    content: ContentInput = "",
-    *,
-    tool_call_id: str,
-    tool_name: str,
-    is_error: bool = False,
-) -> ModelToolResultMessage:
-    message = ModelToolResultMessage(
-        content=normalize_content(content),
-        tool_call_id=tool_call_id,
-        tool_name=tool_name,
-        is_error=is_error,
-    )
-    validate_model_message(message)
-    return message
-
-
-def to_model_message(message: Message, *, with_header: bool = True) -> ModelMessage:
-    """Project one runtime Message to one provider-neutral ModelMessage."""
-    header = _routing_header(message) if with_header else ""
-    content = _content_with_header(message.content, header)
-    if isinstance(message, UserMessage):
-        return ModelUserMessage(content=content)
-    if isinstance(message, SystemMessage):
-        return ModelSystemMessage(content=content)
-    if isinstance(message, AssistantMessage):
-        return ModelAssistantMessage(content=content)
-    if isinstance(message, ToolResultMessage):
-        return ModelToolResultMessage(
-            content=message.content,  # no routing header on tool_result
-            tool_call_id=message.tool_call_id,
-            tool_name=message.tool_name,
-            is_error=message.is_error,
-        )
-    raise TypeError(f"Unexpected message type: {type(message)!r}")
-
-
-def to_model_messages(
-    messages: Sequence[Message],
-    *,
-    with_header: bool = True,
-    skip_kinds: set[str] | None = None,
-) -> list[ModelMessage]:
-    skipped = skip_kinds if skip_kinds is not None else {"notification", "trace"}
-    return [
-        to_model_message(message, with_header=with_header)
-        for message in messages
-        if message.kind not in skipped
-    ]
-
-
 def message_tool_calls(message: Message) -> tuple[ToolCallBlock, ...]:
     if isinstance(message, AssistantMessage):
         return message.tool_calls
@@ -375,10 +269,6 @@ def message_text(message: Message) -> str:
     return ""
 
 
-def model_message_text(message: ModelMessage) -> str:
-    return text_of(message.content)
-
-
 def validate_message(message: Message) -> None:
     if isinstance(message, AssistantMessage):
         for block in message.content:
@@ -389,18 +279,6 @@ def validate_message(message: Message) -> None:
             raise ValueError("ToolResultMessage.tool_call_id must be non-empty")
         if not message.tool_name:
             raise ValueError("ToolResultMessage.tool_name must be non-empty")
-
-
-def validate_model_message(message: ModelMessage) -> None:
-    if isinstance(message, ModelAssistantMessage):
-        for block in message.content:
-            if isinstance(block, ToolCallBlock):
-                validate_tool_call(block)
-    if isinstance(message, ModelToolResultMessage):
-        if not message.tool_call_id:
-            raise ValueError("ModelToolResultMessage.tool_call_id must be non-empty")
-        if not message.tool_name:
-            raise ValueError("ModelToolResultMessage.tool_name must be non-empty")
 
 
 def validate_tool_call(tool_call: ToolCallBlock) -> None:
@@ -420,16 +298,3 @@ def normalize_content(content: ContentInput) -> MessageContent:
             raise TypeError(f"Unexpected content block: {type(block)!r}")
         blocks.append(block)
     return tuple(blocks)
-
-
-def _routing_header(message: Message) -> str:
-    has_meta = bool(message.sender or message.target) or message.kind != "message"
-    if not has_meta or isinstance(message, ToolResultMessage):
-        return ""
-    return f"[{message.sender} -> {message.target} | {message.kind}/{message.channel}]"
-
-
-def _content_with_header(content: MessageContent, header: str) -> MessageContent:
-    if not header:
-        return content
-    return (TextBlock(header), *content)

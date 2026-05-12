@@ -21,7 +21,7 @@ from typing import Any, Iterator, Optional
 
 from ...messages import ContentBlock, TextBlock, ToolCallBlock
 from ..stream import register_adapter
-from ..types import LLMRequest, LLMResponse, StreamEvent, Usage
+from ..types import LLMRequest, LLMResponse, StreamEvent, TokenUsage
 
 
 _DEFAULT_TEXT = "Fake response generated from the provided messages."
@@ -50,7 +50,7 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         yield StreamEvent(kind="tool_call_complete", payload={"tool_call": tc})
 
     # Usage report. Token counts are rough estimates; this is a fake.
-    usage = Usage(
+    usage = TokenUsage(
         input_tokens=sum(_estimate_tokens(m) for m in req.messages),
         output_tokens=max(1, len(text) // 4),
     )

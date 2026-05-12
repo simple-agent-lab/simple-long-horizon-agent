@@ -1,34 +1,43 @@
-"""Bridge between lab messages and the LLM access layer.
+"""Bridge between runtime Messages and the LLM access layer.
 
-With the unified content model, runtime `Message` / `ModelMessage` and
-wire-layer `LLMMessage` all carry the same `tuple[ContentBlock, ...]`
-shape, so the bridge is now mostly a re-roling pass plus runtime usage
-translation.
+One projection: `Message → LLMMessage`. The content block tuple is
+unified between runtime and wire layers, so this only:
+
+  * picks the right wire `role`,
+  * surfaces ToolResultMessage's `tool_call_id` / `tool_name` sidecar,
+  * optionally prepends a routing header (`[sender -> target | kind/channel]`)
+    so multi-agent transcripts stay legible when sent to a single model.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import asdict
 from typing import Any
 
 from simple_agent_lab.messages import (
     Message,
-    ModelAssistantMessage,
-    ModelMessage,
-    ModelToolResultMessage,
+    TextBlock,
     TokenUsage,
+    ToolResultMessage,
     assistant_message,
-    to_model_message,
 )
 from simple_agent_lab.tools import AgentTool, Tool
 
-from .types import LLMMessage, LLMResponse, LLMTool, Usage
+from .types import LLMMessage, LLMResponse, LLMTool
 
 
 def message_to_llm_message(message: Message, *, with_header: bool = False) -> LLMMessage:
     """Project a runtime Message into the LLM layer's provider-neutral shape."""
-    return model_message_to_llm_message(to_model_message(message, with_header=with_header))
+    if isinstance(message, ToolResultMessage):
+        return LLMMessage(
+            role="tool_result",
+            content=message.content,
+            tool_call_id=message.tool_call_id,
+            name=message.tool_name,
+        )
+    header = _routing_header(message) if with_header else ""
+    content = (TextBlock(header), *message.content) if header else message.content
+    return LLMMessage(role=message.role, content=content)
 
 
 def messages_to_llm_messages(
@@ -43,24 +52,6 @@ def messages_to_llm_messages(
         for message in messages
         if message.kind not in skipped
     ]
-
-
-def model_message_to_llm_message(message: ModelMessage) -> LLMMessage:
-    """Project a ModelMessage into the LLM layer.
-
-    Both layers share the same content shape, so this only re-roles and
-    surfaces the tool-result sidecar fields.
-    """
-    if isinstance(message, ModelToolResultMessage):
-        return LLMMessage(
-            role="tool_result",
-            content=message.content,
-            tool_call_id=message.tool_call_id,
-            name=message.tool_name,
-        )
-    if isinstance(message, ModelAssistantMessage):
-        return LLMMessage(role="assistant", content=message.content)
-    return LLMMessage(role=message.role, content=message.content)
 
 
 def tool_to_llm_tool(tool: Tool | AgentTool) -> LLMTool:
@@ -90,19 +81,22 @@ def llm_response_to_assistant_message(
         sender=sender,
         target=target,
         kind=kind,
-        usage=_translate_usage(response.usage),
+        usage=_usage_or_none(response.usage),
         data=data,
     )
 
 
-def _translate_usage(usage: Usage) -> TokenUsage | None:
-    """Project the LLM-layer Usage onto the runtime TokenUsage.
+def _usage_or_none(usage: TokenUsage) -> TokenUsage | None:
+    """Treat an all-zeros usage as 'unknown' rather than as authoritative."""
+    if usage.input_tokens or usage.output_tokens or usage.cache_read_tokens or usage.cache_write_tokens:
+        return usage
+    return None
 
-    Returns None when every field is zero so the message-side default ("we have
-    no usage info") is preserved instead of fabricating a zero-token record
-    that downstream consumers would treat as authoritative.
-    """
-    fields = asdict(usage)
-    if not any(fields.values()):
-        return None
-    return TokenUsage(**fields)
+
+def _routing_header(message: Message) -> str:
+    if isinstance(message, ToolResultMessage):
+        return ""
+    has_meta = bool(message.sender or message.target) or message.kind != "message"
+    if not has_meta:
+        return ""
+    return f"[{message.sender} -> {message.target} | {message.kind}/{message.channel}]"

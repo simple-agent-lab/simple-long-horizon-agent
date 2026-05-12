@@ -33,15 +33,12 @@ from .messages import (
     ContentInput,
     MessageKind,
     MessageRole,
-    ModelMessage,
     Role,
     ToolCallBlock,
     assistant_message,
     message_text,
     message_tool_calls,
     system_message,
-    to_model_message,
-    to_model_messages,
     tool_result_message,
     user_message,
 )
@@ -468,7 +465,7 @@ def run(
             policy=context_policy,
         )
         visible = transform(list(context.messages))
-        llm_payload = to_model_messages(visible)
+        llm_payload = messages_to_llm_messages(visible, with_header=True)
         state.data["last_llm_payload"] = llm_payload
 
         candidate_id = _candidate_id(state)
@@ -670,17 +667,6 @@ def make_message(
             data=data,
         )
     raise ValueError(f"Unknown message role: {role!r}")
-
-
-def model_message(message: Message, with_header: bool = True) -> ModelMessage:
-    return to_model_message(message, with_header=with_header)
-
-
-def model_messages(
-    messages: list[Message],
-    with_header: bool = True,
-) -> list[ModelMessage]:
-    return to_model_messages(messages, with_header=with_header)
 
 
 def event_text(event: Event) -> str:

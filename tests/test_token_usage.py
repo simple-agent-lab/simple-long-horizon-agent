@@ -26,10 +26,10 @@ from simple_agent_lab import (
 from simple_agent_lab.context_view import CHARS_PER_TOKEN
 from simple_agent_lab.llm import Provider as LLMProvider
 from simple_agent_lab.llm.bridge import (
-    _translate_usage,
+    _usage_or_none,
     llm_response_to_assistant_message,
 )
-from simple_agent_lab.llm.types import LLMResponse, TextBlock, Usage as LLMUsage
+from simple_agent_lab.llm.types import LLMResponse, TextBlock
 from simple_agent_lab.messages import tool_result_message
 
 
@@ -84,11 +84,11 @@ class AssistantMessageUsageTest(unittest.TestCase):
 
 
 class TranslateUsageTest(unittest.TestCase):
-    """`_translate_usage` is the bridge from provider Usage → message-side TokenUsage."""
+    """`_usage_or_none` is the bridge from provider Usage → message-side TokenUsage."""
 
     def test_non_zero_translates_field_for_field(self) -> None:
-        translated = _translate_usage(
-            LLMUsage(
+        translated = _usage_or_none(
+            TokenUsage(
                 input_tokens=10,
                 output_tokens=20,
                 cache_read_tokens=30,
@@ -110,12 +110,12 @@ class TranslateUsageTest(unittest.TestCase):
         # state, not "the call cost zero tokens". Translating it to a real
         # TokenUsage(0, 0, ...) would let downstream code mistake it for an
         # authoritative reading.
-        self.assertIsNone(_translate_usage(LLMUsage()))
+        self.assertIsNone(_usage_or_none(TokenUsage()))
 
     def test_only_cache_field_set_still_translates(self) -> None:
         # Cache-only is a real (if rare) state — e.g. a re-issued request that
         # hits a perfect cache. Don't drop it just because input/output are 0.
-        translated = _translate_usage(LLMUsage(cache_read_tokens=99))
+        translated = _usage_or_none(TokenUsage(cache_read_tokens=99))
         self.assertIsNotNone(translated)
         assert translated is not None  # narrow for type-checker
         self.assertEqual(translated.cache_read_tokens, 99)
@@ -125,7 +125,7 @@ class LLMResponseToAssistantMessageTest(unittest.TestCase):
     def test_usage_rides_into_runtime_message(self) -> None:
         response = LLMResponse(
             content=[TextBlock(text="ok")],
-            usage=LLMUsage(input_tokens=15, output_tokens=3),
+            usage=TokenUsage(input_tokens=15, output_tokens=3),
         )
         message = llm_response_to_assistant_message(
             response,

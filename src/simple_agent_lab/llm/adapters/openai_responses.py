@@ -49,7 +49,7 @@ from ..types import (
     LLMTool,
     StopReason,
     StreamEvent,
-    Usage,
+    TokenUsage,
 )
 
 
@@ -252,14 +252,14 @@ def _map_responses_stop(raw: Any, tool_calls: list[ToolCallBlock]) -> StopReason
     return "end_turn"
 
 
-def _responses_usage(usage: Any) -> Usage:
+def _responses_usage(usage: Any) -> TokenUsage:
     if usage is None:
-        return Usage()
+        return TokenUsage()
     cached = 0
     details = getattr(usage, "input_tokens_details", None)
     if details is not None:
         cached = int(getattr(details, "cached_tokens", 0) or 0)
-    return Usage(
+    return TokenUsage(
         input_tokens=int(getattr(usage, "input_tokens", 0) or 0),
         output_tokens=int(getattr(usage, "output_tokens", 0) or 0),
         cache_read_tokens=cached,

@@ -51,7 +51,7 @@ from ..types import (
     LLMTool,
     StopReason,
     StreamEvent,
-    Usage,
+    TokenUsage,
 )
 
 
@@ -286,10 +286,10 @@ def _map_anthropic_stop(raw: str | None) -> StopReason:
     return _ANTHROPIC_STOP_MAP.get(raw, "end_turn")
 
 
-def _anthropic_usage(usage: Any) -> Usage:
+def _anthropic_usage(usage: Any) -> TokenUsage:
     if usage is None:
-        return Usage()
-    return Usage(
+        return TokenUsage()
+    return TokenUsage(
         input_tokens=int(getattr(usage, "input_tokens", 0) or 0),
         output_tokens=int(getattr(usage, "output_tokens", 0) or 0),
         cache_read_tokens=int(getattr(usage, "cache_read_input_tokens", 0) or 0),

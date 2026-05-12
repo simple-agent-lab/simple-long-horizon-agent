@@ -2,7 +2,7 @@
 
 Three-piece public surface:
   - Types: `LLMMessage`, `LLMTool`, `LLMRequest`, `LLMResponse`,
-           `ContentBlock`, `ToolCall`, `Usage`, `StreamEvent`.
+           `ContentBlock`, `ToolCallBlock`, `TokenUsage`, `StreamEvent`.
   - Provider config: `Provider` (data, no subclasses).
   - Calls: `iter_stream(req)` for streaming, `complete(req)` for blocking.
 
@@ -27,7 +27,6 @@ from .bridge import (
     llm_response_to_assistant_message,
     message_to_llm_message,
     messages_to_llm_messages,
-    model_message_to_llm_message,
     tool_to_llm_tool,
 )
 from .stream import complete, iter_stream, register_adapter
@@ -43,9 +42,9 @@ from .types import (
     StreamEvent,
     TextBlock,
     ThinkingBlock,
+    TokenUsage,
     ToolCall,
     ToolCallBlock,
-    Usage,
     llm_message,
 )
 
@@ -68,16 +67,15 @@ __all__ = [
     "StreamEvent",
     "TextBlock",
     "ThinkingBlock",
+    "TokenUsage",
     "ToolCall",
     "ToolCallBlock",
-    "Usage",
     "complete",
     "iter_stream",
     "llm_message",
     "llm_response_to_assistant_message",
     "message_to_llm_message",
     "messages_to_llm_messages",
-    "model_message_to_llm_message",
     "register_adapter",
     "tool_to_llm_tool",
 ]

@@ -2,22 +2,22 @@
 
 These are *provider-agnostic*. Each agent loop has its own `Message`
 with routing fields (sender, target, kind, channel); none of those reach
-a provider. The boundary is `to_llm_message(...)` (see bridge.py),
+a provider. The boundary is `message_to_llm_message(...)` (see bridge.py),
 producing the types in this file.
 
 All types are frozen dataclasses — they represent immutable values that
 flow through the protocol. The mutable part (streaming accumulation,
 state) lives in the agent loop.
 
-The content model is shared with the runtime layer: every message and
-response carries `tuple[ContentBlock, ...]`, the union of `TextBlock`,
-`ImageBlock`, `ThinkingBlock`, and `ToolCallBlock` defined in
-`simple_agent_lab.messages`. There is no separate LLM-layer block type.
+Content model and token-usage shape are shared with the runtime layer:
+`LLMMessage` and `LLMResponse` carry `tuple[ContentBlock, ...]` (union
+of `TextBlock` / `ImageBlock` / `ThinkingBlock` / `ToolCallBlock`) and
+`TokenUsage` exactly as the runtime sees them. There are no separate
+LLM-layer block or usage types.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -25,8 +25,10 @@ from ..messages import (
     ContentBlock,
     ContentInput,
     MessageContent,
+    Role,
     TextBlock,
     ThinkingBlock,
+    TokenUsage,
     ToolCallBlock,
     normalize_content,
     text_of,
@@ -38,7 +40,6 @@ if TYPE_CHECKING:
     from .provider import Provider
 
 
-Role = Literal["system", "user", "assistant", "tool_result"]
 StopReason = Literal["end_turn", "tool_use", "max_tokens", "error"]
 
 
@@ -118,15 +119,6 @@ class LLMTool:
 
 
 @dataclass(frozen=True)
-class Usage:
-    """Token-usage breakdown for one call. All fields default to 0."""
-    input_tokens: int = 0
-    output_tokens: int = 0
-    cache_read_tokens: int = 0
-    cache_write_tokens: int = 0
-
-
-@dataclass(frozen=True)
 class LLMRequest:
     """One call to a provider. Pure data; safe to log or replay."""
     provider: "Provider"
@@ -150,7 +142,7 @@ class LLMResponse:
     """
     content: MessageContent = ()
     stop_reason: StopReason = "end_turn"
-    usage: Usage = field(default_factory=Usage)
+    usage: TokenUsage = field(default_factory=TokenUsage)
     raw: dict[str, Any] = field(default_factory=dict)   # original provider response
 
     @property
@@ -182,7 +174,7 @@ class StreamEvent:
       - "tool_call_start":    {"tool_call": ToolCallBlock}    # args may be empty
       - "tool_call_delta":    {"tool_call_id": str, "arguments_json_delta": str}
       - "tool_call_complete": {"tool_call": ToolCallBlock}    # args fully parsed
-      - "usage_update":       {"usage": Usage}
+      - "usage_update":       {"usage": TokenUsage}
       - "done":               {"response": LLMResponse}
 
     The `done` event always fires last and carries the final drained
@@ -217,8 +209,8 @@ __all__ = [
     "StreamEvent",
     "TextBlock",
     "ThinkingBlock",
+    "TokenUsage",
     "ToolCall",
     "ToolCallBlock",
-    "Usage",
     "llm_message",
 ]

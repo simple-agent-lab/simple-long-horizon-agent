@@ -63,7 +63,7 @@ from ..types import (
     LLMTool,
     StopReason,
     StreamEvent,
-    Usage,
+    TokenUsage,
 )
 
 
@@ -277,14 +277,14 @@ def _map_openai_finish(raw: str | None) -> StopReason:
     return _OPENAI_STOP_MAP.get(raw, "end_turn")
 
 
-def _openai_chat_usage(usage: Any) -> Usage:
+def _openai_chat_usage(usage: Any) -> TokenUsage:
     if usage is None:
-        return Usage()
+        return TokenUsage()
     cached = 0
     details = getattr(usage, "prompt_tokens_details", None)
     if details is not None:
         cached = int(getattr(details, "cached_tokens", 0) or 0)
-    return Usage(
+    return TokenUsage(
         input_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
         output_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
         cache_read_tokens=cached,
