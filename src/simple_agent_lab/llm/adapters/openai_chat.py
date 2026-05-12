@@ -54,9 +54,11 @@ from ...messages import (
     ThinkingBlock,
     ToolCallBlock,
     ToolResultBlock,
+    encode_image_data_url,
     text_of,
     tool_result_text,
 )
+from . import TOOL_RESULT_VISUAL_CAPTION
 from ..stream import register_adapter
 from ..types import (
     LLMMessage,
@@ -229,7 +231,7 @@ def _to_chat_messages(req: LLMRequest) -> list[dict[str, Any]]:
                 if images:
                     visual_blocks.append(
                         {"type": "text",
-                         "text": f"Visual output from {tool_result.tool_name}:"}
+                         "text": TOOL_RESULT_VISUAL_CAPTION.format(tool_name=tool_result.tool_name)}
                     )
                     for image in images:
                         visual_blocks.append(_openai_image_block(image))
@@ -275,10 +277,9 @@ def _to_chat_user_content(message: LLMMessage) -> Any:
 
 
 def _openai_image_block(block: ImageBlock) -> dict[str, Any]:
-    mime = block.mime_type or "image/png"
     return {
         "type": "image_url",
-        "image_url": {"url": f"data:{mime};base64,{block.data}"},
+        "image_url": {"url": encode_image_data_url(block.mime_type, block.data)},
     }
 
 

@@ -40,6 +40,7 @@ from .messages import (
     ToolResultBlock,
     UserMessage,
     assistant_message,
+    decode_image_data_url,
     is_tool_result_message,
     message_text,
     message_tool_calls,
@@ -187,7 +188,7 @@ def make_tool_result_block(
             if text_buffer:
                 inner.append(TextBlock(text="\n".join(text_buffer)))
                 text_buffer = []
-            decoded = _decode_image_data_url(block.image_url)
+            decoded = decode_image_data_url(block.image_url)
             if decoded is None:
                 inner.append(
                     TextBlock(text=f"[image attachment skipped: {block.image_url[:60]}...]")
@@ -203,17 +204,6 @@ def make_tool_result_block(
         content=tuple(inner),
         is_error=result.is_error,
     )
-
-
-def _decode_image_data_url(image_url: str) -> tuple[str, str] | None:
-    """Split `data:<mime>;base64,<data>` into (mime, base64)."""
-    if not image_url.startswith("data:"):
-        return None
-    head, _, payload = image_url.partition(",")
-    if not payload or ";base64" not in head:
-        return None
-    mime = head[len("data:") :].split(";", 1)[0] or "image/png"
-    return mime, payload
 
 
 def _execute_one(

@@ -10,7 +10,13 @@ call, so importing this package never requires `anthropic` or `openai`
 to be installed. Calling an adapter without its SDK raises a clear error.
 """
 
-from . import fake  # noqa: F401  (registers "fake")
-from . import anthropic_messages  # noqa: F401  (registers "anthropic-messages")
-from . import openai_chat  # noqa: F401  (registers "openai-chat")
-from . import openai_responses  # noqa: F401  (registers "openai-responses")
+# Caption emitted in the adjacent user message when a provider's wire shape
+# can't carry images inside its tool-result entry (OpenAI Chat / Responses).
+# Shared so all OpenAI-shape adapters surface the visual with the same hint.
+TOOL_RESULT_VISUAL_CAPTION = "Visual output from {tool_name}:"
+
+
+from . import fake  # noqa: F401, E402  (registers "fake")
+from . import anthropic_messages  # noqa: F401, E402  (registers "anthropic-messages")
+from . import openai_chat  # noqa: F401, E402  (registers "openai-chat")
+from . import openai_responses  # noqa: F401, E402  (registers "openai-responses")

@@ -330,11 +330,34 @@ def tool_result_text(block: ToolResultBlock) -> str:
     return "".join(b.text for b in block.content if isinstance(b, TextBlock))
 
 
+def encode_image_data_url(mime: str, data: str) -> str:
+    """Build a `data:<mime>;base64,<data>` URL from an ImageBlock's parts."""
+    return f"data:{mime or 'image/png'};base64,{data}"
+
+
+def decode_image_data_url(url: str) -> tuple[str, str] | None:
+    """Split `data:<mime>;base64,<data>` into `(mime, base64)`; None when malformed."""
+    if not url.startswith("data:"):
+        return None
+    head, _, payload = url.partition(",")
+    if not payload or ";base64" not in head:
+        return None
+    mime = head[len("data:") :].split(";", 1)[0] or "image/png"
+    return mime, payload
+
+
 def message_text(message: Message) -> str:
+    """One-line preview of the visible text in `message.content`.
+
+    Tool-result bundles have no top-level TextBlock — their visible text
+    lives inside each ToolResultBlock — so this helper falls through to
+    the first inner result's text. Both runtime callers (trace, demo
+    live event printer) and agent code that wants "what did the model
+    see one line" then work uniformly across message types.
+    """
     text = text_of(message.content).replace("\n", " ").strip()
     if text:
         return text[:120]
-    # Tool-result bundle preview: surface the first inner tool result text.
     for block in message.content:
         if isinstance(block, ToolResultBlock):
             inner = tool_result_text(block).replace("\n", " ").strip()
@@ -353,10 +376,35 @@ def is_tool_result_message(message: Message) -> bool:
 
 
 def validate_message(message: Message) -> None:
+    """Reject structurally illegal block placements and missing block fields.
+
+    `ToolCallBlock` and `ThinkingBlock` only belong on `AssistantMessage`;
+    `ToolResultBlock` only on `UserMessage`. The looseness of the shared
+    `ContentBlock` union is OK at the type level, but the validator closes
+    it at the runtime layer.
+    """
+    is_assistant = isinstance(message, AssistantMessage)
+    is_user = isinstance(message, UserMessage)
     for block in message.content:
         if isinstance(block, ToolCallBlock):
+            if not is_assistant:
+                raise ValueError(
+                    f"ToolCallBlock only belongs on AssistantMessage, "
+                    f"found on {type(message).__name__}"
+                )
             validate_tool_call(block)
+        elif isinstance(block, ThinkingBlock):
+            if not is_assistant:
+                raise ValueError(
+                    f"ThinkingBlock only belongs on AssistantMessage, "
+                    f"found on {type(message).__name__}"
+                )
         elif isinstance(block, ToolResultBlock):
+            if not is_user:
+                raise ValueError(
+                    f"ToolResultBlock only belongs on UserMessage, "
+                    f"found on {type(message).__name__}"
+                )
             validate_tool_result(block)
 
 

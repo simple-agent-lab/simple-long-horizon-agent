@@ -17,6 +17,7 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from .messages import encode_image_data_url
 from .tools import AbortFlag, AgentTool, ToolContent, ToolResult, ToolUpdateFn, text_result
 
 
@@ -443,7 +444,7 @@ def _attach_files(
         encoded = base64.b64encode(data).decode("ascii")
         extras.append(ToolContent(
             kind="image",
-            image_url=f"data:{mime};base64,{encoded}",
+            image_url=encode_image_data_url(mime, encoded),
         ))
 
     if not extras and not notes:
@@ -454,7 +455,17 @@ def _attach_files(
         note_text = "attach notes:\n" + "\n".join(f"- {n}" for n in notes)
         new_content.append(ToolContent(kind="text", text=note_text))
     new_content.extend(extras)
-    return replace(result, content=new_content)
+    new_details = dict(result.details) if isinstance(result.details, dict) else {"details": result.details}
+    if notes:
+        new_details["attach_notes"] = list(notes)
+    # If every requested path failed, surface that as an error.
+    all_failed = bool(notes) and not extras
+    return replace(
+        result,
+        content=new_content,
+        details=new_details,
+        is_error=result.is_error or all_failed,
+    )
 
 
 def _attach_error(result: ToolResult, message: str) -> ToolResult:
