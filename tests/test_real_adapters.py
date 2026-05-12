@@ -27,6 +27,7 @@ from simple_agent_lab.llm import (
     TextBlock,
     ThinkingBlock,
     ToolCallBlock,
+    ToolResultBlock,
     complete,
     iter_stream,
 )
@@ -83,7 +84,16 @@ def _tool_use_request() -> LLMRequest:
                     ToolCall(id="t1", name="bash", arguments={"command": "echo hello"}),
                 ],
             ),
-            LLMMessage(role="tool_result", content="hello", tool_call_id="t1"),
+            LLMMessage(
+                role="user",
+                content=[
+                    ToolResultBlock(
+                        tool_call_id="t1",
+                        tool_name="bash",
+                        content=(TextBlock("hello"),),
+                    )
+                ],
+            ),
         ],
         tools=[_bash_tool()],
     )
@@ -384,9 +394,14 @@ class OpenAIChatAdapterTest(unittest.TestCase):
                     ],
                 ),
                 LLMMessage(
-                    role="tool_result",
-                    content="hello",
-                    tool_call_id="t1",
+                    role="user",
+                    content=[
+                        ToolResultBlock(
+                            tool_call_id="t1",
+                            tool_name="bash",
+                            content=(TextBlock("hello"),),
+                        )
+                    ],
                 ),
             ],
             tools=[_bash_tool()],
@@ -574,9 +589,14 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
                     ],
                 ),
                 LLMMessage(
-                    role="tool_result",
-                    content="out",
-                    tool_call_id="prev",
+                    role="user",
+                    content=[
+                        ToolResultBlock(
+                            tool_call_id="prev",
+                            tool_name="bash",
+                            content=(TextBlock("out"),),
+                        )
+                    ],
                 ),
             ],
             tools=[_bash_tool()],
@@ -806,7 +826,16 @@ class AnthropicReasoningReplayTest(unittest.TestCase):
                         ToolCall(id="t1", name="bash", arguments={"command": "ls"}),
                     ],
                 ),
-                LLMMessage(role="tool_result", content="out", tool_call_id="t1"),
+                LLMMessage(
+                    role="user",
+                    content=[
+                        ToolResultBlock(
+                            tool_call_id="t1",
+                            tool_name="bash",
+                            content=(TextBlock("out"),),
+                        )
+                    ],
+                ),
             ],
         )
         with (
@@ -946,6 +975,86 @@ class MessageExtraTest(unittest.TestCase):
             dict(llm.extra),
             {"anthropic.cache_breakpoint": True, "openai.name": "bob"},
         )
+
+
+class ParallelToolResultBundleTest(unittest.TestCase):
+    """A user message bundling N ToolResultBlocks renders correctly per provider.
+
+    Anthropic wants one user message with N tool_result content blocks (so
+    the model sees them as a parallel batch). OpenAI-Chat wants N separate
+    `role="tool"` entries (each with its own tool_call_id).
+    """
+
+    def _bundled_request(self, provider: Provider) -> LLMRequest:
+        return LLMRequest(
+            provider=provider,
+            messages=[
+                LLMMessage(role="user", content="run two things"),
+                LLMMessage(
+                    role="assistant",
+                    content=[
+                        ToolCallBlock("a", "bash", {"command": "echo aaa"}),
+                        ToolCallBlock("b", "bash", {"command": "echo bbb"}),
+                    ],
+                ),
+                LLMMessage(
+                    role="user",
+                    content=[
+                        ToolResultBlock(
+                            tool_call_id="a",
+                            tool_name="bash",
+                            content=(TextBlock("out-a"),),
+                        ),
+                        ToolResultBlock(
+                            tool_call_id="b",
+                            tool_name="bash",
+                            content=(TextBlock("out-b"),),
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+    def test_anthropic_bundles_into_one_user_wire_message(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_anthropic(_anthropic_response(text="done"), captured)
+        with (
+            _stub_module("anthropic", module),
+            mock.patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "k"}, clear=False),
+        ):
+            complete(self._bundled_request(ANTHROPIC_PROVIDER))
+
+        user_msgs = [m for m in captured["messages"] if m["role"] == "user"]
+        bundles = [
+            m for m in user_msgs
+            if any(b.get("type") == "tool_result" for b in m["content"])
+        ]
+        self.assertEqual(len(bundles), 1)
+        tool_blocks = [b for b in bundles[0]["content"] if b["type"] == "tool_result"]
+        self.assertEqual(len(tool_blocks), 2)
+        self.assertEqual(
+            {b["tool_use_id"] for b in tool_blocks},
+            {"a", "b"},
+        )
+
+    def test_openai_chat_splits_into_n_tool_wire_entries(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(_chat_response(text="done"), captured, kind="chat")
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            complete(self._bundled_request(OPENAI_CHAT_PROVIDER))
+
+        tool_entries = [m for m in captured["messages"] if m["role"] == "tool"]
+        self.assertEqual(len(tool_entries), 2)
+        self.assertEqual(
+            {m["tool_call_id"] for m in tool_entries},
+            {"a", "b"},
+        )
+        contents = {m["tool_call_id"]: m["content"] for m in tool_entries}
+        self.assertEqual(contents["a"], "out-a")
+        self.assertEqual(contents["b"], "out-b")
 
 
 if __name__ == "__main__":  # pragma: no cover

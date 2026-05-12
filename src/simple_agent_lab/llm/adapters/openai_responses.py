@@ -39,7 +39,9 @@ from ...messages import (
     ImageBlock,
     TextBlock,
     ToolCallBlock,
+    ToolResultBlock,
     text_of,
+    tool_result_text,
 )
 from ..stream import register_adapter
 from ..types import (
@@ -183,13 +185,24 @@ def _to_responses_input(req: LLMRequest) -> list[dict[str, Any]]:
                 }
             )
         elif message.role == "user":
-            items.append(
-                {
-                    "type": "message",
-                    "role": "user",
-                    "content": _to_responses_user_content(message),
-                }
-            )
+            for tool_result in message.tool_results:
+                items.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": tool_result.tool_call_id,
+                        "output": tool_result_text(tool_result),
+                    }
+                )
+            if any(
+                isinstance(b, (TextBlock, ImageBlock)) for b in message.content
+            ):
+                items.append(
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": _to_responses_user_content(message),
+                    }
+                )
         elif message.role == "assistant":
             text = text_of(message.content)
             if text:
@@ -209,14 +222,6 @@ def _to_responses_input(req: LLMRequest) -> list[dict[str, Any]]:
                         "arguments": json.dumps(dict(tool_call.arguments)),
                     }
                 )
-        elif message.role == "tool_result":
-            items.append(
-                {
-                    "type": "function_call_output",
-                    "call_id": message.tool_call_id or "",
-                    "output": text_of(message.content),
-                }
-            )
     return items
 
 

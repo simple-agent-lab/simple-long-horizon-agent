@@ -42,8 +42,10 @@ from simple_agent_lab import (  # noqa: E402
     print_trace,
     run_bash_agent_demo,
     text_of,
+    tool_results_of,
 )
 from simple_agent_lab.llm import Provider  # noqa: E402
+from simple_agent_lab.messages import tool_result_text  # noqa: E402
 
 
 OPENAI_AUTH_ENV = "OPENAI_AUTH_TOKEN"
@@ -83,15 +85,23 @@ def build_openai_provider() -> Provider:
 def print_live_event(event: Event) -> None:
     if event.kind == "message":
         message = event.message
-        if message is not None and message.sender in {"bash_agent", "bash"}:
-            if isinstance(message, AssistantMessage):
-                for thinking_block in message.thinking:
-                    preview = thinking_block.text.replace("\n", " ")
-                    if len(preview) > 240:
-                        preview = preview[:240] + "..."
-                    tag = "thinking*" if thinking_block.redacted else "thinking"
-                    print(f"  [{tag:>10}] {preview}")
+        if message is None:
+            return
+        if isinstance(message, AssistantMessage) and message.sender == "bash_agent":
+            for thinking_block in message.thinking:
+                preview = thinking_block.text.replace("\n", " ")
+                if len(preview) > 240:
+                    preview = preview[:240] + "..."
+                tag = "thinking*" if thinking_block.redacted else "thinking"
+                print(f"  [{tag:>10}] {preview}")
             print(f"  [{message.sender:>10}] {message_text(message)}")
+        elif message.kind == "tool_result":
+            for block in tool_results_of(message.content):
+                inner = tool_result_text(block).replace("\n", " ")
+                if len(inner) > 240:
+                    inner = inner[:240] + "..."
+                tag = "tool*" if block.is_error else block.tool_name
+                print(f"  [{tag:>10}] {inner}")
     elif event.kind == "tool_execution_start":
         print(f"  [      tool] start {event.data.get('tool_name')}")
     elif event.kind == "tool_execution_end":

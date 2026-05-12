@@ -1,20 +1,23 @@
 """Shared message protocol for Simple Agent Lab.
 
-`Message` is the runtime transcript union — every assistant turn, user
-input, system prompt, or tool result lives as one of these four
-dataclasses. Routing fields (sender, target, kind, channel) stay on the
-runtime side; adapters never see them.
+The protocol is built on **one** unified content model:
 
-The content model is unified across every layer:
+    TextBlock | ImageBlock | ThinkingBlock | ToolCallBlock | ToolResultBlock
+    (== ContentBlock)
 
-    ContentBlock = TextBlock | ImageBlock | ThinkingBlock | ToolCallBlock
+Every message carries the same shape ``content: tuple[ContentBlock, ...]``.
 
-so `message.content` is always `tuple[ContentBlock, ...]`. There are no
-sibling thinking / tool_calls fields on the message; `AssistantMessage`
-exposes those as derived `@property` views over `content`.
+Tool results live as ``ToolResultBlock`` entries inside ``UserMessage.content``
+(matching Anthropic's wire shape); a parallel-tool-call assistant turn returns
+one user message bundling N ``ToolResultBlock`` blocks rather than N separate
+messages. Per-block ``is_error`` lets a single bundle express partial failure
+across parallel calls.
 
-Projecting a runtime `Message` into the provider-facing `LLMMessage`
-happens in one step inside `simple_agent_lab.llm.bridge`.
+`Message` is the runtime transcript union. Routing fields (sender, target,
+kind, channel) stay on the runtime side; adapters never see them.
+
+Projecting a runtime `Message` into the provider-facing `LLMMessage` happens
+in one step inside `simple_agent_lab.llm.bridge`.
 """
 
 from __future__ import annotations
@@ -24,7 +27,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, TypeAlias
 
 
-Role: TypeAlias = Literal["system", "user", "assistant", "tool_result"]
+Role: TypeAlias = Literal["system", "user", "assistant"]
 MessageRole: TypeAlias = Role
 MessageKind: TypeAlias = str
 MessageChannel: TypeAlias = str
@@ -65,6 +68,27 @@ class ToolCallBlock:
 
 
 @dataclass(frozen=True)
+class ToolResultBlock:
+    """One tool's return value, carried inside a user message.
+
+    `content` is what the model sees next turn. It is a tuple of visible
+    blocks (text and image) so multimodal tool results (screenshots,
+    structured renders) ride through unchanged.
+
+    `tool_call_id` links back to the assistant's `ToolCallBlock.id` that
+    requested this work. `tool_name` is convenience metadata (some wire
+    formats use it). `is_error` is per-block so a parallel-tool bundle
+    can express partial failure.
+    """
+    tool_call_id: str
+    tool_name: str
+    content: tuple[TextBlock | ImageBlock, ...] = ()
+    is_error: bool = False
+
+    kind: Literal["tool_result"] = field(default="tool_result", init=False)
+
+
+@dataclass(frozen=True)
 class TokenUsage:
     """Provider-reported token counts for one model call.
 
@@ -89,10 +113,18 @@ class TokenUsage:
         return self.input_tokens + self.output_tokens
 
 
-ContentBlock: TypeAlias = TextBlock | ImageBlock | ThinkingBlock | ToolCallBlock
+ContentBlock: TypeAlias = (
+    TextBlock | ImageBlock | ThinkingBlock | ToolCallBlock | ToolResultBlock
+)
+VisibleBlock: TypeAlias = TextBlock | ImageBlock  # blocks legal inside a tool_result
 MessageContent: TypeAlias = tuple[ContentBlock, ...]
 ContentInput: TypeAlias = str | Sequence[ContentBlock]
+ToolResultContentInput: TypeAlias = str | Sequence[VisibleBlock]
 Sidecar: TypeAlias = Mapping[str, Any]
+
+
+TOOL_RESULT_KIND = "tool_result"
+TOOL_RESULT_SENDER = "tool"
 
 
 @dataclass(frozen=True)
@@ -137,21 +169,7 @@ class AssistantMessage:
         return tuple(block for block in self.content if isinstance(block, ToolCallBlock))
 
 
-@dataclass(frozen=True)
-class ToolResultMessage:
-    role: Literal["tool_result"] = field(default="tool_result", init=False)
-    content: MessageContent = ()
-    tool_call_id: str = ""
-    tool_name: str = ""
-    sender: AgentName = ""
-    target: AgentName = ""
-    kind: MessageKind = "tool_result"
-    channel: MessageChannel = "main"
-    is_error: bool = False
-    data: Sidecar = field(default_factory=dict)
-
-
-Message: TypeAlias = UserMessage | SystemMessage | AssistantMessage | ToolResultMessage
+Message: TypeAlias = UserMessage | SystemMessage | AssistantMessage
 
 
 def user_message(
@@ -216,26 +234,63 @@ def assistant_message(
 
 
 def tool_result_message(
-    content: ContentInput = "",
+    content: ToolResultContentInput = "",
     *,
     tool_call_id: str,
     tool_name: str,
-    sender: AgentName | None = None,
     target: AgentName,
-    kind: MessageKind = "tool_result",
-    channel: MessageChannel = "main",
+    sender: AgentName | None = None,
     is_error: bool = False,
+    kind: MessageKind = TOOL_RESULT_KIND,
+    channel: MessageChannel = "main",
     data: Sidecar | None = None,
-) -> ToolResultMessage:
-    message = ToolResultMessage(
-        content=normalize_content(content),
+) -> UserMessage:
+    """Build a UserMessage wrapping a single ToolResultBlock.
+
+    Multi-result bundles (parallel tool calls) should use
+    `tool_results_message(...)` so all results land in one message.
+    """
+    block = ToolResultBlock(
         tool_call_id=tool_call_id,
         tool_name=tool_name,
-        sender=sender if sender is not None else tool_name,
+        content=_normalize_visible(content),
+        is_error=is_error,
+    )
+    message = UserMessage(
+        content=(block,),
+        sender=sender if sender is not None else TOOL_RESULT_SENDER,
         target=target,
         kind=kind,
         channel=channel,
-        is_error=is_error,
+        data=dict(data or {}),
+    )
+    validate_message(message)
+    return message
+
+
+def tool_results_message(
+    results: Sequence[ToolResultBlock],
+    *,
+    target: AgentName,
+    sender: AgentName = TOOL_RESULT_SENDER,
+    kind: MessageKind = TOOL_RESULT_KIND,
+    channel: MessageChannel = "main",
+    data: Sidecar | None = None,
+) -> UserMessage:
+    """Bundle N tool results from one assistant turn into a single message.
+
+    This is the natural shape on Anthropic wire (one user message with N
+    tool_result content blocks). Adapters that need the OpenAI shape (one
+    `role="tool"` wire entry per result) split the bundle on the way out.
+    """
+    if not results:
+        raise ValueError("tool_results_message requires at least one ToolResultBlock")
+    message = UserMessage(
+        content=tuple(results),
+        sender=sender,
+        target=target,
+        kind=kind,
+        channel=channel,
         data=dict(data or {}),
     )
     validate_message(message)
@@ -256,24 +311,53 @@ def tool_calls_of(content: Iterable[ContentBlock]) -> tuple[ToolCallBlock, ...]:
     return tuple(block for block in content if isinstance(block, ToolCallBlock))
 
 
+def tool_results_of(content: Iterable[ContentBlock]) -> tuple[ToolResultBlock, ...]:
+    return tuple(block for block in content if isinstance(block, ToolResultBlock))
+
+
 def text_of(content: Iterable[ContentBlock]) -> str:
+    """Concatenate top-level TextBlock text.
+
+    Tool result blocks are skipped here — their inner text is reachable
+    via `tool_result_text(block)` so callers don't accidentally pull
+    tool-result payloads into a user-facing message preview.
+    """
     return "".join(block.text for block in content if isinstance(block, TextBlock))
 
 
+def tool_result_text(block: ToolResultBlock) -> str:
+    """Flatten the visible text inside a ToolResultBlock."""
+    return "".join(b.text for b in block.content if isinstance(b, TextBlock))
+
+
 def message_text(message: Message) -> str:
-    return text_of(message.content).replace("\n", " ").strip()[:120]
+    text = text_of(message.content).replace("\n", " ").strip()
+    if text:
+        return text[:120]
+    # Tool-result bundle preview: surface the first inner tool result text.
+    for block in message.content:
+        if isinstance(block, ToolResultBlock):
+            inner = tool_result_text(block).replace("\n", " ").strip()
+            if inner:
+                return inner[:120]
+    return ""
+
+
+def is_tool_result_message(message: Message) -> bool:
+    """True when the message is a user-message envelope of tool results."""
+    return (
+        isinstance(message, UserMessage)
+        and message.kind == TOOL_RESULT_KIND
+        and any(isinstance(block, ToolResultBlock) for block in message.content)
+    )
 
 
 def validate_message(message: Message) -> None:
-    if isinstance(message, AssistantMessage):
-        for block in message.content:
-            if isinstance(block, ToolCallBlock):
-                validate_tool_call(block)
-    if isinstance(message, ToolResultMessage):
-        if not message.tool_call_id:
-            raise ValueError("ToolResultMessage.tool_call_id must be non-empty")
-        if not message.tool_name:
-            raise ValueError("ToolResultMessage.tool_name must be non-empty")
+    for block in message.content:
+        if isinstance(block, ToolCallBlock):
+            validate_tool_call(block)
+        elif isinstance(block, ToolResultBlock):
+            validate_tool_result(block)
 
 
 def validate_tool_call(tool_call: ToolCallBlock) -> None:
@@ -283,13 +367,35 @@ def validate_tool_call(tool_call: ToolCallBlock) -> None:
         raise ValueError("ToolCallBlock.name must be non-empty")
 
 
+def validate_tool_result(block: ToolResultBlock) -> None:
+    if not block.tool_call_id:
+        raise ValueError("ToolResultBlock.tool_call_id must be non-empty")
+    if not block.tool_name:
+        raise ValueError("ToolResultBlock.tool_name must be non-empty")
+
+
 def normalize_content(content: ContentInput) -> MessageContent:
     """Coerce a str-or-sequence input to the canonical tuple-of-blocks form."""
     if isinstance(content, str):
         return (TextBlock(content),) if content else ()
     blocks: list[ContentBlock] = []
     for block in content:
-        if not isinstance(block, (TextBlock, ImageBlock, ThinkingBlock, ToolCallBlock)):
+        if not isinstance(block, (TextBlock, ImageBlock, ThinkingBlock, ToolCallBlock, ToolResultBlock)):
             raise TypeError(f"Unexpected content block: {type(block)!r}")
+        blocks.append(block)
+    return tuple(blocks)
+
+
+def _normalize_visible(content: ToolResultContentInput) -> tuple[VisibleBlock, ...]:
+    """Coerce tool-result inner content to text/image blocks only."""
+    if isinstance(content, str):
+        return (TextBlock(content),) if content else ()
+    blocks: list[VisibleBlock] = []
+    for block in content:
+        if not isinstance(block, (TextBlock, ImageBlock)):
+            raise TypeError(
+                f"ToolResultBlock content only accepts TextBlock or ImageBlock, "
+                f"got {type(block)!r}"
+            )
         blocks.append(block)
     return tuple(blocks)

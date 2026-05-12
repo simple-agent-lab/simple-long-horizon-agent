@@ -34,12 +34,17 @@ from .messages import (
     MessageKind,
     MessageRole,
     Role,
+    TextBlock,
     ToolCallBlock,
+    ToolResultBlock,
+    UserMessage,
     assistant_message,
+    is_tool_result_message,
     message_text,
     message_tool_calls,
     system_message,
     tool_result_message,
+    tool_results_message,
     user_message,
 )
 from .tools import (
@@ -158,27 +163,19 @@ def context_view(
     return list(build_agent_context_view(agent, state, last=last, policy=policy).messages)
 
 
-def make_tool_result_message(
+def make_tool_result_block(
     call_id: str,
     tool_name: str,
     result: ToolResult,
-    *,
-    target: str,
-) -> Message:
-    """Convert a ToolResult into a transcript tool-result message."""
-    return tool_result_message(
-        tool_result_text(result),
+) -> ToolResultBlock:
+    """Convert a tool's `ToolResult` into a runtime `ToolResultBlock`."""
+    text = tool_result_text(result)
+    inner = (TextBlock(text),) if text else ()
+    return ToolResultBlock(
         tool_call_id=call_id,
         tool_name=tool_name,
-        target=target,
+        content=inner,
         is_error=result.is_error,
-        data={
-            "details": result.details,
-            "content_blocks": [
-                {"kind": c.kind, "text": c.text, "image_url": c.image_url}
-                for c in result.content
-            ],
-        },
     )
 
 
@@ -299,15 +296,23 @@ def dispatch_tool_calls(
                 terminate=result.terminate,
             )
 
-    for tool_call in tool_calls:
-        yield state.record(
-            make_tool_result_message(
+    bundle = tool_results_message(
+        [
+            make_tool_result_block(
                 tool_call.id,
                 tool_call.name,
                 results[tool_call.id],
-                target=target,
             )
-        )
+            for tool_call in tool_calls
+        ],
+        target=target,
+        data={
+            "details": {
+                tool_call.id: results[tool_call.id].details for tool_call in tool_calls
+            },
+        },
+    )
+    yield state.record(bundle)
 
 
 from collections.abc import Mapping
@@ -649,21 +654,6 @@ def make_message(
             target=target or "all",
             kind=kind,
             channel=channel,
-            data=data,
-        )
-    if role == "tool_result":
-        tool_call_id = str(data.pop("tool_call_id", ""))
-        tool_name = str(data.pop("tool_name", sender or ""))
-        is_error = bool(data.pop("is_error", False))
-        return tool_result_message(
-            content,
-            tool_call_id=tool_call_id,
-            tool_name=tool_name,
-            sender=sender or tool_name,
-            target=target,
-            kind=kind,
-            channel=channel,
-            is_error=is_error,
             data=data,
         )
     raise ValueError(f"Unknown message role: {role!r}")

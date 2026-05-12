@@ -17,7 +17,8 @@ from .messages import (
     MessageKind,
     SystemMessage,
     TextBlock,
-    ToolResultMessage,
+    is_tool_result_message,
+    tool_results_of,
 )
 
 
@@ -206,8 +207,8 @@ def estimate_message_chars(message: Message) -> int:
             len(call.id) + len(call.name) + len(repr(dict(call.arguments)))
             for call in message.tool_calls
         )
-    if isinstance(message, ToolResultMessage):
-        content_chars += len(message.tool_call_id) + len(message.tool_name)
+    for block in tool_results_of(message.content):
+        content_chars += len(block.tool_call_id) + len(block.tool_name)
     return meta_chars + content_chars
 
 
@@ -273,13 +274,14 @@ def _group_messages(
             next_index = index + 1
             while next_index < len(messages) and wanted:
                 candidate = messages[next_index]
-                if (
-                    isinstance(candidate, ToolResultMessage)
-                    and candidate.tool_call_id in wanted
+                candidate_results = tool_results_of(candidate.content)
+                if is_tool_result_message(candidate) and any(
+                    result.tool_call_id in wanted for result in candidate_results
                 ):
                     group.append(candidate)
                     consumed.add(next_index)
-                    wanted.remove(candidate.tool_call_id)
+                    for result in candidate_results:
+                        wanted.discard(result.tool_call_id)
                     next_index += 1
                     continue
                 break

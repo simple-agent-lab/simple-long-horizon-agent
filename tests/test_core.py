@@ -19,6 +19,8 @@ from simple_agent_lab import (
     message_text,
     run_to_completion,
     sequence,
+    tool_result_message,
+    tool_results_of,
 )
 from simple_agent_lab.tools import AbortFlag, AgentTool, ToolResult, ToolUpdateFn, text_result
 
@@ -48,7 +50,7 @@ class CoreTest(unittest.TestCase):
 
     def test_dispatches_agent_tool_result_back_to_agent(self) -> None:
         def coordinator(agent: Agent, visible: list[Message], state: State) -> Message:
-            if any(message.role == "tool_result" for message in visible):
+            if any(message.kind == "tool_result" for message in visible):
                 result = last_message(visible, kind="tool_result")
                 return assistant_message(
                     f"final: {message_text(result)}",
@@ -190,14 +192,13 @@ class CoreTest(unittest.TestCase):
                 kind="thought",
             )
         )
-        state.send(
-            "tool_result",
-            "echo",
-            "coordinator",
-            "tool ok",
-            role="tool_result",
-            tool_call_id="call_1",
-            tool_name="echo",
+        state.record(
+            tool_result_message(
+                "tool ok",
+                tool_call_id="call_1",
+                tool_name="echo",
+                target="coordinator",
+            )
         )
 
         view = build_agent_context_view(
@@ -211,7 +212,9 @@ class CoreTest(unittest.TestCase):
             "thought",
             "tool_result",
         ])
-        self.assertEqual(view.messages[-1].tool_call_id, "call_1")
+        last_results = tool_results_of(view.messages[-1].content)
+        self.assertEqual(len(last_results), 1)
+        self.assertEqual(last_results[0].tool_call_id, "call_1")
 
     def test_run_records_context_view_summary(self) -> None:
         def writer(agent: Agent, visible: list[Message], state: State) -> Message:

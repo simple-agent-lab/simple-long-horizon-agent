@@ -19,6 +19,7 @@ from simple_agent_lab import (
     run_bash,
     run_bash_agent_demo,
     tool_result_text,
+    tool_results_of,
 )
 from simple_agent_lab.bash_tool import (
     MAX_BASH_TIMEOUT_SECONDS,
@@ -83,11 +84,13 @@ class BashToolTest(unittest.TestCase):
             command="printf 'demo ok\\n'",
             cwd=ROOT,
         )
-        tool_result = last_message(runtime.state, kind="tool_result")
+        tool_result_msg = last_message(runtime.state, kind="tool_result")
         final = last_message(runtime.state, kind="final")
 
-        self.assertEqual(tool_result.tool_name, "bash")
-        self.assertIn("demo ok", message_text(tool_result))
+        blocks = tool_results_of(tool_result_msg.content)
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(blocks[0].tool_name, "bash")
+        self.assertIn("demo ok", message_text(tool_result_msg))
         self.assertEqual(final.sender, "bash_agent")
         self.assertIn("demo ok", message_text(final))
         self.assertTrue(

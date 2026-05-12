@@ -45,6 +45,7 @@ from .types import (
     TokenUsage,
     ToolCall,
     ToolCallBlock,
+    ToolResultBlock,
     llm_message,
 )
 
@@ -70,6 +71,7 @@ __all__ = [
     "TokenUsage",
     "ToolCall",
     "ToolCallBlock",
+    "ToolResultBlock",
     "complete",
     "iter_stream",
     "llm_message",

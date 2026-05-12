@@ -53,7 +53,9 @@ from ...messages import (
     TextBlock,
     ThinkingBlock,
     ToolCallBlock,
+    ToolResultBlock,
     text_of,
+    tool_result_text,
 )
 from ..stream import register_adapter
 from ..types import (
@@ -207,7 +209,21 @@ def _to_chat_messages(req: LLMRequest) -> list[dict[str, Any]]:
         if message.role == "system":
             out.append({"role": "system", "content": text_of(message.content)})
         elif message.role == "user":
-            out.append({"role": "user", "content": _to_chat_user_content(message)})
+            # OpenAI Chat wants one `role="tool"` entry per tool result and a
+            # separate `role="user"` entry for any leftover text/image. Split
+            # the bundled message accordingly.
+            for tool_result in message.tool_results:
+                out.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_result.tool_call_id,
+                        "content": tool_result_text(tool_result),
+                    }
+                )
+            if any(
+                isinstance(b, (TextBlock, ImageBlock)) for b in message.content
+            ):
+                out.append({"role": "user", "content": _to_chat_user_content(message)})
         elif message.role == "assistant":
             entry: dict[str, Any] = {"role": "assistant"}
             text = text_of(message.content)
@@ -230,14 +246,6 @@ def _to_chat_messages(req: LLMRequest) -> list[dict[str, Any]]:
                 if reasoning:
                     entry["reasoning_content"] = reasoning
             out.append(entry)
-        elif message.role == "tool_result":
-            out.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": message.tool_call_id or "",
-                    "content": text_of(message.content),
-                }
-            )
     return out
 
 

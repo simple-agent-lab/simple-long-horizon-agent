@@ -2,7 +2,10 @@
 
 ## Status
 
-Accepted (supersedes parts of ADR 0006)
+Accepted (supersedes parts of ADR 0006). The tool-result fragments
+of this ADR are further superseded by ADR 0014, which collapses the
+`tool_result` role into a `ToolResultBlock` content block and removes
+the `ToolResultMessage` subtype entirely.
 
 ## Context
 

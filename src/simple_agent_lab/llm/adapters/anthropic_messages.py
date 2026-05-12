@@ -41,7 +41,9 @@ from ...messages import (
     TextBlock,
     ThinkingBlock,
     ToolCallBlock,
+    ToolResultBlock,
     text_of,
+    tool_result_text,
 )
 from ..stream import register_adapter
 from ..types import (
@@ -198,14 +200,31 @@ def _to_anthropic_messages(req: LLMRequest) -> tuple[str | None, list[dict[str, 
             if text:
                 system_parts.append(text)
             continue
-        if message.role == "tool_result":
-            wire_blocks: list[dict[str, Any]] = [
-                {
-                    "type": "tool_result",
-                    "tool_use_id": message.tool_call_id or "",
-                    "content": text_of(message.content),
-                }
-            ]
+        if message.role == "user" and message.tool_results:
+            wire_blocks: list[dict[str, Any]] = []
+            for tool_result in message.tool_results:
+                wire_blocks.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tool_result.tool_call_id,
+                        "content": tool_result_text(tool_result),
+                    }
+                )
+            # Any TextBlock / ImageBlock siblings ride along in the same wire user message.
+            for block in message.content:
+                if isinstance(block, TextBlock) and block.text:
+                    wire_blocks.append({"type": "text", "text": block.text})
+                elif isinstance(block, ImageBlock):
+                    wire_blocks.append(
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": block.mime_type or "image/png",
+                                "data": block.data,
+                            },
+                        }
+                    )
             _apply_message_extra(wire_blocks, message)
             messages.append({"role": "user", "content": wire_blocks})
             continue

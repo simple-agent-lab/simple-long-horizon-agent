@@ -31,10 +31,12 @@ from ..messages import (
     ThinkingBlock,
     TokenUsage,
     ToolCallBlock,
+    ToolResultBlock,
     normalize_content,
     text_of,
     thinking_blocks_of,
     tool_calls_of,
+    tool_results_of,
 )
 
 if TYPE_CHECKING:
@@ -48,19 +50,13 @@ StopReason = Literal["end_turn", "tool_use", "max_tokens", "error"]
 class LLMMessage:
     """Provider-agnostic chat message. No agent-routing fields.
 
-    Roles are intentionally **internal**, not wire-format. In particular
-    `role="tool_result"` is our neutral name for a tool-call result; each
-    provider adapter translates at its own boundary:
-      - OpenAI Chat / Responses → `role="tool"` + `tool_call_id`
-      - Anthropic Messages      → `role="user"` + content block of
-                                  type `"tool_result"`
-    Keeping the internal name distinct from any provider's wire role
-    means the same transcript can be sent to either provider without
-    a translation step at the call site.
+    `role` is `"system" | "user" | "assistant"`. Tool results ride
+    inside a user message as ``ToolResultBlock`` content blocks (matching
+    Anthropic's wire shape); adapters that need the OpenAI "one
+    role=tool entry per result" shape split the bundle on the way out.
 
     `content` carries every block the message emits — text, image,
-    thinking, and tool_call — in the order the model produced them.
-    Adapters split blocks into the right wire slot per provider.
+    thinking, tool_call, tool_result — in the order produced.
 
     `extra` is the per-message twin of `LLMRequest.extra`: a namespaced
     bag of provider-specific instructions on this particular message
@@ -73,7 +69,6 @@ class LLMMessage:
     """
     role: Role
     content: MessageContent = ()
-    tool_call_id: Optional[str] = None         # only set when role="tool_result"
     extra: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -90,19 +85,21 @@ class LLMMessage:
     def tool_calls(self) -> tuple[ToolCallBlock, ...]:
         return tool_calls_of(self.content)
 
+    @property
+    def tool_results(self) -> tuple[ToolResultBlock, ...]:
+        return tool_results_of(self.content)
+
 
 def llm_message(
     role: Role,
     content: ContentInput = "",
     *,
-    tool_call_id: Optional[str] = None,
     extra: Mapping[str, Any] | None = None,
 ) -> LLMMessage:
     """Factory that accepts a str shorthand or a block sequence."""
     return LLMMessage(
         role=role,
         content=normalize_content(content),
-        tool_call_id=tool_call_id,
         extra=dict(extra or {}),
     )
 
@@ -221,5 +218,6 @@ __all__ = [
     "TokenUsage",
     "ToolCall",
     "ToolCallBlock",
+    "ToolResultBlock",
     "llm_message",
 ]

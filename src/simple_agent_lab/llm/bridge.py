@@ -1,12 +1,13 @@
 """Bridge between runtime Messages and the LLM access layer.
 
-One projection: `Message → LLMMessage`. The content block tuple is
-unified between runtime and wire layers, so this only:
+One projection: `Message → LLMMessage`. Runtime and wire layers share
+the same `tuple[ContentBlock, ...]` shape, so the bridge only:
 
-  * picks the right wire `role`,
-  * surfaces ToolResultMessage's `tool_call_id` / `tool_name` sidecar,
-  * optionally prepends a routing header (`[sender -> target | kind/channel]`)
-    so multi-agent transcripts stay legible when sent to a single model.
+  * picks the wire `role` (system / user / assistant),
+  * optionally prepends a routing header
+    (`[sender -> target | kind/channel]`) so multi-agent transcripts
+    stay legible when sent to a single model — skipped for tool-result
+    user messages since the per-block `tool_call_id` links them.
 """
 
 from __future__ import annotations
@@ -18,8 +19,8 @@ from simple_agent_lab.messages import (
     Message,
     TextBlock,
     TokenUsage,
-    ToolResultMessage,
     assistant_message,
+    is_tool_result_message,
 )
 from simple_agent_lab.tools import AgentTool, Tool
 
@@ -34,13 +35,6 @@ def message_to_llm_message(message: Message, *, with_header: bool = False) -> LL
     apply them on the wire.
     """
     extra = dict(message.data.get("extra") or {}) if message.data else {}
-    if isinstance(message, ToolResultMessage):
-        return LLMMessage(
-            role="tool_result",
-            content=message.content,
-            tool_call_id=message.tool_call_id,
-            extra=extra,
-        )
     header = _routing_header(message) if with_header else ""
     content = (TextBlock(header), *message.content) if header else message.content
     return LLMMessage(role=message.role, content=content, extra=extra)
@@ -106,7 +100,7 @@ def _usage_or_none(usage: TokenUsage) -> TokenUsage | None:
 
 
 def _routing_header(message: Message) -> str:
-    if isinstance(message, ToolResultMessage):
+    if is_tool_result_message(message):
         return ""
     has_meta = bool(message.sender or message.target) or message.kind != "message"
     if not has_meta:

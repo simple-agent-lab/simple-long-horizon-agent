@@ -186,11 +186,17 @@ def _last_message_text(req: LLMRequest, *, role: Optional[str] = None) -> str:
 
 
 def _has_tool_result(req: LLMRequest) -> bool:
-    return any(getattr(message, "role", "") == "tool_result" for message in req.messages)
+    return any(getattr(message, "tool_results", ()) for message in req.messages)
 
 
 def _last_tool_result_text(req: LLMRequest) -> str:
-    return _last_message_text(req, role="tool_result")
+    for message in reversed(req.messages):
+        results = getattr(message, "tool_results", ())
+        if results:
+            from ...messages import tool_result_text as _tool_result_text
+
+            return _tool_result_text(results[-1])
+    return ""
 
 
 def _agent_tool_prompt(req: LLMRequest) -> str:
