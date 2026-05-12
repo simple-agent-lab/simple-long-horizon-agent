@@ -1,6 +1,7 @@
 """Simple Agent Lab core runtime."""
 
 from .bash_agent import (
+    BASH_AGENT_SYSTEM_PROMPT,
     DEFAULT_BASH_DEMO_COMMAND,
     DEFAULT_BASH_DEMO_TASK,
     bash_agent_until_final,
@@ -87,6 +88,7 @@ from .messages import (
     tool_results_of,
     user_message,
 )
+from .openai_training import append_openai_training_record, openai_training_record
 from .tools import (
     AbortFlag,
     AgentTool,
@@ -101,6 +103,7 @@ from .tools import (
 __all__ = [
     "Agent",
     "AgentRuntime",
+    "BASH_AGENT_SYSTEM_PROMPT",
     "BASH_TOOL_NAME",
     "DEFAULT_BASH_DEMO_COMMAND",
     "DEFAULT_BASH_DEMO_TASK",
@@ -169,6 +172,8 @@ __all__ = [
     "run_bash",
     "run_bash_agent_demo",
     "run_to_completion",
+    "append_openai_training_record",
+    "openai_training_record",
     "sequence",
     "strip_empty_lines",
     "system_message",

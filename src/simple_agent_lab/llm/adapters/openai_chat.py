@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Sequence
 from typing import Any, Iterator
 
 from ...messages import (
@@ -85,8 +86,12 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         base_url=req.provider.base_url,
     )
 
-    messages = _to_chat_messages(req)
-    tools = _to_chat_tools(req.tools)
+    messages = to_openai_chat_messages(
+        req.messages,
+        system_prompt=req.system_prompt,
+        include_reasoning_content=req.provider.replay_reasoning,
+    )
+    tools = to_openai_chat_tools(req.tools)
 
     kwargs: dict[str, Any] = {
         "model": req.provider.model,
@@ -184,11 +189,25 @@ def _extract_reasoning(message: Any) -> str:
     return value if isinstance(value, str) else ""
 
 
-def _to_chat_messages(req: LLMRequest) -> list[dict[str, Any]]:
+def to_openai_chat_messages(
+    messages: Sequence[LLMMessage],
+    *,
+    system_prompt: str | None = None,
+    include_reasoning_content: bool = True,
+) -> list[dict[str, Any]]:
+    """Render LLMMessages into the OpenAI Chat wire / training shape.
+
+    Shared between the live `openai-chat` adapter and the offline
+    training-export module — both want the same JSON shape. The
+    `include_reasoning_content` toggle controls whether prior assistant
+    `thinking_blocks` are replayed as a sibling `reasoning_content`
+    field (DeepSeek / mimo style); the adapter sets it from
+    `Provider.replay_reasoning`.
+    """
     out: list[dict[str, Any]] = []
-    if req.system_prompt:
-        out.append({"role": "system", "content": req.system_prompt})
-    for message in req.messages:
+    if system_prompt:
+        out.append({"role": "system", "content": system_prompt})
+    for message in messages:
         if message.role == "system":
             out.append({"role": "system", "content": text_of(message.content)})
         elif message.role == "user":
@@ -239,12 +258,26 @@ def _to_chat_messages(req: LLMRequest) -> list[dict[str, Any]]:
                     }
                     for tool_call in tool_calls
                 ]
-            if req.provider.replay_reasoning:
+            if include_reasoning_content:
                 reasoning = _reasoning_text(message)
                 if reasoning:
                     entry["reasoning_content"] = reasoning
             out.append(entry)
     return out
+
+
+def to_openai_chat_tools(tools: Sequence[LLMTool]) -> list[dict[str, Any]]:
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.parameters,
+            },
+        }
+        for tool in tools
+    ]
 
 
 def _to_chat_user_content(message: LLMMessage) -> Any:
@@ -266,20 +299,6 @@ def _openai_image_block(block: ImageBlock) -> dict[str, Any]:
 
 def _reasoning_text(message: LLMMessage) -> str:
     return "\n\n".join(block.text for block in message.thinking_blocks if block.text)
-
-
-def _to_chat_tools(tools: list[LLMTool]) -> list[dict[str, Any]]:
-    return [
-        {
-            "type": "function",
-            "function": {
-                "name": tool.name,
-                "description": tool.description,
-                "parameters": tool.parameters,
-            },
-        }
-        for tool in tools
-    ]
 
 
 _OPENAI_STOP_MAP: dict[str, StopReason] = {

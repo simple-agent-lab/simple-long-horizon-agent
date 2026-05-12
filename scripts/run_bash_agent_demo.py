@@ -141,6 +141,15 @@ def main() -> None:
         action="store_true",
         help="Also dump each turn's `raw` payload — request snapshot + SDK response dump.",
     )
+    parser.add_argument(
+        "--save-trace",
+        default=None,
+        metavar="PATH",
+        help=(
+            "After the run, append the conversation as one OpenAI Chat "
+            "fine-tuning JSONL line ({\"messages\": ..., \"tools\": ...}) at PATH."
+        ),
+    )
     args = parser.parse_args()
 
     task = args.task
@@ -168,6 +177,21 @@ def main() -> None:
     if not args.no_trace:
         print("\n=== full trace ===")
         print_trace(runtime.state, raw=args.raw)
+
+    if args.save_trace:
+        from simple_agent_lab import (  # noqa: E402
+            BASH_AGENT_SYSTEM_PROMPT,
+            append_openai_training_record,
+            make_bash_tool,
+        )
+
+        out = append_openai_training_record(
+            runtime.state,
+            args.save_trace,
+            tools=[make_bash_tool(cwd=ROOT)],
+            system_prompt=BASH_AGENT_SYSTEM_PROMPT,
+        )
+        print(f"\n=== saved training record to {out} ===")
 
 
 if __name__ == "__main__":

@@ -14,6 +14,12 @@ DEFAULT_BASH_DEMO_COMMAND = (
     "pwd && find src/simple_agent_lab -maxdepth 1 -type f -name '*.py' | sort"
 )
 DEFAULT_BASH_DEMO_TASK = f"Use bash to run command: `{DEFAULT_BASH_DEMO_COMMAND}`"
+BASH_AGENT_SYSTEM_PROMPT = (
+    "You are a tiny bash-use agent. Use the bash tool to satisfy the task "
+    "— parallel tool calls are fine when the steps are independent, and "
+    "set `attach` on the call when you want to surface an image file. "
+    "After the tool_result, return a short final answer."
+)
 _FAKE_PROVIDER = LLMProvider(id="fake", api="fake", model="fake-model")
 
 
@@ -25,12 +31,7 @@ def make_bash_use_agent(provider: LLMProvider | None = None) -> Agent:
         role="Use bash for local commands, then summarize what you observed.",
         step=make_llm_step(
             provider or _FAKE_PROVIDER,
-            system_prompt=(
-                "You are a tiny bash-use agent. Use the bash tool to satisfy the task "
-                "— parallel tool calls are fine when the steps are independent, and "
-                "set `attach` on the call when you want to surface an image file. "
-                "After the tool_result, return a short final answer."
-            ),
+            system_prompt=BASH_AGENT_SYSTEM_PROMPT,
             target="user",
         ),
     )
