@@ -11,6 +11,9 @@ dist/
 venv/
 env/
 
+# Local secrets
+.env
+
 # Tooling caches
 .pytest_cache/
 .mypy_cache/

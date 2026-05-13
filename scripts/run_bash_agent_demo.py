@@ -36,20 +36,32 @@ from simple_agent_lab import (  # noqa: E402
     AssistantMessage,
     Event,
     Message,
-    last_message,
     message_text,
     print_trace,
     text_of,
     tool_results_of,
 )
 from simple_agent_lab.agents.bash import (  # noqa: E402
-    DEFAULT_BASH_DEMO_COMMAND,
-    run_bash_agent_demo,
+    BASH_AGENT_DEFAULT_NAME,
+    BASH_AGENT_SYSTEM_PROMPT,
+    bash_agent_until_final,
+    make_bash_agent_runtime,
 )
 from simple_agent_lab.llm import Provider  # noqa: E402
 
 
 OPENAI_AUTH_ENV = "OPENAI_AUTH_TOKEN"
+DEFAULT_BASH_DEMO_COMMAND = (
+    "pwd && find src/simple_agent_lab -maxdepth 1 -type f -name '*.py' | sort"
+)
+
+
+def build_fake_provider() -> Provider:
+    return Provider(id="fake", api="fake", model="fake-model")
+
+
+def bash_task_for_command(command: str) -> str:
+    return f"Use bash to run command: `{command}`"
 
 
 def build_openai_provider() -> Provider:
@@ -149,7 +161,7 @@ def main() -> None:
         metavar="PATH",
         help=(
             "After the run, append the conversation as one OpenAI Chat "
-            "fine-tuning JSONL line ({\"messages\": ..., \"tools\": ...}) at PATH."
+            'fine-tuning JSONL line ({"messages": ..., "tools": ...}) at PATH.'
         ),
     )
     args = parser.parse_args()
@@ -161,18 +173,28 @@ def main() -> None:
     elif task is not None and command is not None:
         parser.error("--task and --command are mutually exclusive")
 
-    provider = build_openai_provider() if args.provider == "openai" else None
-
-    print(f"=== bash-use agent (provider={args.provider}) ===")
-    runtime = run_bash_agent_demo(
-        task=task,
-        command=command,
-        cwd=ROOT,
-        provider=provider,
-        on_event=print_live_event,
+    provider = (
+        build_openai_provider() if args.provider == "openai" else build_fake_provider()
     )
 
-    final = last_message(runtime.state, kind="final")
+    print(f"=== bash-use agent (provider={args.provider}) ===")
+    resolved_task = task or bash_task_for_command(command or DEFAULT_BASH_DEMO_COMMAND)
+    runtime = make_bash_agent_runtime(
+        provider,
+        cwd=ROOT,
+    )
+    for event in runtime.prompt(
+        resolved_task,
+        target=BASH_AGENT_DEFAULT_NAME,
+        next_agent=bash_agent_until_final,
+    ):
+        print_live_event(event)
+
+    final = next(
+        message
+        for message in reversed(runtime.state.messages)
+        if message.kind == "final"
+    )
     print("\n=== final ===")
     print(full_message_text(final))
 
@@ -182,10 +204,7 @@ def main() -> None:
 
     if args.save_trace:
         from simple_agent_lab import append_openai_training_record  # noqa: E402
-        from simple_agent_lab.agents.bash import (  # noqa: E402
-            BASH_AGENT_SYSTEM_PROMPT,
-            make_bash_tool,
-        )
+        from simple_agent_lab.tools.bash import make_bash_tool  # noqa: E402
 
         out = append_openai_training_record(
             runtime.state,

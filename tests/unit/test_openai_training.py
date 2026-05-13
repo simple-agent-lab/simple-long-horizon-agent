@@ -57,9 +57,7 @@ def _state_with_bash_roundtrip() -> State:
         )
     )
     state.record(
-        assistant_message(
-            "Done!", sender="agent", target="user", kind="final"
-        )
+        assistant_message("Done!", sender="agent", target="user", kind="final")
     )
     return state
 
@@ -87,9 +85,7 @@ class OpenAITrainingRecordTest(unittest.TestCase):
         assistant_turn = record["messages"][2]
         self.assertIsNotNone(assistant_turn["tool_calls"])
         self.assertEqual(assistant_turn["tool_calls"][0]["id"], "c1")
-        self.assertEqual(
-            assistant_turn["tool_calls"][0]["function"]["name"], "bash"
-        )
+        self.assertEqual(assistant_turn["tool_calls"][0]["function"]["name"], "bash")
         # arguments are JSON-stringified per OpenAI's wire schema.
         self.assertEqual(
             json.loads(assistant_turn["tool_calls"][0]["function"]["arguments"]),

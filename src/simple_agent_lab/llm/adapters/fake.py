@@ -40,7 +40,7 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
     # Text phase.
     for i in range(0, len(text), chunk):
         _pace()
-        yield StreamEvent(kind="text_delta", payload={"delta": text[i:i + chunk]})
+        yield StreamEvent(kind="text_delta", payload={"delta": text[i : i + chunk]})
 
     # Tool-call phase. Emit start + complete; no JSON-arg streaming for the fake.
     for tc in tool_calls:

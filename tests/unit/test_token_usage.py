@@ -18,9 +18,8 @@ from simple_agent_lab import (
 from simple_agent_lab import (
     Agent,
     State,
-    last_message,
     make_llm_step,
-    run_to_completion,
+    run,
     sequence,
 )
 from simple_agent_lab.context_view import CHARS_PER_TOKEN
@@ -172,24 +171,32 @@ class EstimateMessageTokensTest(unittest.TestCase):
             "hello",
             usage=TokenUsage(input_tokens=500, output_tokens=0),
         )
-        expected = (estimate_message_chars(message) + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN
+        expected = (
+            estimate_message_chars(message) + CHARS_PER_TOKEN - 1
+        ) // CHARS_PER_TOKEN
         self.assertEqual(estimate_message_tokens(message), expected)
 
     def test_assistant_without_usage_falls_back_to_chars(self) -> None:
         message = assistant_message("hello world")
-        expected = (estimate_message_chars(message) + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN
+        expected = (
+            estimate_message_chars(message) + CHARS_PER_TOKEN - 1
+        ) // CHARS_PER_TOKEN
         self.assertEqual(estimate_message_tokens(message), expected)
 
     def test_user_message_always_falls_back_even_if_long(self) -> None:
         # No provider reports per-message tokens for user inputs, so user
         # messages always go through char-estimation.
         message = user_message("x" * 100)
-        expected = (estimate_message_chars(message) + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN
+        expected = (
+            estimate_message_chars(message) + CHARS_PER_TOKEN - 1
+        ) // CHARS_PER_TOKEN
         self.assertEqual(estimate_message_tokens(message), expected)
 
     def test_system_message_falls_back(self) -> None:
         message = system_message("be helpful")
-        expected = (estimate_message_chars(message) + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN
+        expected = (
+            estimate_message_chars(message) + CHARS_PER_TOKEN - 1
+        ) // CHARS_PER_TOKEN
         self.assertEqual(estimate_message_tokens(message), expected)
 
     def test_tool_result_falls_back(self) -> None:
@@ -199,7 +206,9 @@ class EstimateMessageTokensTest(unittest.TestCase):
             tool_name="bash",
             target="agent",
         )
-        expected = (estimate_message_chars(message) + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN
+        expected = (
+            estimate_message_chars(message) + CHARS_PER_TOKEN - 1
+        ) // CHARS_PER_TOKEN
         self.assertEqual(estimate_message_tokens(message), expected)
 
     def test_fallback_rounds_up_via_ceiling(self) -> None:
@@ -239,7 +248,9 @@ class ContextStatsUsesUsageTest(unittest.TestCase):
             assistant_message("hello back", sender="agent", target="user"),
         ]
         view = build_context_view("agent", messages)
-        char_only = (view.stats.estimated_chars + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN
+        char_only = (
+            view.stats.estimated_chars + CHARS_PER_TOKEN - 1
+        ) // CHARS_PER_TOKEN
         self.assertEqual(view.stats.estimated_tokens, char_only)
         self.assertEqual(view.stats.usage_known_messages, 0)
 
@@ -319,11 +330,16 @@ class EndToEndUsagePropagationTest(unittest.TestCase):
         state = State("say hi please")
         state.send("task", "user", "writer", state.task)
 
-        run_to_completion([agent], state, sequence("writer"))
+        for _ in run([agent], state, sequence("writer")):
+            pass
 
-        final = last_message(state, kind="final")
+        final = next(
+            message for message in reversed(state.messages) if message.kind == "final"
+        )
         assert isinstance(final, AssistantMessage)
-        self.assertIsNotNone(final.usage, "fake adapter always reports usage; runtime must keep it")
+        self.assertIsNotNone(
+            final.usage, "fake adapter always reports usage; runtime must keep it"
+        )
         assert final.usage is not None
         # The fake adapter sets `output_tokens = max(1, len(text)//4)` and
         # `input_tokens = sum(estimate per message)` — both must be > 0.

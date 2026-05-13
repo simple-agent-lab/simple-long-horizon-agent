@@ -79,6 +79,7 @@ class ToolResultBlock:
     formats use it). `is_error` is per-block so a parallel-tool bundle
     can express partial failure.
     """
+
     tool_call_id: str
     tool_name: str
     content: tuple[TextBlock | ImageBlock, ...] = ()
@@ -161,11 +162,15 @@ class AssistantMessage:
 
     @property
     def thinking(self) -> tuple[ThinkingBlock, ...]:
-        return tuple(block for block in self.content if isinstance(block, ThinkingBlock))
+        return tuple(
+            block for block in self.content if isinstance(block, ThinkingBlock)
+        )
 
     @property
     def tool_calls(self) -> tuple[ToolCallBlock, ...]:
-        return tuple(block for block in self.content if isinstance(block, ToolCallBlock))
+        return tuple(
+            block for block in self.content if isinstance(block, ToolCallBlock)
+        )
 
 
 Message: TypeAlias = UserMessage | SystemMessage | AssistantMessage
@@ -412,7 +417,10 @@ def normalize_content(content: ContentInput) -> MessageContent:
         return (TextBlock(content),) if content else ()
     blocks: list[ContentBlock] = []
     for block in content:
-        if not isinstance(block, (TextBlock, ImageBlock, ThinkingBlock, ToolCallBlock, ToolResultBlock)):
+        if not isinstance(
+            block,
+            (TextBlock, ImageBlock, ThinkingBlock, ToolCallBlock, ToolResultBlock),
+        ):
             raise TypeError(f"Unexpected content block: {type(block)!r}")
         blocks.append(block)
     return tuple(blocks)

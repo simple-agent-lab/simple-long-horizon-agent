@@ -1,6 +1,6 @@
 # Tests
 
-This directory contains focused behavioral tests for the promoted runtime.
+This directory separates fast unit tests from opt-in end-to-end tests.
 
 Testing and feedback are first-priority design concerns. Now that the balanced
 runtime has been promoted into `src`, tests should stay focused on behavior
@@ -16,8 +16,26 @@ Useful test targets:
 - Example workflows.
 - Bash tool execution and the deterministic bash-use demo.
 
-Run the current suite from the repo root:
+Run the unit suite from the repo root:
 
 ```bash
-uv run python -m unittest discover -s tests
+uv run python -m unittest discover -s tests/unit
 ```
+
+## Live End-To-End Test
+
+`e2e/test_live_bash_e2e.py` is intentionally opt-in because it calls a real model
+provider and executes a local bash command through the agent loop. It is skipped
+unless all required environment variables are set:
+
+```bash
+OPENAI_MODEL=<model> \
+OPENAI_AUTH_TOKEN=<api-key> \
+uv run python -m unittest tests.e2e.test_live_bash_e2e
+```
+
+Set `OPENAI_BASE_URL` too when using an OpenAI-compatible endpoint.
+
+The test also loads a repo-root `.env` file before checking those variables.
+Values already set in the shell win over `.env` values.
+Use `.env.example` as the local template.

@@ -8,21 +8,26 @@ from simple_agent_lab import (
     Agent,
     AgentRuntime,
     ContextPolicy,
+    EventKind,
     Message,
     State,
     TextBlock,
     ToolCallBlock,
     assistant_message,
     build_agent_context_view,
-    last_event,
-    last_message,
     message_text,
-    run_to_completion,
+    run,
     sequence,
     tool_result_message,
     tool_results_of,
 )
-from simple_agent_lab.tools import AbortFlag, AgentTool, ToolResult, ToolUpdateFn, text_result
+from simple_agent_lab.tools import (
+    AbortFlag,
+    AgentTool,
+    ToolResult,
+    ToolUpdateFn,
+    text_result,
+)
 
 
 class CoreTest(unittest.TestCase):
@@ -37,13 +42,19 @@ class CoreTest(unittest.TestCase):
 
         state = State("write one sentence")
         state.send("task", "user", "writer", state.task)
-        run_to_completion(
+        for _ in run(
             [Agent("writer", "Write one sentence.", writer)],
             state,
             sequence("writer"),
-        )
+        ):
+            pass
 
-        self.assertEqual(message_text(last_message(state, kind="final")), "done")
+        self.assertIs(state.events[0].kind, EventKind.MESSAGE)
+        self.assertIs(state.events[-1].kind, EventKind.AGENT_END)
+        final = next(
+            message for message in reversed(state.messages) if message.kind == "final"
+        )
+        self.assertEqual(message_text(final), "done")
         self.assertIn("model_request", [event.kind for event in state.events])
         self.assertIn("model_response", [event.kind for event in state.events])
         self.assertEqual(state.events[-1].kind, "agent_end")
@@ -51,7 +62,11 @@ class CoreTest(unittest.TestCase):
     def test_dispatches_agent_tool_result_back_to_agent(self) -> None:
         def coordinator(agent: Agent, visible: list[Message], state: State) -> Message:
             if any(message.kind == "tool_result" for message in visible):
-                result = last_message(visible, kind="tool_result")
+                result = next(
+                    message
+                    for message in reversed(visible)
+                    if message.kind == "tool_result"
+                )
                 return assistant_message(
                     f"final: {message_text(result)}",
                     sender=agent.name,
@@ -85,7 +100,7 @@ class CoreTest(unittest.TestCase):
 
         state = State("delegate")
         state.send("task", "user", "coordinator", state.task)
-        run_to_completion(
+        for _ in run(
             [Agent("coordinator", "Coordinate tool use.", coordinator)],
             state,
             until_final,
@@ -98,16 +113,35 @@ class CoreTest(unittest.TestCase):
                     execution_mode="sequential",
                 )
             ],
-        )
+        ):
+            pass
 
         self.assertEqual(
-            message_text(last_message(state, kind="tool_result")), "child ok"
+            message_text(
+                next(
+                    message
+                    for message in reversed(state.messages)
+                    if message.kind == "tool_result"
+                )
+            ),
+            "child ok",
         )
         self.assertEqual(
-            message_text(last_message(state, kind="final")), "final: child ok"
+            message_text(
+                next(
+                    message
+                    for message in reversed(state.messages)
+                    if message.kind == "final"
+                )
+            ),
+            "final: child ok",
         )
-        self.assertTrue(any(event.kind == "tool_execution_start" for event in state.events))
-        self.assertTrue(any(event.kind == "tool_execution_end" for event in state.events))
+        self.assertTrue(
+            any(event.kind == "tool_execution_start" for event in state.events)
+        )
+        self.assertTrue(
+            any(event.kind == "tool_execution_end" for event in state.events)
+        )
 
     def test_runtime_has_no_input_queue_api(self) -> None:
         def noop(agent: Agent, visible: list[Message], state: State) -> Message:
@@ -124,6 +158,12 @@ class CoreTest(unittest.TestCase):
         self.assertFalse(hasattr(simple_agent_lab, "default_convert_to_llm"))
         self.assertFalse(hasattr(simple_agent_lab, "BeforeStepResult"))
         self.assertFalse(hasattr(simple_agent_lab, "AfterStepResult"))
+        self.assertFalse(hasattr(simple_agent_lab, "last_message"))
+        self.assertFalse(hasattr(simple_agent_lab, "last_event"))
+        self.assertFalse(hasattr(simple_agent_lab, "event_text"))
+        self.assertFalse(hasattr(simple_agent_lab, "default_role"))
+        self.assertFalse(hasattr(simple_agent_lab, "make_tool_result_block"))
+        self.assertFalse(hasattr(simple_agent_lab, "run_to_completion"))
 
     def test_context_view_filters_routes_and_channels(self) -> None:
         def noop(agent: Agent, visible: list[Message], state: State) -> Message:
@@ -207,11 +247,14 @@ class CoreTest(unittest.TestCase):
             policy=ContextPolicy(max_chars=120, reserve_recent=1),
         )
 
-        self.assertEqual([message.kind for message in view.messages], [
-            "task",
-            "thought",
-            "tool_result",
-        ])
+        self.assertEqual(
+            [message.kind for message in view.messages],
+            [
+                "task",
+                "thought",
+                "tool_result",
+            ],
+        )
         last_results = tool_results_of(view.messages[-1].content)
         self.assertEqual(len(last_results), 1)
         self.assertEqual(last_results[0].tool_call_id, "call_1")
@@ -229,14 +272,17 @@ class CoreTest(unittest.TestCase):
         state = State("summarize context")
         state.send("task", "user", "writer", state.task)
         state.send("note", "user", "writer", "old " + ("x" * 120))
-        run_to_completion(
+        for _ in run(
             [Agent("writer", "Write.", writer)],
             state,
             sequence("writer"),
             context_policy=ContextPolicy(max_chars=80, reserve_recent=0),
-        )
+        ):
+            pass
 
-        request = last_event(state, kind="model_request")
+        request = next(
+            event for event in reversed(state.events) if event.kind == "model_request"
+        )
         context = request.data["context_view"]
         self.assertEqual(context["agent"], "writer")
         self.assertEqual(context["dropped_messages"], 1)

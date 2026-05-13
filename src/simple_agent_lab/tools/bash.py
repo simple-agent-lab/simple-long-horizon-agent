@@ -18,7 +18,8 @@ from pathlib import Path
 from typing import Any
 
 from simple_agent_lab.messages import ImageBlock, TextBlock
-from simple_agent_lab.tools import AbortFlag, AgentTool, ToolResult, ToolUpdateFn, text_result
+
+from . import AbortFlag, AgentTool, ToolResult, ToolUpdateFn, text_result
 
 
 BASH_TOOL_NAME = "bash"
@@ -96,7 +97,9 @@ def make_bash_tool(
 
         command = str(args.get("command", "")).strip()
         if not command:
-            return text_result("Missing required bash argument: command.", is_error=True)
+            return text_result(
+                "Missing required bash argument: command.", is_error=True
+            )
 
         blocked_sleep = detect_blocked_sleep_pattern(command)
         if blocked_sleep is not None:
@@ -334,7 +337,7 @@ def strip_empty_lines(content: str) -> str:
         end -= 1
     if start > end:
         return ""
-    return "\n".join(lines[start:end + 1])
+    return "\n".join(lines[start : end + 1])
 
 
 def budget_text(content: str, max_chars: int) -> tuple[str, bool]:
@@ -363,7 +366,9 @@ def _resolve_timeout(
     try:
         timeout = float(requested)
     except (TypeError, ValueError):
-        raise ValueError(f"timeout_seconds must be numeric, got {requested!r}") from None
+        raise ValueError(
+            f"timeout_seconds must be numeric, got {requested!r}"
+        ) from None
     if math.isnan(timeout):
         raise ValueError("timeout_seconds must be a real number, got NaN")
     if timeout <= 0:
@@ -403,7 +408,9 @@ def _attach_files(
     """Append image content blocks for each requested attachment path."""
 
     if not isinstance(paths, (list, tuple)):
-        return _attach_error(result, f"`attach` must be a list of paths, got {type(paths).__name__}")
+        return _attach_error(
+            result, f"`attach` must be a list of paths, got {type(paths).__name__}"
+        )
 
     extras: list[ImageBlock] = []
     notes: list[str] = []
@@ -441,17 +448,23 @@ def _attach_files(
         except OSError as exc:
             notes.append(f"failed to read attach path {raw!r}: {exc}")
             continue
-        extras.append(ImageBlock(data=base64.b64encode(data).decode("ascii"), mime_type=mime))
+        extras.append(
+            ImageBlock(data=base64.b64encode(data).decode("ascii"), mime_type=mime)
+        )
 
     if not extras and not notes:
         return result
 
     new_content: list[TextBlock | ImageBlock] = list(result.content)
+    new_content.extend(extras)
     if notes:
         note_text = "attach notes:\n" + "\n".join(f"- {n}" for n in notes)
         new_content.append(TextBlock(text=note_text))
-    new_content.extend(extras)
-    new_details = dict(result.details) if isinstance(result.details, dict) else {"details": result.details}
+    new_details = (
+        dict(result.details)
+        if isinstance(result.details, dict)
+        else {"details": result.details}
+    )
     if notes:
         new_details["attach_notes"] = list(notes)
     # If every requested path failed, surface that as an error.

@@ -14,13 +14,14 @@ bash runs/run_swebench_smoke.sh
 ```
 
 `runs/run_ci.sh` mirrors the GitHub Actions workflow at
-`.github/workflows/ci.yml`: it syncs the dev dependency group, runs `ty` on
-`src/`, and runs the full unittest suite. Use it as the local pre-push gate.
+`.github/workflows/ci.yml`: it syncs the dev dependency group, checks Ruff
+formatting, runs `ty` on `src/`, and runs the full unittest suite. Use it as
+the local pre-push gate.
 
 The focused tests cover the canonical runtime:
 
 ```bash
-uv run python -m unittest discover -s tests
+uv run python -m unittest discover -s tests/unit
 ```
 
 This runs the recipe demo on the canonical runtime:

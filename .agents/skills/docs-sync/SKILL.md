@@ -47,7 +47,7 @@ Common checks:
 
 ```bash
 bash runs/run_ci.sh
-uv run python -m unittest discover -s tests
+uv run python -m unittest discover -s tests/unit
 bash runs/run_examples.sh
 bash runs/run_bash_agent_demo.sh
 bash runs/run_swebench_smoke.sh

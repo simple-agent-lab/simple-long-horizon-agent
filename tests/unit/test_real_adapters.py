@@ -195,7 +195,10 @@ class AnthropicAdapterTest(unittest.TestCase):
             provider=ANTHROPIC_PROVIDER,
             messages=[LLMMessage(role="user", content="hi")],
         )
-        with _stub_module("anthropic", module), mock.patch.dict("os.environ", {}, clear=False):
+        with (
+            _stub_module("anthropic", module),
+            mock.patch.dict("os.environ", {}, clear=False),
+        ):
             # Make sure the env var is unset.
             import os
 
@@ -306,7 +309,9 @@ class AnthropicAdapterTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-def _stub_openai(response: Any, captured: dict[str, Any], *, kind: str) -> types.ModuleType:
+def _stub_openai(
+    response: Any, captured: dict[str, Any], *, kind: str
+) -> types.ModuleType:
     module = types.ModuleType("openai")
 
     class FakeChatCompletions:
@@ -375,7 +380,11 @@ class OpenAIChatAdapterTest(unittest.TestCase):
             _chat_response(
                 text="Calling bash.",
                 tool_calls=[
-                    {"id": "t2", "name": "bash", "arguments": json.dumps({"command": "ls"})}
+                    {
+                        "id": "t2",
+                        "name": "bash",
+                        "arguments": json.dumps({"command": "ls"}),
+                    }
                 ],
                 finish_reason="tool_calls",
             ),
@@ -390,7 +399,9 @@ class OpenAIChatAdapterTest(unittest.TestCase):
                 LLMMessage(
                     role="assistant",
                     content=[
-                        ToolCall(id="t1", name="bash", arguments={"command": "echo hello"})
+                        ToolCall(
+                            id="t1", name="bash", arguments={"command": "echo hello"}
+                        )
                     ],
                 ),
                 LLMMessage(
@@ -428,9 +439,7 @@ class OpenAIChatAdapterTest(unittest.TestCase):
         self.assertEqual(len(assistant_entry["tool_calls"]), 1)
         self.assertEqual(assistant_entry["tool_calls"][0]["id"], "t1")
         self.assertEqual(assistant_entry["tool_calls"][0]["type"], "function")
-        self.assertEqual(
-            assistant_entry["tool_calls"][0]["function"]["name"], "bash"
-        )
+        self.assertEqual(assistant_entry["tool_calls"][0]["function"]["name"], "bash")
         self.assertEqual(
             json.loads(assistant_entry["tool_calls"][0]["function"]["arguments"]),
             {"command": "echo hello"},
@@ -629,9 +638,7 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
         # assistant w/ no text but tool_call → function_call item only.
         self.assertEqual(input_items[1]["type"], "function_call")
         self.assertEqual(input_items[1]["call_id"], "prev")
-        self.assertEqual(
-            json.loads(input_items[1]["arguments"]), {"command": "ls"}
-        )
+        self.assertEqual(json.loads(input_items[1]["arguments"]), {"command": "ls"})
         # tool_result → function_call_output item.
         self.assertEqual(input_items[2]["type"], "function_call_output")
         self.assertEqual(input_items[2]["call_id"], "prev")
@@ -721,7 +728,9 @@ class OpenAIChatReasoningTest(unittest.TestCase):
         # Derived views agree with content.
         self.assertEqual(response.text, "Result: 6.")
         # Content preserves order: thinking, then text.
-        self.assertEqual([block.kind for block in response.content], ["thinking", "text"])
+        self.assertEqual(
+            [block.kind for block in response.content], ["thinking", "text"]
+        )
 
     def test_outbound_replays_thinking_as_reasoning_content(self) -> None:
         captured: dict[str, Any] = {}
@@ -746,7 +755,9 @@ class OpenAIChatReasoningTest(unittest.TestCase):
         ):
             complete(req)
 
-        assistant_entry = next(m for m in captured["messages"] if m["role"] == "assistant")
+        assistant_entry = next(
+            m for m in captured["messages"] if m["role"] == "assistant"
+        )
         self.assertEqual(assistant_entry["reasoning_content"], "2*3 is 6.")
         self.assertEqual(assistant_entry["content"], "6")
 
@@ -780,7 +791,9 @@ class OpenAIChatReasoningTest(unittest.TestCase):
         ):
             complete(req)
 
-        assistant_entry = next(m for m in captured["messages"] if m["role"] == "assistant")
+        assistant_entry = next(
+            m for m in captured["messages"] if m["role"] == "assistant"
+        )
         self.assertNotIn("reasoning_content", assistant_entry)
 
 
@@ -843,7 +856,9 @@ class AnthropicReasoningReplayTest(unittest.TestCase):
         ):
             complete(req)
 
-        assistant_msg = next(m for m in captured["messages"] if m["role"] == "assistant")
+        assistant_msg = next(
+            m for m in captured["messages"] if m["role"] == "assistant"
+        )
         blocks = assistant_msg["content"]
         self.assertEqual(blocks[0]["type"], "thinking")
         self.assertEqual(blocks[0]["thinking"], "careful step")
@@ -1025,7 +1040,8 @@ class ParallelToolResultBundleTest(unittest.TestCase):
 
         user_msgs = [m for m in captured["messages"] if m["role"] == "user"]
         bundles = [
-            m for m in user_msgs
+            m
+            for m in user_msgs
             if any(b.get("type") == "tool_result" for b in m["content"])
         ]
         self.assertEqual(len(bundles), 1)
@@ -1104,8 +1120,10 @@ class MultimodalToolResultTest(unittest.TestCase):
             complete(self._request_with_image(ANTHROPIC_PROVIDER))
 
         bundle = next(
-            m for m in captured["messages"]
-            if m["role"] == "user" and any(b.get("type") == "tool_result" for b in m["content"])
+            m
+            for m in captured["messages"]
+            if m["role"] == "user"
+            and any(b.get("type") == "tool_result" for b in m["content"])
         )
         tool_block = next(b for b in bundle["content"] if b["type"] == "tool_result")
         # Anthropic accepts the list form — text + image blocks side by side.
@@ -1197,7 +1215,8 @@ class RawCaptureTest(unittest.TestCase):
 
         request_snapshot = response.raw["request"]
         self.assertEqual(
-            request_snapshot["messages"], {"_pruned": True, "_count": 2}  # system + user
+            request_snapshot["messages"],
+            {"_pruned": True, "_count": 2},  # system + user
         )
         self.assertEqual(request_snapshot["model"], "gpt-test-1")
         self.assertIn("temperature", request_snapshot)

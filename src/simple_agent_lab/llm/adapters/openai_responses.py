@@ -94,7 +94,14 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         kwargs["max_output_tokens"] = max_tokens
     if req.timeout_seconds:
         kwargs["timeout"] = req.timeout_seconds
-    for key in ("reasoning", "metadata", "store", "user", "previous_response_id", "top_p"):
+    for key in (
+        "reasoning",
+        "metadata",
+        "store",
+        "user",
+        "previous_response_id",
+        "top_p",
+    ):
         if key in req.extra:
             kwargs[key] = req.extra[key]
 
@@ -164,7 +171,9 @@ def _to_responses_input(req: LLMRequest) -> list[dict[str, Any]]:
                 {
                     "type": "message",
                     "role": "system",
-                    "content": [{"type": "input_text", "text": text_of(message.content)}],
+                    "content": [
+                        {"type": "input_text", "text": text_of(message.content)}
+                    ],
                 }
             )
         elif message.role == "user":
@@ -180,14 +189,20 @@ def _to_responses_input(req: LLMRequest) -> list[dict[str, Any]]:
                 images = [b for b in tool_result.content if isinstance(b, ImageBlock)]
                 if images:
                     visual_blocks.append(
-                        {"type": "input_text",
-                         "text": TOOL_RESULT_VISUAL_CAPTION.format(tool_name=tool_result.tool_name)}
+                        {
+                            "type": "input_text",
+                            "text": TOOL_RESULT_VISUAL_CAPTION.format(
+                                tool_name=tool_result.tool_name
+                            ),
+                        }
                     )
                     for image in images:
                         visual_blocks.append(
                             {
                                 "type": "input_image",
-                                "image_url": encode_image_data_url(image.mime_type, image.data),
+                                "image_url": encode_image_data_url(
+                                    image.mime_type, image.data
+                                ),
                             }
                         )
             if visual_blocks:
@@ -198,9 +213,7 @@ def _to_responses_input(req: LLMRequest) -> list[dict[str, Any]]:
                         "content": visual_blocks,
                     }
                 )
-            if any(
-                isinstance(b, (TextBlock, ImageBlock)) for b in message.content
-            ):
+            if any(isinstance(b, (TextBlock, ImageBlock)) for b in message.content):
                 items.append(
                     {
                         "type": "message",

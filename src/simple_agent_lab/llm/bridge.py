@@ -27,7 +27,9 @@ from simple_agent_lab.tools import AgentTool, Tool
 from .types import LLMMessage, LLMResponse, LLMTool
 
 
-def message_to_llm_message(message: Message, *, with_header: bool = False) -> LLMMessage:
+def message_to_llm_message(
+    message: Message, *, with_header: bool = False
+) -> LLMMessage:
     """Project a runtime Message into the LLM layer's provider-neutral shape.
 
     Per-message provider hints stashed under ``message.data["extra"]``
@@ -96,7 +98,12 @@ def llm_response_to_assistant_message(
 
 def _usage_or_none(usage: TokenUsage) -> TokenUsage | None:
     """Treat an all-zeros usage as 'unknown' rather than as authoritative."""
-    if usage.input_tokens or usage.output_tokens or usage.cache_read_tokens or usage.cache_write_tokens:
+    if (
+        usage.input_tokens
+        or usage.output_tokens
+        or usage.cache_read_tokens
+        or usage.cache_write_tokens
+    ):
         return usage
     return None
 

@@ -111,7 +111,14 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         kwargs["max_tokens"] = max_tokens
     if req.timeout_seconds:
         kwargs["timeout"] = req.timeout_seconds
-    for key in ("seed", "top_p", "stop", "user", "response_format", "parallel_tool_calls"):
+    for key in (
+        "seed",
+        "top_p",
+        "stop",
+        "user",
+        "response_format",
+        "parallel_tool_calls",
+    ):
         if key in req.extra:
             kwargs[key] = req.extra[key]
 
@@ -133,7 +140,9 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         except json.JSONDecodeError:
             arguments = {"_raw_arguments": args_str}
         tool_calls.append(
-            ToolCallBlock(id=getattr(tool_call, "id", ""), name=name, arguments=arguments)
+            ToolCallBlock(
+                id=getattr(tool_call, "id", ""), name=name, arguments=arguments
+            )
         )
 
     blocks: list[ContentBlock] = []
@@ -230,16 +239,18 @@ def to_openai_chat_messages(
                 images = [b for b in tool_result.content if isinstance(b, ImageBlock)]
                 if images:
                     visual_blocks.append(
-                        {"type": "text",
-                         "text": TOOL_RESULT_VISUAL_CAPTION.format(tool_name=tool_result.tool_name)}
+                        {
+                            "type": "text",
+                            "text": TOOL_RESULT_VISUAL_CAPTION.format(
+                                tool_name=tool_result.tool_name
+                            ),
+                        }
                     )
                     for image in images:
                         visual_blocks.append(_openai_image_block(image))
             if visual_blocks:
                 out.append({"role": "user", "content": visual_blocks})
-            if any(
-                isinstance(b, (TextBlock, ImageBlock)) for b in message.content
-            ):
+            if any(isinstance(b, (TextBlock, ImageBlock)) for b in message.content):
                 out.append({"role": "user", "content": _to_chat_user_content(message)})
         elif message.role == "assistant":
             entry: dict[str, Any] = {"role": "assistant"}

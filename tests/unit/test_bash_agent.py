@@ -9,25 +9,29 @@ from typing import cast
 from simple_agent_lab import (
     AgentTool,
     ToolResult,
-    last_message,
     message_text,
     tool_result_text,
     tool_results_of,
 )
 from simple_agent_lab.agents.bash import (
-    DEFAULT_BASH_DEMO_COMMAND,
+    BASH_AGENT_DEFAULT_NAME,
+    bash_agent_until_final,
+    make_bash_agent_runtime,
+)
+from simple_agent_lab.llm import Provider
+from simple_agent_lab.tools.bash import (
     MAX_BASH_TIMEOUT_SECONDS,
+    _resolve_timeout,
     bash_execution_to_tool_result,
     detect_blocked_sleep_pattern,
     interpret_command_result,
     make_bash_tool,
     run_bash,
-    run_bash_agent_demo,
 )
-from simple_agent_lab.agents.bash.tool import _resolve_timeout
 
 
 ROOT = Path(__file__).resolve().parents[1]
+FAKE_PROVIDER = Provider(id="fake", api="fake", model="fake-model")
 
 
 class BashToolTest(unittest.TestCase):
@@ -46,7 +50,9 @@ class BashToolTest(unittest.TestCase):
             result = _execute(make_bash_tool(cwd=tmp), {"command": "true"})
 
         self.assertFalse(result.is_error)
-        self.assertIn("Done. Command completed with no output.", tool_result_text(result))
+        self.assertIn(
+            "Done. Command completed with no output.", tool_result_text(result)
+        )
 
     def test_bash_tool_schema_is_strict_for_model_arguments(self) -> None:
         tool = make_bash_tool(cwd=ROOT)
@@ -79,13 +85,27 @@ class BashToolTest(unittest.TestCase):
         self.assertTrue(result.is_error)
         self.assertIn("Blocked bash command", tool_result_text(result))
 
-    def test_bash_agent_demo_runs_tool_then_finalizes(self) -> None:
-        runtime = run_bash_agent_demo(
-            command="printf 'demo ok\\n'",
+    def test_bash_agent_runtime_runs_tool_then_finalizes(self) -> None:
+        runtime = make_bash_agent_runtime(
+            provider=FAKE_PROVIDER,
             cwd=ROOT,
         )
-        tool_result_msg = last_message(runtime.state, kind="tool_result")
-        final = last_message(runtime.state, kind="final")
+        for _ in runtime.prompt(
+            "Use bash to run command: `printf 'demo ok\\n'`",
+            target=BASH_AGENT_DEFAULT_NAME,
+            next_agent=bash_agent_until_final,
+        ):
+            pass
+        tool_result_msg = next(
+            message
+            for message in reversed(runtime.state.messages)
+            if message.kind == "tool_result"
+        )
+        final = next(
+            message
+            for message in reversed(runtime.state.messages)
+            if message.kind == "final"
+        )
 
         blocks = tool_results_of(tool_result_msg.content)
         self.assertEqual(len(blocks), 1)
@@ -99,9 +119,6 @@ class BashToolTest(unittest.TestCase):
         self.assertTrue(
             any(event.kind == "model_request" for event in runtime.state.events)
         )
-
-    def test_default_demo_command_is_read_only(self) -> None:
-        self.assertIn("find src/simple_agent_lab", DEFAULT_BASH_DEMO_COMMAND)
 
 
 class BashToolCrashSafetyTest(unittest.TestCase):
@@ -226,7 +243,9 @@ class BashToolCrashSafetyTest(unittest.TestCase):
         self.assertGreater(MAX_BASH_TIMEOUT_SECONDS, 0)
         self.assertTrue(math.isfinite(MAX_BASH_TIMEOUT_SECONDS))
         self.assertEqual(
-            _resolve_timeout(MAX_BASH_TIMEOUT_SECONDS * 10, 5.0, MAX_BASH_TIMEOUT_SECONDS),
+            _resolve_timeout(
+                MAX_BASH_TIMEOUT_SECONDS * 10, 5.0, MAX_BASH_TIMEOUT_SECONDS
+            ),
             MAX_BASH_TIMEOUT_SECONDS,
         )
 

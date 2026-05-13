@@ -1,6 +1,6 @@
 """Shared tool data shapes for Simple Agent Lab.
 
-Agent loops own dispatch semantics. This module owns the common values that
+Agent loops own dispatch semantics. This package owns the common values that
 cross the tool boundary: tool definitions, tool results, and small helpers for
 turning result blocks into model-visible text.
 
@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Literal, Optional
 
-from .messages import ImageBlock, TextBlock
+from simple_agent_lab.messages import ImageBlock, TextBlock
 
 
 __all__ = [
@@ -104,4 +104,6 @@ def text_result(
 def tool_result_text(result: ToolResult) -> str:
     """Concatenate the text blocks in a tool result."""
 
-    return "\n".join(block.text for block in result.content if isinstance(block, TextBlock))
+    return "\n".join(
+        block.text for block in result.content if isinstance(block, TextBlock)
+    )

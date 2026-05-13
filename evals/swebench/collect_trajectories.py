@@ -25,19 +25,19 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from simple_agent_lab.agents.bash import make_bash_tool, make_bash_use_agent
-from simple_agent_lab.core import (
+from simple_agent_lab.agents.bash import make_bash_agent_runtime  # noqa: E402
+from simple_agent_lab.core import (  # noqa: E402
     Agent,
-    AgentRuntime,
     Event,
     State,
     run,
     sequence,
     until_final,
 )
-from simple_agent_lab.llm import Provider as LLMProvider
-from simple_agent_lab.messages import Message, assistant_message
-from simple_agent_lab.trajectory import (
+from simple_agent_lab.llm import Provider as LLMProvider  # noqa: E402
+from simple_agent_lab.messages import Message, assistant_message  # noqa: E402
+from simple_agent_lab.runtime import AgentRuntime  # noqa: E402
+from simple_agent_lab.trajectory import (  # noqa: E402
     ModelTurn,
     RunTrace,
     json_safe,
@@ -95,7 +95,9 @@ def load_patch(args: argparse.Namespace) -> tuple[str, str]:
     if args.patch_file and args.model_patch is not None:
         raise SystemExit("Use either --patch-file or --model-patch, not both.")
     if args.patch_file:
-        return normalize_model_patch(Path(args.patch_file).read_text(encoding="utf-8")), "patch-file"
+        return normalize_model_patch(
+            Path(args.patch_file).read_text(encoding="utf-8")
+        ), "patch-file"
     if args.model_patch is not None:
         return normalize_model_patch(args.model_patch), "argument"
     return "", "empty"
@@ -164,10 +166,11 @@ WORKSPACE_AGENT_SYSTEM_PROMPT = (
 )
 
 
-def make_workspace_agent() -> Agent:
-    """Workspace flavor of the bash preset — same loop, suite-specific prompt."""
-    return make_bash_use_agent(
+def make_workspace_runtime(workspace: Path) -> AgentRuntime:
+    """Workspace flavor of the bash preset with the bash tool bound."""
+    return make_bash_agent_runtime(
         LLMProvider(id="fake", api="fake", model="fake-model"),
+        cwd=workspace,
         name=WORKSPACE_AGENT_NAME,
         role=WORKSPACE_AGENT_ROLE,
         system_prompt=WORKSPACE_AGENT_SYSTEM_PROMPT,
@@ -203,22 +206,21 @@ def run_workspace_agent(
         + "For this setup run, use bash command: "
         + f"`{command}`"
     )
-    runtime = AgentRuntime(
-        [make_workspace_agent()],
-        tools=[make_bash_tool(cwd=repo_dir)],
-    )
+    runtime = make_workspace_runtime(repo_dir)
     for _ in runtime.prompt(
         task,
         target="swebench_agent",
         next_agent=until_final("swebench_agent", max_turns=max_turns),
     ):
         pass
-    runtime.state.data.update({
-        "suite": "swebench",
-        "instance": instance,
-        "workspace": str(repo_dir),
-        "model_patch": git_diff(repo_dir),
-    })
+    runtime.state.data.update(
+        {
+            "suite": "swebench",
+            "instance": instance,
+            "workspace": str(repo_dir),
+            "model_patch": git_diff(repo_dir),
+        }
+    )
     return runtime.state
 
 
@@ -359,7 +361,9 @@ def main() -> None:
         help="Bash command the setup agent should run in --workspace mode.",
     )
     parser.add_argument("--max-turns", type=int, default=3)
-    parser.add_argument("--patch-file", help="File containing a candidate unified diff.")
+    parser.add_argument(
+        "--patch-file", help="File containing a candidate unified diff."
+    )
     parser.add_argument("--model-patch", help="Candidate patch text.")
     parser.add_argument(
         "--allow-empty-patch",
@@ -379,7 +383,9 @@ def main() -> None:
     args = parser.parse_args()
 
     instance = load_instance(args.instance_json, args.instance_id)
-    use_workspace = bool(args.workspace and not args.patch_file and args.model_patch is None)
+    use_workspace = bool(
+        args.workspace and not args.patch_file and args.model_patch is None
+    )
     if use_workspace:
         state = run_workspace_agent(
             instance=instance,

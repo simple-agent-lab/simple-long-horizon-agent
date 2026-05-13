@@ -59,7 +59,9 @@ def openai_training_record(
         ),
     }
     if tools:
-        record["tools"] = to_openai_chat_tools([tool_to_llm_tool(tool) for tool in tools])
+        record["tools"] = to_openai_chat_tools(
+            [tool_to_llm_tool(tool) for tool in tools]
+        )
     return record
 
 

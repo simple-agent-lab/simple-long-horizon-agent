@@ -31,8 +31,8 @@ Freshness:
 | What runtime is canonical | `src/simple_agent_lab/core.py`, ADR 0009 | Do not revive retired design-version copies as implementation targets. |
 | Whether a new abstraction belongs in core | ADR 0001, ADR 0009, `docs/agent-native/code-style.md` | Keep additions small and explicit unless an ADR accepts the tradeoff. |
 | Message and provider-boundary shape | `CONTEXT.md`, `src/simple_agent_lab/messages.py`, ADR 0006, `src/simple_agent_lab/llm/README.md` | Keep runtime routing fields out of provider-boundary payloads. |
-| Context visibility and budget behavior | `src/simple_agent_lab/context_view.py`, ADR 0010, `tests/test_core.py`, `tests/test_token_usage.py` | Preserve full history in `State`; project model-visible context explicitly. |
-| Tool result semantics | `src/simple_agent_lab/tools.py`, `src/simple_agent_lab/core.py`, bash tests | Tool outputs become `tool_result` messages; `details` are local inspection data. |
+| Context visibility and budget behavior | `src/simple_agent_lab/context_view.py`, ADR 0010, `tests/unit/test_core.py`, `tests/unit/test_token_usage.py` | Preserve full history in `State`; project model-visible context explicitly. |
+| Tool result semantics | `src/simple_agent_lab/tools/`, `src/simple_agent_lab/core.py`, bash tests | Tool outputs become `tool_result` messages; `details` are local inspection data. |
 | Trace/eval/training separation | `src/simple_agent_lab/trajectory.py`, `evaluation.py`, `training_data.py`, ADR 0008 | Do not put scores or training labels into raw trajectory records. |
 | Benchmark suite boundaries | ADR 0011, `evals/swebench/README.md` | Keep suite-specific heavy dependencies outside the minimal core runtime. |
 | Local quality gate | `docs/agent-native/development.md`, `runs/run_ci.sh`, `.github/workflows/ci.yml` | Keep local and remote gates in lockstep when checks change. |
@@ -79,7 +79,8 @@ Ask or record a question before changing:
 
 | Change type | Narrow check | Broader check |
 | --- | --- | --- |
-| Core runtime, messages, tools, context | `uv run python -m unittest discover -s tests` | `bash runs/run_ci.sh` |
+| Formatting-only or broad Python edits | `uv run ruff format --check .` | `bash runs/run_ci.sh` |
+| Core runtime, messages, tools, context | `uv run python -m unittest discover -s tests/unit` | `bash runs/run_ci.sh` |
 | Type or public API surface | `uv run ty check src` | `bash runs/run_ci.sh` |
 | Public example behavior | `bash runs/run_examples.sh` | `bash runs/run_ci.sh` if package code changed |
 | Bash-use agent demo | `bash runs/run_bash_agent_demo.sh` and `uv run python -m unittest tests.test_bash_agent` | `bash runs/run_ci.sh` |

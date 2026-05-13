@@ -97,7 +97,14 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         kwargs["temperature"] = temperature
     if req.timeout_seconds:
         kwargs["timeout"] = req.timeout_seconds
-    for key in ("extra_headers", "extra_body", "metadata", "top_p", "top_k", "stop_sequences"):
+    for key in (
+        "extra_headers",
+        "extra_body",
+        "metadata",
+        "top_p",
+        "top_k",
+        "stop_sequences",
+    ):
         if key in req.extra:
             kwargs[key] = req.extra[key]
 
@@ -245,7 +252,9 @@ def _to_anthropic_messages(req: LLMRequest) -> tuple[str | None, list[dict[str, 
     return system, messages
 
 
-def _apply_message_extra(wire_blocks: list[dict[str, Any]], message: LLMMessage) -> None:
+def _apply_message_extra(
+    wire_blocks: list[dict[str, Any]], message: LLMMessage
+) -> None:
     """Translate `LLMMessage.extra` provider-namespaced hints to wire shape.
 
     Currently understood: `anthropic.cache_breakpoint=True` → attach

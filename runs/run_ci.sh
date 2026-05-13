@@ -15,10 +15,13 @@ fi
 
 uv sync --group dev
 
+printf '\n=== ruff format --check . ===\n'
+uv run ruff format --check .
+
 printf '\n=== ty check src ===\n'
 uv run ty check src
 
-printf '\n=== unittest discover -s tests ===\n'
-uv run python -m unittest discover -s tests
+printf '\n=== unittest discover -s tests/unit ===\n'
+uv run python -m unittest discover -s tests/unit
 
 printf '\nAll CI checks passed.\n'

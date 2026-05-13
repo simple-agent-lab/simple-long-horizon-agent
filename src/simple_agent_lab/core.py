@@ -6,16 +6,19 @@ The core model is still small:
 
 Compared with the first tiny runtime, `run()` is now a generator that records
 events, uses a `next_agent(state)` scheduler, exposes request/response
-trace events, and can dispatch tool calls. Mid-run injection queues are
-deliberately left out of this canonical version; callers add follow-up messages
-explicitly to `State` and call `resume()` when they want another run.
+trace events, and can dispatch tool calls. Stateful conveniences such as
+`AgentRuntime.resume()` live in `runtime.py` so the main runtime path stays
+easy to inspect.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
+from enum import Enum
 from typing import Any, Callable, Iterator, Union, cast
 
+from .context_view import ContextPolicy, ContextView, build_context_view
 from .llm import (
     LLMRequest,
     Provider as LLMProvider,
@@ -24,26 +27,19 @@ from .llm import (
     messages_to_llm_messages,
     tool_to_llm_tool,
 )
-from .context_view import ContextPolicy, ContextView, build_context_view
 from .messages import (
     AgentName,
-    AssistantMessage,
+    ContentInput,
     Message,
     MessageChannel,
-    ContentInput,
     MessageKind,
     Role,
-    ImageBlock,
-    TextBlock,
     ToolCallBlock,
     ToolResultBlock,
-    UserMessage,
     assistant_message,
-    is_tool_result_message,
     message_text,
     message_tool_calls,
     system_message,
-    tool_result_message,
     tool_results_message,
     user_message,
 )
@@ -53,11 +49,23 @@ from .tools import (
     ToolResult,
     ToolUpdateFn,
     text_result,
-    tool_result_text,
 )
 
 
-EventKind = str
+class EventKind(str, Enum):
+    MESSAGE = "message"
+    AGENT_START = "agent_start"
+    AGENT_END = "agent_end"
+    TURN_START = "turn_start"
+    TURN_END = "turn_end"
+    MODEL_REQUEST = "model_request"
+    MODEL_RESPONSE = "model_response"
+    TOOL_EXECUTION_START = "tool_execution_start"
+    TOOL_EXECUTION_UPDATE = "tool_execution_update"
+    TOOL_EXECUTION_END = "tool_execution_end"
+
+    def __str__(self) -> str:
+        return self.value
 
 
 @dataclass(frozen=True)
@@ -80,11 +88,7 @@ class State:
 
     @property
     def messages(self) -> list[Message]:
-        return [
-            event.message
-            for event in self.events
-            if event.message is not None
-        ]
+        return [event.message for event in self.events if event.message is not None]
 
     def emit(self, kind: EventKind, **payload: Any) -> Event:
         event = Event(len(self.events), kind, dict(payload))
@@ -92,7 +96,7 @@ class State:
         return event
 
     def record(self, message: Message) -> Event:
-        return self.emit("message", message=message)
+        return self.emit(EventKind.MESSAGE, message=message)
 
     def send(
         self,
@@ -104,8 +108,16 @@ class State:
         channel: MessageChannel = "main",
         **data: Any,
     ) -> Message:
+        resolved_role = role
+        if resolved_role is None:
+            if sender in {"system", "state", "runtime"}:
+                resolved_role = "system"
+            elif sender == "user":
+                resolved_role = "user"
+            else:
+                resolved_role = "assistant"
         message = make_message(
-            role or default_role(sender),
+            resolved_role,
             content,
             sender=sender,
             target=target,
@@ -115,9 +127,6 @@ class State:
         )
         self.record(message)
         return message
-
-    def by_kind(self, kind: str) -> list[Message]:
-        return [message for message in self.messages if message.kind == kind]
 
 
 StepFn = Callable[["Agent", list[Message], State], Message]
@@ -160,24 +169,8 @@ def context_view(
     policy: ContextPolicy | None = None,
 ) -> list[Message]:
     """Return messages visible to this agent for its next step."""
-    return list(build_agent_context_view(agent, state, last=last, policy=policy).messages)
-
-
-def make_tool_result_block(
-    call_id: str,
-    tool_name: str,
-    result: ToolResult,
-) -> ToolResultBlock:
-    """Wrap a tool's `ToolResult` as a `ToolResultBlock`.
-
-    `ToolResult.content` already carries `TextBlock | ImageBlock` values
-    in the runtime block shape, so this is just a re-tag.
-    """
-    return ToolResultBlock(
-        tool_call_id=call_id,
-        tool_name=tool_name,
-        content=tuple(result.content),
-        is_error=result.is_error,
+    return list(
+        build_agent_context_view(agent, state, last=last, policy=policy).messages
     )
 
 
@@ -206,7 +199,8 @@ def _execute_one(
     if tool.timeout_seconds is None:
         return run_tool()
 
-    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import TimeoutError as FuturesTimeoutError
 
     pool = ThreadPoolExecutor(max_workers=1)
     try:
@@ -245,7 +239,7 @@ def dispatch_tool_calls(
 
     for tool_call in tool_calls:
         yield state.emit(
-            "tool_execution_start",
+            EventKind.TOOL_EXECUTION_START,
             tool_call_id=tool_call.id,
             tool_name=tool_call.name,
         )
@@ -285,13 +279,13 @@ def dispatch_tool_calls(
 
             for partial in update_buffers[tool_call.id]:
                 yield state.emit(
-                    "tool_execution_update",
+                    EventKind.TOOL_EXECUTION_UPDATE,
                     tool_call_id=tool_call.id,
                     tool_name=tool_call.name,
                     partial=partial,
                 )
             yield state.emit(
-                "tool_execution_end",
+                EventKind.TOOL_EXECUTION_END,
                 tool_call_id=tool_call.id,
                 tool_name=tool_call.name,
                 is_error=result.is_error,
@@ -300,10 +294,11 @@ def dispatch_tool_calls(
 
     bundle = tool_results_message(
         [
-            make_tool_result_block(
-                tool_call.id,
-                tool_call.name,
-                results[tool_call.id],
+            ToolResultBlock(
+                tool_call_id=tool_call.id,
+                tool_name=tool_call.name,
+                content=tuple(results[tool_call.id].content),
+                is_error=results[tool_call.id].is_error,
             )
             for tool_call in tool_calls
         ],
@@ -316,8 +311,6 @@ def dispatch_tool_calls(
     )
     yield state.record(bundle)
 
-
-from collections.abc import Mapping
 
 RequestExtraSpec = Union[
     Mapping[str, Any],
@@ -389,48 +382,11 @@ def until_final(name: AgentName, *, max_turns: int = 3) -> NextFn:
         turns = sum(
             1
             for event in state.events
-            if event.kind == "turn_end" and event.data.get("agent") == name
+            if event.kind is EventKind.TURN_END and event.data.get("agent") == name
         )
         return name if turns < max_turns else None
 
     return next_agent
-
-
-def _agent_dict(agents: dict[str, Agent] | list[Agent]) -> dict[str, Agent]:
-    if isinstance(agents, dict):
-        return agents
-    return {agent.name: agent for agent in agents}
-
-
-def _candidate_id(state: State) -> Any:
-    return state.data.get("candidate_id")
-
-
-def _message_outline(messages: list[Message]) -> list[dict[str, Any]]:
-    return [
-        {
-            "role": message.role,
-            "sender": message.sender,
-            "target": message.target,
-            "kind": message.kind,
-            "channel": message.channel,
-            "text": message_text(message),
-        }
-        for message in messages
-    ]
-
-
-def _tool_specs(tools: dict[str, AgentTool] | None) -> list[dict[str, Any]]:
-    if not tools:
-        return []
-    return [
-        {
-            "name": tool.name,
-            "description": tool.description,
-            "parameters": tool.parameters,
-        }
-        for tool in tools.values()
-    ]
 
 
 def run(
@@ -445,7 +401,9 @@ def run(
     abort: AbortFlag = lambda: False,
 ) -> Iterator[Event]:
     """Run agents as a generator. Each yielded Event is recorded in state."""
-    agent_by_name = _agent_dict(agents)
+    agent_by_name = (
+        agents if isinstance(agents, dict) else {agent.name: agent for agent in agents}
+    )
     tool_by_name = (
         tools
         if isinstance(tools, dict) or tools is None
@@ -454,7 +412,7 @@ def run(
     if tool_by_name is not None:
         state.data["tools"] = tool_by_name
 
-    yield state.emit("agent_start")
+    yield state.emit(EventKind.AGENT_START)
     while True:
         name = next_agent(state)
         if name is None:
@@ -463,7 +421,7 @@ def run(
             raise KeyError(f"Unknown agent {name!r}")
 
         agent = agent_by_name[name]
-        yield state.emit("turn_start", agent=name)
+        yield state.emit(EventKind.TURN_START, agent=name)
 
         context = build_agent_context_view(
             agent,
@@ -475,19 +433,36 @@ def run(
         llm_payload = messages_to_llm_messages(visible, with_header=True)
         state.data["last_llm_payload"] = llm_payload
 
-        candidate_id = _candidate_id(state)
+        candidate_id = state.data.get("candidate_id")
         request_payload: dict[str, Any] = {
             "agent": name,
             "visible_count": len(visible),
             "llm_message_count": len(llm_payload),
-            "visible": _message_outline(visible),
+            "visible": [
+                {
+                    "role": message.role,
+                    "sender": message.sender,
+                    "target": message.target,
+                    "kind": message.kind,
+                    "channel": message.channel,
+                    "text": message_text(message),
+                }
+                for message in visible
+            ],
             "context_view": context.as_dict(),
-            "tools": _tool_specs(tool_by_name),
+            "tools": [
+                {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters,
+                }
+                for tool in (tool_by_name or {}).values()
+            ],
             "llm_payload": llm_payload,
         }
         if candidate_id is not None:
             request_payload["candidate_id"] = candidate_id
-        yield state.emit("model_request", **request_payload)
+        yield state.emit(EventKind.MODEL_REQUEST, **request_payload)
 
         output = agent.step(agent, visible, state)
         output_tool_calls = message_tool_calls(output)
@@ -499,7 +474,7 @@ def run(
         }
         if candidate_id is not None:
             response_payload["candidate_id"] = candidate_id
-        yield state.emit("model_response", **response_payload)
+        yield state.emit(EventKind.MODEL_RESPONSE, **response_payload)
 
         yield state.record(output)
 
@@ -507,117 +482,18 @@ def run(
             tool_terminated = False
             for event in dispatch_tool_calls(output, tool_by_name, state, abort=abort):
                 yield event
-                if event.kind == "tool_execution_end" and event.data.get("terminate"):
+                if event.kind is EventKind.TOOL_EXECUTION_END and event.data.get(
+                    "terminate"
+                ):
                     tool_terminated = True
             if tool_terminated:
-                yield state.emit("turn_end", agent=name, terminated=True)
-                yield state.emit("agent_end", reason="tool_terminate")
+                yield state.emit(EventKind.TURN_END, agent=name, terminated=True)
+                yield state.emit(EventKind.AGENT_END, reason="tool_terminate")
                 return
 
-        yield state.emit("turn_end", agent=name)
+        yield state.emit(EventKind.TURN_END, agent=name)
 
-    yield state.emit("agent_end", reason="done")
-
-
-def run_to_completion(
-    agents: dict[str, Agent] | list[Agent],
-    state: State,
-    next_agent: NextFn,
-    **kwargs: Any,
-) -> State:
-    """Drain run() and return the final State."""
-    for _ in run(agents, state, next_agent, **kwargs):
-        pass
-    return state
-
-
-Listener = Callable[[Event], None]
-
-
-class AgentRuntime:
-    """Small stateful wrapper around run().
-
-    It owns State, a listener list, and a cancel flag. It intentionally does not
-    own injection queues; extra user input should be recorded explicitly and then
-    driven through `resume()`.
-    """
-
-    def __init__(
-        self,
-        agents: list[Agent],
-        *,
-        transform: TransformFn = lambda messages: messages,
-        last: int | None = None,
-        context_policy: ContextPolicy | None = None,
-        tools: list[AgentTool] | None = None,
-    ) -> None:
-        self._agents = {agent.name: agent for agent in agents}
-        self._transform = transform
-        self._last = last
-        self._context_policy = context_policy
-        self.tools: dict[str, AgentTool] = {tool.name: tool for tool in (tools or [])}
-        self._listeners: list[Listener] = []
-        self._aborted = False
-        self.state = State(task="")
-
-    def subscribe(self, listener: Listener) -> Callable[[], None]:
-        self._listeners.append(listener)
-
-        def unsubscribe() -> None:
-            if listener in self._listeners:
-                self._listeners.remove(listener)
-
-        return unsubscribe
-
-    def abort(self) -> None:
-        self._aborted = True
-
-    def prompt(
-        self,
-        task: str,
-        *,
-        target: str,
-        next_agent: NextFn,
-    ) -> Iterator[Event]:
-        self.state = State(task=task)
-        self.state.send("task", "user", target, task)
-        return self._drive(next_agent)
-
-    def resume(self, next_agent: NextFn) -> Iterator[Event]:
-        if not self.state.messages:
-            raise RuntimeError("Cannot resume: state has no messages")
-        return self._drive(next_agent)
-
-    def _drive(self, next_agent: NextFn) -> Iterator[Event]:
-        self._aborted = False
-        stream = run(
-            self._agents,
-            self.state,
-            next_agent,
-            transform=self._transform,
-            last=self._last,
-            context_policy=self._context_policy,
-            tools=self.tools,
-            abort=lambda: self._aborted,
-        )
-        for event in stream:
-            for listener in list(self._listeners):
-                listener(event)
-            yield event
-            if self._aborted:
-                end_event = self.state.emit("agent_end", reason="aborted")
-                for listener in list(self._listeners):
-                    listener(end_event)
-                yield end_event
-                return
-
-
-def default_role(sender: str) -> Role:
-    if sender in {"system", "state", "runtime"}:
-        return "system"
-    if sender == "user":
-        return "user"
-    return "assistant"
+    yield state.emit(EventKind.AGENT_END, reason="done")
 
 
 def make_message(
@@ -659,119 +535,3 @@ def make_message(
             data=data,
         )
     raise ValueError(f"Unknown message role: {role!r}")
-
-
-def event_text(event: Event) -> str:
-    message = getattr(event, "message", None)
-    if message is not None:
-        return message_text(message)
-    return " ".join(f"{key}={value}" for key, value in event.data.items())
-
-
-def last_message(
-    source: State | list[Message],
-    *,
-    kind: str | None = None,
-    sender: str | None = None,
-) -> Message:
-    messages = source.messages if isinstance(source, State) else source
-    for message in reversed(messages):
-        if kind is not None and message.kind != kind:
-            continue
-        if sender is not None and message.sender != sender:
-            continue
-        return message
-    raise LookupError(f"No message found for kind={kind!r}, sender={sender!r}")
-
-
-def last_event(
-    source: State | list[Event],
-    *,
-    kind: str | None = None,
-    sender: str | None = None,
-) -> Event:
-    events = source.events if isinstance(source, State) else source
-    for event in reversed(events):
-        if kind is not None and event.kind != kind:
-            continue
-        if sender is not None:
-            message = event.message
-            event_sender = message.sender if message is not None else event.data.get("agent")
-            if event_sender != sender:
-                continue
-        return event
-    raise LookupError(f"No event found for kind={kind!r}, sender={sender!r}")
-
-
-def print_trace(state: State, *, raw: bool = False) -> None:
-    """Print the standardized trace.
-
-    `raw=True` also dumps each model call's `raw` payload — the provider
-    request snapshot (with messages history pruned) and the SDK response
-    dump — so the trace doubles as an HTTP-level diff tool.
-    """
-    print("\ntrace")
-    print("-----")
-    for event in state.events:
-        if event.kind == "message":
-            message = event.message
-            if message is None:
-                continue
-            route = f"{message.sender} -> {message.target}"
-            print(
-                f"{event.index:02d} {event.kind:<21} {message.kind:<10} "
-                f"{route:<24} {message_text(message)}"
-            )
-            extra = (message.data or {}).get("extra")
-            if extra:
-                preview = ", ".join(f"{k}={v!r}" for k, v in extra.items())
-                print(f"   {'extra':<21} {preview[:200]}")
-            if isinstance(message, AssistantMessage):
-                for thinking_block in message.thinking:
-                    preview = thinking_block.text.replace("\n", " ")
-                    if len(preview) > 200:
-                        preview = preview[:200] + "..."
-                    tag = "redacted_thinking" if thinking_block.redacted else "thinking"
-                    print(f"   {tag:<21} {preview}")
-                if raw:
-                    raw_payload = (message.data or {}).get("raw")
-                    if raw_payload:
-                        _print_raw(raw_payload)
-        elif event.kind == "model_request":
-            candidate = event.data.get("candidate_id")
-            suffix = f" candidate={candidate}" if candidate is not None else ""
-            print(
-                f"{event.index:02d} {event.kind:<21} "
-                f"agent={event.data.get('agent')} "
-                f"visible={event.data.get('visible_count')} "
-                f"llm_messages={event.data.get('llm_message_count')}{suffix}"
-            )
-        elif event.kind == "model_response":
-            candidate = event.data.get("candidate_id")
-            suffix = f" candidate={candidate}" if candidate is not None else ""
-            print(
-                f"{event.index:02d} {event.kind:<21} "
-                f"agent={event.data.get('agent')} "
-                f"kind={event.data.get('output_kind')} "
-                f"target={event.data.get('target')} "
-                f"tool_calls={event.data.get('tool_call_count')}{suffix}"
-            )
-        else:
-            extras = " ".join(f"{key}={value}" for key, value in event.data.items())
-            print(f"{event.index:02d} {event.kind:<21} {extras}")
-
-
-def _print_raw(raw: Any) -> None:
-    import json
-
-    for label in ("request", "response"):
-        body = raw.get(label) if isinstance(raw, dict) else None
-        if body is None:
-            continue
-        print(f"   raw.{label}:")
-        try:
-            rendered = json.dumps(body, indent=2, default=str, ensure_ascii=False)
-        except (TypeError, ValueError):
-            rendered = repr(body)
-        for line in rendered.splitlines():
-            print(f"     {line}")

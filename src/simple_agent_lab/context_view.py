@@ -140,7 +140,9 @@ def build_context_view(
         )
         dropped_count = sum(len(group.messages) for group in dropped_groups)
         estimated_chars = sum(group.chars for group in selected_groups)
-    estimated_tokens = sum(estimate_message_tokens(message) for message in selected_messages)
+    estimated_tokens = sum(
+        estimate_message_tokens(message) for message in selected_messages
+    )
     usage_known_messages = sum(
         1
         for message in selected_messages
@@ -331,7 +333,9 @@ def _select_groups(
         add(index, force=False)
 
     selected_groups = [group for index, group in enumerate(groups) if index in selected]
-    dropped_groups = [group for index, group in enumerate(groups) if index not in selected]
+    dropped_groups = [
+        group for index, group in enumerate(groups) if index not in selected
+    ]
     dropped_count = sum(len(group.messages) for group in dropped_groups)
     if dropped_count:
         notes.append(f"budget dropped {dropped_count} message(s)")

@@ -1,52 +1,39 @@
-"""Tiny bash-use agent — the first preset shipped on the lab runtime.
+"""Tiny bash-use agent preset.
 
-`make_bash_use_agent(provider)` builds a single-step agent that can call
-the bash tool defined alongside in `tool.py`. The factory accepts
-`name` / `role` / `system_prompt` overrides so a downstream consumer
-(eval suites, custom flows) can reuse the same wiring without forking
-the prompt.
-
-`run_bash_agent_demo(...)` is the one-shot helper used by the demo
-script — it spins up an `AgentRuntime`, hands it a bash command or a
-free-form task, and runs to completion.
+`make_bash_agent_runtime(provider, cwd=...)` builds the reusable preset:
+one bash-use agent plus the bash tool bound through `AgentRuntime`.
+`make_bash_use_agent(provider)` remains the lower-level agent factory for
+callers that want to compose their own runtime.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable
 
 from simple_agent_lab.core import (
     Agent,
-    AgentRuntime,
-    Event,
-    State,
     make_llm_step,
     until_final,
 )
 from simple_agent_lab.llm import Provider as LLMProvider
+from simple_agent_lab.runtime import AgentRuntime
+from simple_agent_lab.tools.bash import make_bash_tool
 
-from .tool import make_bash_tool
 
-
-DEFAULT_BASH_DEMO_COMMAND = (
-    "pwd && find src/simple_agent_lab -maxdepth 1 -type f -name '*.py' | sort"
-)
-DEFAULT_BASH_DEMO_TASK = f"Use bash to run command: `{DEFAULT_BASH_DEMO_COMMAND}`"
 BASH_AGENT_SYSTEM_PROMPT = (
     "You are a tiny bash-use agent. Use the bash tool to satisfy the task "
     "— parallel tool calls are fine when the steps are independent, and "
     "set `attach` on the call when you want to surface an image file. "
     "After the tool_result, return a short final answer."
 )
-BASH_AGENT_DEFAULT_ROLE = "Use bash for local commands, then summarize what you observed."
+BASH_AGENT_DEFAULT_ROLE = (
+    "Use bash for local commands, then summarize what you observed."
+)
 BASH_AGENT_DEFAULT_NAME = "bash_agent"
-
-_FAKE_PROVIDER = LLMProvider(id="fake", api="fake", model="fake-model")
 
 
 def make_bash_use_agent(
-    provider: LLMProvider | None = None,
+    provider: LLMProvider,
     *,
     name: str = BASH_AGENT_DEFAULT_NAME,
     role: str = BASH_AGENT_DEFAULT_ROLE,
@@ -54,54 +41,42 @@ def make_bash_use_agent(
 ) -> Agent:
     """Build a single-step bash-using agent.
 
-    The defaults match the demo. Consumers (eval suites, custom flows)
-    that want the same loop but a different prompt or routing name
-    override `name` / `role` / `system_prompt`.
+    Consumers (eval suites, demos, custom flows) own provider choice so
+    this preset stays independent of fake or live model policy.
     """
 
     return Agent(
         name=name,
         role=role,
         step=make_llm_step(
-            provider or _FAKE_PROVIDER,
+            provider,
             system_prompt=system_prompt,
             target="user",
         ),
     )
 
 
-bash_agent_until_final = until_final(BASH_AGENT_DEFAULT_NAME)
-
-
-def bash_task_for_command(command: str) -> str:
-    """Build the demo task text parsed by the deterministic fake adapter."""
-
-    return f"Use bash to run command: `{command}`"
-
-
-def run_bash_agent_demo(
+def make_bash_agent_runtime(
+    provider: LLMProvider,
     *,
-    task: str | None = None,
-    command: str | None = None,
     cwd: str | Path | None = None,
-    provider: LLMProvider | None = None,
-    on_event: Callable[[Event], None] | None = None,
+    name: str = BASH_AGENT_DEFAULT_NAME,
+    role: str = BASH_AGENT_DEFAULT_ROLE,
+    system_prompt: str = BASH_AGENT_SYSTEM_PROMPT,
 ) -> AgentRuntime:
-    """Run the bash-use demo and return its runtime state."""
+    """Build the bash-use runtime with its executable bash tool bound."""
 
-    resolved_task = task or DEFAULT_BASH_DEMO_TASK
-    if command is not None:
-        resolved_task = bash_task_for_command(command)
-
-    runtime = AgentRuntime(
-        [make_bash_use_agent(provider)],
+    return AgentRuntime(
+        [
+            make_bash_use_agent(
+                provider,
+                name=name,
+                role=role,
+                system_prompt=system_prompt,
+            )
+        ],
         tools=[make_bash_tool(cwd=cwd)],
     )
-    for event in runtime.prompt(
-        resolved_task,
-        target=BASH_AGENT_DEFAULT_NAME,
-        next_agent=bash_agent_until_final,
-    ):
-        if on_event is not None:
-            on_event(event)
-    return runtime
+
+
+bash_agent_until_final = until_final(BASH_AGENT_DEFAULT_NAME)

@@ -67,6 +67,7 @@ class LLMMessage:
     so the standardized view shows these instructions; `--raw` on the
     trace shows the translated shape an adapter produced.
     """
+
     role: Role
     content: MessageContent = ()
     extra: Mapping[str, Any] = field(default_factory=dict)
@@ -111,22 +112,26 @@ class LLMTool:
     `simple_agent_lab.tools.Tool` / `AgentTool` projects to this via a
     `to_llm_tool()` method. The execute side stays local to the agent loop.
     """
+
     name: str
     description: str
-    parameters: dict[str, Any]   # JSON Schema
+    parameters: dict[str, Any]  # JSON Schema
 
 
 @dataclass(frozen=True)
 class LLMRequest:
     """One call to a provider. Pure data; safe to log or replay."""
+
     provider: "Provider"
     messages: list[LLMMessage]
     tools: list[LLMTool] = field(default_factory=list)
     system_prompt: Optional[str] = None
-    temperature: Optional[float] = None        # None → use provider.default_temperature
+    temperature: Optional[float] = None  # None → use provider.default_temperature
     max_tokens: Optional[int] = None
     timeout_seconds: Optional[float] = 60.0
-    extra: dict[str, Any] = field(default_factory=dict)  # provider-specific request options
+    extra: dict[str, Any] = field(
+        default_factory=dict
+    )  # provider-specific request options
 
 
 @dataclass(frozen=True)
@@ -158,6 +163,7 @@ class LLMResponse:
     "did our cache_control / reasoning_content land?" question is
     still answerable from `raw["request"]` alone.
     """
+
     content: MessageContent = ()
     stop_reason: StopReason = "end_turn"
     usage: TokenUsage = field(default_factory=TokenUsage)
@@ -193,6 +199,7 @@ class StreamEvent:
     response. `complete()` waits for it; streaming consumers can stop
     on it.
     """
+
     kind: Literal[
         "text_delta",
         "thinking_delta",
