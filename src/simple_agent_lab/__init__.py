@@ -1,27 +1,13 @@
-"""Simple Agent Lab core runtime."""
+"""Simple Agent Lab core runtime.
 
-from .bash_agent import (
-    BASH_AGENT_SYSTEM_PROMPT,
-    DEFAULT_BASH_DEMO_COMMAND,
-    DEFAULT_BASH_DEMO_TASK,
-    bash_agent_until_final,
-    bash_task_for_command,
-    make_bash_use_agent,
-    run_bash_agent_demo,
-)
-from .bash_tool import (
-    BASH_TOOL_NAME,
-    BashExecution,
-    CommandInterpretation,
-    bash_execution_to_tool_result,
-    budget_text,
-    detect_blocked_sleep_pattern,
-    format_bash_observation,
-    interpret_command_result,
-    make_bash_tool,
-    run_bash,
-    strip_empty_lines,
-)
+Preset agents (the bash agent and friends) live under
+`simple_agent_lab.agents.*` — they are downstream consumers of this
+package's protocol/runtime/LLM/tool layers, not part of the core
+surface. Import them explicitly, e.g.::
+
+    from simple_agent_lab.agents.bash import make_bash_use_agent
+"""
+
 from .core import (
     Agent,
     AgentRuntime,
@@ -103,10 +89,6 @@ from .tools import (
 __all__ = [
     "Agent",
     "AgentRuntime",
-    "BASH_AGENT_SYSTEM_PROMPT",
-    "BASH_TOOL_NAME",
-    "DEFAULT_BASH_DEMO_COMMAND",
-    "DEFAULT_BASH_DEMO_TASK",
     "Event",
     "EventKind",
     "Listener",
@@ -134,34 +116,23 @@ __all__ = [
     "thinking_blocks_of",
     "tool_calls_of",
     "tool_results_of",
-    "BashExecution",
-    "CommandInterpretation",
     "State",
     "ContextPolicy",
     "ContextStats",
     "ContextView",
     "assistant_message",
-    "bash_agent_until_final",
-    "bash_execution_to_tool_result",
-    "bash_task_for_command",
     "build_agent_context_view",
     "build_context_view",
-    "budget_text",
     "clip_message",
     "context_view",
     "default_role",
-    "detect_blocked_sleep_pattern",
     "dispatch_tool_calls",
     "estimate_message_chars",
     "estimate_message_tokens",
     "event_text",
-    "format_bash_observation",
-    "interpret_command_result",
     "is_visible_to_agent",
     "last_event",
     "last_message",
-    "make_bash_tool",
-    "make_bash_use_agent",
     "make_message",
     "make_tool_result_block",
     "make_llm_step",
@@ -169,13 +140,10 @@ __all__ = [
     "message_tool_calls",
     "print_trace",
     "run",
-    "run_bash",
-    "run_bash_agent_demo",
     "run_to_completion",
     "append_openai_training_record",
     "openai_training_record",
     "sequence",
-    "strip_empty_lines",
     "system_message",
     "tool_result_message",
     "tool_results_message",

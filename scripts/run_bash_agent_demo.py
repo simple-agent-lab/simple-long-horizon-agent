@@ -34,15 +34,17 @@ if str(SRC) not in sys.path:
 
 from simple_agent_lab import (  # noqa: E402
     AssistantMessage,
-    DEFAULT_BASH_DEMO_COMMAND,
     Event,
     Message,
     last_message,
     message_text,
     print_trace,
-    run_bash_agent_demo,
     text_of,
     tool_results_of,
+)
+from simple_agent_lab.agents.bash import (  # noqa: E402
+    DEFAULT_BASH_DEMO_COMMAND,
+    run_bash_agent_demo,
 )
 from simple_agent_lab.llm import Provider  # noqa: E402
 
@@ -179,9 +181,9 @@ def main() -> None:
         print_trace(runtime.state, raw=args.raw)
 
     if args.save_trace:
-        from simple_agent_lab import (  # noqa: E402
+        from simple_agent_lab import append_openai_training_record  # noqa: E402
+        from simple_agent_lab.agents.bash import (  # noqa: E402
             BASH_AGENT_SYSTEM_PROMPT,
-            append_openai_training_record,
             make_bash_tool,
         )
 

@@ -17,8 +17,8 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from .messages import ImageBlock, TextBlock
-from .tools import AbortFlag, AgentTool, ToolResult, ToolUpdateFn, text_result
+from simple_agent_lab.messages import ImageBlock, TextBlock
+from simple_agent_lab.tools import AbortFlag, AgentTool, ToolResult, ToolUpdateFn, text_result
 
 
 BASH_TOOL_NAME = "bash"

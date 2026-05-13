@@ -1,13 +1,32 @@
-"""Tiny bash-use agent demo built on the canonical runtime."""
+"""Tiny bash-use agent — the first preset shipped on the lab runtime.
+
+`make_bash_use_agent(provider)` builds a single-step agent that can call
+the bash tool defined alongside in `tool.py`. The factory accepts
+`name` / `role` / `system_prompt` overrides so a downstream consumer
+(eval suites, custom flows) can reuse the same wiring without forking
+the prompt.
+
+`run_bash_agent_demo(...)` is the one-shot helper used by the demo
+script — it spins up an `AgentRuntime`, hands it a bash command or a
+free-form task, and runs to completion.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Callable
 
-from .bash_tool import make_bash_tool
-from .core import Agent, AgentRuntime, Event, State, make_llm_step, until_final
-from .llm import Provider as LLMProvider
+from simple_agent_lab.core import (
+    Agent,
+    AgentRuntime,
+    Event,
+    State,
+    make_llm_step,
+    until_final,
+)
+from simple_agent_lab.llm import Provider as LLMProvider
+
+from .tool import make_bash_tool
 
 
 DEFAULT_BASH_DEMO_COMMAND = (
@@ -20,24 +39,38 @@ BASH_AGENT_SYSTEM_PROMPT = (
     "set `attach` on the call when you want to surface an image file. "
     "After the tool_result, return a short final answer."
 )
+BASH_AGENT_DEFAULT_ROLE = "Use bash for local commands, then summarize what you observed."
+BASH_AGENT_DEFAULT_NAME = "bash_agent"
+
 _FAKE_PROVIDER = LLMProvider(id="fake", api="fake", model="fake-model")
 
 
-def make_bash_use_agent(provider: LLMProvider | None = None) -> Agent:
-    """Create a minimal agent that can use the local bash tool."""
+def make_bash_use_agent(
+    provider: LLMProvider | None = None,
+    *,
+    name: str = BASH_AGENT_DEFAULT_NAME,
+    role: str = BASH_AGENT_DEFAULT_ROLE,
+    system_prompt: str = BASH_AGENT_SYSTEM_PROMPT,
+) -> Agent:
+    """Build a single-step bash-using agent.
+
+    The defaults match the demo. Consumers (eval suites, custom flows)
+    that want the same loop but a different prompt or routing name
+    override `name` / `role` / `system_prompt`.
+    """
 
     return Agent(
-        name="bash_agent",
-        role="Use bash for local commands, then summarize what you observed.",
+        name=name,
+        role=role,
         step=make_llm_step(
             provider or _FAKE_PROVIDER,
-            system_prompt=BASH_AGENT_SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             target="user",
         ),
     )
 
 
-bash_agent_until_final = until_final("bash_agent")
+bash_agent_until_final = until_final(BASH_AGENT_DEFAULT_NAME)
 
 
 def bash_task_for_command(command: str) -> str:
@@ -54,7 +87,7 @@ def run_bash_agent_demo(
     provider: LLMProvider | None = None,
     on_event: Callable[[Event], None] | None = None,
 ) -> AgentRuntime:
-    """Run the deterministic bash-use demo and return its runtime state."""
+    """Run the bash-use demo and return its runtime state."""
 
     resolved_task = task or DEFAULT_BASH_DEMO_TASK
     if command is not None:
@@ -66,7 +99,7 @@ def run_bash_agent_demo(
     )
     for event in runtime.prompt(
         resolved_task,
-        target="bash_agent",
+        target=BASH_AGENT_DEFAULT_NAME,
         next_agent=bash_agent_until_final,
     ):
         if on_event is not None:

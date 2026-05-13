@@ -101,7 +101,7 @@ Stop and collect more evidence before changing behavior when:
 | Core runtime shape | ADR 0001, ADR 0005, ADR 0009, `src/simple_agent_lab/core.py` | Canonical runtime boundary and historical rationale. |
 | Message protocol or provider conversion | `CONTEXT.md`, ADR 0006, `src/simple_agent_lab/messages.py`, `src/simple_agent_lab/llm/README.md` | Runtime-vs-model message boundary and vocabulary. |
 | Context visibility or budgeting | ADR 0010, `src/simple_agent_lab/context_view.py`, `tests/test_core.py`, `tests/test_token_usage.py` | Projection behavior and token-estimate constraints. |
-| Tool execution or bash demo | `src/simple_agent_lab/tools.py`, `src/simple_agent_lab/bash_tool.py`, `src/simple_agent_lab/bash_agent.py`, `tests/test_bash_agent.py` | Tool result semantics and deterministic demo checks. |
+| Tool execution or bash demo | `src/simple_agent_lab/tools.py`, `src/simple_agent_lab/agents/bash/` (preset agent + tool), `tests/test_bash_agent.py` | Tool result semantics and deterministic demo checks. |
 | Trajectories, evals, or training data | ADR 0008, ADR 0011, `evals/README.md`, `evals/swebench/README.md` | Separation between fact records, scores, and suite adapters. |
 | External architecture borrowing | `docs/reference-architectures/README.md` (local notes workspace, gitignored) plus your own reference note | Capture rationale locally; record durable commitments in an ADR. |
 | Agent-native doc maintenance | `docs/agent-native/doc-inventory.md`, `docs/agent-native/operating-rules.md` | Canonical doc roles and stop conditions. |

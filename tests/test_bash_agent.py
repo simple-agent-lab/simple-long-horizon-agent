@@ -7,24 +7,24 @@ from pathlib import Path
 from typing import cast
 
 from simple_agent_lab import (
-    DEFAULT_BASH_DEMO_COMMAND,
     AgentTool,
     ToolResult,
-    bash_execution_to_tool_result,
-    detect_blocked_sleep_pattern,
-    interpret_command_result,
     last_message,
-    make_bash_tool,
     message_text,
-    run_bash,
-    run_bash_agent_demo,
     tool_result_text,
     tool_results_of,
 )
-from simple_agent_lab.bash_tool import (
+from simple_agent_lab.agents.bash import (
+    DEFAULT_BASH_DEMO_COMMAND,
     MAX_BASH_TIMEOUT_SECONDS,
-    _resolve_timeout,
+    bash_execution_to_tool_result,
+    detect_blocked_sleep_pattern,
+    interpret_command_result,
+    make_bash_tool,
+    run_bash,
+    run_bash_agent_demo,
 )
+from simple_agent_lab.agents.bash.tool import _resolve_timeout
 
 
 ROOT = Path(__file__).resolve().parents[1]

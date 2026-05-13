@@ -25,13 +25,12 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from simple_agent_lab.bash_tool import make_bash_tool
+from simple_agent_lab.agents.bash import make_bash_tool, make_bash_use_agent
 from simple_agent_lab.core import (
     Agent,
     AgentRuntime,
     Event,
     State,
-    make_llm_step,
     run,
     sequence,
     until_final,
@@ -153,22 +152,25 @@ def make_patch_agent(patch: str) -> Agent:
     )
 
 
+WORKSPACE_AGENT_NAME = "swebench_agent"
+WORKSPACE_AGENT_ROLE = (
+    "Work in the prepared SWE-bench repository. Use bash for local "
+    "inspection or edits, then return a concise final note."
+)
+WORKSPACE_AGENT_SYSTEM_PROMPT = (
+    "You are a tiny SWE-bench workspace agent. If the task names a "
+    "bash command, call the bash tool once. After the tool result, "
+    "return a short final answer."
+)
+
+
 def make_workspace_agent() -> Agent:
-    return Agent(
-        name="swebench_agent",
-        role=(
-            "Work in the prepared SWE-bench repository. Use bash for local "
-            "inspection or edits, then return a concise final note."
-        ),
-        step=make_llm_step(
-            LLMProvider(id="fake", api="fake", model="fake-model"),
-            system_prompt=(
-                "You are a tiny SWE-bench workspace agent. If the task names a "
-                "bash command, call the bash tool once. After the tool result, "
-                "return a short final answer."
-            ),
-            target="user",
-        ),
+    """Workspace flavor of the bash preset — same loop, suite-specific prompt."""
+    return make_bash_use_agent(
+        LLMProvider(id="fake", api="fake", model="fake-model"),
+        name=WORKSPACE_AGENT_NAME,
+        role=WORKSPACE_AGENT_ROLE,
+        system_prompt=WORKSPACE_AGENT_SYSTEM_PROMPT,
     )
 
 
