@@ -410,6 +410,8 @@ providers = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "anthropic" },
+    { name = "openai" },
     { name = "ty" },
 ]
 
@@ -423,7 +425,11 @@ requires-dist = [
 provides-extras = ["anthropic", "openai", "providers"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "ty", specifier = ">=0.0.1a26" }]
+dev = [
+    { name = "anthropic", specifier = ">=0.39.0" },
+    { name = "openai", specifier = ">=1.50.0" },
+    { name = "ty", specifier = ">=0.0.1a26" },
+]
 
 [[package]]
 name = "sniffio"
