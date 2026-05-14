@@ -26,6 +26,7 @@ __all__ = [
     "ToolResult",
     "ToolResultContent",
     "ToolUpdateFn",
+    "task_tool",
     "text_result",
     "tool_result_text",
 ]
@@ -107,3 +108,7 @@ def tool_result_text(result: ToolResult) -> str:
     return "\n".join(
         block.text for block in result.content if isinstance(block, TextBlock)
     )
+
+
+# Re-export after the common tool shapes are defined; `task` imports them.
+from .task import task_tool  # noqa: E402

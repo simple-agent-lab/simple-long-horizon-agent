@@ -25,18 +25,17 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from simple_agent_lab.agents.bash import make_bash_agent_runtime  # noqa: E402
+from simple_agent_lab.agents.bash import make_bash_agent  # noqa: E402
 from simple_agent_lab.core import (  # noqa: E402
     Agent,
     Event,
     State,
     run,
-    sequence,
     until_final,
 )
 from simple_agent_lab.llm import Provider as LLMProvider  # noqa: E402
 from simple_agent_lab.messages import Message, assistant_message  # noqa: E402
-from simple_agent_lab.runtime import AgentRuntime  # noqa: E402
+from simple_agent_lab.protocols import MessageEvent, ModelRequestEvent  # noqa: E402
 from simple_agent_lab.trajectory import (  # noqa: E402
     ModelTurn,
     RunTrace,
@@ -166,9 +165,9 @@ WORKSPACE_AGENT_SYSTEM_PROMPT = (
 )
 
 
-def make_workspace_runtime(workspace: Path) -> AgentRuntime:
+def make_workspace_agent(workspace: Path) -> Agent:
     """Workspace flavor of the bash preset with the bash tool bound."""
-    return make_bash_agent_runtime(
+    return make_bash_agent(
         LLMProvider(id="fake", api="fake", model="fake-model"),
         cwd=workspace,
         name=WORKSPACE_AGENT_NAME,
@@ -187,7 +186,7 @@ def run_patch_agent(instance: dict[str, Any], patch: str) -> State:
         },
     )
     state.send("task", "user", "swebench_agent", state.task)
-    for _ in run([make_patch_agent(patch)], state, sequence("swebench_agent")):
+    for _ in run([make_patch_agent(patch)], state, until_final("swebench_agent")):
         pass
     return state
 
@@ -206,14 +205,11 @@ def run_workspace_agent(
         + "For this setup run, use bash command: "
         + f"`{command}`"
     )
-    runtime = make_workspace_runtime(repo_dir)
-    for _ in runtime.prompt(
-        task,
-        target="swebench_agent",
-        next_agent=until_final("swebench_agent", max_turns=max_turns),
-    ):
+    agent = make_workspace_agent(repo_dir)
+    state, events = agent.run(task, max_turns=max_turns)
+    for _ in events:
         pass
-    runtime.state.data.update(
+    state.data.update(
         {
             "suite": "swebench",
             "instance": instance,
@@ -221,7 +217,7 @@ def run_workspace_agent(
             "model_patch": git_diff(repo_dir),
         }
     )
-    return runtime.state
+    return state
 
 
 def resolve_repo_dir(path: Path) -> Path:
@@ -261,24 +257,24 @@ def model_turns_from_events(trace_id: str, events: list[Event]) -> list[ModelTur
     model_call_index = 0
 
     for event in events:
-        if event.kind == "model_request":
+        if isinstance(event, ModelRequestEvent):
             model_call_index += 1
             pending = {
-                "agent": str(event.data.get("agent") or ""),
-                "input_messages": event.data.get("llm_payload") or [],
-                "tools": event.data.get("tools") or [],
+                "agent": str(event.agent or ""),
+                "input_messages": event.llm_payload,
+                "tools": event.tools,
                 "request_event_index": event.index,
                 "meta": {
-                    "visible_count": event.data.get("visible_count"),
-                    "model_message_count": event.data.get("llm_message_count"),
+                    "visible_count": event.visible_count,
+                    "model_message_count": event.llm_message_count,
                 },
             }
             continue
 
-        if event.kind != "message" or pending is None:
+        if not isinstance(event, MessageEvent) or pending is None:
             continue
         message = event.message
-        if message is None or message.role != "assistant":
+        if message.role != "assistant":
             continue
         agent = pending["agent"] or message.sender
         if message.sender != agent:

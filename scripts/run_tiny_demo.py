@@ -32,7 +32,6 @@ from simple_agent_lab import (
     message_text,
     print_trace,
     run,
-    sequence,
 )
 
 
@@ -45,10 +44,11 @@ def run_recipe(
     schedule: list[str],
     last_messages: int | None,
 ) -> State:
+    schedule_iter = iter(schedule)
     for _ in run(
         {agent.name: agent for agent in agents},
         state,
-        sequence(*schedule),
+        lambda _: next(schedule_iter, None),
         last=last_messages,
     ):
         pass
@@ -113,9 +113,9 @@ def judge(agent: Agent, visible: list[Message], state: State) -> Message:
 
 def run_debate(task: str, last_messages: int | None) -> State:
     agents = [
-        Agent("proposer", "proposes a design", proposer),
-        Agent("critic", "finds missing pieces", critic),
-        Agent("judge", "chooses final answer", judge),
+        Agent("proposer", proposer, role="proposes a design"),
+        Agent("critic", critic, role="finds missing pieces"),
+        Agent("judge", judge, role="chooses final answer"),
     ]
     state = State(task)
     state.send("task", "user", "proposer", task)
@@ -162,9 +162,9 @@ def synthesizer(agent: Agent, visible: list[Message], state: State) -> Message:
 
 def run_pipeline(task: str, last_messages: int | None) -> State:
     agents = [
-        Agent("researcher_a", "studies the core runtime", researcher_a),
-        Agent("researcher_b", "studies recipes", researcher_b),
-        Agent("synthesizer", "merges notes", synthesizer),
+        Agent("researcher_a", researcher_a, role="studies the core runtime"),
+        Agent("researcher_b", researcher_b, role="studies recipes"),
+        Agent("synthesizer", synthesizer, role="merges notes"),
     ]
     state = State(task)
     state.send("task", "user", "researcher_a", task)
@@ -222,10 +222,10 @@ def parallel_synthesizer(agent: Agent, visible: list[Message], state: State) -> 
 
 def run_parallel(task: str, last_messages: int | None) -> State:
     agents = [
-        Agent("angle_core", "explores core abstraction", angle_core),
-        Agent("angle_trace", "explores observability", angle_trace),
-        Agent("angle_teaching", "explores pedagogy", angle_teaching),
-        Agent("synthesizer", "synthesizes findings", parallel_synthesizer),
+        Agent("angle_core", angle_core, role="explores core abstraction"),
+        Agent("angle_trace", angle_trace, role="explores observability"),
+        Agent("angle_teaching", angle_teaching, role="explores pedagogy"),
+        Agent("synthesizer", parallel_synthesizer, role="synthesizes findings"),
     ]
     state = State(task)
     for target in ["angle_core", "angle_trace", "angle_teaching"]:

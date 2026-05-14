@@ -5,25 +5,36 @@ Preset agents (the bash agent and friends) live under
 package's protocol/runtime/LLM/tool layers, not part of the core
 surface. Import them explicitly, e.g.::
 
-    from simple_agent_lab.agents.bash import make_bash_use_agent
+    from simple_agent_lab.agents.bash import make_bash_agent
 """
 
 from .core import (
     Agent,
-    Event,
-    EventKind,
     NextFn,
-    State,
     StepFn,
     TransformFn,
-    build_agent_context_view,
-    context_view,
     dispatch_tool_calls,
-    make_message,
-    make_llm_step,
     run,
-    sequence,
     until_final,
+)
+from .state import State, StateSnapshot
+from .llm.step import make_llm_step
+from .messages import make_message
+from .protocols import (
+    AgentEndEvent,
+    AgentStartEvent,
+    ContextCompressionEvent,
+    Event,
+    EventKind,
+    MessageEvent,
+    ModelRequestEvent,
+    ModelResponseEvent,
+    RuntimeEvent,
+    ToolExecutionEndEvent,
+    ToolExecutionStartEvent,
+    ToolExecutionUpdateEvent,
+    TurnEndEvent,
+    TurnStartEvent,
 )
 from .context_view import (
     ContextPolicy,
@@ -31,9 +42,9 @@ from .context_view import (
     ContextView,
     build_context_view,
     clip_message,
+    estimate_context_tokens,
     estimate_message_chars,
     estimate_message_tokens,
-    is_visible_to_agent,
 )
 from .messages import (
     AssistantMessage,
@@ -65,8 +76,7 @@ from .messages import (
     tool_results_of,
     user_message,
 )
-from .openai_training import append_openai_training_record, openai_training_record
-from .runtime import AgentRuntime, Listener, print_trace
+from .trace import append_openai_training_record, openai_training_record, print_trace
 from .tools import (
     AbortFlag,
     AgentTool,
@@ -74,19 +84,30 @@ from .tools import (
     ToolExecutionMode,
     ToolResult,
     ToolUpdateFn,
+    task_tool,
     text_result,
     tool_result_text,
 )
 
 __all__ = [
     "Agent",
-    "AgentRuntime",
+    "AgentEndEvent",
+    "AgentStartEvent",
+    "ContextCompressionEvent",
     "Event",
     "EventKind",
-    "Listener",
+    "MessageEvent",
+    "ModelRequestEvent",
+    "ModelResponseEvent",
     "NextFn",
+    "RuntimeEvent",
     "StepFn",
     "TransformFn",
+    "ToolExecutionEndEvent",
+    "ToolExecutionStartEvent",
+    "ToolExecutionUpdateEvent",
+    "TurnEndEvent",
+    "TurnStartEvent",
     "AssistantMessage",
     "AgentName",
     "ContentBlock",
@@ -109,18 +130,17 @@ __all__ = [
     "tool_calls_of",
     "tool_results_of",
     "State",
+    "StateSnapshot",
     "ContextPolicy",
     "ContextStats",
     "ContextView",
     "assistant_message",
-    "build_agent_context_view",
     "build_context_view",
     "clip_message",
-    "context_view",
     "dispatch_tool_calls",
+    "estimate_context_tokens",
     "estimate_message_chars",
     "estimate_message_tokens",
-    "is_visible_to_agent",
     "make_message",
     "make_llm_step",
     "message_text",
@@ -129,8 +149,8 @@ __all__ = [
     "run",
     "append_openai_training_record",
     "openai_training_record",
-    "sequence",
     "system_message",
+    "task_tool",
     "tool_result_message",
     "tool_results_message",
     "until_final",

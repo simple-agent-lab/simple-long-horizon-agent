@@ -116,7 +116,7 @@ not yet wired up.
 - [docs/agent-native](docs/agent-native/README.md): the single future-agent loading map, plus project intent, code style, development workflow, doc inventory, source-of-truth routing, and unresolved owner questions.
 - [docs/decisions](docs/decisions/README.md): architecture decision records.
 - [docs/glossary.md](docs/glossary.md): shared vocabulary.
-- [src/simple_agent_lab](src/simple_agent_lab/core.py): the installable package - `core.py` (canonical tiny run loop), `runtime.py` (stateful runtime wrapper and trace printing), `context_view.py` (model-visible context projection), `messages.py` (shared message protocol), `tools/` (shared tool values plus concrete tools like bash), `trajectory.py` / `evaluation.py` / `training_data.py` / `openai_training.py` (runtime-neutral harness records and training export), `llm/` (shared LLM access layer and message bridge), and `agents/` (preset agents like the bash-use demo, built on top of the core layers).
+- [src/simple_agent_lab](src/simple_agent_lab/core.py): the installable package - `core.py` (canonical tiny run loop), `trace.py` (trace printing and OpenAI Chat JSONL export), `context_view.py` (model-visible context projection), `messages.py` (shared message protocol), `tools/` (shared tool values plus concrete tools like bash), `trajectory.py` (runtime-neutral trace records), `llm/` (shared LLM access layer and message bridge), and `agents/` (preset agents like the bash-use demo, built on top of the core layers).
 - [evals](evals/README.md): future behavior checks and comparisons.
 - [tests](tests/README.md): future test strategy.
 - [runs](runs/README.md): small reproducible commands for examples and future experiments.

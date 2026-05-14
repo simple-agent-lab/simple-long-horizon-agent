@@ -8,22 +8,20 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from typing import Any
 
 from .messages import (
     AssistantMessage,
     ImageBlock,
     Message,
-    MessageChannel,
     MessageKind,
     SystemMessage,
     TextBlock,
+    TokenUsage,
     is_tool_result_message,
     tool_results_of,
 )
 
-
-DEFAULT_SKIP_KINDS: tuple[MessageKind, ...] = ("notification", "trace")
-DEFAULT_PINNED_KINDS: tuple[MessageKind, ...] = ("task", "system", "summary")
 
 # Same teaching-level heuristic as the runtime token estimators: this is a
 # stable budget signal, not provider-accurate token accounting.
@@ -33,26 +31,31 @@ IMAGE_CHAR_ESTIMATE = 7373
 
 @dataclass(frozen=True)
 class ContextPolicy:
-    """Visibility and budget policy for one agent context view."""
+    """Budget and trimming policy for one agent context view."""
 
-    include_broadcast: bool = True
-    include_self: bool = True
-    include_system: bool = True
-    channels: tuple[MessageChannel, ...] | None = None
-    skip_kinds: tuple[MessageKind, ...] = DEFAULT_SKIP_KINDS
-    pinned_kinds: tuple[MessageKind, ...] = DEFAULT_PINNED_KINDS
+    skip_kinds: tuple[MessageKind, ...] = ("notification", "trace")
+    pinned_kinds: tuple[MessageKind, ...] = ("task", "system", "summary")
     last: int | None = None
     max_chars: int | None = None
     max_message_chars: int | None = None
     reserve_recent: int = 1
+    compress_at_tokens: int | None = None
+    compress_keep_recent: int = 4
+    compressor: Any | None = None
 
     def __post_init__(self) -> None:
         _validate_positive("last", self.last)
         _validate_positive("max_chars", self.max_chars)
         _validate_positive("max_message_chars", self.max_message_chars)
+        _validate_positive("compress_at_tokens", self.compress_at_tokens)
         if self.reserve_recent < 0:
             raise ValueError(
                 f"ContextPolicy.reserve_recent must be >= 0, got {self.reserve_recent!r}"
+            )
+        if self.compress_keep_recent < 0:
+            raise ValueError(
+                "ContextPolicy.compress_keep_recent must be >= 0, "
+                f"got {self.compress_keep_recent!r}"
             )
 
 
@@ -111,12 +114,12 @@ def build_context_view(
     """Project a full transcript into the messages visible to one agent."""
     resolved = policy or ContextPolicy()
     visible = [
-        message
-        for message in messages
-        if is_visible_to_agent(message, agent_name, resolved)
+        message for message in messages if message.kind not in resolved.skip_kinds
     ]
-    if resolved.last is not None:
-        visible = visible[-resolved.last :]
+    last = resolved.last
+    omitted_by_last = max(0, len(visible) - last) if last is not None else 0
+    if last is not None and omitted_by_last:
+        visible = visible[-last:]
 
     clipped_messages = 0
     clipped: list[Message] = []
@@ -126,22 +129,19 @@ def build_context_view(
         if did_clip:
             clipped_messages += 1
 
-    if resolved.max_chars is None:
-        # No budget → no grouping or per-group char accounting needed.
-        selected_messages = tuple(clipped)
-        dropped_count = 0
-        budget_notes: list[str] = []
-        estimated_chars = sum(estimate_message_chars(message) for message in clipped)
-    else:
-        groups = _group_messages(clipped, resolved)
-        selected_groups, dropped_groups, budget_notes = _select_groups(groups, resolved)
-        selected_messages = tuple(
-            message for group in selected_groups for message in group.messages
-        )
-        dropped_count = sum(len(group.messages) for group in dropped_groups)
-        estimated_chars = sum(group.chars for group in selected_groups)
-    estimated_tokens = sum(
-        estimate_message_tokens(message) for message in selected_messages
+    groups = _group_messages(clipped, resolved)
+    selected_groups, dropped_groups, budget_notes = _select_groups(groups, resolved)
+    selected_messages = tuple(
+        message for group in selected_groups for message in group.messages
+    )
+    dropped_count = sum(len(group.messages) for group in dropped_groups)
+    estimated_chars = sum(group.chars for group in selected_groups)
+    usage_baseline_is_valid = (
+        omitted_by_last == 0 and dropped_count == 0 and clipped_messages == 0
+    )
+    estimated_tokens = estimate_context_tokens(
+        selected_messages,
+        allow_usage_baseline=usage_baseline_is_valid,
     )
     usage_known_messages = sum(
         1
@@ -166,28 +166,6 @@ def build_context_view(
         stats=stats,
         notes=tuple(budget_notes),
     )
-
-
-def is_visible_to_agent(
-    message: Message,
-    agent_name: str,
-    policy: ContextPolicy | None = None,
-) -> bool:
-    """Return whether a runtime message belongs in an agent's candidate view."""
-    resolved = policy or ContextPolicy()
-    if message.kind in resolved.skip_kinds:
-        return False
-    if resolved.channels is not None and message.channel not in resolved.channels:
-        return False
-    if isinstance(message, SystemMessage) and not resolved.include_system:
-        return False
-    if message.target == agent_name:
-        return True
-    if resolved.include_broadcast and message.target == "all":
-        return True
-    if resolved.include_self and message.sender == agent_name:
-        return True
-    return False
 
 
 def estimate_message_chars(message: Message) -> int:
@@ -233,6 +211,31 @@ def estimate_message_tokens(message: Message) -> int:
             return usage.output_tokens
     chars = estimate_message_chars(message)
     return (chars + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN
+
+
+def estimate_context_tokens(
+    messages: Sequence[Message],
+    *,
+    allow_usage_baseline: bool = True,
+) -> int:
+    """Estimate context-window size for a selected message sequence.
+
+    When possible, use the latest provider-reported assistant usage as the
+    authoritative size of everything up to that response, then estimate only
+    messages added after it. If the caller has dropped or clipped earlier
+    context, pass ``allow_usage_baseline=False`` so omitted text is not counted
+    through the historical usage total.
+    """
+    if allow_usage_baseline:
+        for index in range(len(messages) - 1, -1, -1):
+            message = messages[index]
+            if isinstance(message, AssistantMessage) and _has_usage(message.usage):
+                assert message.usage is not None
+                return _usage_context_tokens(message.usage) + sum(
+                    estimate_message_tokens(trailing)
+                    for trailing in messages[index + 1 :]
+                )
+    return sum(estimate_message_tokens(message) for message in messages)
 
 
 def clip_message(
@@ -360,6 +363,21 @@ def _content_chars(content: object) -> int:
                 total += IMAGE_CHAR_ESTIMATE
         return total
     return len(str(content))
+
+
+def _has_usage(usage: TokenUsage | None) -> bool:
+    if usage is None:
+        return False
+    return _usage_context_tokens(usage) > 0
+
+
+def _usage_context_tokens(usage: TokenUsage) -> int:
+    return (
+        usage.input_tokens
+        + usage.output_tokens
+        + usage.cache_read_tokens
+        + usage.cache_write_tokens
+    )
 
 
 def _validate_positive(name: str, value: int | None) -> None:

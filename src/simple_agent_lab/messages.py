@@ -439,3 +439,44 @@ def _normalize_visible(content: ToolResultContentInput) -> tuple[VisibleBlock, .
             )
         blocks.append(block)
     return tuple(blocks)
+
+
+def make_message(
+    role: str,
+    content: ContentInput = "",
+    *,
+    sender: str = "",
+    target: str = "",
+    kind: str = "message",
+    channel: str = "main",
+    **data: Any,
+) -> Message:
+    """Construct the right role-specific Message variant."""
+    if role == "user":
+        return user_message(
+            content,
+            sender=sender or "user",
+            target=target or "all",
+            kind=kind,
+            channel=channel,
+            data=data,
+        )
+    if role == "system":
+        return system_message(
+            content,
+            sender=sender or "system",
+            target=target or "all",
+            kind=kind,
+            channel=channel,
+            data=data,
+        )
+    if role == "assistant":
+        return assistant_message(
+            content,
+            sender=sender or "assistant",
+            target=target or "all",
+            kind=kind,
+            channel=channel,
+            data=data,
+        )
+    raise ValueError(f"Unknown message role: {role!r}")

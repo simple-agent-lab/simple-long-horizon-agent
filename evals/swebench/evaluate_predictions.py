@@ -17,6 +17,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -25,13 +26,32 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from simple_agent_lab.evaluation import EvalResult, eval_result_record
-from simple_agent_lab.trajectory import read_jsonl, write_jsonl
+from simple_agent_lab.trajectory import json_safe, read_jsonl, write_jsonl
 
 
 DEFAULT_DATASET = "princeton-nlp/SWE-bench_Lite"
 DEFAULT_SPLIT = "test"
 DEFAULT_RUN_ID = "simple-agent-lab-swebench"
+EVAL_SCHEMA = "simple-agent-lab.evaluation.v1"
+
+
+@dataclass(frozen=True)
+class EvalResult:
+    trace_id: str
+    scorer: str
+    passed: bool
+    score: float
+    metrics: dict[str, Any]
+    reason: str = ""
+    meta: dict[str, Any] | None = None
+
+
+def eval_result_record(result: EvalResult) -> dict[str, Any]:
+    return {
+        "schema": EVAL_SCHEMA,
+        "type": "eval_result",
+        **json_safe(result),
+    }
 
 
 def load_predictions(path: str | Path) -> list[dict[str, Any]]:

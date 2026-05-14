@@ -33,7 +33,7 @@ Freshness:
 | Message and provider-boundary shape | `CONTEXT.md`, `src/simple_agent_lab/messages.py`, ADR 0006, `src/simple_agent_lab/llm/README.md` | Keep runtime routing fields out of provider-boundary payloads. |
 | Context visibility and budget behavior | `src/simple_agent_lab/context_view.py`, ADR 0010, `tests/unit/test_core.py`, `tests/unit/test_token_usage.py` | Preserve full history in `State`; project model-visible context explicitly. |
 | Tool result semantics | `src/simple_agent_lab/tools/`, `src/simple_agent_lab/core.py`, bash tests | Tool outputs become `tool_result` messages; `details` are local inspection data. |
-| Trace/eval/training separation | `src/simple_agent_lab/trajectory.py`, `evaluation.py`, `training_data.py`, ADR 0008 | Do not put scores or training labels into raw trajectory records. |
+| Trace/eval/training separation | `src/simple_agent_lab/trajectory.py`, ADR 0008 | Do not put scores or training labels into raw trajectory records. |
 | Benchmark suite boundaries | ADR 0011, `evals/swebench/README.md` | Keep suite-specific heavy dependencies outside the minimal core runtime. |
 | Local quality gate | `docs/agent-native/development.md`, `runs/run_ci.sh`, `.github/workflows/ci.yml` | Keep local and remote gates in lockstep when checks change. |
 | Architecture decisions | `docs/decisions/` | Use this repo's ADR directory; do not create `docs/adr/`. |

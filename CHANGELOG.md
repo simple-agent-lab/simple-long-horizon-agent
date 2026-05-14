@@ -58,9 +58,7 @@ project-wide CI gate.
 - `simple_agent_lab.llm` — shared LLM access layer and a `bridge` between
   runtime messages and provider-shaped messages, with a deterministic
   `FakeAdapter` for tests.
-- `simple_agent_lab.trajectory`, `evaluation`, `training_data` —
-  runtime-neutral records for trajectory capture, eval, and training-data
-  export.
+- `simple_agent_lab.trajectory` — runtime-neutral records for trajectory capture.
 - `evals/swebench/` — SWE-bench eval adapter that drives the bash agent
   against benchmark instances (ADR 0011), with workspace prep, trajectory
   collection, and prediction evaluation entry points.

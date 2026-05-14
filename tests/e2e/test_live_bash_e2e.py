@@ -1,15 +1,11 @@
 from __future__ import annotations
 
 import os
+import tempfile
 import unittest
 from pathlib import Path
 
-from simple_agent_lab import message_text, tool_results_of
-from simple_agent_lab.agents.bash import (
-    BASH_AGENT_DEFAULT_NAME,
-    bash_agent_until_final,
-    make_bash_agent_runtime,
-)
+from simple_agent_lab.agents.bash import make_bash_agent
 from simple_agent_lab.llm import Provider
 
 
@@ -69,40 +65,56 @@ def build_live_openai_provider() -> Provider:
 
 
 class LiveBashAgentE2ETest(unittest.TestCase):
-    def test_live_model_calls_bash_and_finalizes(self) -> None:
-        marker = "SIMPLE_AGENT_LAB_LIVE_E2E_OK"
-        runtime = make_bash_agent_runtime(
-            provider=build_live_openai_provider(),
-            cwd=ROOT,
-        )
-        for _ in runtime.prompt(
-            f"Use bash to run command: `printf '{marker}\\n'`",
-            target=BASH_AGENT_DEFAULT_NAME,
-            next_agent=bash_agent_until_final,
-        ):
-            pass
+    def test_live_model_writes_file_with_bash(self) -> None:
+        """The model must actually invoke bash to create a file on disk.
 
-        tool_result_msg = next(
-            message
-            for message in reversed(runtime.state.messages)
-            if message.kind == "tool_result"
+        We give a natural-language task (no exact command), point cwd at a
+        throwaway temp dir, and assert the file exists on disk with the
+        expected content. That's the real proof bash was used end-to-end.
+        """
+        marker = "SIMPLE_AGENT_LAB_E2E_42"
+        filename = "hello.txt"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            workdir = Path(tmp)
+            agent = make_bash_agent(
+                provider=build_live_openai_provider(),
+                cwd=workdir,
+            )
+            state, events = agent.run(
+                f"Use bash to create a file named {filename} in the current "
+                f"working directory whose contents are exactly the text "
+                f"'{marker}' (no trailing newline required). Then return a "
+                f"short final answer confirming you did it.",
+                max_turns=5,
+            )
+            for _ in events:
+                pass
+
+            target = workdir / filename
+            self.assertTrue(
+                target.exists(),
+                f"agent never created {filename} (workdir contents: "
+                f"{sorted(p.name for p in workdir.iterdir())})",
+            )
+            contents = target.read_text(encoding="utf-8").strip()
+            self.assertEqual(contents, marker)
+
+        self.assertTrue(
+            any(event.kind == "tool_execution_start" for event in state.events),
+            "agent did not invoke the bash tool at all",
         )
         final = next(
-            message
-            for message in reversed(runtime.state.messages)
-            if message.kind == "final"
+            (
+                message
+                for message in reversed(state.messages)
+                if message.kind == "final"
+            ),
+            None,
         )
-
-        blocks = tool_results_of(tool_result_msg.content)
-        self.assertEqual(len(blocks), 1)
-        self.assertEqual(blocks[0].tool_name, "bash")
-        self.assertFalse(blocks[0].is_error)
-        self.assertIn(marker, message_text(tool_result_msg))
+        if final is None:
+            self.fail("agent did not produce a final message")
         self.assertEqual(final.sender, "bash_agent")
-        self.assertTrue(message_text(final).strip())
-        self.assertTrue(
-            any(event.kind == "tool_execution_start" for event in runtime.state.events)
-        )
 
 
 if __name__ == "__main__":

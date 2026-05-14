@@ -10,6 +10,7 @@ from simple_agent_lab import (
     TokenUsage,
     assistant_message,
     build_context_view,
+    estimate_context_tokens,
     estimate_message_chars,
     estimate_message_tokens,
     system_message,
@@ -20,7 +21,7 @@ from simple_agent_lab import (
     State,
     make_llm_step,
     run,
-    sequence,
+    until_final,
 )
 from simple_agent_lab.context_view import CHARS_PER_TOKEN
 from simple_agent_lab.llm import Provider as LLMProvider
@@ -242,6 +243,28 @@ class ContextStatsUsesUsageTest(unittest.TestCase):
         self.assertLess(view.stats.estimated_tokens, char_only_estimate)
         self.assertEqual(view.stats.usage_known_messages, 1)
 
+    def test_context_tokens_use_latest_usage_plus_trailing_estimates(self) -> None:
+        u1 = user_message("older prompt", target="agent")
+        a1 = assistant_message(
+            "first answer",
+            sender="agent",
+            target="user",
+            usage=TokenUsage(
+                input_tokens=100,
+                output_tokens=20,
+                cache_read_tokens=5,
+                cache_write_tokens=7,
+            ),
+        )
+        u2 = user_message("new tool result or follow-up", target="agent")
+
+        expected = 132 + estimate_message_tokens(u2)
+
+        self.assertEqual(estimate_context_tokens([u1, a1, u2]), expected)
+        self.assertEqual(
+            build_context_view("agent", [u1, a1, u2]).stats.estimated_tokens, expected
+        )
+
     def test_no_usage_anywhere_matches_char_quotient(self) -> None:
         messages = [
             user_message("hi there", target="agent"),
@@ -254,31 +277,47 @@ class ContextStatsUsesUsageTest(unittest.TestCase):
         self.assertEqual(view.stats.estimated_tokens, char_only)
         self.assertEqual(view.stats.usage_known_messages, 0)
 
-    def test_estimated_tokens_sums_per_message_when_mixed(self) -> None:
-        # Two assistants: one with usage, one without. The first contributes
-        # its exact output_tokens; the second goes through char-estimation.
-        # Total must equal the sum of those two paths plus the user message
-        # estimate — proving we do per-message attribution, not a single
-        # global estimator.
+    def test_estimated_tokens_use_latest_usage_baseline_when_mixed(self) -> None:
+        # The latest usage-bearing assistant is the authoritative prefix size.
+        # Messages after it are still estimated one by one.
         u = user_message("ask", target="agent")
         a1 = assistant_message(
             "first answer",
             sender="agent",
             target="user",
-            usage=TokenUsage(output_tokens=11),
+            usage=TokenUsage(input_tokens=20, output_tokens=11),
         )
         a2 = assistant_message("second answer", sender="agent", target="user")
         view = build_context_view("agent", [u, a1, a2])
 
-        expected = (
-            estimate_message_tokens(u)
-            + estimate_message_tokens(a1)
-            + estimate_message_tokens(a2)
-        )
+        expected = 31 + estimate_message_tokens(a2)
         self.assertEqual(view.stats.estimated_tokens, expected)
         # Sanity: a1's contribution is the exact 11.
         self.assertEqual(estimate_message_tokens(a1), 11)
         self.assertEqual(view.stats.usage_known_messages, 1)
+
+    def test_context_tokens_fall_back_when_last_drops_usage_prefix(self) -> None:
+        omitted = user_message("omitted but included in usage", target="agent")
+        a1 = assistant_message(
+            "first answer",
+            sender="agent",
+            target="user",
+            usage=TokenUsage(input_tokens=500, output_tokens=10),
+        )
+        u2 = user_message("recent follow-up", target="agent")
+
+        view = build_context_view(
+            "agent",
+            [omitted, a1, u2],
+            policy=ContextPolicy(last=2),
+        )
+
+        self.assertEqual(view.messages, (a1, u2))
+        self.assertEqual(
+            view.stats.estimated_tokens,
+            estimate_message_tokens(a1) + estimate_message_tokens(u2),
+        )
+        self.assertLess(view.stats.estimated_tokens, 500)
 
     def test_usage_known_messages_in_stats_dict(self) -> None:
         # Surface in as_dict() so the runtime trace records it.
@@ -330,7 +369,7 @@ class EndToEndUsagePropagationTest(unittest.TestCase):
         state = State("say hi please")
         state.send("task", "user", "writer", state.task)
 
-        for _ in run([agent], state, sequence("writer")):
+        for _ in run([agent], state, until_final("writer")):
             pass
 
         final = next(

@@ -13,11 +13,7 @@ from simple_agent_lab import (
     tool_result_text,
     tool_results_of,
 )
-from simple_agent_lab.agents.bash import (
-    BASH_AGENT_DEFAULT_NAME,
-    bash_agent_until_final,
-    make_bash_agent_runtime,
-)
+from simple_agent_lab.agents.bash import make_bash_agent
 from simple_agent_lab.llm import Provider
 from simple_agent_lab.tools.bash import (
     MAX_BASH_TIMEOUT_SECONDS,
@@ -85,26 +81,21 @@ class BashToolTest(unittest.TestCase):
         self.assertTrue(result.is_error)
         self.assertIn("Blocked bash command", tool_result_text(result))
 
-    def test_bash_agent_runtime_runs_tool_then_finalizes(self) -> None:
-        runtime = make_bash_agent_runtime(
-            provider=FAKE_PROVIDER,
-            cwd=ROOT,
-        )
-        for _ in runtime.prompt(
+    def test_bash_agent_run_runs_tool_then_finalizes(self) -> None:
+        agent = make_bash_agent(provider=FAKE_PROVIDER, cwd=ROOT)
+        state, events = agent.run(
             "Use bash to run command: `printf 'demo ok\\n'`",
-            target=BASH_AGENT_DEFAULT_NAME,
-            next_agent=bash_agent_until_final,
-        ):
+            max_turns=3,
+        )
+        for _ in events:
             pass
         tool_result_msg = next(
             message
-            for message in reversed(runtime.state.messages)
+            for message in reversed(state.messages)
             if message.kind == "tool_result"
         )
         final = next(
-            message
-            for message in reversed(runtime.state.messages)
-            if message.kind == "final"
+            message for message in reversed(state.messages) if message.kind == "final"
         )
 
         blocks = tool_results_of(tool_result_msg.content)
@@ -114,11 +105,9 @@ class BashToolTest(unittest.TestCase):
         self.assertEqual(final.sender, "bash_agent")
         self.assertIn("demo ok", message_text(final))
         self.assertTrue(
-            any(event.kind == "tool_execution_start" for event in runtime.state.events)
+            any(event.kind == "tool_execution_start" for event in state.events)
         )
-        self.assertTrue(
-            any(event.kind == "model_request" for event in runtime.state.events)
-        )
+        self.assertTrue(any(event.kind == "model_request" for event in state.events))
 
 
 class BashToolCrashSafetyTest(unittest.TestCase):
