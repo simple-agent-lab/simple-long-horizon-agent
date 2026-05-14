@@ -29,11 +29,9 @@ from simple_agent_lab import (
     Message,
     State,
     assistant_message,
-    last_message,
     message_text,
     print_trace,
-    run_to_completion,
-    sequence,
+    run,
 )
 
 
@@ -46,12 +44,15 @@ def run_recipe(
     schedule: list[str],
     last_messages: int | None,
 ) -> State:
-    return run_to_completion(
+    schedule_iter = iter(schedule)
+    for _ in run(
         {agent.name: agent for agent in agents},
         state,
-        sequence(*schedule),
+        lambda _: next(schedule_iter, None),
         last=last_messages,
-    )
+    ):
+        pass
+    return state
 
 
 # -----------------------------------------------------------------------------
@@ -59,7 +60,13 @@ def run_recipe(
 
 
 def proposer(agent: Agent, visible: list[Message], state: State) -> Message:
-    task = last_message(visible, kind="task").content if visible else state.task
+    task = (
+        message_text(
+            next(message for message in reversed(visible) if message.kind == "task")
+        )
+        if visible
+        else state.task
+    )
     return assistant_message(
         (
             f"For '{task}', start with one tiny message runtime. Agents read "
@@ -73,7 +80,9 @@ def proposer(agent: Agent, visible: list[Message], state: State) -> Message:
 
 
 def critic(agent: Agent, visible: list[Message], state: State) -> Message:
-    proposal = last_message(visible, sender="proposer")
+    proposal = next(
+        message for message in reversed(visible) if message.sender == "proposer"
+    )
     return assistant_message(
         (
             "The proposal is good. Keep context management as context_view(), "
@@ -104,9 +113,9 @@ def judge(agent: Agent, visible: list[Message], state: State) -> Message:
 
 def run_debate(task: str, last_messages: int | None) -> State:
     agents = [
-        Agent("proposer", "proposes a design", proposer),
-        Agent("critic", "finds missing pieces", critic),
-        Agent("judge", "chooses final answer", judge),
+        Agent("proposer", proposer, role="proposes a design"),
+        Agent("critic", critic, role="finds missing pieces"),
+        Agent("judge", judge, role="chooses final answer"),
     ]
     state = State(task)
     state.send("task", "user", "proposer", task)
@@ -153,9 +162,9 @@ def synthesizer(agent: Agent, visible: list[Message], state: State) -> Message:
 
 def run_pipeline(task: str, last_messages: int | None) -> State:
     agents = [
-        Agent("researcher_a", "studies the core runtime", researcher_a),
-        Agent("researcher_b", "studies recipes", researcher_b),
-        Agent("synthesizer", "merges notes", synthesizer),
+        Agent("researcher_a", researcher_a, role="studies the core runtime"),
+        Agent("researcher_b", researcher_b, role="studies recipes"),
+        Agent("synthesizer", synthesizer, role="merges notes"),
     ]
     state = State(task)
     state.send("task", "user", "researcher_a", task)
@@ -213,10 +222,10 @@ def parallel_synthesizer(agent: Agent, visible: list[Message], state: State) -> 
 
 def run_parallel(task: str, last_messages: int | None) -> State:
     agents = [
-        Agent("angle_core", "explores core abstraction", angle_core),
-        Agent("angle_trace", "explores observability", angle_trace),
-        Agent("angle_teaching", "explores pedagogy", angle_teaching),
-        Agent("synthesizer", "synthesizes findings", parallel_synthesizer),
+        Agent("angle_core", angle_core, role="explores core abstraction"),
+        Agent("angle_trace", angle_trace, role="explores observability"),
+        Agent("angle_teaching", angle_teaching, role="explores pedagogy"),
+        Agent("synthesizer", parallel_synthesizer, role="synthesizes findings"),
     ]
     state = State(task)
     for target in ["angle_core", "angle_trace", "angle_teaching"]:
@@ -237,14 +246,19 @@ RECIPES = {
 
 
 def maybe_message_text(messages: list[Message], *, sender: str) -> str:
-    try:
-        return message_text(last_message(messages, sender=sender))
-    except LookupError:
+    message = next(
+        (message for message in reversed(messages) if message.sender == sender),
+        None,
+    )
+    if message is None:
         return f"<{sender} not visible>"
+    return message_text(message)
 
 
 def print_result(name: str, state: State, show_trace: bool) -> None:
-    final = last_message(state, kind="final")
+    final = next(
+        message for message in reversed(state.messages) if message.kind == "final"
+    )
     state.data["metrics"] = {
         "events": len(state.events),
         "final_step": len(state.events) - 1,
@@ -259,7 +273,9 @@ def print_result(name: str, state: State, show_trace: bool) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Tiny message-runtime multi-agent demo")
+    parser = argparse.ArgumentParser(
+        description="Tiny message-runtime multi-agent demo"
+    )
     parser.add_argument("--recipe", choices=["all", *RECIPES.keys()], default="all")
     parser.add_argument("--task", type=str, default=DEFAULT_TASK)
     parser.add_argument(

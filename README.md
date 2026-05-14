@@ -18,8 +18,9 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 brew install uv
 
 # from the repo root:
-uv sync --group dev   # creates .venv, installs the package + dev tools (ty)
-uv run python -m unittest discover -s tests
+uv sync --group dev   # creates .venv, installs package + dev tools (ruff, ty)
+uv run python -m unittest discover -s tests/unit
+uv run ruff format --check .
 uv run ty check src
 ```
 
@@ -34,8 +35,9 @@ bash runs/run_examples.sh
 bash runs/run_bash_agent_demo.sh
 ```
 
-The same checks (`ty check src` + the unittest suite on Python 3.10 and 3.13)
-run on every push and pull request via [GitHub Actions](.github/workflows/ci.yml).
+The same checks (`ruff format --check .`, `ty check src`, and the unittest
+suite on Python 3.10 through 3.13) run on every push and pull request via
+[GitHub Actions](.github/workflows/ci.yml).
 
 ## Current Status
 
@@ -89,9 +91,10 @@ Development follows the
 [harness engineering workflow](docs/agent-native/harness-engineering.md): keep the
 repo itself as the source of truth, make changes small and verifiable, and
 improve docs, examples, scripts, or tests when an agent workflow is ambiguous.
-Concrete day-to-day commands and the quality gate (ty + unittest, run by
-`runs/run_ci.sh` locally and `.github/workflows/ci.yml` remotely) are spelled
-out in [docs/agent-native/development.md](docs/agent-native/development.md).
+Concrete day-to-day commands and the quality gate (ruff format, ty, and
+unittest, run by `runs/run_ci.sh` locally and `.github/workflows/ci.yml`
+remotely) are spelled out in
+[docs/agent-native/development.md](docs/agent-native/development.md).
 
 The training-data direction (deterministic trajectory → eval → training
 example pipeline) is recorded in
@@ -113,7 +116,7 @@ not yet wired up.
 - [docs/agent-native](docs/agent-native/README.md): the single future-agent loading map, plus project intent, code style, development workflow, doc inventory, source-of-truth routing, and unresolved owner questions.
 - [docs/decisions](docs/decisions/README.md): architecture decision records.
 - [docs/glossary.md](docs/glossary.md): shared vocabulary.
-- [src/simple_agent_lab](src/simple_agent_lab/core.py): the installable package - `core.py` (canonical balanced runtime), `bash_tool.py` / `bash_agent.py` (minimal bash-use agent demo), `context_view.py` (model-visible context projection), `messages.py` (shared message protocol), `tools.py` (shared tool values), `trajectory.py` / `evaluation.py` / `training_data.py` (runtime-neutral harness records), and `llm/` (shared LLM access layer and message bridge).
+- [src/simple_agent_lab](src/simple_agent_lab/core.py): the installable package - `core.py` (canonical tiny run loop), `trace.py` (trace printing and OpenAI Chat JSONL export), `context_view.py` (model-visible context projection), `messages.py` (shared message protocol), `tools/` (shared tool values plus concrete tools like bash), `trajectory.py` (runtime-neutral trace records), `llm/` (shared LLM access layer and message bridge), and `agents/` (preset agents like the bash-use demo, built on top of the core layers).
 - [evals](evals/README.md): future behavior checks and comparisons.
 - [tests](tests/README.md): future test strategy.
 - [runs](runs/README.md): small reproducible commands for examples and future experiments.

@@ -7,16 +7,19 @@ then a normal `tool_result` message in the runtime transcript.
 
 from __future__ import annotations
 
+import base64
 import math
 import re
 import shlex
 import subprocess
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from .tools import AbortFlag, AgentTool, ToolResult, ToolUpdateFn, text_result
+from simple_agent_lab.messages import ImageBlock, TextBlock
+
+from . import AbortFlag, AgentTool, ToolResult, ToolUpdateFn, text_result
 
 
 BASH_TOOL_NAME = "bash"
@@ -24,6 +27,15 @@ BASH_TOOL_NAME = "bash"
 DEFAULT_BASH_TIMEOUT_SECONDS = 10.0
 DEFAULT_BASH_MAX_OUTPUT_CHARS = 4000
 MAX_BASH_TIMEOUT_SECONDS = 60.0
+DEFAULT_BASH_MAX_ATTACH_BYTES = 5 * 1024 * 1024  # 5 MiB per attached image
+
+_IMAGE_MIME_BY_SUFFIX: dict[str, str] = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
 
 
 @dataclass(frozen=True)
@@ -60,6 +72,7 @@ def make_bash_tool(
     default_timeout_seconds: float = DEFAULT_BASH_TIMEOUT_SECONDS,
     max_timeout_seconds: float = MAX_BASH_TIMEOUT_SECONDS,
     max_output_chars: int = DEFAULT_BASH_MAX_OUTPUT_CHARS,
+    max_attach_bytes: int = DEFAULT_BASH_MAX_ATTACH_BYTES,
 ) -> AgentTool:
     """Return an `AgentTool` that executes one local bash command."""
 
@@ -84,7 +97,9 @@ def make_bash_tool(
 
         command = str(args.get("command", "")).strip()
         if not command:
-            return text_result("Missing required bash argument: command.", is_error=True)
+            return text_result(
+                "Missing required bash argument: command.", is_error=True
+            )
 
         blocked_sleep = detect_blocked_sleep_pattern(command)
         if blocked_sleep is not None:
@@ -114,7 +129,16 @@ def make_bash_tool(
                 details=asdict(execution),
                 is_error=True,
             )
-        return bash_execution_to_tool_result(execution)
+        result = bash_execution_to_tool_result(execution)
+        attach = args.get("attach")
+        if attach:
+            result = _attach_files(
+                result,
+                paths=attach,
+                root=root,
+                max_attach_bytes=max_attach_bytes,
+            )
+        return result
 
     return AgentTool(
         name=BASH_TOOL_NAME,
@@ -133,6 +157,17 @@ def make_bash_tool(
                 "timeout_seconds": {
                     "type": "number",
                     "description": f"Optional timeout in seconds, capped at {max_timeout_seconds:g}.",
+                },
+                "attach": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Optional list of file paths to inline in the tool result as image "
+                        "blocks. Use this when the command produces a visual artifact you want "
+                        "the model to see (screenshot, plot, rendered diagram). Supports PNG, "
+                        f"JPEG, GIF, WebP up to {max_attach_bytes // (1024 * 1024)} MiB each. "
+                        "Paths relative to the workspace cwd are resolved against it."
+                    ),
                 },
             },
             "required": ["command", "description"],
@@ -302,7 +337,7 @@ def strip_empty_lines(content: str) -> str:
         end -= 1
     if start > end:
         return ""
-    return "\n".join(lines[start:end + 1])
+    return "\n".join(lines[start : end + 1])
 
 
 def budget_text(content: str, max_chars: int) -> tuple[str, bool]:
@@ -331,7 +366,9 @@ def _resolve_timeout(
     try:
         timeout = float(requested)
     except (TypeError, ValueError):
-        raise ValueError(f"timeout_seconds must be numeric, got {requested!r}") from None
+        raise ValueError(
+            f"timeout_seconds must be numeric, got {requested!r}"
+        ) from None
     if math.isnan(timeout):
         raise ValueError("timeout_seconds must be a real number, got NaN")
     if timeout <= 0:
@@ -359,3 +396,87 @@ def _coerce_process_text(value: bytes | str | None) -> str:
     if isinstance(value, bytes):
         return value.decode(errors="replace")
     return value
+
+
+def _attach_files(
+    result: ToolResult,
+    *,
+    paths: Any,
+    root: Path,
+    max_attach_bytes: int,
+) -> ToolResult:
+    """Append image content blocks for each requested attachment path."""
+
+    if not isinstance(paths, (list, tuple)):
+        return _attach_error(
+            result, f"`attach` must be a list of paths, got {type(paths).__name__}"
+        )
+
+    extras: list[ImageBlock] = []
+    notes: list[str] = []
+    for raw in paths:
+        if not isinstance(raw, str) or not raw:
+            notes.append(f"skipped attach entry {raw!r}: not a non-empty string")
+            continue
+        candidate = Path(raw)
+        if not candidate.is_absolute():
+            candidate = root / candidate
+        try:
+            candidate = candidate.resolve()
+        except OSError as exc:
+            notes.append(f"could not resolve attach path {raw!r}: {exc}")
+            continue
+        if not candidate.is_file():
+            notes.append(f"attach path {raw!r} is not a file")
+            continue
+        mime = _IMAGE_MIME_BY_SUFFIX.get(candidate.suffix.lower())
+        if mime is None:
+            notes.append(
+                f"attach path {raw!r}: unsupported extension {candidate.suffix!r}"
+                f" (allowed: {sorted(_IMAGE_MIME_BY_SUFFIX)})"
+            )
+            continue
+        size = candidate.stat().st_size
+        if size > max_attach_bytes:
+            notes.append(
+                f"attach path {raw!r}: {size} bytes exceeds limit "
+                f"{max_attach_bytes} bytes"
+            )
+            continue
+        try:
+            data = candidate.read_bytes()
+        except OSError as exc:
+            notes.append(f"failed to read attach path {raw!r}: {exc}")
+            continue
+        extras.append(
+            ImageBlock(data=base64.b64encode(data).decode("ascii"), mime_type=mime)
+        )
+
+    if not extras and not notes:
+        return result
+
+    new_content: list[TextBlock | ImageBlock] = list(result.content)
+    new_content.extend(extras)
+    if notes:
+        note_text = "attach notes:\n" + "\n".join(f"- {n}" for n in notes)
+        new_content.append(TextBlock(text=note_text))
+    new_details = (
+        dict(result.details)
+        if isinstance(result.details, dict)
+        else {"details": result.details}
+    )
+    if notes:
+        new_details["attach_notes"] = list(notes)
+    # If every requested path failed, surface that as an error.
+    all_failed = bool(notes) and not extras
+    return replace(
+        result,
+        content=tuple(new_content),
+        details=new_details,
+        is_error=result.is_error or all_failed,
+    )
+
+
+def _attach_error(result: ToolResult, message: str) -> ToolResult:
+    new_content = (*result.content, TextBlock(text=f"attach error: {message}"))
+    return replace(result, content=new_content, is_error=True)

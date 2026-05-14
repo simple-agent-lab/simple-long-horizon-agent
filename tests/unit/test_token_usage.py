@@ -10,6 +10,7 @@ from simple_agent_lab import (
     TokenUsage,
     assistant_message,
     build_context_view,
+    estimate_context_tokens,
     estimate_message_chars,
     estimate_message_tokens,
     system_message,
@@ -18,18 +19,17 @@ from simple_agent_lab import (
 from simple_agent_lab import (
     Agent,
     State,
-    last_message,
     make_llm_step,
-    run_to_completion,
-    sequence,
+    run,
+    until_final,
 )
 from simple_agent_lab.context_view import CHARS_PER_TOKEN
 from simple_agent_lab.llm import Provider as LLMProvider
 from simple_agent_lab.llm.bridge import (
-    _translate_usage,
+    _usage_or_none,
     llm_response_to_assistant_message,
 )
-from simple_agent_lab.llm.types import LLMResponse, Usage as LLMUsage
+from simple_agent_lab.llm.types import LLMResponse, TextBlock
 from simple_agent_lab.messages import tool_result_message
 
 
@@ -84,11 +84,11 @@ class AssistantMessageUsageTest(unittest.TestCase):
 
 
 class TranslateUsageTest(unittest.TestCase):
-    """`_translate_usage` is the bridge from provider Usage → message-side TokenUsage."""
+    """`_usage_or_none` is the bridge from provider Usage → message-side TokenUsage."""
 
     def test_non_zero_translates_field_for_field(self) -> None:
-        translated = _translate_usage(
-            LLMUsage(
+        translated = _usage_or_none(
+            TokenUsage(
                 input_tokens=10,
                 output_tokens=20,
                 cache_read_tokens=30,
@@ -110,12 +110,12 @@ class TranslateUsageTest(unittest.TestCase):
         # state, not "the call cost zero tokens". Translating it to a real
         # TokenUsage(0, 0, ...) would let downstream code mistake it for an
         # authoritative reading.
-        self.assertIsNone(_translate_usage(LLMUsage()))
+        self.assertIsNone(_usage_or_none(TokenUsage()))
 
     def test_only_cache_field_set_still_translates(self) -> None:
         # Cache-only is a real (if rare) state — e.g. a re-issued request that
         # hits a perfect cache. Don't drop it just because input/output are 0.
-        translated = _translate_usage(LLMUsage(cache_read_tokens=99))
+        translated = _usage_or_none(TokenUsage(cache_read_tokens=99))
         self.assertIsNotNone(translated)
         assert translated is not None  # narrow for type-checker
         self.assertEqual(translated.cache_read_tokens, 99)
@@ -124,8 +124,8 @@ class TranslateUsageTest(unittest.TestCase):
 class LLMResponseToAssistantMessageTest(unittest.TestCase):
     def test_usage_rides_into_runtime_message(self) -> None:
         response = LLMResponse(
-            text="ok",
-            usage=LLMUsage(input_tokens=15, output_tokens=3),
+            content=[TextBlock(text="ok")],
+            usage=TokenUsage(input_tokens=15, output_tokens=3),
         )
         message = llm_response_to_assistant_message(
             response,
@@ -143,7 +143,7 @@ class LLMResponseToAssistantMessageTest(unittest.TestCase):
         # Some adapters (or replay paths) emit responses with no usage data.
         # The runtime message should reflect "unknown" rather than fabricate
         # zeros that look authoritative.
-        response = LLMResponse(text="ok")
+        response = LLMResponse(content=[TextBlock(text="ok")])
         message = llm_response_to_assistant_message(
             response,
             sender="agent",
@@ -172,24 +172,32 @@ class EstimateMessageTokensTest(unittest.TestCase):
             "hello",
             usage=TokenUsage(input_tokens=500, output_tokens=0),
         )
-        expected = (estimate_message_chars(message) + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN
+        expected = (
+            estimate_message_chars(message) + CHARS_PER_TOKEN - 1
+        ) // CHARS_PER_TOKEN
         self.assertEqual(estimate_message_tokens(message), expected)
 
     def test_assistant_without_usage_falls_back_to_chars(self) -> None:
         message = assistant_message("hello world")
-        expected = (estimate_message_chars(message) + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN
+        expected = (
+            estimate_message_chars(message) + CHARS_PER_TOKEN - 1
+        ) // CHARS_PER_TOKEN
         self.assertEqual(estimate_message_tokens(message), expected)
 
     def test_user_message_always_falls_back_even_if_long(self) -> None:
         # No provider reports per-message tokens for user inputs, so user
         # messages always go through char-estimation.
         message = user_message("x" * 100)
-        expected = (estimate_message_chars(message) + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN
+        expected = (
+            estimate_message_chars(message) + CHARS_PER_TOKEN - 1
+        ) // CHARS_PER_TOKEN
         self.assertEqual(estimate_message_tokens(message), expected)
 
     def test_system_message_falls_back(self) -> None:
         message = system_message("be helpful")
-        expected = (estimate_message_chars(message) + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN
+        expected = (
+            estimate_message_chars(message) + CHARS_PER_TOKEN - 1
+        ) // CHARS_PER_TOKEN
         self.assertEqual(estimate_message_tokens(message), expected)
 
     def test_tool_result_falls_back(self) -> None:
@@ -199,7 +207,9 @@ class EstimateMessageTokensTest(unittest.TestCase):
             tool_name="bash",
             target="agent",
         )
-        expected = (estimate_message_chars(message) + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN
+        expected = (
+            estimate_message_chars(message) + CHARS_PER_TOKEN - 1
+        ) // CHARS_PER_TOKEN
         self.assertEqual(estimate_message_tokens(message), expected)
 
     def test_fallback_rounds_up_via_ceiling(self) -> None:
@@ -233,41 +243,81 @@ class ContextStatsUsesUsageTest(unittest.TestCase):
         self.assertLess(view.stats.estimated_tokens, char_only_estimate)
         self.assertEqual(view.stats.usage_known_messages, 1)
 
+    def test_context_tokens_use_latest_usage_plus_trailing_estimates(self) -> None:
+        u1 = user_message("older prompt", target="agent")
+        a1 = assistant_message(
+            "first answer",
+            sender="agent",
+            target="user",
+            usage=TokenUsage(
+                input_tokens=100,
+                output_tokens=20,
+                cache_read_tokens=5,
+                cache_write_tokens=7,
+            ),
+        )
+        u2 = user_message("new tool result or follow-up", target="agent")
+
+        expected = 132 + estimate_message_tokens(u2)
+
+        self.assertEqual(estimate_context_tokens([u1, a1, u2]), expected)
+        self.assertEqual(
+            build_context_view("agent", [u1, a1, u2]).stats.estimated_tokens, expected
+        )
+
     def test_no_usage_anywhere_matches_char_quotient(self) -> None:
         messages = [
             user_message("hi there", target="agent"),
             assistant_message("hello back", sender="agent", target="user"),
         ]
         view = build_context_view("agent", messages)
-        char_only = (view.stats.estimated_chars + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN
+        char_only = (
+            view.stats.estimated_chars + CHARS_PER_TOKEN - 1
+        ) // CHARS_PER_TOKEN
         self.assertEqual(view.stats.estimated_tokens, char_only)
         self.assertEqual(view.stats.usage_known_messages, 0)
 
-    def test_estimated_tokens_sums_per_message_when_mixed(self) -> None:
-        # Two assistants: one with usage, one without. The first contributes
-        # its exact output_tokens; the second goes through char-estimation.
-        # Total must equal the sum of those two paths plus the user message
-        # estimate — proving we do per-message attribution, not a single
-        # global estimator.
+    def test_estimated_tokens_use_latest_usage_baseline_when_mixed(self) -> None:
+        # The latest usage-bearing assistant is the authoritative prefix size.
+        # Messages after it are still estimated one by one.
         u = user_message("ask", target="agent")
         a1 = assistant_message(
             "first answer",
             sender="agent",
             target="user",
-            usage=TokenUsage(output_tokens=11),
+            usage=TokenUsage(input_tokens=20, output_tokens=11),
         )
         a2 = assistant_message("second answer", sender="agent", target="user")
         view = build_context_view("agent", [u, a1, a2])
 
-        expected = (
-            estimate_message_tokens(u)
-            + estimate_message_tokens(a1)
-            + estimate_message_tokens(a2)
-        )
+        expected = 31 + estimate_message_tokens(a2)
         self.assertEqual(view.stats.estimated_tokens, expected)
         # Sanity: a1's contribution is the exact 11.
         self.assertEqual(estimate_message_tokens(a1), 11)
         self.assertEqual(view.stats.usage_known_messages, 1)
+
+    def test_context_tokens_fall_back_when_last_drops_usage_prefix(self) -> None:
+        omitted = user_message("omitted but included in usage", target="agent")
+        a1 = assistant_message(
+            "first answer",
+            sender="agent",
+            target="user",
+            usage=TokenUsage(input_tokens=500, output_tokens=10),
+        )
+        u2 = user_message("recent follow-up", target="agent")
+
+        view = build_context_view(
+            "agent",
+            [omitted, a1, u2],
+            policy=ContextPolicy(last=2),
+        )
+
+        self.assertEqual(view.messages, (a1, u2))
+        self.assertEqual(
+            view.stats.estimated_tokens,
+            estimate_message_tokens(a1) + estimate_message_tokens(u2),
+        )
+        self.assertLess(view.stats.estimated_tokens, 500)
 
     def test_usage_known_messages_in_stats_dict(self) -> None:
         # Surface in as_dict() so the runtime trace records it.
@@ -319,11 +369,16 @@ class EndToEndUsagePropagationTest(unittest.TestCase):
         state = State("say hi please")
         state.send("task", "user", "writer", state.task)
 
-        run_to_completion([agent], state, sequence("writer"))
+        for _ in run([agent], state, until_final("writer")):
+            pass
 
-        final = last_message(state, kind="final")
+        final = next(
+            message for message in reversed(state.messages) if message.kind == "final"
+        )
         assert isinstance(final, AssistantMessage)
-        self.assertIsNotNone(final.usage, "fake adapter always reports usage; runtime must keep it")
+        self.assertIsNotNone(
+            final.usage, "fake adapter always reports usage; runtime must keep it"
+        )
         assert final.usage is not None
         # The fake adapter sets `output_tokens = max(1, len(text)//4)` and
         # `input_tokens = sum(estimate per message)` — both must be > 0.

@@ -1,25 +1,32 @@
 """Shared tool data shapes for Simple Agent Lab.
 
-Agent loops own dispatch semantics. This module owns the common values that
+Agent loops own dispatch semantics. This package owns the common values that
 cross the tool boundary: tool definitions, tool results, and small helpers for
 turning result blocks into model-visible text.
+
+`ToolResult.content` is the same runtime block tuple the rest of the codebase
+uses (`TextBlock | ImageBlock`), so tool authors return blocks that flow
+through to the LLM access layer without an intermediate translation step.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, Literal, Optional
+
+from simple_agent_lab.messages import ImageBlock, TextBlock
 
 
 __all__ = [
     "AgentTool",
     "AbortFlag",
     "Tool",
-    "ToolContent",
     "ToolExecuteFn",
     "ToolExecutionMode",
     "ToolResult",
+    "ToolResultContent",
     "ToolUpdateFn",
+    "task_tool",
     "text_result",
     "tool_result_text",
 ]
@@ -28,27 +35,22 @@ __all__ = [
 ToolExecutionMode = Literal["sequential", "parallel"]
 AbortFlag = Callable[[], bool]
 
-
-@dataclass(frozen=True)
-class ToolContent:
-    """One model-visible content block returned by a tool."""
-
-    kind: Literal["text", "image"] = "text"
-    text: str = ""
-    image_url: str = ""
+ToolResultContent = tuple[TextBlock | ImageBlock, ...]
 
 
 @dataclass(frozen=True)
 class ToolResult:
     """A tool's return value.
 
-    `content` is what the model sees on the next turn. `details` is for local
-    inspection or UI and never crosses the model boundary. `is_error=True`
-    means the error text should go back to the model so it can self-correct.
-    `terminate=True` asks the owning runtime to stop after recording the result.
+    `content` is what the model sees on the next turn — a tuple of visible
+    blocks (text or image) ready to flow into a `ToolResultBlock` without
+    intermediate translation. `details` is for local inspection or UI and
+    never crosses the model boundary. `is_error=True` means the error text
+    should go back to the model so it can self-correct. `terminate=True`
+    asks the owning runtime to stop after recording the result.
     """
 
-    content: list[ToolContent] = field(default_factory=list)
+    content: ToolResultContent = ()
     details: Any = None
     is_error: bool = False
     terminate: bool = False
@@ -91,8 +93,9 @@ def text_result(
 ) -> ToolResult:
     """Build a text-only `ToolResult`."""
 
+    content: ToolResultContent = (TextBlock(text),) if text else ()
     return ToolResult(
-        content=[ToolContent(text=text)],
+        content=content,
         details=details,
         is_error=is_error,
         terminate=terminate,
@@ -100,6 +103,12 @@ def text_result(
 
 
 def tool_result_text(result: ToolResult) -> str:
-    """Return the model-visible text blocks from a tool result."""
+    """Concatenate the text blocks in a tool result."""
 
-    return "\n".join(block.text for block in result.content if block.kind == "text")
+    return "\n".join(
+        block.text for block in result.content if isinstance(block, TextBlock)
+    )
+
+
+# Re-export after the common tool shapes are defined; `task` imports them.
+from .task import task_tool  # noqa: E402

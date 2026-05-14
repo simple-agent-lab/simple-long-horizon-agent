@@ -47,10 +47,10 @@ from llm import (
                 ↓ adapter dispatch (by Provider.api)
 ┌────────────────────────────────────────────────────┐
 │  llm/adapters/                                     │
-│  - fake.py        (built-in, deterministic)        │
-│  - anthropic_messages.py    (TODO Step 2)          │
-│  - openai_chat.py           (TODO Step 6)          │
-│  - openai_responses.py      (TODO Step 3)          │
+│  - fake.py                  (built-in, deterministic) │
+│  - anthropic_messages.py    (official `anthropic` SDK) │
+│  - openai_chat.py           (official `openai` SDK)    │
+│  - openai_responses.py      (official `openai` SDK)    │
 └────────────────────────────────────────────────────┘
 ```
 
@@ -93,13 +93,19 @@ for event in iter_stream(req):
 ### Custom provider
 
 ```python
-from llm import register_adapter, LLMRequest, StreamEvent, LLMResponse, Usage
+from llm import (
+    register_adapter, LLMRequest, StreamEvent, LLMResponse, ContentBlock, Usage,
+)
 
 def my_adapter(req: LLMRequest):
     # ...talk to your endpoint...
     yield StreamEvent(kind="text_delta", payload={"delta": "..."})
     yield StreamEvent(kind="done", payload={
-        "response": LLMResponse(text="...", stop_reason="end_turn", usage=Usage()),
+        "response": LLMResponse(
+            content=[ContentBlock(kind="text", text="...")],
+            stop_reason="end_turn",
+            usage=Usage(),
+        ),
     })
 
 register_adapter("my-api", my_adapter)
@@ -124,14 +130,14 @@ Then use `Provider(api="my-api", ...)` like any built-in.
   Anthropic → `role="user"` + a `tool_result` content block). Keeping
   the internal name distinct from any provider's role lets the same
   transcript reach either provider with no caller-side shimming.
-- **`LLMMessage.cache_breakpoint`** is the unified caching marker. The
-  layer doesn't auto-place breakpoints; the caller decides where to
-  anchor cache reads. Adapters translate at the wire boundary; adapters
-  for providers without caching ignore the field.
-- **`req.extra: dict[str, Any]`** carries request options that only a
-  specific provider adapter understands (e.g., Anthropic `extra_headers`,
-  OpenAI `seed`). Adapters are free to read keys they recognize. The fake
-  adapter only uses it for streaming mechanics such as chunk size and delay.
+- **`LLMMessage.extra` and `LLMRequest.extra`** are the two
+  provider-specific opt-in channels: a namespaced bag of hints on one
+  message (`extra["anthropic.cache_breakpoint"] = True`) and a
+  namespaced bag of options on one request (`extra["seed"] = 1`).
+  Adapters read only the keys they recognize; unknown keys are
+  silently ignored so a transcript stays portable across providers.
+  The runtime side stashes `extra` under `Message.data["extra"]`; the
+  bridge lifts it to `LLMMessage.extra` so it reaches the adapter.
 
 ## What this layer does NOT do
 
@@ -146,18 +152,26 @@ Then use `Provider(api="my-api", ...)` like any built-in.
 
 ## Implementation status
 
-| Step | Adapter | Status |
-| ---- | ------- | ------ |
-| 1    | `fake`  | ✅ done (this PR) |
-| 2    | `openai-chat`        | TODO - first live adapter target |
-| 3    | `openai-responses`   | TODO |
-| 4    | `anthropic-messages` | TODO |
+| Adapter | Status | SDK | Notes |
+| ------- | ------ | --- | ----- |
+| `fake`               | ✅ blocking + chunked | (none)      | deterministic; default for demos and tests |
+| `anthropic-messages` | ✅ blocking           | `anthropic` | one-shot `text_delta` + per-call tool_call events |
+| `openai-chat`        | ✅ blocking           | `openai`    | also serves OpenAI-compatible endpoints (Ollama, vLLM, OpenRouter) via `base_url` |
+| `openai-responses`   | ✅ blocking           | `openai`    | uses `instructions` for system prompt; flat function tools |
 
-Owner confirmation on 2026-05-11 chose `openai-chat` as the first live
-provider adapter target. Its smoke should be opt-in: skip cleanly when no API
-key or compatible local `base_url` is configured, and do not add it to required
-CI until the owner explicitly accepts that dependency.
+The real-provider SDKs are **optional** — the base package keeps
+`dependencies = []`. Install on demand::
 
-Once Step 2 lands, demos can swap their `Provider(api=...)` value while keeping
-the same LLM request path, and streaming can be added by consuming `text_delta`
-events rather than mutating recorded transcript messages.
+    uv pip install 'simple-agent-lab[anthropic]'   # anthropic only
+    uv pip install 'simple-agent-lab[openai]'      # openai only
+    uv pip install 'simple-agent-lab[providers]'   # both
+
+Each real adapter imports its SDK lazily inside `stream()`. Loading
+`simple_agent_lab.llm` still works without the SDK installed; only when
+the adapter is *called* will it raise a clear `RuntimeError` instructing
+the user to install the extra.
+
+Token-by-token streaming is a follow-up: today the real adapters call
+the blocking endpoint and emit a single `text_delta` carrying the full
+response. The same `StreamEvent` consumer code will work unchanged once
+SSE streaming is wired in.

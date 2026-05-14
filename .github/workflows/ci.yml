@@ -22,8 +22,8 @@ jobs:
           enable-cache: true
       - name: Sync dev dependencies
         run: uv sync --group dev
-      - name: Run unittest
-        run: uv run python -m unittest discover -s tests
+      - name: Run unit tests
+        run: uv run python -m unittest discover -s tests/unit
 
   type-check:
     name: ty / src
@@ -39,3 +39,18 @@ jobs:
         run: uv sync --group dev
       - name: Run ty check
         run: uv run ty check src
+
+  format:
+    name: ruff format / check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Sync dev dependencies
+        run: uv sync --group dev
+      - name: Check formatting
+        run: uv run ruff format --check .

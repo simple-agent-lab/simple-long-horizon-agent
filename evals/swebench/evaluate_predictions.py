@@ -17,6 +17,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -25,13 +26,32 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from simple_agent_lab.evaluation import EvalResult, eval_result_record
-from simple_agent_lab.trajectory import read_jsonl, write_jsonl
+from simple_agent_lab.trajectory import json_safe, read_jsonl, write_jsonl
 
 
 DEFAULT_DATASET = "princeton-nlp/SWE-bench_Lite"
 DEFAULT_SPLIT = "test"
 DEFAULT_RUN_ID = "simple-agent-lab-swebench"
+EVAL_SCHEMA = "simple-agent-lab.evaluation.v1"
+
+
+@dataclass(frozen=True)
+class EvalResult:
+    trace_id: str
+    scorer: str
+    passed: bool
+    score: float
+    metrics: dict[str, Any]
+    reason: str = ""
+    meta: dict[str, Any] | None = None
+
+
+def eval_result_record(result: EvalResult) -> dict[str, Any]:
+    return {
+        "schema": EVAL_SCHEMA,
+        "type": "eval_result",
+        **json_safe(result),
+    }
 
 
 def load_predictions(path: str | Path) -> list[dict[str, Any]]:
@@ -98,7 +118,9 @@ def results_from_summary(path: Path) -> dict[str, dict[str, Any]]:
     submitted = set(data.get("submitted_ids") or [])
 
     out: dict[str, dict[str, Any]] = {}
-    for instance_id in sorted(submitted | resolved | unresolved | empty | errors | incomplete):
+    for instance_id in sorted(
+        submitted | resolved | unresolved | empty | errors | incomplete
+    ):
         status = "submitted"
         if instance_id in resolved:
             status = "resolved"
@@ -221,7 +243,11 @@ def eval_result_from_official(
     instance_id = str(prediction["instance_id"])
     resolved = bool(official.get("resolved"))
     status = str(official.get("status") or ("resolved" if resolved else "unresolved"))
-    reason = "resolved by official SWE-bench harness" if resolved else f"SWE-bench status: {status}"
+    reason = (
+        "resolved by official SWE-bench harness"
+        if resolved
+        else f"SWE-bench status: {status}"
+    )
     return EvalResult(
         trace_id=f"swebench.{instance_id}",
         scorer="swebench.official_harness.v1",
@@ -271,7 +297,9 @@ def main() -> None:
         help="Directory containing official SWE-bench reports.",
     )
     parser.add_argument("--results-json", help="Official summary results JSON.")
-    parser.add_argument("--instance-results-jsonl", help="Official instance results JSONL.")
+    parser.add_argument(
+        "--instance-results-jsonl", help="Official instance results JSONL."
+    )
     parser.add_argument(
         "--run-official",
         action="store_true",
@@ -299,7 +327,9 @@ def main() -> None:
     print(f"wrote {len(results)} SWE-bench eval results to {args.jsonl}")
     for result in results:
         status = "pass" if result.passed else "fail"
-        print(f"{result.trace_id}: {status} score={result.score} reason={result.reason}")
+        print(
+            f"{result.trace_id}: {status} score={result.score} reason={result.reason}"
+        )
 
 
 if __name__ == "__main__":

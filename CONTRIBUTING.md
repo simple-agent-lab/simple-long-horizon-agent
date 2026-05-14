@@ -27,9 +27,10 @@ should pass locally:
 bash runs/run_ci.sh
 ```
 
-This runs `ty check src` (type check) and `python -m unittest discover -s tests`
-(the unit suite) on your local Python. Both must exit `0`. CI runs the same
-gate against Python 3.10 and 3.13.
+This runs `ruff format --check .` (format check), `ty check src` (type check),
+and `python -m unittest discover -s tests/unit` (the unit suite) on your local
+Python. All must exit `0`. CI runs the same gate against Python 3.10 through
+3.13.
 
 If you add a new dev dependency, put it under `[dependency-groups] dev` in
 `pyproject.toml`, not `[project] dependencies`. The runtime is supposed to

@@ -41,14 +41,16 @@ system.
 
 The current source-of-truth layers are:
 
-- `src/simple_agent_lab/core.py`: canonical message-first runtime.
+- `src/simple_agent_lab/core.py`: canonical message-first run loop.
+- `src/simple_agent_lab/trace.py`: trace printing and OpenAI Chat JSONL export
+  built from runtime `State` transcripts.
 - `src/simple_agent_lab/messages.py`: runtime and provider-neutral message
   protocol.
 - `src/simple_agent_lab/context_view.py`: model-visible context projection.
-- `src/simple_agent_lab/tools.py`: shared tool/result values.
+- `src/simple_agent_lab/tools/`: shared tool/result values plus concrete tool
+  implementations such as bash.
 - `src/simple_agent_lab/llm/`: provider-agnostic model access layer.
-- `src/simple_agent_lab/trajectory.py`, `evaluation.py`, and
-  `training_data.py`: runtime-neutral harness records.
+- `src/simple_agent_lab/trajectory.py`: runtime-neutral trace records.
 - `evals/swebench/`: optional benchmark adapter, outside the core runtime.
 
 ## Core Mental Model
@@ -77,7 +79,7 @@ Stop and collect more evidence before changing behavior when:
   provider-boundary conversion. Read ADR 0006, `src/simple_agent_lab/messages.py`,
   and `src/simple_agent_lab/llm/README.md`.
 - A change alters context trimming, token estimates, or tool-call/tool-result
-  grouping. Read ADR 0010 and `tests/test_core.py`.
+  grouping. Read ADR 0010 and `tests/unit/test_core.py`.
 - A change mixes raw trajectories, eval scores, or training labels. Read ADR
   0008 and ADR 0011.
 - A change requires a live model provider or external benchmark dependency.
@@ -98,11 +100,12 @@ Stop and collect more evidence before changing behavior when:
 | Product direction, audience, or teaching taste | `docs/agent-native/project-intent.md` | Mission, audience, design principles, and current phase. |
 | Day-to-day implementation | `docs/agent-native/development.md`, `docs/agent-native/code-style.md`, `runs/README.md` | Commands, quality gate, and style constraints. |
 | Harness workflow or docs-first process | `docs/agent-native/harness-engineering.md`, ADR 0002, ADR 0003 | Feedback signal and repository-as-harness rules. |
-| Core runtime shape | ADR 0001, ADR 0005, ADR 0009, `src/simple_agent_lab/core.py` | Canonical runtime boundary and historical rationale. |
+| Core runtime shape | ADR 0001, ADR 0005, ADR 0009, `src/simple_agent_lab/core.py` | Canonical runtime boundary and stateful run-loop rationale. |
 | Message protocol or provider conversion | `CONTEXT.md`, ADR 0006, `src/simple_agent_lab/messages.py`, `src/simple_agent_lab/llm/README.md` | Runtime-vs-model message boundary and vocabulary. |
-| Context visibility or budgeting | ADR 0010, `src/simple_agent_lab/context_view.py`, `tests/test_core.py`, `tests/test_token_usage.py` | Projection behavior and token-estimate constraints. |
-| Tool execution or bash demo | `src/simple_agent_lab/tools.py`, `src/simple_agent_lab/bash_tool.py`, `src/simple_agent_lab/bash_agent.py`, `tests/test_bash_agent.py` | Tool result semantics and deterministic demo checks. |
-| Trajectories, evals, or training data | ADR 0008, ADR 0011, `evals/README.md`, `evals/swebench/README.md` | Separation between fact records, scores, and suite adapters. |
+| Context visibility or budgeting | ADR 0010, `src/simple_agent_lab/context_view.py`, `tests/unit/test_core.py`, `tests/unit/test_token_usage.py` | Projection behavior and token-estimate constraints. |
+| Tool execution or bash demo | `src/simple_agent_lab/tools/`, `src/simple_agent_lab/agents/bash/` (preset agent), `tests/unit/test_bash_agent.py` | Tool result semantics and deterministic demo checks. |
+| Trace printing or OpenAI Chat JSONL export | ADR 0013, `src/simple_agent_lab/trace.py`, `tests/unit/test_openai_training.py` | Trace rendering and provider-shaped transcript export. |
+| Trajectories, evals, or training data | ADR 0008, ADR 0011, `src/simple_agent_lab/trace.py`, `evals/README.md`, `evals/swebench/README.md` | Separation between fact records, scores, provider-shaped exports, and suite adapters. |
 | External architecture borrowing | `docs/reference-architectures/README.md` (local notes workspace, gitignored) plus your own reference note | Capture rationale locally; record durable commitments in an ADR. |
 | Agent-native doc maintenance | `docs/agent-native/doc-inventory.md`, `docs/agent-native/operating-rules.md` | Canonical doc roles and stop conditions. |
 

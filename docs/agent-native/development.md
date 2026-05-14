@@ -5,32 +5,34 @@ remote and local CI both enforce.
 
 ## Setup
 
-The runtime itself is stdlib-only, but `ty` (the type checker) is a dev tool
-and lives in the `dev` dependency group. Use `uv` to manage the environment:
+The runtime itself is stdlib-only, but `ruff` (formatter) and `ty` (type
+checker) are dev tools and live in the `dev` dependency group. Use `uv` to
+manage the environment:
 
 ```bash
 uv sync --group dev
 ```
 
-`--group dev` installs the dev tools (currently just `ty`). Without the flag
-you get the runtime install only — fine for a quick demo, not enough to run
-the type check.
+`--group dev` installs the dev tools. Without the flag you get the runtime
+install only — fine for a quick demo, not enough to run the formatter or type
+check.
 
 ## The quality gate
 
-Two checks must pass before a change ships. They're cheap; run them often.
+Three checks must pass before a change ships. They're cheap; run them often.
 
 | Check | Command | Scope |
 | --- | --- | --- |
+| Format | `uv run ruff format --check .` | Python code in the repo |
 | Type check | `uv run ty check src` | Every module under `src/` |
-| Unit tests | `uv run python -m unittest discover -s tests` | Every test under `tests/` |
+| Unit tests | `uv run python -m unittest discover -s tests/unit` | Every unit test under `tests/unit/` |
 
-Both checks must exit `0`. There are no warn-only or skip lists — if a
-diagnostic is wrong, fix the code or fix the type, do not silence the
-checker. The only sanctioned suppression is `cast(...)` for known type-checker
-limitations (e.g. the `Mapping` parametrized-isinstance narrowing in
-`core.py:resolve_request_extra`), and only with a one-line comment explaining
-why.
+All checks must exit `0`. Use `uv run ruff format .` to format Python code
+before running the check. There are no warn-only or skip lists — if a diagnostic
+is wrong, fix the code or fix the type, do not silence the checker. The only
+sanctioned suppression is `cast(...)` for known type-checker limitations (e.g.
+the `Mapping` parametrized-isinstance narrowing in `core.py:resolve_request_extra`),
+and only with a one-line comment explaining why.
 
 ## Local CI
 
@@ -45,28 +47,28 @@ The script:
 
 1. Verifies `uv` is installed (fails fast if not).
 2. Runs `uv sync --group dev` so the dev tools are present.
-3. Runs `uv run ty check src`.
-4. Runs `uv run python -m unittest discover -s tests`.
-5. Prints `All CI checks passed.` only if every step exited `0`.
+3. Runs `uv run ruff format --check .`.
+4. Runs `uv run ty check src`.
+5. Runs `uv run python -m unittest discover -s tests/unit`.
+6. Prints `All CI checks passed.` only if every step exited `0`.
 
 If you want the same checks individually (e.g. while iterating on one of
 them), run the commands from the table above directly. `run_ci.sh` is the
-"single command, both gates" entry point.
+"single command, all gates" entry point.
 
 ## Remote CI
 
 GitHub Actions runs the same gate on every push to `main` and every pull
 request. The workflow is at [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml).
 
-Two jobs run in parallel:
+Three job groups run in parallel:
 
-- **`tests / py3.10`** and **`tests / py3.13`** — the unittest suite on the
-  oldest and newest supported interpreters. The matrix is intentionally just
-  the two endpoints: enough to catch syntax features that 3.10 doesn't
-  support and behavior changes in newer stdlib, without paying for every
-  version in between.
+- **`tests / py3.10`** through **`tests / py3.13`** — the unittest suite on
+  supported interpreters.
 - **`ty / src`** — the type check, on Python 3.13 only. ty's diagnostics
   don't depend on the runtime Python version, so a single job is enough.
+- **`ruff format / check`** — the formatter check, on Python 3.13 only. Run
+  `uv run ruff format .` locally when this fails.
 
 A pull request is mergeable only when all three jobs pass. There is no
 auto-merge or required-reviewer config in this repo yet; the gate is

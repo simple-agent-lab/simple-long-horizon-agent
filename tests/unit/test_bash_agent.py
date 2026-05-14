@@ -7,26 +7,27 @@ from pathlib import Path
 from typing import cast
 
 from simple_agent_lab import (
-    DEFAULT_BASH_DEMO_COMMAND,
     AgentTool,
     ToolResult,
+    message_text,
+    tool_result_text,
+    tool_results_of,
+)
+from simple_agent_lab.agents.bash import make_bash_agent
+from simple_agent_lab.llm import Provider
+from simple_agent_lab.tools.bash import (
+    MAX_BASH_TIMEOUT_SECONDS,
+    _resolve_timeout,
     bash_execution_to_tool_result,
     detect_blocked_sleep_pattern,
     interpret_command_result,
-    last_message,
     make_bash_tool,
-    message_text,
     run_bash,
-    run_bash_agent_demo,
-    tool_result_text,
-)
-from simple_agent_lab.bash_tool import (
-    MAX_BASH_TIMEOUT_SECONDS,
-    _resolve_timeout,
 )
 
 
 ROOT = Path(__file__).resolve().parents[1]
+FAKE_PROVIDER = Provider(id="fake", api="fake", model="fake-model")
 
 
 class BashToolTest(unittest.TestCase):
@@ -45,7 +46,9 @@ class BashToolTest(unittest.TestCase):
             result = _execute(make_bash_tool(cwd=tmp), {"command": "true"})
 
         self.assertFalse(result.is_error)
-        self.assertIn("Done. Command completed with no output.", tool_result_text(result))
+        self.assertIn(
+            "Done. Command completed with no output.", tool_result_text(result)
+        )
 
     def test_bash_tool_schema_is_strict_for_model_arguments(self) -> None:
         tool = make_bash_tool(cwd=ROOT)
@@ -78,27 +81,33 @@ class BashToolTest(unittest.TestCase):
         self.assertTrue(result.is_error)
         self.assertIn("Blocked bash command", tool_result_text(result))
 
-    def test_bash_agent_demo_runs_tool_then_finalizes(self) -> None:
-        runtime = run_bash_agent_demo(
-            command="printf 'demo ok\\n'",
-            cwd=ROOT,
+    def test_bash_agent_run_runs_tool_then_finalizes(self) -> None:
+        agent = make_bash_agent(provider=FAKE_PROVIDER, cwd=ROOT)
+        state, events = agent.run(
+            "Use bash to run command: `printf 'demo ok\\n'`",
+            max_turns=3,
         )
-        tool_result = last_message(runtime.state, kind="tool_result")
-        final = last_message(runtime.state, kind="final")
+        for _ in events:
+            pass
+        tool_result_msg = next(
+            message
+            for message in reversed(state.messages)
+            if message.kind == "tool_result"
+        )
+        final = next(
+            message for message in reversed(state.messages) if message.kind == "final"
+        )
 
-        self.assertEqual(tool_result.tool_name, "bash")
-        self.assertIn("demo ok", message_text(tool_result))
+        blocks = tool_results_of(tool_result_msg.content)
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(blocks[0].tool_name, "bash")
+        self.assertIn("demo ok", message_text(tool_result_msg))
         self.assertEqual(final.sender, "bash_agent")
         self.assertIn("demo ok", message_text(final))
         self.assertTrue(
-            any(event.kind == "tool_execution_start" for event in runtime.state.events)
+            any(event.kind == "tool_execution_start" for event in state.events)
         )
-        self.assertTrue(
-            any(event.kind == "model_request" for event in runtime.state.events)
-        )
-
-    def test_default_demo_command_is_read_only(self) -> None:
-        self.assertIn("find src/simple_agent_lab", DEFAULT_BASH_DEMO_COMMAND)
+        self.assertTrue(any(event.kind == "model_request" for event in state.events))
 
 
 class BashToolCrashSafetyTest(unittest.TestCase):
@@ -223,7 +232,9 @@ class BashToolCrashSafetyTest(unittest.TestCase):
         self.assertGreater(MAX_BASH_TIMEOUT_SECONDS, 0)
         self.assertTrue(math.isfinite(MAX_BASH_TIMEOUT_SECONDS))
         self.assertEqual(
-            _resolve_timeout(MAX_BASH_TIMEOUT_SECONDS * 10, 5.0, MAX_BASH_TIMEOUT_SECONDS),
+            _resolve_timeout(
+                MAX_BASH_TIMEOUT_SECONDS * 10, 5.0, MAX_BASH_TIMEOUT_SECONDS
+            ),
             MAX_BASH_TIMEOUT_SECONDS,
         )
 
@@ -233,6 +244,99 @@ def _execute(tool: AgentTool, args: dict[str, object]) -> ToolResult:
     if not callable(execute):
         raise AssertionError("bash tool has no execute function")
     return execute("call_1", args, lambda: False, None)
+
+
+def _make_red_png(side: int = 32) -> bytes:
+    import struct
+    import zlib
+
+    raw = b"".join(b"\x00" + b"\xff\x00\x00" * side for _ in range(side))
+
+    def _chunk(tag: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data))
+            + tag
+            + data
+            + struct.pack(">I", zlib.crc32(tag + data))
+        )
+
+    ihdr = struct.pack(">IIBBBBB", side, side, 8, 2, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + _chunk(b"IHDR", ihdr)
+        + _chunk(b"IDAT", zlib.compress(raw))
+        + _chunk(b"IEND", b"")
+    )
+
+
+class BashAttachTest(unittest.TestCase):
+    """`attach` inlines file paths as image content blocks on the ToolResult."""
+
+    def test_attach_inlines_png_as_image_content(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            png = Path(tmp) / "red.png"
+            png.write_bytes(_make_red_png())
+            tool = make_bash_tool(cwd=tmp)
+            result = _execute(
+                tool,
+                {"command": "ls", "description": "list dir", "attach": ["red.png"]},
+            )
+        image_blocks = [b for b in result.content if b.kind == "image"]
+        self.assertEqual(len(image_blocks), 1)
+        self.assertEqual(image_blocks[0].mime_type, "image/png")
+        self.assertTrue(image_blocks[0].data)  # non-empty base64 payload
+
+    def test_attach_resolves_paths_against_cwd(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            png_dir = Path(tmp) / "out"
+            png_dir.mkdir()
+            (png_dir / "shot.png").write_bytes(_make_red_png())
+            tool = make_bash_tool(cwd=tmp)
+            result = _execute(
+                tool,
+                {
+                    "command": "true",
+                    "description": "noop",
+                    "attach": ["out/shot.png"],
+                },
+            )
+        image_blocks = [b for b in result.content if b.kind == "image"]
+        self.assertEqual(len(image_blocks), 1)
+
+    def test_attach_records_note_for_missing_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tool = make_bash_tool(cwd=tmp)
+            result = _execute(
+                tool,
+                {
+                    "command": "true",
+                    "description": "noop",
+                    "attach": ["missing.png", "also-missing.jpg"],
+                },
+            )
+        image_blocks = [b for b in result.content if b.kind == "image"]
+        self.assertEqual(len(image_blocks), 0)
+        note_text = "\n".join(b.text for b in result.content if b.kind == "text")
+        self.assertIn("missing.png", note_text)
+        self.assertIn("not a file", note_text)
+
+    def test_attach_rejects_oversize(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            big = Path(tmp) / "big.png"
+            big.write_bytes(_make_red_png())
+            tool = make_bash_tool(cwd=tmp, max_attach_bytes=10)  # absurdly small cap
+            result = _execute(
+                tool,
+                {
+                    "command": "true",
+                    "description": "noop",
+                    "attach": ["big.png"],
+                },
+            )
+        image_blocks = [b for b in result.content if b.kind == "image"]
+        self.assertEqual(len(image_blocks), 0)
+        note_text = "\n".join(b.text for b in result.content if b.kind == "text")
+        self.assertIn("exceeds limit", note_text)
 
 
 if __name__ == "__main__":

@@ -25,20 +25,18 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from simple_agent_lab.bash_tool import make_bash_tool
-from simple_agent_lab.core import (
+from simple_agent_lab.agents.bash import make_bash_agent  # noqa: E402
+from simple_agent_lab.core import (  # noqa: E402
     Agent,
-    AgentRuntime,
     Event,
     State,
-    make_llm_step,
     run,
-    sequence,
     until_final,
 )
-from simple_agent_lab.llm import Provider as LLMProvider
-from simple_agent_lab.messages import Message, assistant_message
-from simple_agent_lab.trajectory import (
+from simple_agent_lab.llm import Provider as LLMProvider  # noqa: E402
+from simple_agent_lab.messages import Message, assistant_message  # noqa: E402
+from simple_agent_lab.protocols import MessageEvent, ModelRequestEvent  # noqa: E402
+from simple_agent_lab.trajectory import (  # noqa: E402
     ModelTurn,
     RunTrace,
     json_safe,
@@ -96,7 +94,9 @@ def load_patch(args: argparse.Namespace) -> tuple[str, str]:
     if args.patch_file and args.model_patch is not None:
         raise SystemExit("Use either --patch-file or --model-patch, not both.")
     if args.patch_file:
-        return normalize_model_patch(Path(args.patch_file).read_text(encoding="utf-8")), "patch-file"
+        return normalize_model_patch(
+            Path(args.patch_file).read_text(encoding="utf-8")
+        ), "patch-file"
     if args.model_patch is not None:
         return normalize_model_patch(args.model_patch), "argument"
     return "", "empty"
@@ -153,22 +153,26 @@ def make_patch_agent(patch: str) -> Agent:
     )
 
 
-def make_workspace_agent() -> Agent:
-    return Agent(
-        name="swebench_agent",
-        role=(
-            "Work in the prepared SWE-bench repository. Use bash for local "
-            "inspection or edits, then return a concise final note."
-        ),
-        step=make_llm_step(
-            LLMProvider(id="fake", api="fake", model="fake-model"),
-            system_prompt=(
-                "You are a tiny SWE-bench workspace agent. If the task names a "
-                "bash command, call the bash tool once. After the tool result, "
-                "return a short final answer."
-            ),
-            target="user",
-        ),
+WORKSPACE_AGENT_NAME = "swebench_agent"
+WORKSPACE_AGENT_ROLE = (
+    "Work in the prepared SWE-bench repository. Use bash for local "
+    "inspection or edits, then return a concise final note."
+)
+WORKSPACE_AGENT_SYSTEM_PROMPT = (
+    "You are a tiny SWE-bench workspace agent. If the task names a "
+    "bash command, call the bash tool once. After the tool result, "
+    "return a short final answer."
+)
+
+
+def make_workspace_agent(workspace: Path) -> Agent:
+    """Workspace flavor of the bash preset with the bash tool bound."""
+    return make_bash_agent(
+        LLMProvider(id="fake", api="fake", model="fake-model"),
+        cwd=workspace,
+        name=WORKSPACE_AGENT_NAME,
+        role=WORKSPACE_AGENT_ROLE,
+        system_prompt=WORKSPACE_AGENT_SYSTEM_PROMPT,
     )
 
 
@@ -182,7 +186,7 @@ def run_patch_agent(instance: dict[str, Any], patch: str) -> State:
         },
     )
     state.send("task", "user", "swebench_agent", state.task)
-    for _ in run([make_patch_agent(patch)], state, sequence("swebench_agent")):
+    for _ in run([make_patch_agent(patch)], state, until_final("swebench_agent")):
         pass
     return state
 
@@ -201,23 +205,19 @@ def run_workspace_agent(
         + "For this setup run, use bash command: "
         + f"`{command}`"
     )
-    runtime = AgentRuntime(
-        [make_workspace_agent()],
-        tools=[make_bash_tool(cwd=repo_dir)],
-    )
-    for _ in runtime.prompt(
-        task,
-        target="swebench_agent",
-        next_agent=until_final("swebench_agent", max_turns=max_turns),
-    ):
+    agent = make_workspace_agent(repo_dir)
+    state, events = agent.run(task, max_turns=max_turns)
+    for _ in events:
         pass
-    runtime.state.data.update({
-        "suite": "swebench",
-        "instance": instance,
-        "workspace": str(repo_dir),
-        "model_patch": git_diff(repo_dir),
-    })
-    return runtime.state
+    state.data.update(
+        {
+            "suite": "swebench",
+            "instance": instance,
+            "workspace": str(repo_dir),
+            "model_patch": git_diff(repo_dir),
+        }
+    )
+    return state
 
 
 def resolve_repo_dir(path: Path) -> Path:
@@ -257,24 +257,24 @@ def model_turns_from_events(trace_id: str, events: list[Event]) -> list[ModelTur
     model_call_index = 0
 
     for event in events:
-        if event.kind == "model_request":
+        if isinstance(event, ModelRequestEvent):
             model_call_index += 1
             pending = {
-                "agent": str(event.data.get("agent") or ""),
-                "input_messages": event.data.get("llm_payload") or [],
-                "tools": event.data.get("tools") or [],
+                "agent": str(event.agent or ""),
+                "input_messages": event.llm_payload,
+                "tools": event.tools,
                 "request_event_index": event.index,
                 "meta": {
-                    "visible_count": event.data.get("visible_count"),
-                    "model_message_count": event.data.get("llm_message_count"),
+                    "visible_count": event.visible_count,
+                    "model_message_count": event.llm_message_count,
                 },
             }
             continue
 
-        if event.kind != "message" or pending is None:
+        if not isinstance(event, MessageEvent) or pending is None:
             continue
         message = event.message
-        if message is None or message.role != "assistant":
+        if message.role != "assistant":
             continue
         agent = pending["agent"] or message.sender
         if message.sender != agent:
@@ -357,7 +357,9 @@ def main() -> None:
         help="Bash command the setup agent should run in --workspace mode.",
     )
     parser.add_argument("--max-turns", type=int, default=3)
-    parser.add_argument("--patch-file", help="File containing a candidate unified diff.")
+    parser.add_argument(
+        "--patch-file", help="File containing a candidate unified diff."
+    )
     parser.add_argument("--model-patch", help="Candidate patch text.")
     parser.add_argument(
         "--allow-empty-patch",
@@ -377,7 +379,9 @@ def main() -> None:
     args = parser.parse_args()
 
     instance = load_instance(args.instance_json, args.instance_id)
-    use_workspace = bool(args.workspace and not args.patch_file and args.model_patch is None)
+    use_workspace = bool(
+        args.workspace and not args.patch_file and args.model_patch is None
+    )
     if use_workspace:
         state = run_workspace_agent(
             instance=instance,

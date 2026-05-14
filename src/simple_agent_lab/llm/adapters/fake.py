@@ -19,8 +19,9 @@ import re
 import time
 from typing import Any, Iterator, Optional
 
+from ...messages import ContentBlock, TextBlock, ToolCallBlock
 from ..stream import register_adapter
-from ..types import LLMRequest, LLMResponse, StreamEvent, ToolCall, Usage
+from ..types import LLMRequest, LLMResponse, StreamEvent, TokenUsage
 
 
 _DEFAULT_TEXT = "Fake response generated from the provided messages."
@@ -39,7 +40,7 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
     # Text phase.
     for i in range(0, len(text), chunk):
         _pace()
-        yield StreamEvent(kind="text_delta", payload={"delta": text[i:i + chunk]})
+        yield StreamEvent(kind="text_delta", payload={"delta": text[i : i + chunk]})
 
     # Tool-call phase. Emit start + complete; no JSON-arg streaming for the fake.
     for tc in tool_calls:
@@ -49,23 +50,25 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         yield StreamEvent(kind="tool_call_complete", payload={"tool_call": tc})
 
     # Usage report. Token counts are rough estimates; this is a fake.
-    usage = Usage(
+    usage = TokenUsage(
         input_tokens=sum(_estimate_tokens(m) for m in req.messages),
         output_tokens=max(1, len(text) // 4),
     )
     yield StreamEvent(kind="usage_update", payload={"usage": usage})
 
+    blocks: list[ContentBlock] = []
+    if text:
+        blocks.append(TextBlock(text=text))
+    blocks.extend(tool_calls)
     response = LLMResponse(
-        text=text,
-        tool_calls=tool_calls,
+        content=tuple(blocks),
         stop_reason="tool_use" if tool_calls else "end_turn",
         usage=usage,
-        raw={"provider": "fake", "model": req.provider.model},
     )
     yield StreamEvent(kind="done", payload={"response": response})
 
 
-def _complete_from_request(req: LLMRequest) -> tuple[str, list[ToolCall]]:
+def _complete_from_request(req: LLMRequest) -> tuple[str, list[ToolCallBlock]]:
     text = _request_text(req)
     lower = text.lower()
     tool_names = {tool.name for tool in req.tools}
@@ -74,7 +77,7 @@ def _complete_from_request(req: LLMRequest) -> tuple[str, list[ToolCall]]:
         if _has_tool_result(req):
             return _bash_answer(req), []
         return "I'll run the requested command with bash.", [
-            ToolCall(
+            ToolCallBlock(
                 "bash_1",
                 "bash",
                 {
@@ -88,7 +91,7 @@ def _complete_from_request(req: LLMRequest) -> tuple[str, list[ToolCall]]:
         if _has_tool_result(req):
             return _last_tool_result_text(req), []
         return "I'll ask a focused subagent to handle that.", [
-            ToolCall(
+            ToolCallBlock(
                 "agent_1",
                 "run_agent",
                 {
@@ -104,7 +107,7 @@ def _complete_from_request(req: LLMRequest) -> tuple[str, list[ToolCall]]:
         expression = _shopping_expression(text)
         if expression:
             return "Let me work that out.", [
-                ToolCall("call_1", "calculate", {"expression": expression})
+                ToolCallBlock("call_1", "calculate", {"expression": expression})
             ]
 
     if "get_weather" in tool_names:
@@ -116,7 +119,7 @@ def _complete_from_request(req: LLMRequest) -> tuple[str, list[ToolCall]]:
                 [],
             )
         return "Let me check the weather first.", [
-            ToolCall("wx_1", "get_weather", {"city": city})
+            ToolCallBlock("wx_1", "get_weather", {"city": city})
         ]
 
     prompt = (req.system_prompt or "").lower()
@@ -158,8 +161,10 @@ def _message_text(message: Any) -> str:
     content = getattr(message, "content", "")
     if isinstance(content, str):
         return _strip_routing_header(content)
-    if isinstance(content, list):
-        return " ".join(_strip_routing_header(getattr(block, "text", "")) for block in content)
+    if isinstance(content, (list, tuple)):
+        return " ".join(
+            _strip_routing_header(getattr(block, "text", "")) for block in content
+        )
     return str(content)
 
 
@@ -180,11 +185,17 @@ def _last_message_text(req: LLMRequest, *, role: Optional[str] = None) -> str:
 
 
 def _has_tool_result(req: LLMRequest) -> bool:
-    return any(getattr(message, "role", "") == "tool_result" for message in req.messages)
+    return any(getattr(message, "tool_results", ()) for message in req.messages)
 
 
 def _last_tool_result_text(req: LLMRequest) -> str:
-    return _last_message_text(req, role="tool_result")
+    from ...messages import text_of
+
+    for message in reversed(req.messages):
+        results = getattr(message, "tool_results", ())
+        if results:
+            return text_of(results[-1].content)
+    return ""
 
 
 def _agent_tool_prompt(req: LLMRequest) -> str:
