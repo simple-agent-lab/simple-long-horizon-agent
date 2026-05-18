@@ -401,17 +401,33 @@ def _load_instance_records(path: Path) -> list[dict[str, Any]]:
     raw = path.read_text(encoding="utf-8").strip()
     if not raw:
         return []
-    if raw.startswith("["):
-        parsed = json.loads(raw)
-        if not isinstance(parsed, list):
-            raise SystemExit(f"Expected a JSON list in {path}")
-        return [dict(item) for item in parsed]
+    if raw.startswith("[") or raw.startswith("{"):
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            if raw.startswith("["):
+                raise SystemExit(f"Expected valid JSON list in {path}")
+        else:
+            return _records_from_json(parsed, path)
     records: list[dict[str, Any]] = []
     for line in raw.splitlines():
         line = line.strip()
         if line:
             records.append(dict(json.loads(line)))
     return records
+
+
+def _records_from_json(parsed: Any, path: Path) -> list[dict[str, Any]]:
+    if isinstance(parsed, list):
+        return [dict(item) for item in parsed]
+    if isinstance(parsed, dict):
+        if "instances" in parsed:
+            instances = parsed["instances"]
+            if not isinstance(instances, list):
+                raise SystemExit(f"Expected instances to be a JSON list in {path}")
+            return [dict(item) for item in instances]
+        return [dict(parsed)]
+    raise SystemExit(f"Expected JSON object, JSON list, or JSONL records in {path}")
 
 
 if __name__ == "__main__":

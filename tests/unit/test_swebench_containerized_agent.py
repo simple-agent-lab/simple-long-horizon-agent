@@ -18,12 +18,14 @@ from evals.swebench.containerized_agent import (
     container_name,
     copy_file_to_container,
     copy_runner_support_files,
+    load_instance as load_host_instance,
     prepare_wheelhouse,
     prepare_run_directory,
 )
 from evals.swebench.in_container_runner import (
     AGENT_SYSTEM_PROMPT,
     is_retryable_llm_error,
+    load_instance as load_runner_instance,
     task_from_instance,
     with_llm_retry,
 )
@@ -209,6 +211,28 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
         self.assertNotIn("test_patch", record)
         self.assertNotIn("FAIL_TO_PASS", record)
         self.assertNotIn("PASS_TO_PASS", record)
+
+    def test_load_instance_accepts_instances_wrapper(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "instances.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "instances": [
+                            {"instance_id": "one", "problem_statement": "first"},
+                            {"instance_id": "two", "problem_statement": "second"},
+                        ]
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            host_instance = load_host_instance(path, "two")
+            runner_instance = load_runner_instance(path, "one")
+
+        self.assertEqual(host_instance["problem_statement"], "second")
+        self.assertEqual(runner_instance["problem_statement"], "first")
 
     def test_prepare_wheelhouse_builds_package_and_downloads_provider_deps(
         self,
