@@ -25,9 +25,9 @@ bash runs/run_swebench_smoke.sh
 The default smoke prediction is an empty patch and the eval row is explicitly
 marked as a missing official report. Do not treat it as a benchmark score.
 
-## Workspace Run Shape
+## Local Workspace Shape
 
-The real SWE-bench path has two separate workspaces:
+The lightweight local path has two separate workspaces:
 
 ```text
 agent workspace:
@@ -59,9 +59,69 @@ uv run python evals/swebench/collect_trajectories.py \
   --workspace evals/out/swebench_workspaces/sympy__sympy-20590/repo
 ```
 
-The current workspace collector is intentionally minimal. It exercises the same
-runtime/tool/trajectory path that real agents will use, and the final
-`model_patch` is taken from `git diff` in the prepared repository.
+The current workspace collector is intentionally minimal. It exercises the
+runtime/tool/trajectory path without Docker, and the final `model_patch` is
+taken from `git diff` in the prepared repository.
+
+## Containerized Agent
+
+For larger SWE-bench runs, run the Simple Agent Lab agent inside the SWE-bench
+instance container. The host launcher mounts a run directory and optional
+wheelhouse, copies in the small eval runner from `evals/`, installs the
+`simple-agent-lab` wheel, passes model environment variables, and collects
+`prediction.jsonl` plus `trajectory.jsonl`.
+
+From the agent's point of view, `/testbed` is a normal local repository and the
+bash tool is the normal local bash tool. The eval runner stays outside `src/`;
+the installed wheel supplies the runtime modules.
+
+The runner collects `model_patch` from a staged git diff after installing
+SWALM-style generated-file ignore rules in `.git/info/exclude`; this keeps
+build artifacts such as `build/`, `dist/`, `node_modules/`, and compiled
+language outputs out of the prediction without adding a `.gitignore` change to
+the patch.
+
+Prepare provider wheels once on the host:
+
+```bash
+uv run python - <<'PY'
+from pathlib import Path
+from evals.swebench.containerized_agent import prepare_wheelhouse
+prepare_wheelhouse(Path("evals/out/wheelhouse/cp311-manylinux"))
+PY
+```
+
+Use `.env` for provider settings:
+
+```bash
+OPENAI_MODEL=gpt-test-1
+OPENAI_AUTH_TOKEN=...
+OPENAI_BASE_URL=https://api.openai.com/v1
+```
+
+`OPENAI_BASE_URL` is optional. The launcher also passes `NO_PROXY` and
+`no_proxy` through when they exist.
+
+Run one containerized agent:
+
+```bash
+uv run python evals/swebench/containerized_agent.py \
+  --instance-json evals/out/swebench_verified_sympy__sympy-23824.jsonl \
+  --instance-id sympy__sympy-23824 \
+  --dataset-name princeton-nlp/SWE-bench_Verified \
+  --split test \
+  --model-name simple-agent-lab-containerized-mimo-v2.5-pro \
+  --provider openai \
+  --dotenv .env \
+  --max-turns 20 \
+  --run-id containerized-openai-sympy-23824 \
+  --force
+```
+
+Outputs land under
+`evals/out/swebench_container_runs/<run-id>/<instance-id>/out/`. The official
+judge should still run in a separate clean container using the generated
+`prediction.jsonl`.
 
 ## Official Harness
 
