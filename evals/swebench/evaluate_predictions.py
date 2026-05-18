@@ -26,7 +26,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from simple_agent_lab.trajectory import json_safe, read_jsonl, write_jsonl
+from simple_agent_lab.trajectory import json_safe, read_jsonl, write_jsonl  # noqa: E402
 
 
 DEFAULT_DATASET = "princeton-nlp/SWE-bench_Lite"
