@@ -25,13 +25,16 @@ Represent benchmark integrations as suite-specific eval adapters under `evals/`.
 
 For SWE-bench, the first adapter lives under `evals/swebench/`:
 
-- `prepare_workspace.py` creates a per-instance agent workspace from the
-  SWE-bench repo and base commit.
-- `collect_trajectories.py` writes Simple Agent Lab trajectory records plus the
-  official SWE-bench prediction JSONL shape.
+- `containerized_agent.py` starts the SWE-bench instance container and runs the
+  Simple Agent Lab runner inside it.
+- `in_container_runner.py` writes Simple Agent Lab trajectory records plus the
+  official SWE-bench prediction JSONL shape from inside the container.
+- `patch_extract.py` collects the final `model_patch` while filtering generated
+  files.
 - `evaluate_predictions.py` invokes or normalizes the official SWE-bench harness
   output into `EvalResult` records.
-- `runs/run_swebench_smoke.sh` verifies local adapter plumbing without Docker.
+- `runs/run_swebench_smoke.sh` verifies the adapter's unit-smoke path without
+  Docker.
 - `runs/run_swebench_gold_smoke.sh` verifies the external SWE-bench harness when
   the optional dependency and Docker are available.
 
@@ -44,7 +47,7 @@ New scene-level suites can follow the same shape without creating a benchmark
 framework up front:
 
 ```text
-evals/<suite>/collect_trajectories.py
+evals/<suite>/containerized_agent.py
 evals/<suite>/evaluate_predictions.py
 runs/run_<suite>_smoke.sh
 ```

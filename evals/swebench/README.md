@@ -4,10 +4,12 @@ This directory is the first scene-level evaluation suite adapter.
 
 The adapter keeps the existing Simple Agent Lab split:
 
-- `collect_trajectories.py` records what happened and writes the official
-  SWE-bench prediction JSONL shape.
-- `prepare_workspace.py` creates the per-instance repository workspace the
-  agent may inspect and edit.
+- `containerized_agent.py` starts the SWE-bench instance container and runs the
+  Simple Agent Lab runner inside it.
+- `in_container_runner.py` records what happened and writes the official
+  SWE-bench prediction JSONL shape from inside the container.
+- `patch_extract.py` collects the final `model_patch` while filtering generated
+  files.
 - `evaluate_predictions.py` runs or normalizes the official SWE-bench harness
   result into `EvalResult` records.
 - Training examples are still exported by the shared
@@ -15,61 +17,20 @@ The adapter keeps the existing Simple Agent Lab split:
 
 ## Local Adapter Smoke
 
-This command does not install SWE-bench and does not run Docker. It checks that
-the local adapter can produce trajectory, prediction, and eval-result records:
+This command does not install SWE-bench and does not run Docker. It runs the
+focused unit-smoke checks for the containerized adapter:
 
 ```bash
 bash runs/run_swebench_smoke.sh
 ```
 
-The default smoke prediction is an empty patch and the eval row is explicitly
-marked as a missing official report. Do not treat it as a benchmark score.
-
-## Local Workspace Shape
-
-The lightweight local path has two separate workspaces:
-
-```text
-agent workspace:
-  checkout repo at base_commit
-  let the Simple Agent Lab agent inspect/edit files
-  collect git diff as model_patch
-
-official judge:
-  rebuild a clean SWE-bench environment
-  apply model_patch
-  run official tests
-  emit report
-```
-
-Prepare an agent workspace from a SWE-bench instance record:
-
-```bash
-uv run python evals/swebench/prepare_workspace.py \
-  --instance-json path/to/instances.jsonl \
-  --instance-id sympy__sympy-20590
-```
-
-Then collect a trajectory and prediction from that workspace:
-
-```bash
-uv run python evals/swebench/collect_trajectories.py \
-  --instance-json path/to/instances.jsonl \
-  --instance-id sympy__sympy-20590 \
-  --workspace evals/out/swebench_workspaces/sympy__sympy-20590/repo
-```
-
-The current workspace collector is intentionally minimal. It exercises the
-runtime/tool/trajectory path without Docker, and the final `model_patch` is
-taken from `git diff` in the prepared repository.
-
 ## Containerized Agent
 
-For larger SWE-bench runs, run the Simple Agent Lab agent inside the SWE-bench
-instance container. The host launcher mounts a run directory and optional
-wheelhouse, copies in the small eval runner from `evals/`, installs the
-`simple-agent-lab` wheel, passes model environment variables, and collects
-`prediction.jsonl` plus `trajectory.jsonl`.
+SWE-bench patch generation runs inside the SWE-bench instance container. The
+host launcher mounts a run directory and optional wheelhouse, copies in the
+small eval runner from `evals/`, installs the `simple-agent-lab` wheel, passes
+model environment variables, and collects `prediction.jsonl` plus
+`trajectory.jsonl`.
 
 From the agent's point of view, `/testbed` is a normal local repository and the
 bash tool is the normal local bash tool. The eval runner stays outside `src/`;

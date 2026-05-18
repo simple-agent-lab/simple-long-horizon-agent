@@ -29,12 +29,6 @@ if str(ROOT) not in sys.path:
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from evals.swebench.prepare_workspace import (  # noqa: E402
-    load_instance,
-    sanitized_instance,
-)
-
-
 DEFAULT_DATASET = "princeton-nlp/SWE-bench_Verified"
 DEFAULT_SPLIT = "test"
 DEFAULT_RUN_MOUNT = "/agent/run"
@@ -52,6 +46,14 @@ OPENAI_PASSTHROUGH_ENVS = (
     OPENAI_AUTH_ENV,
     OPENAI_BASE_URL_ENV,
 )
+PRIVATE_INSTANCE_FIELDS = {
+    "patch",
+    "test_patch",
+    "FAIL_TO_PASS",
+    "PASS_TO_PASS",
+    "fail_to_pass",
+    "pass_to_pass",
+}
 
 
 @dataclass(frozen=True)
@@ -101,6 +103,28 @@ def prepare_run_directory(
         trajectory_jsonl=output_dir / "trajectory.jsonl",
         prediction_jsonl=output_dir / "prediction.jsonl",
     )
+
+
+def load_instance(path: str | Path, instance_id: str | None) -> dict[str, Any]:
+    """Load one instance record from JSON or JSONL."""
+
+    records = _load_instance_records(Path(path))
+    if not records:
+        raise SystemExit(f"No instance records found in {path}")
+    if instance_id is None:
+        return dict(records[0])
+    for record in records:
+        if str(record.get("instance_id")) == instance_id:
+            return dict(record)
+    raise SystemExit(f"Instance {instance_id!r} not found in {path}")
+
+
+def sanitized_instance(instance: dict[str, Any]) -> dict[str, Any]:
+    return {
+        str(key): value
+        for key, value in instance.items()
+        if str(key) not in PRIVATE_INSTANCE_FIELDS
+    }
 
 
 def build_runner_command(
@@ -305,6 +329,23 @@ def main() -> None:
 
 def _safe_docker_part(value: str) -> str:
     return "".join(char if char.isalnum() or char in "_.-" else "_" for char in value)
+
+
+def _load_instance_records(path: Path) -> list[dict[str, Any]]:
+    raw = path.read_text(encoding="utf-8").strip()
+    if not raw:
+        return []
+    if raw.startswith("["):
+        parsed = json.loads(raw)
+        if not isinstance(parsed, list):
+            raise SystemExit(f"Expected a JSON list in {path}")
+        return [dict(item) for item in parsed]
+    records: list[dict[str, Any]] = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if line:
+            records.append(dict(json.loads(line)))
+    return records
 
 
 def load_dotenv(path: str | Path) -> None:

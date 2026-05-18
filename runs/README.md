@@ -36,7 +36,7 @@ This runs a deterministic mini-SWE-style bash-use agent demo:
 bash runs/run_bash_agent_demo.sh
 ```
 
-This verifies the local SWE-bench adapter plumbing without installing
+This verifies the SWE-bench adapter's local unit-smoke path without installing
 SWE-bench or running Docker:
 
 ```bash
