@@ -125,7 +125,6 @@ def run_agent(
     *,
     instance: dict[str, Any],
     provider: LLMProvider,
-    request_extra: dict[str, Any],
     workdir: Path,
     max_turns: int,
 ) -> State:
@@ -140,7 +139,6 @@ def run_agent(
         name=AGENT_NAME,
         role=AGENT_ROLE,
         system_prompt=AGENT_SYSTEM_PROMPT,
-        request_extra=request_extra,
     )
     agent.step = with_llm_retry(agent.step)
     state, events = agent.run(task, max_turns=max_turns)
@@ -371,7 +369,6 @@ def main() -> None:
     state = run_agent(
         instance=instance,
         provider=provider,
-        request_extra={},
         workdir=Path(args.workdir),
         max_turns=args.max_turns,
     )

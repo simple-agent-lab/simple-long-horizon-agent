@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 import tarfile
 import tempfile
@@ -26,9 +27,12 @@ from evals.swebench.in_container_runner import (
     AGENT_SYSTEM_PROMPT,
     is_retryable_llm_error,
     load_instance as load_runner_instance,
+    run_agent,
     task_from_instance,
     with_llm_retry,
 )
+from simple_agent_lab import make_llm_step
+from simple_agent_lab.agents.bash import make_bash_agent
 
 
 class SwebenchContainerizedAgentTest(unittest.TestCase):
@@ -98,6 +102,11 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
         )
         self.assertIn("do not include a patch", task)
         self.assertNotIn("docker exec", task)
+
+    def test_runner_does_not_thread_request_extra_through_agent_preset(self) -> None:
+        self.assertNotIn("request_extra", inspect.signature(run_agent).parameters)
+        self.assertNotIn("request_extra", inspect.signature(make_bash_agent).parameters)
+        self.assertNotIn("request_extra", inspect.signature(make_llm_step).parameters)
 
     def test_system_prompt_sets_swebench_repair_operating_rules(self) -> None:
         self.assertIn("general and consistent with the codebase", AGENT_SYSTEM_PROMPT)
