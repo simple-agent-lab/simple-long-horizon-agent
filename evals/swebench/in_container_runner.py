@@ -95,13 +95,7 @@ def task_from_instance(instance: dict[str, Any], *, workdir: str) -> str:
     )
     lines = [
         "Solve this SWE-bench instance.",
-        "",
-        f"instance_id: {instance.get('instance_id', '')}",
     ]
-    if instance.get("repo"):
-        lines.append(f"repo: {instance['repo']}")
-    if instance.get("base_commit"):
-        lines.append(f"base_commit: {instance['base_commit']}")
     lines.extend(
         [
             "",

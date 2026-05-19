@@ -83,9 +83,9 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
             workdir="/testbed",
         )
 
-        self.assertIn("instance_id: sympy__sympy-23824", task)
-        self.assertIn("repo: sympy/sympy", task)
-        self.assertIn("base_commit: abc123", task)
+        self.assertNotIn("instance_id: sympy__sympy-23824", task)
+        self.assertNotIn("repo: sympy/sympy", task)
+        self.assertNotIn("base_commit: abc123", task)
         self.assertIn("You are running inside the SWE-bench container.", task)
         self.assertIn("The bash tool runs locally in /testbed.", task)
         self.assertIn("Fix gamma matrices.", task)
