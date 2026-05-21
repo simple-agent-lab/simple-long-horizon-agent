@@ -48,6 +48,8 @@ DEFAULT_SPLIT = "test"
 OPENAI_MODEL_ENV = "OPENAI_MODEL"
 OPENAI_AUTH_ENV = "OPENAI_AUTH_TOKEN"
 OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
+API_KIND_ENV = "API_KIND"
+API_KIND_CHOICES = ("openai-chat", "openai-responses")
 
 AGENT_NAME = "swebench_agent"
 AGENT_ROLE = (
@@ -159,8 +161,14 @@ def run_agent(
     return state
 
 
-def build_openai_provider_from_env() -> LLMProvider:
-    """Build the generic OpenAI Chat provider used inside the eval container."""
+def build_openai_provider_from_env(api_kind: str = "openai-chat") -> LLMProvider:
+    """Build the configured OpenAI provider used inside the eval container."""
+
+    if api_kind not in API_KIND_CHOICES:
+        raise SystemExit(
+            f"Unsupported API_KIND {api_kind!r}; expected one of: "
+            + ", ".join(API_KIND_CHOICES)
+        )
 
     model = os.environ.get(OPENAI_MODEL_ENV, "").strip()
     token = os.environ.get(OPENAI_AUTH_ENV, "").strip()
@@ -177,8 +185,8 @@ def build_openai_provider_from_env() -> LLMProvider:
             "Missing required env vars for --provider openai: " + ", ".join(missing)
         )
     return LLMProvider(
-        id="openai-chat",
-        api="openai-chat",
+        id=api_kind,
+        api=api_kind,
         model=model,
         base_url=os.environ.get(OPENAI_BASE_URL_ENV) or None,
         api_key_env=OPENAI_AUTH_ENV,
@@ -354,6 +362,12 @@ def main() -> None:
     parser.add_argument("--split", default=DEFAULT_SPLIT)
     parser.add_argument("--model-name", default="simple-agent-lab-containerized")
     parser.add_argument("--provider", choices=["fake", "openai"], default="openai")
+    parser.add_argument(
+        "--api-kind",
+        choices=API_KIND_CHOICES,
+        default=os.environ.get(API_KIND_ENV, "openai-chat"),
+        help="Adapter API kind to use when --provider openai.",
+    )
     parser.add_argument("--workdir", default="/testbed")
     parser.add_argument("--max-turns", type=int, default=20)
     parser.add_argument("--traces", required=True)
@@ -361,7 +375,7 @@ def main() -> None:
     args = parser.parse_args()
 
     provider = (
-        build_openai_provider_from_env()
+        build_openai_provider_from_env(args.api_kind)
         if args.provider == "openai"
         else LLMProvider(id="fake", api="fake", model="fake-model")
     )

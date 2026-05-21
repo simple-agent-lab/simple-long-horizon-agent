@@ -41,6 +41,8 @@ DEFAULT_LOCAL_RUNNER = ROOT / "evals/swebench/in_container_runner.py"
 OPENAI_MODEL_ENV = "OPENAI_MODEL"
 OPENAI_AUTH_ENV = "OPENAI_AUTH_TOKEN"
 OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
+API_KIND_ENV = "API_KIND"
+API_KIND_CHOICES = ("openai-chat", "openai-responses")
 OPENAI_PASSTHROUGH_ENVS = (
     OPENAI_MODEL_ENV,
     OPENAI_AUTH_ENV,
@@ -136,6 +138,7 @@ def build_runner_command(
     model_name: str,
     provider: str,
     max_turns: int,
+    api_kind: str = "openai-chat",
     workdir: str = DEFAULT_WORKDIR,
     install: bool = True,
     wheelhouse_mount: str | None = None,
@@ -174,6 +177,8 @@ def build_runner_command(
         + shlex.quote(model_name)
         + " --provider "
         + shlex.quote(provider)
+        + " --api-kind "
+        + shlex.quote(api_kind)
         + " --workdir "
         + shlex.quote(workdir)
         + " --max-turns "
@@ -238,6 +243,7 @@ def run_containerized_agent(args: argparse.Namespace) -> RunPaths:
         model_name=args.model_name,
         provider=args.provider,
         max_turns=args.max_turns,
+        api_kind=resolve_api_kind(args.api_kind),
         workdir=args.workdir,
         install=not args.skip_install,
         wheelhouse_mount=args.wheelhouse_mount if wheelhouse is not None else None,
@@ -298,6 +304,15 @@ def main() -> None:
     parser.add_argument("--split", default=DEFAULT_SPLIT)
     parser.add_argument("--model-name", default="simple-agent-lab-containerized")
     parser.add_argument("--provider", choices=["fake", "openai"], default="openai")
+    parser.add_argument(
+        "--api-kind",
+        choices=API_KIND_CHOICES,
+        default=None,
+        help=(
+            "Adapter API kind to use when --provider openai. Defaults to "
+            "API_KIND from the environment, then openai-chat."
+        ),
+    )
     parser.add_argument("--dotenv", default=str(ROOT / ".env"))
     parser.add_argument("--max-turns", type=int, default=20)
     parser.add_argument("--run-id", default="containerized-agent")
@@ -450,6 +465,18 @@ def _container_environment(provider: str) -> dict[str, str]:
             "Missing required env vars for --provider openai: " + ", ".join(missing)
         )
     return env
+
+
+def resolve_api_kind(value: str | None) -> str:
+    """Return the requested adapter API kind, defaulting through API_KIND."""
+
+    api_kind = (value or os.environ.get(API_KIND_ENV) or "openai-chat").strip()
+    if api_kind not in API_KIND_CHOICES:
+        raise SystemExit(
+            f"Unsupported API_KIND {api_kind!r}; expected one of: "
+            + ", ".join(API_KIND_CHOICES)
+        )
+    return api_kind
 
 
 def prepare_wheelhouse(

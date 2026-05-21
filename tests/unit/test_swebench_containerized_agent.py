@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 from evals.swebench.containerized_agent import (
+    API_KIND_ENV,
     OPENAI_AUTH_ENV,
     OPENAI_BASE_URL_ENV,
     OPENAI_MODEL_ENV,
@@ -22,9 +23,11 @@ from evals.swebench.containerized_agent import (
     load_instance as load_host_instance,
     prepare_wheelhouse,
     prepare_run_directory,
+    resolve_api_kind,
 )
 from evals.swebench.in_container_runner import (
     AGENT_SYSTEM_PROMPT,
+    build_openai_provider_from_env,
     is_retryable_llm_error,
     load_instance as load_runner_instance,
     run_agent,
@@ -72,9 +75,24 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
             command,
         )
         self.assertIn("--workdir /testbed", command)
+        self.assertIn("--api-kind openai-chat", command)
         self.assertNotIn("PYTHONPATH=", command)
         self.assertNotIn("/agent/simple-agent-lab", command)
         self.assertNotIn("docker exec", command)
+
+    def test_runner_command_can_select_openai_responses(self) -> None:
+        command = build_runner_command(
+            run_mount="/agent/run",
+            instance_id="sympy__sympy-23824",
+            dataset_name="princeton-nlp/SWE-bench_Verified",
+            split="test",
+            model_name="simple-agent-lab-responses",
+            provider="openai",
+            max_turns=20,
+            api_kind="openai-responses",
+        )
+
+        self.assertIn("--api-kind openai-responses", command)
 
     def test_task_tells_agent_it_is_inside_container(self) -> None:
         task = task_from_instance(
@@ -193,6 +211,41 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
         self.assertEqual(env[OPENAI_BASE_URL_ENV], "https://example.invalid/v1")
         self.assertEqual(env["NO_PROXY"], ".example.invalid")
         self.assertEqual(env["no_proxy"], ".internal.invalid")
+
+    def test_resolve_api_kind_prefers_cli_then_env_then_chat_default(self) -> None:
+        with mock.patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(resolve_api_kind(None), "openai-chat")
+            self.assertEqual(resolve_api_kind("openai-responses"), "openai-responses")
+
+        with mock.patch.dict(
+            "os.environ",
+            {API_KIND_ENV: "openai-responses"},
+            clear=True,
+        ):
+            self.assertEqual(resolve_api_kind(None), "openai-responses")
+            self.assertEqual(resolve_api_kind("openai-chat"), "openai-chat")
+
+    def test_resolve_api_kind_rejects_unknown_value(self) -> None:
+        with self.assertRaisesRegex(SystemExit, "Unsupported API_KIND"):
+            resolve_api_kind("unknown-api")
+
+    def test_openai_provider_from_env_selects_responses_api(self) -> None:
+        with mock.patch.dict(
+            "os.environ",
+            {
+                OPENAI_MODEL_ENV: "gpt-test-1",
+                OPENAI_AUTH_ENV: "token",
+                OPENAI_BASE_URL_ENV: "https://example.invalid/v1",
+            },
+            clear=True,
+        ):
+            provider = build_openai_provider_from_env("openai-responses")
+
+        self.assertEqual(provider.id, "openai-responses")
+        self.assertEqual(provider.api, "openai-responses")
+        self.assertEqual(provider.model, "gpt-test-1")
+        self.assertEqual(provider.base_url, "https://example.invalid/v1")
+        self.assertEqual(provider.api_key_env, OPENAI_AUTH_ENV)
 
     def test_prepare_run_directory_writes_sanitized_instance_input(self) -> None:
         instance = {
