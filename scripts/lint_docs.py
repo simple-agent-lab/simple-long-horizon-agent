@@ -24,6 +24,7 @@ CODE_PATH_REFERENCE = re.compile(
     r"[A-Za-z0-9_./-]+"
     r")`"
 )
+IGNORED_ARTIFACT_ROOTS = (ROOT / "evals" / "out",)
 
 
 @dataclass(frozen=True)
@@ -109,6 +110,10 @@ def local_reference_exists(path: Path) -> bool:
     return (path / "README.md").exists()
 
 
+def is_ignored_artifact_reference(path: Path) -> bool:
+    return any(path == root or root in path.parents for root in IGNORED_ARTIFACT_ROOTS)
+
+
 def lint_local_links(path: Path, text: str) -> list[Issue]:
     issues: list[Issue] = []
     for match in MARKDOWN_LINK.finditer(text):
@@ -132,6 +137,8 @@ def lint_code_path_references(path: Path, text: str) -> list[Issue]:
     for match in CODE_PATH_REFERENCE.finditer(text):
         target = match.group(1)
         resolved = resolve_code_path(path, target)
+        if is_ignored_artifact_reference(resolved):
+            continue
         if local_reference_exists(resolved):
             continue
         issues.append(
