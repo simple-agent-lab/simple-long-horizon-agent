@@ -5,7 +5,7 @@ This is the single loading map for future agents. Read this file after
 
 Sources:
 
-- Current code snapshot: working tree inspected on 2026-05-11.
+- Current code snapshot: working tree inspected on 2026-05-22.
 - Recent first-parent history: `bf026ac`, `ddff527`, `312d5a9`, `5a90e1f`.
 - Primary anchors: `README.md`, `CONTEXT.md`, `docs/agent-native/`,
   `docs/decisions/`, `runs/README.md`, `tests/README.md`,
@@ -20,10 +20,10 @@ Sources:
 - `CONTEXT.md`: root vocabulary and resolved terminology boundaries for
   `Message`, `ModelMessage`, provider adapters, content blocks, and sidecars.
 - `docs/agent-native/`: living agent context, loading map, project intent, code
-  style, harness workflow, development commands, doc inventory,
-  source-of-truth routing, owner questions, stop conditions, and validation map.
+  style, harness workflow, development commands, source-of-truth routing,
+  owner questions, stop conditions, and validation map.
 - `docs/decisions/`: accepted ADRs. This repo uses `docs/decisions/` instead
-  of `docs/adr/`.
+  of a parallel ADR tree.
 - `docs/reference-architectures/`: local workspace for reference-architecture
   research notes. The directory's contents are gitignored except for the
   README and template; the convention is shared, but individual notes stay
@@ -85,9 +85,8 @@ Stop and collect more evidence before changing behavior when:
 - A change requires a live model provider or external benchmark dependency.
   Preserve deterministic local smoke paths unless the owner explicitly accepts
   the extra setup cost.
-- A change implements the first live provider adapter. `openai-chat` is the
-  confirmed first target; keep live-provider smoke opt-in and outside required
-  CI unless the owner changes that policy.
+- A change adds or changes a live provider adapter. Keep live-provider smoke
+  opt-in and outside required CI unless the owner changes that policy.
 - A new external reference architecture starts to drive implementation. Add or
   update a local note under `docs/reference-architectures/` (gitignored
   workspace) and capture the durable commitment in an ADR before changing code.
@@ -96,7 +95,7 @@ Stop and collect more evidence before changing behavior when:
 
 | If the task touches... | Read next | Why |
 | --- | --- | --- |
-| Current status or repo tour | `README.md`, `docs/agent-native/doc-inventory.md` | Public map plus role/freshness notes. |
+| Current status or repo tour | `README.md`, then this loading map | Public map plus task-specific routing. |
 | Product direction, audience, or teaching taste | `docs/agent-native/project-intent.md` | Mission, audience, design principles, and current phase. |
 | Day-to-day implementation | `docs/agent-native/development.md`, `docs/agent-native/code-style.md`, `runs/README.md` | Commands, quality gate, and style constraints. |
 | Harness workflow or docs-first process | `docs/agent-native/harness-engineering.md`, ADR 0002, ADR 0003 | Feedback signal and repository-as-harness rules. |
@@ -107,16 +106,16 @@ Stop and collect more evidence before changing behavior when:
 | Trace printing or OpenAI Chat JSONL export | ADR 0013, `src/simple_agent_lab/trace.py`, `tests/unit/test_openai_training.py` | Trace rendering and provider-shaped transcript export. |
 | Trajectories, evals, or training data | ADR 0008, ADR 0011, `src/simple_agent_lab/trace.py`, `evals/README.md`, `evals/swebench/README.md` | Separation between fact records, scores, provider-shaped exports, and suite adapters. |
 | External architecture borrowing | `docs/reference-architectures/README.md` (local notes workspace, gitignored) plus your own reference note | Capture rationale locally; record durable commitments in an ADR. |
-| Agent-native doc maintenance | `docs/agent-native/doc-inventory.md`, `docs/agent-native/operating-rules.md` | Canonical doc roles and stop conditions. |
+| Agent-native doc maintenance | This loading map, `docs/agent-native/operating-rules.md` | Canonical routing and stop conditions. |
 
 ## Maintenance Workflow
 
 1. Start from the loading map above.
 2. Update the canonical topic doc first.
-3. Update `doc-inventory.md` if doc roles, freshness, or loading triggers changed.
-4. Update this loading map if future agents should read a different doc first.
-5. Move unresolved owner or external-system facts to `owner-questions.md`.
-6. Create or update an ADR under `docs/decisions/` only for hard-to-reverse
+3. Update this loading map if doc roles, freshness, loading triggers, or
+   first-read choices change.
+4. Move unresolved owner or external-system facts to `owner-questions.md`.
+5. Create or update an ADR under `docs/decisions/` only for hard-to-reverse
    decisions with real tradeoffs.
 
 ## ADR Index

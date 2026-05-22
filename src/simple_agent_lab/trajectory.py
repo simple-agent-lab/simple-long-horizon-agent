@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 import json
 
+from .protocols import Event, MessageEvent, ModelRequestEvent
+
 
 SCHEMA = "simple-agent-lab.trajectory.v1"
 
@@ -39,6 +41,86 @@ class RunTrace:
     events: list[Any]
     model_turns: list[ModelTurn]
     meta: dict[str, Any] | None = None
+
+
+def run_trace_from_state(
+    *,
+    state: Any,
+    trace_id: str,
+    producer: str,
+    meta: Mapping[str, Any] | None = None,
+) -> RunTrace:
+    """Build a provider-neutral trajectory from a runtime State-like object."""
+
+    events = list(state.events)
+    return RunTrace(
+        trace_id=trace_id,
+        producer=producer,
+        task=str(state.task),
+        messages=json_safe(state.messages),
+        events=[event_record(event) for event in events],
+        model_turns=model_turns_from_events(trace_id, events),
+        meta=dict(meta or {}),
+    )
+
+
+def event_record(event: Event) -> dict[str, Any]:
+    """Serialize one runtime event with its discriminator intact."""
+
+    return {
+        "kind": event.kind.value,
+        "index": event.index,
+        **json_safe(event.data),
+    }
+
+
+def model_turns_from_events(trace_id: str, events: Iterable[Event]) -> list[ModelTurn]:
+    """Extract model-visible input/output pairs from runtime events."""
+
+    turns: list[ModelTurn] = []
+    pending: dict[str, Any] | None = None
+    model_call_index = 0
+
+    for event in events:
+        if isinstance(event, ModelRequestEvent):
+            model_call_index += 1
+            pending = {
+                "agent": str(event.agent or ""),
+                "input_messages": event.llm_payload,
+                "tools": event.tools,
+                "request_event_index": event.index,
+                "meta": {
+                    "visible_count": event.visible_count,
+                    "model_message_count": event.llm_message_count,
+                },
+            }
+            continue
+
+        if not isinstance(event, MessageEvent) or pending is None:
+            continue
+        message = event.message
+        if message.role != "assistant":
+            continue
+        agent = pending["agent"] or message.sender
+        if message.sender != agent:
+            continue
+        turns.append(
+            ModelTurn(
+                step_id=f"{trace_id}.model{model_call_index}",
+                agent=agent,
+                input_messages=json_safe(pending["input_messages"]),
+                output_message=json_safe(message),
+                tools=json_safe(pending["tools"]),
+                meta={
+                    **pending["meta"],
+                    "request_event_index": pending["request_event_index"],
+                    "message_event_index": event.index,
+                },
+            )
+        )
+        pending = None
+
+    return turns
 
 
 def trace_record(trace: RunTrace) -> dict[str, Any]:

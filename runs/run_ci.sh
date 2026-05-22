@@ -18,10 +18,16 @@ uv sync --group dev
 printf '\n=== ruff format --check . ===\n'
 uv run ruff format --check .
 
+printf '\n=== docs lint ===\n'
+uv run python scripts/lint_docs.py
+
 printf '\n=== ty check src ===\n'
 uv run ty check src
 
 printf '\n=== unittest discover -s tests/unit ===\n'
 uv run python -m unittest discover -s tests/unit
+
+printf '\n=== run bash agent demo ===\n'
+bash runs/run_bash_agent_demo.sh
 
 printf '\nAll CI checks passed.\n'

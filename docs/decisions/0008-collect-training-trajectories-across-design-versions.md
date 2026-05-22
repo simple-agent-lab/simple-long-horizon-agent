@@ -36,16 +36,10 @@ The runtime-neutral records are:
 - `eval_result`: score and metrics produced by a scorer over one trajectory
 - `training_example`: one model-call input/output pair, optionally labeled by an eval result
 
-The first local pipeline is:
-
-```bash
-PYTHONPATH=src python3 scripts/collect_design_version_trajectories.py
-PYTHONPATH=src python3 evals/evaluate_design_version_traces.py
-PYTHONPATH=src python3 scripts/export_training_examples.py
-```
-
-`runs/run_training_trace_eval.sh` runs the three steps together. Generated
-JSONL under `evals/out/` is local artifact data, not source.
+The original design-version script pipeline has been retired alongside
+`examples/design_versions/`. A replacement targeting the canonical runtime
+should preserve the split above. Generated JSONL under `evals/out/` is local
+artifact data, not source.
 
 Runtime-specific behavior stays thin:
 

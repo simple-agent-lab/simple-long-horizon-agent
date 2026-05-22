@@ -12,8 +12,8 @@ The adapter keeps the existing Simple Agent Lab split:
   files.
 - `evaluate_predictions.py` runs or normalizes the official SWE-bench harness
   result into `EvalResult` records.
-- Training examples are still exported by the shared
-  `scripts/export_training_examples.py` script after eval labels exist.
+- Training/export flows should build from shared trajectory records after eval
+  labels exist.
 
 ## Local Adapter Smoke
 
@@ -58,10 +58,12 @@ Use `.env` for provider settings:
 OPENAI_MODEL=gpt-test-1
 OPENAI_AUTH_TOKEN=...
 OPENAI_BASE_URL=https://api.openai.com/v1
+API_KIND=openai-chat
 ```
 
-`OPENAI_BASE_URL` is optional. The launcher also passes `NO_PROXY` and
-`no_proxy` through when they exist.
+`OPENAI_BASE_URL` is optional. `API_KIND` is optional and defaults to
+`openai-chat`; set it to `openai-responses` to use the OpenAI Responses API.
+The launcher also passes `NO_PROXY` and `no_proxy` through when they exist.
 
 Run one containerized agent:
 
@@ -73,6 +75,7 @@ uv run python evals/swebench/containerized_agent.py \
   --split test \
   --model-name simple-agent-lab-containerized-mimo-v2.5-pro \
   --provider openai \
+  --api-kind openai-responses \
   --dotenv .env \
   --max-turns 20 \
   --run-id containerized-openai-sympy-23824 \
@@ -115,6 +118,13 @@ Official prediction rows must contain:
 ```json
 {"instance_id": "sympy__sympy-20590", "model_name_or_path": "simple-agent-lab", "model_patch": "diff --git ..."}
 ```
+
+Official harness outputs are intentionally run from
+`evals/out/swebench_official/<run-id>/` so summary JSON, harness logs, and report
+files stay under the ignored eval output tree instead of the repo root. When
+calling `evaluate_predictions.py --run-official`, the default report directory
+is `<official-output-dir>/<run-id>/reports`; override `--official-output-dir`
+only when you want a different local artifact root.
 
 Do not pass SWE-bench gold `patch` or `test_patch` fields into the model-visible
 task. They belong to the official harness and scoring path, not trajectory

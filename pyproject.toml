@@ -35,7 +35,6 @@ providers = ["anthropic>=0.39.0", "openai>=1.50.0"]
 Homepage = "https://github.com/simple-agent-lab/simple-agent-lab"
 Repository = "https://github.com/simple-agent-lab/simple-agent-lab"
 Issues = "https://github.com/simple-agent-lab/simple-agent-lab/issues"
-Changelog = "https://github.com/simple-agent-lab/simple-agent-lab/blob/main/CHANGELOG.md"
 
 [dependency-groups]
 dev = [

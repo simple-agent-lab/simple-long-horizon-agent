@@ -19,9 +19,10 @@ doc sync should preserve the source of truth for future humans and agents.
 3. Compare the source of truth with the docs:
    - source: `src/simple_agent_lab/`, `scripts/`, `runs/`, `tests/`,
      `evals/`, `pyproject.toml`, `.github/workflows/ci.yml`
-   - docs: `README.md`, `CONTEXT.md`, `CHANGELOG.md`, `CONTRIBUTING.md`,
-     `docs/`, `runs/README.md`, `tests/README.md`, `evals/README.md`,
-     `evals/swebench/README.md`, `src/simple_agent_lab/llm/README.md`
+   - docs: `README.md`, `CONTEXT.md`, `CONTRIBUTING.md`,
+     `docs/agent-native/README.md`, `docs/`, `runs/README.md`,
+     `tests/README.md`, `evals/README.md`, `evals/swebench/README.md`,
+     `src/simple_agent_lab/llm/README.md`
 4. Look for only practical mismatches: missing behavior, outdated paths,
    stale commands, conflicting architecture/status claims, or docs that promise
    more than the repo can verify.
@@ -39,7 +40,7 @@ Start with targeted searches:
 
 ```bash
 git status --short --branch
-rg -n "bash runs/|python3|uv run|PYTHONPATH|Current Status|ADR|TODO|TBD" README.md CONTEXT.md CHANGELOG.md docs runs tests evals
+rg -n "bash runs/|python3|uv run|PYTHONPATH|Current Status|ADR|TODO|TBD" README.md CONTEXT.md docs runs tests evals
 rg -n "Message|State|Agent|Tool|context_view|run_agent|trajectory|evaluation|training" src docs tests evals runs
 ```
 
@@ -48,7 +49,7 @@ Common checks:
 ```bash
 bash runs/run_ci.sh
 uv run python -m unittest discover -s tests/unit
-bash runs/run_examples.sh
+uv run python scripts/lint_docs.py
 bash runs/run_bash_agent_demo.sh
 bash runs/run_swebench_smoke.sh
 ```

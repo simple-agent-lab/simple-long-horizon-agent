@@ -18,12 +18,10 @@ from typing import Any, Callable
 
 from simple_agent_lab.agents.bash import make_bash_agent
 from simple_agent_lab.llm import Provider as LLMProvider
-from simple_agent_lab.protocols import Event, MessageEvent, ModelRequestEvent
 from simple_agent_lab.state import State
 from simple_agent_lab.trajectory import (
-    ModelTurn,
     RunTrace,
-    json_safe,
+    run_trace_from_state,
     trace_record,
     write_jsonl,
 )
@@ -48,6 +46,8 @@ DEFAULT_SPLIT = "test"
 OPENAI_MODEL_ENV = "OPENAI_MODEL"
 OPENAI_AUTH_ENV = "OPENAI_AUTH_TOKEN"
 OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
+API_KIND_ENV = "API_KIND"
+API_KIND_CHOICES = ("openai-chat", "openai-responses")
 
 AGENT_NAME = "swebench_agent"
 AGENT_ROLE = (
@@ -159,8 +159,14 @@ def run_agent(
     return state
 
 
-def build_openai_provider_from_env() -> LLMProvider:
-    """Build the generic OpenAI Chat provider used inside the eval container."""
+def build_openai_provider_from_env(api_kind: str = "openai-chat") -> LLMProvider:
+    """Build the configured OpenAI provider used inside the eval container."""
+
+    if api_kind not in API_KIND_CHOICES:
+        raise SystemExit(
+            f"Unsupported API_KIND {api_kind!r}; expected one of: "
+            + ", ".join(API_KIND_CHOICES)
+        )
 
     model = os.environ.get(OPENAI_MODEL_ENV, "").strip()
     token = os.environ.get(OPENAI_AUTH_ENV, "").strip()
@@ -177,8 +183,8 @@ def build_openai_provider_from_env() -> LLMProvider:
             "Missing required env vars for --provider openai: " + ", ".join(missing)
         )
     return LLMProvider(
-        id="openai-chat",
-        api="openai-chat",
+        id=api_kind,
+        api=api_kind,
         model=model,
         base_url=os.environ.get(OPENAI_BASE_URL_ENV) or None,
         api_key_env=OPENAI_AUTH_ENV,
@@ -277,13 +283,10 @@ def trace_from_state(
 ) -> RunTrace:
     instance_id = str(instance["instance_id"])
     trace_id = f"swebench.{instance_id}"
-    return RunTrace(
+    return run_trace_from_state(
+        state=state,
         trace_id=trace_id,
         producer="suite:swebench",
-        task=state.task,
-        messages=json_safe(state.messages),
-        events=json_safe(state.events),
-        model_turns=model_turns_from_events(trace_id, state.events),
         meta={
             "suite": "swebench",
             "dataset_name": dataset_name,
@@ -297,53 +300,6 @@ def trace_from_state(
     )
 
 
-def model_turns_from_events(trace_id: str, events: list[Event]) -> list[ModelTurn]:
-    turns: list[ModelTurn] = []
-    pending: dict[str, Any] | None = None
-    model_call_index = 0
-
-    for event in events:
-        if isinstance(event, ModelRequestEvent):
-            model_call_index += 1
-            pending = {
-                "agent": str(event.agent or ""),
-                "input_messages": event.llm_payload,
-                "tools": event.tools,
-                "request_event_index": event.index,
-                "meta": {
-                    "visible_count": event.visible_count,
-                    "model_message_count": event.llm_message_count,
-                },
-            }
-            continue
-
-        if not isinstance(event, MessageEvent) or pending is None:
-            continue
-        message = event.message
-        if message.role != "assistant":
-            continue
-        agent = pending["agent"] or message.sender
-        if message.sender != agent:
-            continue
-        turns.append(
-            ModelTurn(
-                step_id=f"{trace_id}.model{model_call_index}",
-                agent=agent,
-                input_messages=json_safe(pending["input_messages"]),
-                output_message=json_safe(message),
-                tools=json_safe(pending["tools"]),
-                meta={
-                    **pending["meta"],
-                    "request_event_index": pending["request_event_index"],
-                    "message_event_index": event.index,
-                },
-            )
-        )
-        pending = None
-
-    return turns
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Run Simple Agent Lab from inside a SWE-bench container."
@@ -354,6 +310,12 @@ def main() -> None:
     parser.add_argument("--split", default=DEFAULT_SPLIT)
     parser.add_argument("--model-name", default="simple-agent-lab-containerized")
     parser.add_argument("--provider", choices=["fake", "openai"], default="openai")
+    parser.add_argument(
+        "--api-kind",
+        choices=API_KIND_CHOICES,
+        default=os.environ.get(API_KIND_ENV, "openai-chat"),
+        help="Adapter API kind to use when --provider openai.",
+    )
     parser.add_argument("--workdir", default="/testbed")
     parser.add_argument("--max-turns", type=int, default=20)
     parser.add_argument("--traces", required=True)
@@ -361,7 +323,7 @@ def main() -> None:
     args = parser.parse_args()
 
     provider = (
-        build_openai_provider_from_env()
+        build_openai_provider_from_env(args.api_kind)
         if args.provider == "openai"
         else LLMProvider(id="fake", api="fake", model="fake-model")
     )

@@ -126,10 +126,6 @@ def run(
 
         agent = agent_by_name[name]
         tool_by_name = {tool.name: tool for tool in agent.tools}
-        if tool_by_name:
-            state.data["tools"] = tool_by_name
-        else:
-            state.data.pop("tools", None)
         yield state.turn_start(agent=name)
 
         resolved_policy = _resolve_context_policy(agent.context_policy, last)

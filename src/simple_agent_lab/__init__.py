@@ -77,6 +77,7 @@ from .messages import (
     user_message,
 )
 from .trace import append_openai_training_record, openai_training_record, print_trace
+from .trajectory import event_record, model_turns_from_events, run_trace_from_state
 from .tools import (
     AbortFlag,
     AgentTool,
@@ -147,6 +148,9 @@ __all__ = [
     "message_tool_calls",
     "print_trace",
     "run",
+    "event_record",
+    "model_turns_from_events",
+    "run_trace_from_state",
     "append_openai_training_record",
     "openai_training_record",
     "system_message",

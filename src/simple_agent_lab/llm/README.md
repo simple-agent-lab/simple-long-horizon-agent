@@ -12,10 +12,10 @@ or routing. It only knows how to talk to a model and stream events back.
 ## Public surface (intentionally small)
 
 ```python
-from llm import (
+from simple_agent_lab.llm import (
     # data types
     Provider, LLMMessage, LLMTool, LLMRequest, LLMResponse,
-    ContentBlock, ToolCall, Usage, StreamEvent,
+    ContentBlock, TextBlock, ToolCallBlock, TokenUsage, StreamEvent,
 
     # message bridge
     messages_to_llm_messages, tool_to_llm_tool, llm_response_to_assistant_message,
@@ -31,7 +31,7 @@ from llm import (
 
 ```
 ┌────────────────────────────────────────────────────┐
-│  agent loop (01 / 02 / 03)                         │
+│  agent loop / preset agent                         │
 │  - shared Message / State / Event with routing     │
 │  - simple_agent_lab.tools owns tool values         │
 │  - llm.bridge projects to LLMMessage at the        │
@@ -59,7 +59,7 @@ from llm import (
 ### Blocking call
 
 ```python
-from llm import Provider, LLMMessage, LLMRequest, complete
+from simple_agent_lab.llm import Provider, LLMMessage, LLMRequest, complete
 
 provider = Provider(id="test", api="fake", model="fake-1")
 resp = complete(LLMRequest(
@@ -78,7 +78,7 @@ through `req.extra`.
 ### Streaming consumption
 
 ```python
-from llm import iter_stream
+from simple_agent_lab.llm import iter_stream
 
 for event in iter_stream(req):
     if event.kind == "text_delta":
@@ -93,8 +93,8 @@ for event in iter_stream(req):
 ### Custom provider
 
 ```python
-from llm import (
-    register_adapter, LLMRequest, StreamEvent, LLMResponse, ContentBlock, Usage,
+from simple_agent_lab.llm import (
+    register_adapter, LLMRequest, StreamEvent, LLMResponse, TextBlock, TokenUsage,
 )
 
 def my_adapter(req: LLMRequest):
@@ -102,9 +102,9 @@ def my_adapter(req: LLMRequest):
     yield StreamEvent(kind="text_delta", payload={"delta": "..."})
     yield StreamEvent(kind="done", payload={
         "response": LLMResponse(
-            content=[ContentBlock(kind="text", text="...")],
+            content=[TextBlock("...")],
             stop_reason="end_turn",
-            usage=Usage(),
+            usage=TokenUsage(),
         ),
     })
 
@@ -146,7 +146,7 @@ Then use `Provider(api="my-api", ...)` like any built-in.
   `tool_call_complete` events; the agent loop runs them.
 - **Retry / backoff policy.** Adapters may do basic timeouts, but
   retries belong above (where the loop knows whether retry is safe).
-- **Token counting / pricing math.** Adapters report `Usage`. Cost
+- **Token counting / pricing math.** Adapters report `TokenUsage`. Cost
   calculation is a one-liner in user code if needed.
 - **Caching decisions.** Caller marks breakpoints; layer carries them.
 

@@ -2,6 +2,9 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+ROOT="$PWD"
+RUN_ID="validate-gold"
+OFFICIAL_OUTPUT_DIR="$ROOT/evals/out/swebench_official/$RUN_ID"
 
 source runs/_python.sh
 
@@ -27,11 +30,16 @@ except Exception as exc:
     ) from exc
 PY
 
-"${PYTHON[@]}" -m swebench.harness.run_evaluation \
-  --dataset_name princeton-nlp/SWE-bench_Lite \
-  --split test \
-  --max_workers 1 \
-  --instance_ids sympy__sympy-20590 \
-  --predictions_path gold \
-  --run_id validate-gold \
-  --report_dir evals/out/swebench_official
+mkdir -p "$OFFICIAL_OUTPUT_DIR"
+
+(
+  cd "$OFFICIAL_OUTPUT_DIR"
+  "${PYTHON[@]}" -m swebench.harness.run_evaluation \
+    --dataset_name princeton-nlp/SWE-bench_Lite \
+    --split test \
+    --max_workers 1 \
+    --instance_ids sympy__sympy-20590 \
+    --predictions_path gold \
+    --run_id "$RUN_ID" \
+    --report_dir "$OFFICIAL_OUTPUT_DIR/reports"
+)

@@ -32,6 +32,7 @@ from simple_agent_lab.trajectory import json_safe, read_jsonl, write_jsonl  # no
 DEFAULT_DATASET = "princeton-nlp/SWE-bench_Lite"
 DEFAULT_SPLIT = "test"
 DEFAULT_RUN_ID = "simple-agent-lab-swebench"
+DEFAULT_OFFICIAL_OUTPUT_DIR = ROOT / "evals/out/swebench_official"
 EVAL_SCHEMA = "simple-agent-lab.evaluation.v1"
 
 
@@ -65,6 +66,10 @@ def run_official_harness(args: argparse.Namespace) -> None:
             "Install it before using --run-official."
         )
 
+    run_dir = official_run_dir(args)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    report_dir = official_report_dir(args)
+    report_dir.mkdir(parents=True, exist_ok=True)
     command = [
         sys.executable,
         "-m",
@@ -74,13 +79,13 @@ def run_official_harness(args: argparse.Namespace) -> None:
         "--split",
         args.split,
         "--predictions_path",
-        args.predictions,
+        prediction_path_for_harness(args.predictions),
         "--max_workers",
         str(args.max_workers),
         "--run_id",
         args.run_id,
         "--report_dir",
-        args.report_dir,
+        str(report_dir),
     ]
     if args.instance_ids:
         command.extend(["--instance_ids", *args.instance_ids])
@@ -90,7 +95,7 @@ def run_official_harness(args: argparse.Namespace) -> None:
         command.extend(["--clean", "True"])
     if args.timeout is not None:
         command.extend(["--timeout", str(args.timeout)])
-    subprocess.run(command, cwd=ROOT, check=True)
+    subprocess.run(command, cwd=run_dir, check=True)
 
 
 def load_official_results(args: argparse.Namespace) -> dict[str, dict[str, Any]]:
@@ -99,11 +104,40 @@ def load_official_results(args: argparse.Namespace) -> dict[str, dict[str, Any]]
         results.update(results_from_summary(Path(args.results_json)))
     if args.instance_results_jsonl:
         results.update(results_from_instance_jsonl(Path(args.instance_results_jsonl)))
-    report_dir = Path(args.report_dir)
+    report_dir = official_report_dir(args)
+    run_dir = official_run_dir(args)
+    results.update(results_from_summary_files(run_dir))
+    results.update(results_from_instance_result_files(run_dir))
+    results.update(results_from_report_dir(run_dir))
     results.update(results_from_summary_files(report_dir))
     results.update(results_from_instance_result_files(report_dir))
     results.update(results_from_report_dir(report_dir))
     return results
+
+
+def official_run_dir(args: argparse.Namespace) -> Path:
+    return resolve_repo_path(args.official_output_dir) / safe_path_part(args.run_id)
+
+
+def official_report_dir(args: argparse.Namespace) -> Path:
+    if args.report_dir:
+        return resolve_repo_path(args.report_dir)
+    return official_run_dir(args) / "reports"
+
+
+def prediction_path_for_harness(path: str | Path) -> str:
+    if str(path) == "gold":
+        return "gold"
+    return str(resolve_repo_path(path))
+
+
+def resolve_repo_path(path: str | Path) -> Path:
+    candidate = Path(path)
+    return candidate if candidate.is_absolute() else ROOT / candidate
+
+
+def safe_path_part(value: str) -> str:
+    return "".join(char if char.isalnum() or char in "_.-" else "_" for char in value)
 
 
 def results_from_summary(path: Path) -> dict[str, dict[str, Any]]:
@@ -292,9 +326,20 @@ def main() -> None:
     parser.add_argument("--clean", action="store_true")
     parser.add_argument("--timeout", type=int)
     parser.add_argument(
+        "--official-output-dir",
+        default=str(DEFAULT_OFFICIAL_OUTPUT_DIR),
+        help=(
+            "Root directory for official SWE-bench harness cwd, summary JSON, "
+            "logs, and default reports. Each run uses <official-output-dir>/<run-id>/."
+        ),
+    )
+    parser.add_argument(
         "--report-dir",
-        default=str(ROOT / "evals/out/swebench_official"),
-        help="Directory containing official SWE-bench reports.",
+        default=None,
+        help=(
+            "Directory containing official SWE-bench reports. Defaults to "
+            "<official-output-dir>/<run-id>/reports."
+        ),
     )
     parser.add_argument("--results-json", help="Official summary results JSON.")
     parser.add_argument(
