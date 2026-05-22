@@ -8,7 +8,7 @@ based on the task.
 
 - [`agent-native/`](agent-native/README.md) — agent-native context tree:
   project intent, code style, harness workflow, development commands,
-  doc inventory, operating rules, and unresolved owner questions.
+  operating rules, and unresolved owner questions.
 - [`decisions/`](decisions/README.md) — accepted architecture decision
   records (ADRs). New hard-to-reverse choices land here.
 

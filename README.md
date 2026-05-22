@@ -21,6 +21,7 @@ brew install uv
 uv sync --group dev   # creates .venv, installs package + dev tools (ruff, ty)
 uv run python -m unittest discover -s tests/unit
 uv run ruff format --check .
+uv run python scripts/lint_docs.py
 uv run ty check src
 ```
 
@@ -31,20 +32,18 @@ is installed and fall back to `python3`; they also set `PYTHONPATH=src` for the
 current src-layout:
 
 ```bash
-bash runs/run_examples.sh
 bash runs/run_bash_agent_demo.sh
 ```
 
-The same checks (`ruff format --check .`, `ty check src`, and the unittest
-suite on Python 3.10 through 3.13) run on every push and pull request via
-[GitHub Actions](.github/workflows/ci.yml).
+The same checks (`ruff format --check .`, docs lint, `ty check src`, and the
+unittest suite on Python 3.10 through 3.13) run on every push and pull request
+via [GitHub Actions](.github/workflows/ci.yml).
 
 ## Current Status
 
-The canonical runtime lives in `src/simple_agent_lab/core.py` — promoted from
-the original balanced-runtime sketch per ADR 0009. The earlier
-side-by-side architectural sketches under `examples/design_versions/` have been
-folded into the package and removed; ADRs 0005 and 0009 record that decision.
+The canonical runtime lives in `src/simple_agent_lab/core.py`. Earlier
+side-by-side architectural sketches under `examples/design_versions/` have
+been folded into the package and removed.
 
 The shared message protocol is deliberately small and role-specific:
 
@@ -67,15 +66,9 @@ sidecar `data`. Provider-boundary `ModelMessage` values remove runtime routing
 fields and keep structured content blocks for text, images, thinking, and tool
 calls.
 
-The committed architectural direction (a small, message-first runtime
-rather than a heavy framework) is recorded in
-[ADR 0001](docs/decisions/0001-use-tiny-message-runtime.md). The
-self-evolution harness direction is recorded in
-[ADR 0004](docs/decisions/0004-treat-self-evolution-as-harness-capability.md),
-the lead runtime direction is recorded in
-[ADR 0005](docs/decisions/0005-make-balanced-runtime-the-lead-core-candidate.md),
-and the promotion into `src` is recorded in
-[ADR 0009](docs/decisions/0009-promote-balanced-runtime-to-src-core.md).
+The architecture decision history lives in
+[docs/decisions](docs/decisions/README.md); keep detailed rationale there
+instead of expanding the public README.
 
 ## Project Goals
 
@@ -96,12 +89,10 @@ unittest, run by `runs/run_ci.sh` locally and `.github/workflows/ci.yml`
 remotely) are spelled out in
 [docs/agent-native/development.md](docs/agent-native/development.md).
 
-The training-data direction (deterministic trajectory → eval → training
-example pipeline) is recorded in
-[ADR 0008](docs/decisions/0008-collect-training-trajectories-across-design-versions.md).
-The original design-version pipeline that backed it has been retired alongside
-`examples/design_versions/`; a replacement targeting the canonical runtime is
-not yet wired up.
+Training-data and eval architecture notes also live under
+[docs/decisions](docs/decisions/README.md). The original design-version
+pipeline has been retired alongside `examples/design_versions/`; a replacement
+targeting the canonical runtime is not yet wired up.
 
 ## Non-Goals
 
@@ -113,7 +104,7 @@ not yet wired up.
 ## Repository Map
 
 - [AGENTS.md](AGENTS.md): collaboration rules for coding agents and contributors.
-- [docs/agent-native](docs/agent-native/README.md): the single future-agent loading map, plus project intent, code style, development workflow, doc inventory, source-of-truth routing, and unresolved owner questions.
+- [docs/agent-native](docs/agent-native/README.md): the single future-agent loading map, plus project intent, code style, development workflow, source-of-truth routing, and unresolved owner questions.
 - [docs/decisions](docs/decisions/README.md): architecture decision records.
 - [docs/glossary.md](docs/glossary.md): shared vocabulary.
 - [src/simple_agent_lab](src/simple_agent_lab/core.py): the installable package - `core.py` (canonical tiny run loop), `trace.py` (trace printing and OpenAI Chat JSONL export), `context_view.py` (model-visible context projection), `messages.py` (shared message protocol), `tools/` (shared tool values plus concrete tools like bash), `trajectory.py` (runtime-neutral trace records), `llm/` (shared LLM access layer and message bridge), and `agents/` (preset agents like the bash-use demo, built on top of the core layers).

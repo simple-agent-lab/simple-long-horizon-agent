@@ -19,20 +19,20 @@ check.
 
 ## The quality gate
 
-Three checks must pass before a change ships. They're cheap; run them often.
+Four checks must pass before a change ships. They're cheap; run them often.
 
 | Check | Command | Scope |
 | --- | --- | --- |
 | Format | `uv run ruff format --check .` | Python code in the repo |
+| Docs lint | `uv run python scripts/lint_docs.py` | Local Markdown links and backticked path references |
 | Type check | `uv run ty check src` | Every module under `src/` |
 | Unit tests | `uv run python -m unittest discover -s tests/unit` | Every unit test under `tests/unit/` |
 
 All checks must exit `0`. Use `uv run ruff format .` to format Python code
 before running the check. There are no warn-only or skip lists — if a diagnostic
 is wrong, fix the code or fix the type, do not silence the checker. The only
-sanctioned suppression is `cast(...)` for known type-checker limitations (e.g.
-the `Mapping` parametrized-isinstance narrowing in `core.py:resolve_request_extra`),
-and only with a one-line comment explaining why.
+sanctioned suppression is a narrow `cast(...)` or `type: ignore[...]` for known
+type-checker limitations, and only with a one-line comment explaining why.
 
 ## Local CI
 
@@ -48,9 +48,11 @@ The script:
 1. Verifies `uv` is installed (fails fast if not).
 2. Runs `uv sync --group dev` so the dev tools are present.
 3. Runs `uv run ruff format --check .`.
-4. Runs `uv run ty check src`.
-5. Runs `uv run python -m unittest discover -s tests/unit`.
-6. Prints `All CI checks passed.` only if every step exited `0`.
+4. Runs `uv run python scripts/lint_docs.py`.
+5. Runs `uv run ty check src`.
+6. Runs `uv run python -m unittest discover -s tests/unit`.
+7. Runs `bash runs/run_bash_agent_demo.sh` so the public teaching demo stays runnable.
+8. Prints `All CI checks passed.` only if every step exited `0`.
 
 If you want the same checks individually (e.g. while iterating on one of
 them), run the commands from the table above directly. `run_ci.sh` is the
@@ -64,9 +66,11 @@ request. The workflow is at [`.github/workflows/ci.yml`](../../.github/workflows
 Three job groups run in parallel:
 
 - **`tests / py3.10`** through **`tests / py3.13`** — the unittest suite on
-  supported interpreters.
+  supported interpreters, plus the deterministic bash-agent demo smoke.
 - **`ty / src`** — the type check, on Python 3.13 only. ty's diagnostics
   don't depend on the runtime Python version, so a single job is enough.
+- **`docs lint`** — local Markdown link and backticked path-reference checks,
+  on Python 3.13 only.
 - **`ruff format / check`** — the formatter check, on Python 3.13 only. Run
   `uv run ruff format .` locally when this fails.
 

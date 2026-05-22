@@ -9,8 +9,8 @@ Simple Agent Lab should make agent systems easier to understand, modify, and tea
 ## Working Principles
 
 - Read this file, `README.md`, and the relevant docs before editing.
-- Follow the harness engineering workflow in `docs/agent-native/harness-engineering.md`.
-- Follow the nanochat-inspired code style in `docs/agent-native/code-style.md`.
+- Use `docs/agent-native/README.md` to load the relevant workflow, style,
+  validation, and context docs for the task.
 - Treat tests and feedback as first-priority work; define the feedback signal before editing code.
 - Prefer small, explicit modules over clever abstractions.
 - Preserve beginner readability unless there is a clear reason not to.
@@ -25,10 +25,10 @@ This repo uses a small progressive-disclosure documentation system for future ag
 Read this first:
 
 - `docs/agent-native/README.md` is the single agent-facing loading map. It
-  routes future agents to doc inventory, operating rules, context docs, ADRs,
-  runbooks, and tests as needed.
+  routes future agents to operating rules, context docs, ADRs, runbooks, and
+  tests as needed.
 - `docs/decisions/` is this repo's ADR directory; do not create a parallel
-  `docs/adr/` tree.
+  ADR tree.
 
 Maintenance principles:
 
@@ -36,9 +36,11 @@ Maintenance principles:
 - Agent-native docs are for context and decision preferences that code does not contain: user or owner guidance, source-of-truth rules, validation workflows, stop conditions, and architectural boundaries.
 - Keep the documentation set small and navigable. Reuse existing topic docs whenever possible.
 - Do not create tiny one-off docs for a single bug, owner answer, feature, or test unless it creates a new loading trigger.
-- If doc roles, freshness, or loading triggers change, update `docs/agent-native/doc-inventory.md`.
-- If future agents should load different docs, update the loading map in `docs/agent-native/README.md`.
-- Put unresolved owner or external-system facts in `docs/agent-native/owner-questions.md`.
+- If doc roles, freshness, or loading triggers change, update the loading map
+  in `docs/agent-native/README.md`.
+- If future agents should load different docs, update the same loading map.
+- Put unresolved owner or external-system facts in the owner-question doc named
+  by the agent loading map.
 - Use ADRs only for hard-to-reverse decisions with real tradeoffs; link ADRs from the relevant agent-native doc instead of duplicating them.
 
 ## Goals

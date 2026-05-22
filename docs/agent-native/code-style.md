@@ -99,7 +99,7 @@ docs/                   # design notes and decisions
 
 For now, `src/simple_agent_lab/core.py` is the canonical balanced runtime,
 `src/simple_agent_lab/llm/` is the shared provider-agnostic LLM access
-layer, and `scripts/run_tiny_demo.py` is the reference demo.
+layer, and `scripts/run_bash_agent_demo.py` is the reference demo.
 
 ## Script Style
 

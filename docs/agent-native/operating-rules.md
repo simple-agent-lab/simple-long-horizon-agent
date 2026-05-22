@@ -2,117 +2,110 @@
 
 Read when:
 
-- You are changing runtime behavior, message contracts, context visibility,
-  tool execution, eval/trajectory records, validation gates, or repo docs.
+- You are changing behavior, public contracts, validation gates, eval records,
+  generated artifacts, or doc routing.
+- You are unsure whether a change needs more evidence, owner input, or an ADR.
 
 Do not read for:
 
-- Small typo fixes in docs that do not change loading paths or source-of-truth
-  rules.
+- Small typo fixes that do not change loading paths, commands, or policy.
 - Purely mechanical formatting changes that do not alter behavior.
 
-Sources:
+This file is a maintenance policy, not a loading map. Use the agent-native
+README to choose task-specific code, docs, tests, runbooks, and ADRs.
 
-- Working tree inspected on 2026-05-11.
-- `AGENTS.md`, `README.md`, `CONTEXT.md`, `docs/agent-native/`, `docs/decisions/`,
-  `src/simple_agent_lab/`, `runs/README.md`, `tests/README.md`,
-  `evals/README.md`, and `evals/swebench/README.md`.
+## Source-Of-Truth Principles
 
-Freshness:
+- Code wins for behavior that is visible in the implementation.
+- Tests, smoke scripts, and CI config win for what is actually verified.
+- The public README wins for the user-facing project tour and setup path.
+- The agent loading map wins for what future agents should read first.
+- ADRs win for durable architecture decisions and rejected alternatives.
+- Topic docs should explain intent, constraints, and maintenance preferences
+  that code does not make obvious.
+- Generated artifacts, local eval outputs, traces, and scratch notes are not
+  source of truth.
 
-- Re-check `git status`, `README.md`, `docs/decisions/README.md`, and
-  `runs/README.md` before relying on this doc after runtime or eval changes.
-- Live external provider and benchmark setup is not verified by this doc.
+When sources disagree, update the stale source or record the unresolved owner
+question. Do not make a second doc repeat the same detailed fact unless it is
+needed as a routing hint.
 
-## Source-Of-Truth Map
+## Maintenance Flow
 
-| Disputed fact | Source that wins | Agent action |
-| --- | --- | --- |
-| What runtime is canonical | `src/simple_agent_lab/core.py`, ADR 0009 | Do not revive retired design-version copies as implementation targets. |
-| Whether a new abstraction belongs in core | ADR 0001, ADR 0009, `docs/agent-native/code-style.md` | Keep additions small and explicit unless an ADR accepts the tradeoff. |
-| Message and provider-boundary shape | `CONTEXT.md`, `src/simple_agent_lab/messages.py`, ADR 0006, `src/simple_agent_lab/llm/README.md` | Keep runtime routing fields out of provider-boundary payloads. |
-| Context visibility and budget behavior | `src/simple_agent_lab/context_view.py`, ADR 0010, `tests/unit/test_core.py`, `tests/unit/test_token_usage.py` | Preserve full history in `State`; project model-visible context explicitly. |
-| Tool result semantics | `src/simple_agent_lab/tools/`, `src/simple_agent_lab/core.py`, bash tests | Tool outputs become `tool_result` messages; `details` are local inspection data. |
-| Trace/eval/training separation | `src/simple_agent_lab/trajectory.py`, ADR 0008 | Do not put scores or training labels into raw trajectory records. |
-| Benchmark suite boundaries | ADR 0011, `evals/swebench/README.md` | Keep suite-specific heavy dependencies outside the minimal core runtime. |
-| Local quality gate | `docs/agent-native/development.md`, `runs/run_ci.sh`, `.github/workflows/ci.yml` | Keep local and remote gates in lockstep when checks change. |
-| Architecture decisions | `docs/decisions/` | Use this repo's ADR directory; do not create `docs/adr/`. |
-| Normal repo boundary | Owner confirmation on 2026-05-11, `docs/agent-native/README.md` | Treat this checkout as self-contained unless a task explicitly names an external repo or system. |
-| First live provider adapter target | Owner confirmation on 2026-05-11, `src/simple_agent_lab/llm/README.md` | Implement `openai-chat` first; keep live-provider smoke opt-in and outside required CI unless owner policy changes. |
+1. Start from the loading map and inspect the current source of truth.
+2. Decide the feedback signal before editing: unit test, smoke run, eval,
+   trace, type check, format check, or explicit review checklist.
+3. Make the smallest change that resolves the mismatch.
+4. Keep public examples small, runnable, and free of external services by
+   default.
+5. Update docs only where the reader needs non-obvious context or a changed
+   command/path.
+6. If a change creates a hard-to-reverse architectural commitment, add or
+   update an ADR instead of burying the decision in a topic doc.
 
-## Directly Editable
+## Usually Safe To Edit
 
 Agents can usually edit these with code evidence and a narrow check:
 
-- Small runtime behavior covered by focused unit tests.
-- New deterministic examples that keep defaults runnable without external
-  services.
-- Documentation routing, stale links, and inventory freshness.
-- Reference architecture notes before implementation begins.
-- Task specs for handoffable work.
+- Small behavior covered by focused tests.
+- Deterministic examples and smoke scripts.
+- Stale commands, stale links, and doc routing.
+- Local reference notes before implementation begins.
+- Handoff notes that are clearly temporary and not architectural decisions.
 
 ## Needs More Evidence
 
-Collect code, doc, or config evidence before editing:
+Collect code, doc, test, or config evidence before editing:
 
-- Public exports in `src/simple_agent_lab/__init__.py`.
-- Message role names, content block shapes, tool-call fields, and token usage.
-- Vocabulary that affects how docs distinguish `Message`, `ModelMessage`,
-  provider payloads, and content blocks.
-- Context budget rules, clipping, or grouping around tool-call/tool-result
-  pairs.
-- CI gate changes in `runs/run_ci.sh`, `.github/workflows/ci.yml`, and
-  `docs/agent-native/development.md`.
-- Eval output schema changes under `evals/out/` or shared record modules.
+- Public API surface and package exports.
+- Message roles, content blocks, tool-call fields, and token usage semantics.
+- Context budgeting, trimming, or grouping behavior.
+- Validation gate changes across local and remote checks.
+- Eval output schemas, trajectory records, and training/export formats.
+- Optional dependency policy, especially when external services or containers
+  are involved.
 
 ## Needs Owner Confirmation
 
 Ask or record a question before changing:
 
-- Changing the first live provider adapter away from `openai-chat`.
-- Whether external benchmark dependencies such as SWE-bench and Docker should
-  become part of required CI or remain optional smoke paths.
-- Release ownership, reviewer expectations, and publishing flow after the first
-  open-source release prep.
+- Required-vs-optional status for live providers, Docker, or benchmark suites.
+- Release ownership, reviewer expectations, tagging, or publishing flow.
+- Product positioning, teaching audience, or scope boundaries that are not
+  already reflected in the public README, loading map, or ADRs.
 
-## Validation Map
+## Validation Selection
+
+Choose the narrowest useful check first, then broaden when the blast radius
+crosses module boundaries.
 
 | Change type | Narrow check | Broader check |
 | --- | --- | --- |
-| Formatting-only or broad Python edits | `uv run ruff format --check .` | `bash runs/run_ci.sh` |
-| Core runtime, messages, tools, context | `uv run python -m unittest discover -s tests/unit` | `bash runs/run_ci.sh` |
-| Type or public API surface | `uv run ty check src` | `bash runs/run_ci.sh` |
-| Public example behavior | `bash runs/run_examples.sh` | `bash runs/run_ci.sh` if package code changed |
-| Bash-use agent demo | `bash runs/run_bash_agent_demo.sh` and `uv run python -m unittest tests.test_bash_agent` | `bash runs/run_ci.sh` |
-| SWE-bench adapter plumbing | `bash runs/run_swebench_smoke.sh` | `bash runs/run_swebench_gold_smoke.sh` only when optional SWE-bench and Docker setup exist |
-| Docs-only routing change | Review links and loading map manually; run the smallest affected command only if examples or commands changed | `bash runs/run_ci.sh` is optional unless code or command contracts changed |
+| Formatting-only or broad Python edits | Formatter check | Full local CI gate |
+| Core runtime, messages, tools, or context | Focused unit tests | Full local CI gate |
+| Type or public API surface | Type check | Full local CI gate |
+| Public examples or run scripts | Affected smoke script | Full local CI gate |
+| Eval or benchmark adapter plumbing | Local deterministic smoke | Optional external suite only when configured |
+| Docs-only routing change | Link/loading-map review | Full local CI only if commands changed |
 
-## Hidden Boundaries Worth Preserving
+## Boundaries Worth Preserving
 
-- The project optimizes for students and small teams. Beginner readability is a
-  product constraint, not only a style preference.
-- `State.events` is the inspectable run trace. Do not add a separate trace store
-  until a runnable experiment proves the need.
-- `context_view` is a projection, not storage. It may trim model-visible input,
-  but it must not mutate durable history.
-- `TokenUsage.input_tokens` is per-call aggregate data. Do not split it across
-  earlier input messages as if it were per-message accounting.
-- The fake LLM adapter is a deterministic boundary exerciser. Examples should
-  not bypass the real message/tool path by stuffing response text into
-  provider-specific `extra`.
-- SWE-bench gold `patch` and `test_patch` fields belong to scoring, not the
-  model-visible task.
-- `evals/out/` is generated local artifact data and should not become source of
-  truth.
+- Beginner readability is a product constraint, not only a style preference.
+- Keep durable history separate from model-visible context projections.
+- Keep raw trajectory facts separate from eval scores and training labels.
+- Keep provider-specific details at provider boundaries.
+- Keep heavy benchmark dependencies outside the minimal core runtime unless
+  the owner explicitly changes that policy.
+- Keep generated outputs in ignored artifact directories, not in source docs.
 
 ## ADR Boundary
 
-Create or update an ADR under `docs/decisions/` only when all of these are true:
+Create or update an ADR only when all of these are true:
 
 - The decision is hard or expensive to reverse.
 - Future agents or engineers would otherwise wonder why the system is shaped
   this way.
 - There is a real tradeoff between credible alternatives.
 
-Otherwise, update the relevant context doc, task spec, reference note, test, or
-run script.
+Otherwise, update the relevant code, test, topic doc, run script, reference
+note, or loading-map entry.

@@ -37,11 +37,11 @@ def make_llm_step(
     """Build an Agent.step function backed by the shared LLM layer."""
 
     def step(agent: "Agent", visible: "list[Message]", state: "State") -> "Message":
-        tools = state.data.get("tools") or {}
+        del state
         request = LLMRequest(
             provider=provider,
             messages=messages_to_llm_messages(visible),
-            tools=[tool_to_llm_tool(tool) for tool in tools.values()],
+            tools=[tool_to_llm_tool(tool) for tool in agent.tools],
             system_prompt=system_prompt or agent.role or None,
         )
         response = llm_complete(request)

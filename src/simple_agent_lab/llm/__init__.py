@@ -6,14 +6,13 @@ Three-piece public surface:
   - Provider config: `Provider` (data, no subclasses).
   - Calls: `iter_stream(req)` for streaming, `complete(req)` for blocking.
 
-All sync. Each agent loop (01 / 02 / 03) projects its own `Message` and the
-shared `simple_agent_lab.tools.Tool` values to these types at the boundary;
-this layer never sees agent-loop routing fields (sender, target, kind,
-channel).
+All sync. The agent runtime projects its own `Message` and the shared
+`simple_agent_lab.tools.Tool` values to these types at the boundary; this layer
+never sees agent-loop routing fields (sender, target, kind, channel).
 
 To add a new provider, write an adapter function and register it::
 
-    from llm import LLMRequest, StreamEvent, register_adapter
+    from simple_agent_lab.llm import LLMRequest, StreamEvent, register_adapter
 
     def stream(req: LLMRequest):
         # ... talk to your API, yield StreamEvents, last one kind="done"

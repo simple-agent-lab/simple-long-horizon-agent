@@ -53,4 +53,5 @@ that a tool call, tool result, second tool call, and final answer round-trip
 through the Responses adapter.
 
 Set `E2E_TRACE_PATH=evals/out/live_openai_responses_tool_trace.json` to write a
-compact, token-free runtime trace for inspection.
+provider-neutral trajectory record for inspection. Tool definitions live on each
+model turn / model-request event because the available tools can change by step.

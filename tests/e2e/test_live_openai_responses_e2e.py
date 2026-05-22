@@ -8,7 +8,7 @@ from pathlib import Path
 
 from simple_agent_lab.agents.bash import make_bash_agent
 from simple_agent_lab.llm import Provider
-from simple_agent_lab.messages import message_text, message_tool_calls, tool_results_of
+from simple_agent_lab.trajectory import run_trace_from_state, trace_record
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -84,121 +84,29 @@ def write_trace_if_requested(
     if not path.is_absolute():
         path = ROOT / path
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(
-            {
-                "provider": {
-                    "id": provider.id,
-                    "api": provider.api,
-                    "model": provider.model,
-                    "base_url_set": bool(provider.base_url),
-                    "api_key_env": provider.api_key_env,
-                },
-                "task": state.task,
-                "file_check": {
-                    "filename": filename,
-                    "exists": file_exists,
-                    "text": file_text,
-                },
-                "event_count": len(state.events),
-                "steps": trace_steps(state.events),
+    trace = run_trace_from_state(
+        state=state,
+        trace_id="live.openai_responses.tool_trace",
+        producer="tests:e2e.openai_responses",
+        meta={
+            "provider": {
+                "id": provider.id,
+                "api": provider.api,
+                "model": provider.model,
+                "base_url_set": bool(provider.base_url),
+                "api_key_env": provider.api_key_env,
             },
-            ensure_ascii=False,
-            indent=2,
-        )
-        + "\n",
+            "file_check": {
+                "filename": filename,
+                "exists": file_exists,
+                "text": file_text,
+            },
+        },
+    )
+    path.write_text(
+        json.dumps(trace_record(trace), ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-
-
-def trace_steps(events) -> list[dict[str, object]]:
-    steps: list[dict[str, object]] = []
-    for event in events:
-        kind = str(event.kind)
-        if kind == "model_request":
-            steps.append(
-                {
-                    "event": kind,
-                    "agent": event.agent,
-                    "visible_count": event.visible_count,
-                    "llm_message_count": event.llm_message_count,
-                    "tools": [
-                        {
-                            "name": tool["name"],
-                            "description": tool["description"],
-                            "parameters": tool["parameters"],
-                        }
-                        for tool in event.tools
-                    ],
-                }
-            )
-        elif kind == "model_response":
-            steps.append(
-                {
-                    "event": kind,
-                    "agent": event.agent,
-                    "output_kind": event.output_kind,
-                    "tool_call_count": event.tool_call_count,
-                }
-            )
-        elif kind == "tool_execution_start":
-            steps.append(
-                {
-                    "event": kind,
-                    "tool_call_id": event.tool_call_id,
-                    "tool_name": event.tool_name,
-                }
-            )
-        elif kind == "tool_execution_end":
-            steps.append(
-                {
-                    "event": kind,
-                    "tool_call_id": event.tool_call_id,
-                    "tool_name": event.tool_name,
-                    "is_error": event.is_error,
-                    "terminate": event.terminate,
-                }
-            )
-        elif kind == "message":
-            steps.append(message_step(event.message))
-    return steps
-
-
-def message_step(message) -> dict[str, object]:
-    item: dict[str, object] = {
-        "event": "message",
-        "role": message.role,
-        "sender": message.sender,
-        "target": message.target,
-        "message_kind": message.kind,
-    }
-    text = message_text(message).strip()
-    if text:
-        item["text"] = text[:1200]
-
-    calls = message_tool_calls(message)
-    if calls:
-        item["tool_calls"] = [
-            {
-                "id": call.id,
-                "name": call.name,
-                "arguments": call.arguments,
-            }
-            for call in calls
-        ]
-
-    results = tool_results_of(message.content)
-    if results:
-        item["tool_results"] = [
-            {
-                "tool_call_id": result.tool_call_id,
-                "tool_name": result.tool_name,
-                "is_error": result.is_error,
-                "text": message_text(result).strip()[:1200],
-            }
-            for result in results
-        ]
-    return item
 
 
 class LiveOpenAIResponsesE2ETest(unittest.TestCase):

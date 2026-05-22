@@ -18,12 +18,10 @@ from typing import Any, Callable
 
 from simple_agent_lab.agents.bash import make_bash_agent
 from simple_agent_lab.llm import Provider as LLMProvider
-from simple_agent_lab.protocols import Event, MessageEvent, ModelRequestEvent
 from simple_agent_lab.state import State
 from simple_agent_lab.trajectory import (
-    ModelTurn,
     RunTrace,
-    json_safe,
+    run_trace_from_state,
     trace_record,
     write_jsonl,
 )
@@ -285,13 +283,10 @@ def trace_from_state(
 ) -> RunTrace:
     instance_id = str(instance["instance_id"])
     trace_id = f"swebench.{instance_id}"
-    return RunTrace(
+    return run_trace_from_state(
+        state=state,
         trace_id=trace_id,
         producer="suite:swebench",
-        task=state.task,
-        messages=json_safe(state.messages),
-        events=json_safe(state.events),
-        model_turns=model_turns_from_events(trace_id, state.events),
         meta={
             "suite": "swebench",
             "dataset_name": dataset_name,
@@ -303,53 +298,6 @@ def trace_from_state(
             "workspace": state.data.get("workspace"),
         },
     )
-
-
-def model_turns_from_events(trace_id: str, events: list[Event]) -> list[ModelTurn]:
-    turns: list[ModelTurn] = []
-    pending: dict[str, Any] | None = None
-    model_call_index = 0
-
-    for event in events:
-        if isinstance(event, ModelRequestEvent):
-            model_call_index += 1
-            pending = {
-                "agent": str(event.agent or ""),
-                "input_messages": event.llm_payload,
-                "tools": event.tools,
-                "request_event_index": event.index,
-                "meta": {
-                    "visible_count": event.visible_count,
-                    "model_message_count": event.llm_message_count,
-                },
-            }
-            continue
-
-        if not isinstance(event, MessageEvent) or pending is None:
-            continue
-        message = event.message
-        if message.role != "assistant":
-            continue
-        agent = pending["agent"] or message.sender
-        if message.sender != agent:
-            continue
-        turns.append(
-            ModelTurn(
-                step_id=f"{trace_id}.model{model_call_index}",
-                agent=agent,
-                input_messages=json_safe(pending["input_messages"]),
-                output_message=json_safe(message),
-                tools=json_safe(pending["tools"]),
-                meta={
-                    **pending["meta"],
-                    "request_event_index": pending["request_event_index"],
-                    "message_event_index": event.index,
-                },
-            )
-        )
-        pending = None
-
-    return turns
 
 
 def main() -> None:

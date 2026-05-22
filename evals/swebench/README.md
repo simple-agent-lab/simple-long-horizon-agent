@@ -12,8 +12,8 @@ The adapter keeps the existing Simple Agent Lab split:
   files.
 - `evaluate_predictions.py` runs or normalizes the official SWE-bench harness
   result into `EvalResult` records.
-- Training examples are still exported by the shared
-  `scripts/export_training_examples.py` script after eval labels exist.
+- Training/export flows should build from shared trajectory records after eval
+  labels exist.
 
 ## Local Adapter Smoke
 

@@ -9,12 +9,15 @@ from typing import cast
 from simple_agent_lab import (
     AgentTool,
     ToolResult,
+    event_record,
     message_text,
+    run_trace_from_state,
     tool_result_text,
     tool_results_of,
 )
 from simple_agent_lab.agents.bash import make_bash_agent
 from simple_agent_lab.llm import Provider
+from simple_agent_lab.trajectory import trace_record
 from simple_agent_lab.tools.bash import (
     MAX_BASH_TIMEOUT_SECONDS,
     _resolve_timeout,
@@ -108,6 +111,33 @@ class BashToolTest(unittest.TestCase):
             any(event.kind == "tool_execution_start" for event in state.events)
         )
         self.assertTrue(any(event.kind == "model_request" for event in state.events))
+
+    def test_run_trace_from_state_captures_model_turn_tools(self) -> None:
+        agent = make_bash_agent(provider=FAKE_PROVIDER, cwd=ROOT)
+        state, events = agent.run(
+            "Use bash to run command: `printf 'trace ok\\n'`",
+            max_turns=3,
+        )
+        for _ in events:
+            pass
+
+        trace = run_trace_from_state(
+            state=state,
+            trace_id="test.bash_agent",
+            producer="tests",
+        )
+
+        self.assertGreaterEqual(len(trace.model_turns), 2)
+        first_turn = trace.model_turns[0]
+        self.assertEqual(first_turn.agent, "bash_agent")
+        self.assertEqual(first_turn.tools[0]["name"], "bash")
+        self.assertEqual(first_turn.meta["visible_count"], 1)
+        event_kinds = [event["kind"] for event in trace.events]
+        self.assertIn("model_request", event_kinds)
+        self.assertIn("tool_execution_start", event_kinds)
+        record = trace_record(trace)
+        self.assertEqual(record["events"][0]["kind"], "message")
+        self.assertEqual(event_record(state.events[0])["kind"], "message")
 
 
 class BashToolCrashSafetyTest(unittest.TestCase):
