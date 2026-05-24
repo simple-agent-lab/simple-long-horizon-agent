@@ -16,7 +16,9 @@ from collections.abc import Sequence
 from typing import Any
 
 from simple_agent_lab.messages import (
+    AgentName,
     Message,
+    MessageKind,
     TextBlock,
     TokenUsage,
     assistant_message,
@@ -68,9 +70,9 @@ def tool_to_llm_tool(tool: Tool | AgentTool) -> LLMTool:
 def llm_response_to_assistant_message(
     response: LLMResponse,
     *,
-    sender: str,
-    target: str,
-    kind: str,
+    sender: AgentName,
+    target: AgentName,
+    kind: MessageKind,
     data: dict[str, Any] | None = None,
 ) -> Message:
     """Wrap a drained LLM response in a runtime AssistantMessage.

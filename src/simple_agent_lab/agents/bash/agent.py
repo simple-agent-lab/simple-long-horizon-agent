@@ -9,8 +9,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from simple_agent_lab.core import Agent
-from simple_agent_lab.llm.step import make_llm_step
 from simple_agent_lab.llm import Provider as LLMProvider
+from simple_agent_lab.llm_agent import make_llm_agent
 from simple_agent_lab.tools.bash import make_bash_tool
 
 BASH_AGENT_SYSTEM_PROMPT = (
@@ -38,14 +38,11 @@ def make_bash_agent(
     Consumers (eval suites, demos, custom flows) own provider choice so
     this preset stays independent of fake or live model policy.
     """
-
-    return Agent(
+    return make_llm_agent(
         name=name,
+        provider=provider,
         role=role,
-        step=make_llm_step(
-            provider,
-            system_prompt=system_prompt,
-            target="user",
-        ),
         tools=[make_bash_tool(cwd=cwd)],
+        system_prompt=system_prompt,
+        target="user",
     )

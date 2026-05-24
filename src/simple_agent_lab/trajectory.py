@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 import json
 
-from .protocols import Event, MessageEvent, ModelRequestEvent
+from .protocols import ContextCompressionEvent, Event, MessageEvent, ModelRequestEvent
 
 
 SCHEMA = "simple-agent-lab.trajectory.v1"
@@ -65,13 +65,21 @@ def run_trace_from_state(
 
 
 def event_record(event: Event) -> dict[str, Any]:
-    """Serialize one runtime event with its discriminator intact."""
+    """Serialize one runtime event with its discriminator intact.
 
-    return {
-        "kind": event.kind.value,
-        "index": event.index,
-        **json_safe(event.data),
-    }
+    Each event is already a typed dataclass; `json_safe` recursively
+    converts it (and any nested `Message` / blocks) into JSON-shaped
+    values. We prepend `kind` so downstream consumers can dispatch on
+    the discriminator before deciding which other fields they need.
+    """
+
+    record: dict[str, Any] = {"kind": event.kind.value, **json_safe(event)}
+    if isinstance(event, ContextCompressionEvent):
+        # Derived view: `active_message_indices` is computed from the other
+        # three index lists. We surface it in the trace so downstream tools
+        # don't have to repeat the compose logic.
+        record["active_message_indices"] = event.active_message_indices
+    return record
 
 
 def model_turns_from_events(trace_id: str, events: Iterable[Event]) -> list[ModelTurn]:

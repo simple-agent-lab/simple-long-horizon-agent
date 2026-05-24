@@ -1,4 +1,11 @@
-"""Typed runtime events shared across the agent loop and tool dispatch."""
+"""Typed runtime events shared across the agent loop and tool dispatch.
+
+Every event is a frozen dataclass with explicitly named fields. Each one
+carries a stable `kind: EventKind` discriminator so callers can pattern-match
+with `isinstance` (preferred) or filter on `event.kind`. Serializers should
+go through `trajectory.event_record` (or `dataclasses.asdict`) rather than
+poking individual fields.
+"""
 
 from __future__ import annotations
 
@@ -30,31 +37,23 @@ class EventKind(str, Enum):
 
 
 class RuntimeEvent(Protocol):
+    """Structural shape of every runtime event.
+
+    Every concrete event has an integer `index` and a `kind` discriminator.
+    Callers that need a specific event's fields should narrow with
+    `isinstance(event, ConcreteEvent)`; the typed fields are the source
+    of truth.
+    """
+
     index: int
 
     @property
-    def kind(self) -> EventKind:
-        """Stable event discriminator for trace filtering."""
-        ...
-
-    @property
-    def message(self) -> Message | None:
-        """Message carried by message events, otherwise None."""
-        ...
-
-    @property
-    def data(self) -> dict[str, Any]:
-        """Dict view kept for trace formatting and migration compatibility."""
-        ...
+    def kind(self) -> EventKind: ...
 
 
 @dataclass(frozen=True)
 class _BaseEvent:
     index: int
-
-    @property
-    def message(self) -> Message | None:
-        return None
 
 
 @dataclass(frozen=True)
@@ -66,20 +65,12 @@ class MessageEvent:
     def kind(self) -> EventKind:
         return EventKind.MESSAGE
 
-    @property
-    def data(self) -> dict[str, Any]:
-        return {"message": self.message}
-
 
 @dataclass(frozen=True)
 class AgentStartEvent(_BaseEvent):
     @property
     def kind(self) -> EventKind:
         return EventKind.AGENT_START
-
-    @property
-    def data(self) -> dict[str, Any]:
-        return {}
 
 
 @dataclass(frozen=True)
@@ -90,10 +81,6 @@ class AgentEndEvent(_BaseEvent):
     def kind(self) -> EventKind:
         return EventKind.AGENT_END
 
-    @property
-    def data(self) -> dict[str, Any]:
-        return {"reason": self.reason}
-
 
 @dataclass(frozen=True)
 class TurnStartEvent(_BaseEvent):
@@ -102,10 +89,6 @@ class TurnStartEvent(_BaseEvent):
     @property
     def kind(self) -> EventKind:
         return EventKind.TURN_START
-
-    @property
-    def data(self) -> dict[str, Any]:
-        return {"agent": self.agent}
 
 
 @dataclass(frozen=True)
@@ -117,43 +100,24 @@ class TurnEndEvent(_BaseEvent):
     def kind(self) -> EventKind:
         return EventKind.TURN_END
 
-    @property
-    def data(self) -> dict[str, Any]:
-        data: dict[str, Any] = {"agent": self.agent}
-        if self.terminated:
-            data["terminated"] = True
-        return data
-
 
 @dataclass(frozen=True)
 class ModelRequestEvent(_BaseEvent):
     agent: AgentName
     visible_count: int
     llm_message_count: int
+    # JSON-shaped trace records. Callers read by known keys; `Any` is
+    # deliberate — these dicts are heterogeneous trace data, not typed
+    # records, and static narrowing on every read would just be noise.
     visible: list[dict[str, Any]]
     context_view: dict[str, Any]
     tools: list[dict[str, Any]]
     llm_payload: list[Any]
-    candidate_id: Any = None
+    candidate_id: str | None = None
 
     @property
     def kind(self) -> EventKind:
         return EventKind.MODEL_REQUEST
-
-    @property
-    def data(self) -> dict[str, Any]:
-        data: dict[str, Any] = {
-            "agent": self.agent,
-            "visible_count": self.visible_count,
-            "llm_message_count": self.llm_message_count,
-            "visible": self.visible,
-            "context_view": self.context_view,
-            "tools": self.tools,
-            "llm_payload": self.llm_payload,
-        }
-        if self.candidate_id is not None:
-            data["candidate_id"] = self.candidate_id
-        return data
 
 
 @dataclass(frozen=True)
@@ -162,23 +126,11 @@ class ModelResponseEvent(_BaseEvent):
     output_kind: MessageKind
     target: AgentName
     tool_call_count: int
-    candidate_id: Any = None
+    candidate_id: str | None = None
 
     @property
     def kind(self) -> EventKind:
         return EventKind.MODEL_RESPONSE
-
-    @property
-    def data(self) -> dict[str, Any]:
-        data: dict[str, Any] = {
-            "agent": self.agent,
-            "output_kind": self.output_kind,
-            "target": self.target,
-            "tool_call_count": self.tool_call_count,
-        }
-        if self.candidate_id is not None:
-            data["candidate_id"] = self.candidate_id
-        return data
 
 
 @dataclass(frozen=True)
@@ -203,19 +155,6 @@ class ContextCompressionEvent(_BaseEvent):
             *self.recent_message_indices,
         ]
 
-    @property
-    def data(self) -> dict[str, Any]:
-        return {
-            "agent": self.agent,
-            "summary_message_index": self.summary_message_index,
-            "compressed_message_indices": self.compressed_message_indices,
-            "preserved_message_indices": self.preserved_message_indices,
-            "recent_message_indices": self.recent_message_indices,
-            "active_message_indices": self.active_message_indices,
-            "before_tokens": self.before_tokens,
-            "after_tokens": self.after_tokens,
-        }
-
 
 @dataclass(frozen=True)
 class ToolExecutionStartEvent(_BaseEvent):
@@ -225,13 +164,6 @@ class ToolExecutionStartEvent(_BaseEvent):
     @property
     def kind(self) -> EventKind:
         return EventKind.TOOL_EXECUTION_START
-
-    @property
-    def data(self) -> dict[str, Any]:
-        return {
-            "tool_call_id": self.tool_call_id,
-            "tool_name": self.tool_name,
-        }
 
 
 @dataclass(frozen=True)
@@ -244,14 +176,6 @@ class ToolExecutionUpdateEvent(_BaseEvent):
     def kind(self) -> EventKind:
         return EventKind.TOOL_EXECUTION_UPDATE
 
-    @property
-    def data(self) -> dict[str, Any]:
-        return {
-            "tool_call_id": self.tool_call_id,
-            "tool_name": self.tool_name,
-            "partial": self.partial,
-        }
-
 
 @dataclass(frozen=True)
 class ToolExecutionEndEvent(_BaseEvent):
@@ -263,15 +187,6 @@ class ToolExecutionEndEvent(_BaseEvent):
     @property
     def kind(self) -> EventKind:
         return EventKind.TOOL_EXECUTION_END
-
-    @property
-    def data(self) -> dict[str, Any]:
-        return {
-            "tool_call_id": self.tool_call_id,
-            "tool_name": self.tool_name,
-            "is_error": self.is_error,
-            "terminate": self.terminate,
-        }
 
 
 Event: TypeAlias = (
@@ -310,7 +225,7 @@ class EventRecorder(Protocol):
         *,
         tool_call_id: str,
         tool_name: str,
-        partial: ToolResult,
+        partial: "ToolResult",
     ) -> ToolExecutionUpdateEvent:
         """Record a partial tool update."""
         ...

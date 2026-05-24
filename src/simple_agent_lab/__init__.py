@@ -10,15 +10,12 @@ surface. Import them explicitly, e.g.::
 
 from .core import (
     Agent,
-    NextFn,
-    StepFn,
-    TransformFn,
+    GenerateFn,
     dispatch_tool_calls,
     run,
-    until_final,
 )
 from .state import State, StateSnapshot
-from .llm.step import make_llm_step
+from .llm_agent import make_llm_agent
 from .messages import make_message
 from .protocols import (
     AgentEndEvent,
@@ -100,10 +97,8 @@ __all__ = [
     "MessageEvent",
     "ModelRequestEvent",
     "ModelResponseEvent",
-    "NextFn",
+    "GenerateFn",
     "RuntimeEvent",
-    "StepFn",
-    "TransformFn",
     "ToolExecutionEndEvent",
     "ToolExecutionStartEvent",
     "ToolExecutionUpdateEvent",
@@ -143,7 +138,7 @@ __all__ = [
     "estimate_message_chars",
     "estimate_message_tokens",
     "make_message",
-    "make_llm_step",
+    "make_llm_agent",
     "message_text",
     "message_tool_calls",
     "print_trace",
@@ -157,7 +152,6 @@ __all__ = [
     "task_tool",
     "tool_result_message",
     "tool_results_message",
-    "until_final",
     "user_message",
     "AbortFlag",
     "AgentTool",

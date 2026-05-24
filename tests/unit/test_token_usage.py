@@ -17,11 +17,9 @@ from simple_agent_lab import (
     user_message,
 )
 from simple_agent_lab import (
-    Agent,
     State,
-    make_llm_step,
+    make_llm_agent,
     run,
-    until_final,
 )
 from simple_agent_lab.context_view import CHARS_PER_TOKEN
 from simple_agent_lab.llm import Provider as LLMProvider
@@ -355,21 +353,22 @@ class ContextStatsUsesUsageTest(unittest.TestCase):
 
 
 class EndToEndUsagePropagationTest(unittest.TestCase):
-    """End-to-end check: a real model step must land usage on the runtime message.
+    """End-to-end check: a real model turn must land usage on the runtime message.
 
-    This covers the wiring between core.make_llm_step → fake adapter → bridge
+    This covers the wiring between make_llm_agent → fake adapter → bridge
     → AssistantMessage. If any link drops the field, all the unit tests above
     can still pass while real runs lose usage data.
     """
 
-    def test_make_llm_step_records_usage_on_assistant_message(self) -> None:
+    def test_make_llm_agent_records_usage_on_assistant_message(self) -> None:
         provider = LLMProvider(id="fake", api="fake", model="fake-model")
-        step = make_llm_step(provider, system_prompt="say hi", target="user")
-        agent = Agent(name="writer", role="say hi", step=step)
+        agent = make_llm_agent(
+            name="writer", provider=provider, role="say hi", target="user"
+        )
         state = State("say hi please")
         state.send("task", "user", "writer", state.task)
 
-        for _ in run([agent], state, until_final("writer")):
+        for _ in run(agent, state):
             pass
 
         final = next(
