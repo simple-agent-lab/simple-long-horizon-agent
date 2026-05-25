@@ -12,7 +12,7 @@ projection. `core.py` stays focused on the loop itself.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Mapping
 
 from .bridge import (
     llm_response_to_assistant_message,
@@ -33,6 +33,7 @@ def make_llm_step(
     *,
     system_prompt: str = "",
     target: str = "all",
+    request_extra: Mapping[str, Any] | None = None,
 ) -> "StepFn":
     """Build an Agent.step function backed by the shared LLM layer."""
 
@@ -43,6 +44,7 @@ def make_llm_step(
             messages=messages_to_llm_messages(visible),
             tools=[tool_to_llm_tool(tool) for tool in agent.tools],
             system_prompt=system_prompt or agent.role or None,
+            extra=dict(request_extra or {}),
         )
         response = llm_complete(request)
         kind = "final" if response.stop_reason == "end_turn" else "thought"
