@@ -42,16 +42,6 @@ build artifacts such as `build/`, `dist/`, `node_modules/`, and compiled
 language outputs out of the prediction without adding a `.gitignore` change to
 the patch.
 
-Prepare provider wheels once on the host:
-
-```bash
-uv run python - <<'PY'
-from pathlib import Path
-from evals.swebench.containerized_agent import prepare_wheelhouse
-prepare_wheelhouse(Path("evals/out/wheelhouse/cp311-manylinux"))
-PY
-```
-
 Use `.env` for provider settings:
 
 ```bash
@@ -65,7 +55,30 @@ API_KIND=openai-chat
 `openai-chat`; set it to `openai-responses` to use the OpenAI Responses API.
 The launcher also passes `NO_PROXY` and `no_proxy` through when they exist.
 
-Run one containerized agent:
+The recommended entry points are the run scripts. With no instance argument,
+each script runs a small default instance. Passing one instance id runs that
+instance. Passing `--all` runs the full dataset split; use `--parallel N` to
+limit concurrent Docker/model runs:
+
+```bash
+bash runs/run_swebench_verified.sh
+bash runs/run_swebench_verified.sh sympy__sympy-23824
+bash runs/run_swebench_verified.sh --all --parallel 4
+
+bash runs/run_swebench_pro.sh
+bash runs/run_swebench_pro.sh instance_navidrome__navidrome-8e640bb8580affb7e0ea6225c0bbe240186b6b08
+bash runs/run_swebench_pro.sh --all --parallel 4
+```
+
+The scripts cache downloaded dataset rows under `evals/out/`, prepare the
+provider wheelhouse when needed, write per-instance logs under
+`evals/out/swebench_container_runs/<run-id>/`, and collect predictions into
+`evals/out/<run-id>_predictions.jsonl`. When instance records are not cached,
+they fetch HuggingFace rows with `uv run --with datasets python`; `datasets`
+stays an opt-in fetch-time dependency instead of a project dependency.
+
+The lower-level launcher is still useful when you already have a prepared
+instance JSONL and want full control over arguments:
 
 ```bash
 uv run python evals/swebench/containerized_agent.py \
@@ -107,10 +120,19 @@ bash runs/run_swebench_gold_smoke.sh
 Then evaluate local predictions:
 
 ```bash
-uv run python evals/swebench/evaluate_predictions.py \
+bash runs/eval_swebench.sh \
   --run-official \
   --predictions evals/out/swebench_predictions.jsonl \
   --instance-ids sympy__sympy-20590
+```
+
+For SWE-bench Pro predictions, pass `--pro` and either run the official Pro
+harness or normalize an existing Pro result file:
+
+```bash
+bash runs/eval_swebench.sh --pro \
+  --predictions evals/out/pro-20260525-120000_predictions.jsonl \
+  --results-json evals/out/swebench_pro_eval/eval_results.json
 ```
 
 Official prediction rows must contain:
