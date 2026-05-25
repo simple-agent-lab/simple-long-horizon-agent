@@ -62,19 +62,22 @@ def eval_result_record(result: EvalResult) -> dict[str, Any]:
 
 def load_predictions(path: str | Path) -> list[dict[str, Any]]:
     prediction_path = Path(path)
-    raw = prediction_path.read_text(encoding="utf-8").strip()
-    if not raw:
+    first = _first_non_whitespace(prediction_path)
+    if not first:
         return []
-    try:
-        parsed = json.loads(raw)
-        if isinstance(parsed, list):
-            return [dict(record) for record in parsed]
-        if isinstance(parsed, dict):
-            if "predictions" in parsed and isinstance(parsed["predictions"], list):
-                return [dict(record) for record in parsed["predictions"]]
-            return [dict(parsed)]
-    except json.JSONDecodeError:
-        pass
+    if first in "[{":
+        try:
+            with prediction_path.open(encoding="utf-8") as f:
+                parsed = json.load(f)
+        except json.JSONDecodeError:
+            pass
+        else:
+            if isinstance(parsed, list):
+                return [dict(record) for record in parsed]
+            if isinstance(parsed, dict):
+                if "predictions" in parsed and isinstance(parsed["predictions"], list):
+                    return [dict(record) for record in parsed["predictions"]]
+                return [dict(parsed)]
     return [dict(record) for record in read_jsonl(prediction_path)]
 
 
@@ -555,18 +558,28 @@ def _is_pro_eval_results_map(data: Any) -> bool:
 
 
 def _load_instance_records(path: Path) -> list[dict[str, Any]]:
-    raw = path.read_text(encoding="utf-8").strip()
-    if not raw:
+    first = _first_non_whitespace(path)
+    if not first:
         return []
-    if raw.startswith("[") or raw.startswith("{"):
+    if first in "[{":
         try:
-            parsed = json.loads(raw)
+            with path.open(encoding="utf-8") as f:
+                parsed = json.load(f)
         except json.JSONDecodeError:
-            if raw.startswith("["):
+            if first == "[":
                 raise SystemExit(f"Expected valid JSON list in {path}")
         else:
             return _records_from_json(parsed, path)
-    return [dict(json.loads(line)) for line in raw.splitlines() if line.strip()]
+    return [dict(record) for record in read_jsonl(path)]
+
+
+def _first_non_whitespace(path: Path) -> str:
+    with path.open(encoding="utf-8") as f:
+        while chunk := f.read(4096):
+            stripped = chunk.lstrip()
+            if stripped:
+                return stripped[0]
+    return ""
 
 
 def _records_from_json(parsed: Any, path: Path) -> list[dict[str, Any]]:

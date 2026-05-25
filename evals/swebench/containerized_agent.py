@@ -207,6 +207,16 @@ def docker_run_command(
     return ["bash", "-lc", command]
 
 
+def container_entrypoint_override(
+    instance: dict[str, Any],
+    *,
+    dataset_name: str,
+) -> dict[str, str]:
+    if is_swebench_pro_instance(instance, dataset_name=dataset_name):
+        return {"entrypoint": ""}
+    return {}
+
+
 def build_runner_command(
     *,
     run_mount: str,
@@ -415,9 +425,9 @@ def run_containerized_agent(args: argparse.Namespace) -> RunPaths:
         "name": name,
         "user": "root",
         "detach": True,
-        # Pro images often define /bin/bash as ENTRYPOINT; clear it so our
+        # Pro images often define /bin/bash as ENTRYPOINT; clear it so the
         # command list is executed as the container main process.
-        "entrypoint": "",
+        **container_entrypoint_override(instance, dataset_name=args.dataset_name),
         "command": docker_run_command(
             command,
             instance,

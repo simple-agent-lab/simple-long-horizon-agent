@@ -95,6 +95,30 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
         self.assertEqual(records[0]["prefix"], "simple-agent-lab-pro")
         self.assertEqual(records[0]["patch"], "diff --git a/api.js b/api.js\n")
 
+    def test_load_predictions_streams_jsonl_without_read_text(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "predictions.jsonl"
+            path.write_text(
+                json.dumps(
+                    {
+                        "instance_id": "sympy__sympy-23824",
+                        "model_name_or_path": "model",
+                        "model_patch": "diff --git a/a b/a\n",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(
+                Path,
+                "read_text",
+                side_effect=AssertionError("JSONL should be read from a file handle"),
+            ):
+                records = evaluate_predictions.load_predictions(path)
+
+        self.assertEqual(records[0]["instance_id"], "sympy__sympy-23824")
+
     def test_results_from_summary_accepts_pro_eval_results_map(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "eval_results.json"
@@ -217,6 +241,29 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
         self.assertEqual(len(prepared.strip().splitlines()), 2)
         self.assertIn('"instance_id": "instance_one"', prepared)
         self.assertIn('"instance_id": "instance_two"', prepared)
+
+    def test_load_instance_records_streams_jsonl_without_read_text(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "instances.jsonl"
+            path.write_text(
+                json.dumps(
+                    {
+                        "instance_id": "instance_one",
+                        "fail_to_pass": ["test_a"],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(
+                Path,
+                "read_text",
+                side_effect=AssertionError("JSONL should be read from a file handle"),
+            ):
+                records = evaluate_predictions._load_instance_records(path)
+
+        self.assertEqual(records[0]["instance_id"], "instance_one")
 
     def test_run_official_pro_harness_fails_on_nonzero_exit(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -141,10 +141,13 @@ def run_agent(
     request_extra: Mapping[str, Any] | None = None,
     workdir: Path,
     max_turns: int,
+    dataset_name: str = DEFAULT_DATASET,
 ) -> State:
     """Run the bash-use agent inside the local container filesystem."""
 
     language = instance_language(instance)
+    instance_id = str(instance["instance_id"])
+    suite = suite_for_instance(dataset_name=dataset_name, instance_id=instance_id)
     baseline_commit = prepare_baseline_commit(workdir, language=language)
     task = task_from_instance(instance, workdir=str(workdir))
     agent = make_bash_agent(
@@ -161,7 +164,7 @@ def run_agent(
         pass
     state.data.update(
         {
-            "suite": "swebench",
+            "suite": suite,
             "instance": instance,
             "workspace": str(workdir),
             "model_patch": git_diff(
@@ -342,6 +345,12 @@ def is_swebench_pro(*, dataset_name: str = "", instance_id: str = "") -> bool:
     )
 
 
+def suite_for_instance(*, dataset_name: str, instance_id: str) -> str:
+    if is_swebench_pro(dataset_name=dataset_name, instance_id=instance_id):
+        return "swebench_pro"
+    return "swebench"
+
+
 def trace_from_state(
     *,
     state: State,
@@ -353,11 +362,7 @@ def trace_from_state(
 ) -> RunTrace:
     instance_id = str(instance["instance_id"])
     trace_id = f"swebench.{instance_id}"
-    suite = (
-        "swebench_pro"
-        if is_swebench_pro(dataset_name=dataset_name, instance_id=instance_id)
-        else "swebench"
-    )
+    suite = suite_for_instance(dataset_name=dataset_name, instance_id=instance_id)
     return RunTrace(
         trace_id=trace_id,
         producer=f"suite:{suite}",
@@ -461,6 +466,7 @@ def main() -> None:
         ),
         workdir=Path(args.workdir),
         max_turns=args.max_turns,
+        dataset_name=args.dataset_name,
     )
     patch = str(state.data.get("model_patch") or "")
     trace = trace_from_state(

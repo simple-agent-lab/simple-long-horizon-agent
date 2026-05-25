@@ -9,6 +9,7 @@ from io import BytesIO
 from pathlib import Path
 from unittest import mock
 
+from evals.swebench import in_container_runner
 from evals.swebench.containerized_agent import (
     API_KIND_ENV,
     OPENAI_AUTH_ENV,
@@ -20,6 +21,7 @@ from evals.swebench.containerized_agent import (
     _ensure_image_available,
     build_runner_command,
     container_create_options,
+    container_entrypoint_override,
     container_name,
     copy_file_to_container,
     copy_runner_support_files,
@@ -43,6 +45,7 @@ from evals.swebench.in_container_runner import (
     trace_from_state,
     with_llm_retry,
 )
+from simple_agent_lab.llm.provider import Provider
 from simple_agent_lab import make_llm_step
 from simple_agent_lab.agents.bash import make_bash_agent
 from simple_agent_lab.state import State
@@ -61,6 +64,22 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
 
     def test_container_create_options_sets_network_mode(self) -> None:
         self.assertEqual(container_create_options("host"), {"network_mode": "host"})
+
+    def test_entrypoint_override_is_limited_to_pro_instances(self) -> None:
+        self.assertEqual(
+            container_entrypoint_override(
+                {"instance_id": "sympy__sympy-23824"},
+                dataset_name="princeton-nlp/SWE-bench_Verified",
+            ),
+            {},
+        )
+        self.assertEqual(
+            container_entrypoint_override(
+                {"instance_id": "instance_NodeBB__NodeBB-abc-vnan"},
+                dataset_name="ScaleAI/SWE-bench_Pro",
+            ),
+            {"entrypoint": ""},
+        )
 
     def test_runner_command_installs_agent_and_runs_inside_container(self) -> None:
         command = build_runner_command(
@@ -294,6 +313,46 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
 
         assert trace.meta is not None
         self.assertEqual(trace.meta["suite"], "swebench_pro")
+
+    def test_run_agent_sets_pro_suite_in_state_data(self) -> None:
+        class FakeAgent:
+            def __init__(self) -> None:
+                self.step = lambda *args: None
+
+            def run(self, task, max_turns):
+                del task, max_turns
+                return State(task="Solve this SWE-bench instance."), []
+
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch.object(
+                in_container_runner,
+                "prepare_baseline_commit",
+                return_value="base",
+            ),
+            mock.patch.object(
+                in_container_runner,
+                "make_bash_agent",
+                return_value=FakeAgent(),
+            ),
+            mock.patch.object(
+                in_container_runner,
+                "git_diff",
+                return_value="diff --git a/a b/a\n",
+            ),
+        ):
+            state = run_agent(
+                instance={
+                    "instance_id": "instance_NodeBB__NodeBB-abc-vnan",
+                    "problem_statement": "Fix a route.",
+                },
+                provider=Provider(id="fake", api="fake", model="fake-model"),
+                workdir=Path(tmp),
+                max_turns=1,
+                dataset_name="ScaleAI/SWE-bench_Pro",
+            )
+
+        self.assertEqual(state.data["suite"], "swebench_pro")
 
     def test_trace_from_state_serializes_event_kind(self) -> None:
         state = State(task="Solve this SWE-bench instance.")
