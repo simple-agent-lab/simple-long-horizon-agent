@@ -13,29 +13,39 @@ from evals.swebench.containerized_agent import (
     API_KIND_ENV,
     OPENAI_AUTH_ENV,
     OPENAI_BASE_URL_ENV,
+    OPENAI_LOG_ID_ENV,
     OPENAI_MODEL_ENV,
+    OPENAI_SESSION_ID_ENV,
     _container_environment,
+    _ensure_image_available,
     build_runner_command,
     container_create_options,
     container_name,
     copy_file_to_container,
     copy_runner_support_files,
+    docker_image_for_instance,
+    docker_run_command,
     load_instance as load_host_instance,
     prepare_wheelhouse,
     prepare_run_directory,
     resolve_api_kind,
+    resolve_workdir,
 )
 from evals.swebench.in_container_runner import (
     AGENT_SYSTEM_PROMPT,
+    build_openai_request_extra_from_env,
     build_openai_provider_from_env,
     is_retryable_llm_error,
     load_instance as load_runner_instance,
+    prediction_record,
     run_agent,
     task_from_instance,
+    trace_from_state,
     with_llm_retry,
 )
 from simple_agent_lab import make_llm_step
 from simple_agent_lab.agents.bash import make_bash_agent
+from simple_agent_lab.state import State
 
 
 class SwebenchContainerizedAgentTest(unittest.TestCase):
@@ -64,11 +74,28 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
             wheelhouse_mount="/agent/wheelhouse",
         )
 
-        self.assertIn("AGENT_PYTHON=/opt/miniconda3/bin/python3", command)
+        self.assertIn("set -eu", command)
+        self.assertIn("set -o pipefail", command)
+        self.assertIn("UV_BIN=", command)
+        self.assertIn("[ -f /tmp/uv ]", command)
+        self.assertIn("/tmp/uv --version", command)
+        self.assertIn("command -v uv", command)
+        self.assertIn('"$PATH_UV" --version', command)
+        self.assertIn('"$UV_BIN" venv --python 3.11 /tmp/agent-venv', command)
+        self.assertNotIn("miniconda", command.lower())
+        self.assertNotIn("conda create", command)
+        self.assertIn("python3 -m venv /tmp/agent-venv", command)
+        self.assertIn("_IS_MUSL", command)
+        self.assertIn("venv", command)
+        self.assertIn(
+            '"$UV_BIN" pip install --python "$AGENT_PYTHON" --no-index --find-links /agent/wheelhouse',
+            command,
+        )
         self.assertIn(
             '"$AGENT_PYTHON" -m pip install --no-index --find-links /agent/wheelhouse',
             command,
         )
+        self.assertNotIn("--break-system-packages", command)
         self.assertIn("'simple-agent-lab[openai]'", command)
         self.assertIn(
             '"$AGENT_PYTHON" /agent/evals/swebench/in_container_runner.py',
@@ -121,10 +148,168 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
         self.assertIn("do not include a patch", task)
         self.assertNotIn("docker exec", task)
 
-    def test_runner_does_not_thread_request_extra_through_agent_preset(self) -> None:
-        self.assertNotIn("request_extra", inspect.signature(run_agent).parameters)
-        self.assertNotIn("request_extra", inspect.signature(make_bash_agent).parameters)
-        self.assertNotIn("request_extra", inspect.signature(make_llm_step).parameters)
+    def test_runner_can_thread_request_extra_through_agent_preset(self) -> None:
+        self.assertIn("request_extra", inspect.signature(run_agent).parameters)
+        self.assertIn("request_extra", inspect.signature(make_bash_agent).parameters)
+        self.assertIn("request_extra", inspect.signature(make_llm_step).parameters)
+
+    def test_pro_task_includes_requirements_and_interface(self) -> None:
+        task = task_from_instance(
+            {
+                "instance_id": "instance_NodeBB__NodeBB-abc-vnan",
+                "repo": "NodeBB/NodeBB",
+                "base_commit": "abc123",
+                "problem_statement": "Add the moderation endpoint.",
+                "requirements": "The endpoint must require administrator access.",
+                "interface": "POST /api/v3/moderation/queue accepts JSON.",
+            },
+            workdir="/app",
+        )
+
+        self.assertIn("The bash tool runs locally in /app.", task)
+        self.assertIn("problem_statement:", task)
+        self.assertIn("Add the moderation endpoint.", task)
+        self.assertIn("requirements:", task)
+        self.assertIn("administrator access", task)
+        self.assertIn("interface:", task)
+        self.assertIn("POST /api/v3/moderation/queue", task)
+
+    def test_pro_task_omits_empty_optional_context_sections(self) -> None:
+        task = task_from_instance(
+            {
+                "instance_id": "instance_NodeBB__NodeBB-abc-vnan",
+                "problem_statement": "Fix a route.",
+                "requirements": None,
+                "interface": "",
+            },
+            workdir="/app",
+        )
+
+        self.assertNotIn("requirements:", task)
+        self.assertNotIn("interface:", task)
+
+    def test_pro_instances_use_dockerhub_tag_image_and_app_workdir(self) -> None:
+        instance = {
+            "instance_id": "instance_NodeBB__NodeBB-abc-vnan",
+            "repo": "NodeBB/NodeBB",
+            "dockerhub_tag": "nodebb.nodebb-NodeBB__NodeBB-abc",
+        }
+
+        self.assertEqual(
+            docker_image_for_instance(
+                instance,
+                dataset_name="ScaleAI/SWE-bench_Pro",
+                namespace="swebench",
+                instance_image_tag="latest",
+                env_image_tag="latest",
+                dockerhub_username="jefzda",
+            ),
+            "jefzda/sweap-images:nodebb.nodebb-NodeBB__NodeBB-abc",
+        )
+        self.assertEqual(
+            resolve_workdir("", instance, dataset_name="ScaleAI/SWE-bench_Pro"),
+            "/app",
+        )
+        self.assertEqual(
+            docker_run_command(
+                "echo ok",
+                instance,
+                dataset_name="ScaleAI/SWE-bench_Pro",
+            ),
+            ["/bin/sh", "-lc", "echo ok"],
+        )
+
+    def test_pro_image_falls_back_to_official_tag_shape(self) -> None:
+        instance = {
+            "instance_id": "instance_NodeBB__NodeBB-abc-vnan",
+            "repo": "NodeBB/NodeBB",
+        }
+
+        self.assertEqual(
+            docker_image_for_instance(
+                instance,
+                dataset_name="ScaleAI/SWE-bench_Pro",
+                namespace="swebench",
+                instance_image_tag="latest",
+                env_image_tag="latest",
+                dockerhub_username="jefzda",
+            ),
+            "jefzda/sweap-images:nodebb.nodebb-NodeBB__NodeBB-abc",
+        )
+
+    def test_verified_instances_keep_swebench_workdir(self) -> None:
+        self.assertEqual(
+            resolve_workdir(
+                "",
+                {"instance_id": "sympy__sympy-23824"},
+                dataset_name="princeton-nlp/SWE-bench_Verified",
+            ),
+            "/testbed",
+        )
+        self.assertEqual(
+            docker_run_command(
+                "echo ok",
+                {"instance_id": "sympy__sympy-23824"},
+                dataset_name="princeton-nlp/SWE-bench_Verified",
+            ),
+            ["bash", "-lc", "echo ok"],
+        )
+        self.assertEqual(
+            resolve_workdir(
+                "/workspace",
+                {"instance_id": "sympy__sympy-23824"},
+                dataset_name="princeton-nlp/SWE-bench_Verified",
+            ),
+            "/workspace",
+        )
+
+    def test_pro_prediction_record_matches_official_eval_shape(self) -> None:
+        record = prediction_record(
+            "instance_NodeBB__NodeBB-abc-vnan",
+            "simple-agent-lab-pro",
+            "diff --git a/src/api.js b/src/api.js\n",
+            dataset_name="ScaleAI/SWE-bench_Pro",
+        )
+
+        self.assertEqual(record["instance_id"], "instance_NodeBB__NodeBB-abc-vnan")
+        self.assertEqual(record["prefix"], "simple-agent-lab-pro")
+        self.assertEqual(record["patch"], "diff --git a/src/api.js b/src/api.js\n")
+        self.assertNotIn("model_patch", record)
+        self.assertNotIn("model_name_or_path", record)
+
+    def test_pro_trace_meta_uses_pro_suite_name(self) -> None:
+        state = State(
+            task="Solve this SWE-bench instance.",
+            data={"model_patch": "diff --git a/a b/a\n", "workspace": "/app"},
+        )
+
+        trace = trace_from_state(
+            state=state,
+            instance={"instance_id": "instance_NodeBB__NodeBB-abc-vnan"},
+            dataset_name="ScaleAI/SWE-bench_Pro",
+            split="test",
+            model_name="model",
+            patch_source="containerized-diff",
+        )
+
+        assert trace.meta is not None
+        self.assertEqual(trace.meta["suite"], "swebench_pro")
+
+    def test_trace_from_state_serializes_event_kind(self) -> None:
+        state = State(task="Solve this SWE-bench instance.")
+        state.send("task", sender="user", target="swebench_agent", content="Fix it.")
+
+        trace = trace_from_state(
+            state=state,
+            instance={"instance_id": "sympy__sympy-23824"},
+            dataset_name="princeton-nlp/SWE-bench_Verified",
+            split="test",
+            model_name="model",
+            patch_source="containerized-diff",
+        )
+
+        self.assertEqual(trace.events[0]["kind"], "message")
+        self.assertIn("message", trace.events[0])
 
     def test_system_prompt_sets_swebench_repair_operating_rules(self) -> None:
         self.assertIn("general and consistent with the codebase", AGENT_SYSTEM_PROMPT)
@@ -199,6 +384,8 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
                 OPENAI_MODEL_ENV: "gpt-test-1",
                 OPENAI_AUTH_ENV: "token",
                 OPENAI_BASE_URL_ENV: "https://example.invalid/v1",
+                OPENAI_SESSION_ID_ENV: "session-1",
+                OPENAI_LOG_ID_ENV: "log-1",
                 "NO_PROXY": ".example.invalid",
                 "no_proxy": ".internal.invalid",
             },
@@ -209,8 +396,32 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
         self.assertEqual(env[OPENAI_MODEL_ENV], "gpt-test-1")
         self.assertEqual(env[OPENAI_AUTH_ENV], "token")
         self.assertEqual(env[OPENAI_BASE_URL_ENV], "https://example.invalid/v1")
+        self.assertEqual(env[OPENAI_SESSION_ID_ENV], "session-1")
+        self.assertEqual(env[OPENAI_LOG_ID_ENV], "log-1")
         self.assertEqual(env["NO_PROXY"], ".example.invalid")
         self.assertEqual(env["no_proxy"], ".internal.invalid")
+
+    def test_openai_request_extra_from_env_builds_responses_headers(self) -> None:
+        extra = build_openai_request_extra_from_env(
+            env={
+                OPENAI_SESSION_ID_ENV: "session-1",
+                OPENAI_LOG_ID_ENV: "log-1",
+            }
+        )
+
+        self.assertEqual(extra["extra_headers"]["X-TT-logid"], "log-1")
+        self.assertEqual(
+            json.loads(extra["extra_headers"]["extra"]),
+            {"session_id": "session-1"},
+        )
+
+    def test_openai_request_extra_from_env_requires_header_pair(self) -> None:
+        with self.assertRaisesRegex(SystemExit, OPENAI_LOG_ID_ENV):
+            build_openai_request_extra_from_env(
+                env={
+                    OPENAI_SESSION_ID_ENV: "session-1",
+                }
+            )
 
     def test_resolve_api_kind_prefers_cli_then_env_then_chat_default(self) -> None:
         with mock.patch.dict("os.environ", {}, clear=True):
@@ -246,6 +457,22 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
         self.assertEqual(provider.model, "gpt-test-1")
         self.assertEqual(provider.base_url, "https://example.invalid/v1")
         self.assertEqual(provider.api_key_env, OPENAI_AUTH_ENV)
+        self.assertGreaterEqual(provider.default_max_tokens or 0, 32768)
+
+    def test_task_decodes_json_encoded_pro_context_fields(self) -> None:
+        task = task_from_instance(
+            {
+                "problem_statement": json.dumps("Line one\nLine two"),
+                "requirements": json.dumps("- Requirement A\n- Requirement B"),
+                "interface": json.dumps("No new interfaces are introduced."),
+            },
+            workdir="/app",
+        )
+
+        self.assertIn("problem_statement:\nLine one\nLine two", task)
+        self.assertIn("requirements:\n- Requirement A\n- Requirement B", task)
+        self.assertIn("interface:\nNo new interfaces are introduced.", task)
+        self.assertNotIn('"Line one\\nLine two"', task)
 
     def test_prepare_run_directory_writes_sanitized_instance_input(self) -> None:
         instance = {
@@ -257,6 +484,7 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
             "test_patch": "gold tests",
             "FAIL_TO_PASS": ["secret"],
             "PASS_TO_PASS": ["secret"],
+            "selected_test_files_to_run": ["secret_test.py"],
         }
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -273,6 +501,7 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
         self.assertNotIn("test_patch", record)
         self.assertNotIn("FAIL_TO_PASS", record)
         self.assertNotIn("PASS_TO_PASS", record)
+        self.assertNotIn("selected_test_files_to_run", record)
 
     def test_load_instance_accepts_instances_wrapper(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -309,6 +538,58 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
 
         self.assertEqual(calls[0][:3], ["uv", "build", "--wheel"])
         self.assertIn("openai>=1.50.0", calls[1])
+
+    def test_pull_always_refreshes_existing_image(self) -> None:
+        class FakeImages:
+            def __init__(self) -> None:
+                self.gets: list[str] = []
+                self.pulls: list[tuple[str, str | None]] = []
+
+            def get(self, image_key: str) -> object:
+                self.gets.append(image_key)
+                return object()
+
+            def pull(self, image_key: str, platform: str | None = None) -> None:
+                self.pulls.append((image_key, platform))
+
+        images = FakeImages()
+
+        _ensure_image_available(
+            images,
+            image_key="example/image:tag",
+            platform="linux/amd64",
+            pull_policy="always",
+            image_not_found_error=LookupError,
+            docker_exception=RuntimeError,
+        )
+
+        self.assertEqual(images.gets, ["example/image:tag"])
+        self.assertEqual(images.pulls, [("example/image:tag", "linux/amd64")])
+
+    def test_pull_missing_uses_existing_image_without_refresh(self) -> None:
+        class FakeImages:
+            def __init__(self) -> None:
+                self.pulls: list[tuple[str, str | None]] = []
+
+            def get(self, image_key: str) -> object:
+                del image_key
+                return object()
+
+            def pull(self, image_key: str, platform: str | None = None) -> None:
+                self.pulls.append((image_key, platform))
+
+        images = FakeImages()
+
+        _ensure_image_available(
+            images,
+            image_key="example/image:tag",
+            platform=None,
+            pull_policy="missing",
+            image_not_found_error=LookupError,
+            docker_exception=RuntimeError,
+        )
+
+        self.assertEqual(images.pulls, [])
 
     def test_llm_retry_recovers_from_tpm_error_with_exponential_backoff(self) -> None:
         calls = 0

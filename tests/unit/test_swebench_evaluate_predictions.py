@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from argparse import Namespace
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from evals.swebench import evaluate_predictions
@@ -71,6 +73,197 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
         self.assertIn("--predictions_path", command)
         self.assertIn("gold", command)
         self.assertIn(str(evaluate_predictions.official_report_dir(args)), command)
+
+    def test_load_predictions_accepts_pro_json_array(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "predictions.json"
+            path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "instance_id": "instance_NodeBB__NodeBB-abc-vnan",
+                            "prefix": "simple-agent-lab-pro",
+                            "patch": "diff --git a/api.js b/api.js\n",
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            records = evaluate_predictions.load_predictions(path)
+
+        self.assertEqual(records[0]["prefix"], "simple-agent-lab-pro")
+        self.assertEqual(records[0]["patch"], "diff --git a/api.js b/api.js\n")
+
+    def test_results_from_summary_accepts_pro_eval_results_map(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "eval_results.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "instance_NodeBB__NodeBB-abc-vnan": True,
+                        "instance_NodeBB__NodeBB-def-vnan": False,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            results = evaluate_predictions.results_from_summary(path)
+
+        self.assertTrue(results["instance_NodeBB__NodeBB-abc-vnan"]["resolved"])
+        self.assertEqual(
+            results["instance_NodeBB__NodeBB-abc-vnan"]["status"],
+            "resolved",
+        )
+        self.assertFalse(results["instance_NodeBB__NodeBB-def-vnan"]["resolved"])
+        self.assertEqual(
+            results["instance_NodeBB__NodeBB-def-vnan"]["status"],
+            "unresolved",
+        )
+
+    def test_pro_eval_result_counts_patch_and_prefix_fields(self) -> None:
+        result = evaluate_predictions.eval_result_from_official(
+            {
+                "instance_id": "instance_NodeBB__NodeBB-abc-vnan",
+                "prefix": "simple-agent-lab-pro",
+                "patch": "diff --git a/api.js b/api.js\n",
+            },
+            {
+                "resolved": True,
+                "status": "resolved",
+                "report_source": "eval_results.json",
+            },
+        )
+
+        self.assertEqual(result.scorer, "swebench_pro.official_harness.v1")
+        self.assertEqual(result.metrics["model_name_or_path"], "simple-agent-lab-pro")
+        self.assertEqual(result.metrics["patch_chars"], 29)
+        self.assertIsNotNone(result.meta)
+        assert result.meta is not None
+        self.assertEqual(result.meta["suite"], "swebench_pro")
+
+    def test_run_official_pro_harness_accepts_jsonl_instances(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            predictions = root / "predictions.jsonl"
+            predictions.write_text(
+                json.dumps(
+                    {
+                        "instance_id": "instance_one",
+                        "prefix": "model",
+                        "patch": "diff --git a/a b/a\n",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            instances = root / "instances.jsonl"
+            instances.write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "instance_id": "instance_one",
+                                "fail_to_pass": ["test_a"],
+                                "pass_to_pass": ["test_b"],
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "instance_id": "instance_two",
+                                "fail_to_pass": ["test_c"],
+                                "pass_to_pass": ["test_d"],
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            script = root / "swe_bench_pro_eval.py"
+            script.write_text("# fake evaluator\n", encoding="utf-8")
+            report_dir = root / "report"
+
+            def fake_run(command, cwd, check):
+                del command, cwd, check
+                official = report_dir / "official"
+                official.mkdir(parents=True)
+                (official / "eval_results.json").write_text(
+                    json.dumps({"instance_one": True}), encoding="utf-8"
+                )
+                return SimpleNamespace(returncode=0)
+
+            args = Namespace(
+                instances=str(instances),
+                pro_eval_script=str(script),
+                predictions=str(predictions),
+                report_dir=str(report_dir),
+                instance_ids=[],
+                dockerhub_username="jefzda",
+                scripts_dir=str(root / "run_scripts"),
+            )
+
+            with mock.patch.object(
+                evaluate_predictions.subprocess,
+                "run",
+                side_effect=fake_run,
+            ):
+                evaluate_predictions.run_official_pro_harness(args)
+
+            prepared = (report_dir / "instances_for_official.jsonl").read_text(
+                encoding="utf-8"
+            )
+
+        self.assertEqual(len(prepared.strip().splitlines()), 2)
+        self.assertIn('"instance_id": "instance_one"', prepared)
+        self.assertIn('"instance_id": "instance_two"', prepared)
+
+    def test_run_official_pro_harness_fails_on_nonzero_exit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            predictions = root / "predictions.jsonl"
+            predictions.write_text(
+                json.dumps(
+                    {
+                        "instance_id": "instance_one",
+                        "prefix": "model",
+                        "patch": "diff --git a/a b/a\n",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            instances = root / "instances.jsonl"
+            instances.write_text(
+                json.dumps({"instance_id": "instance_one"}) + "\n",
+                encoding="utf-8",
+            )
+            script = root / "swe_bench_pro_eval.py"
+            script.write_text("# fake evaluator\n", encoding="utf-8")
+            report_dir = root / "report"
+            stale = report_dir / "official"
+            stale.mkdir(parents=True)
+            (stale / "eval_results.json").write_text(
+                json.dumps({"instance_one": True}), encoding="utf-8"
+            )
+
+            args = Namespace(
+                instances=str(instances),
+                pro_eval_script=str(script),
+                predictions=str(predictions),
+                report_dir=str(report_dir),
+                instance_ids=[],
+                dockerhub_username="jefzda",
+                scripts_dir=str(root / "run_scripts"),
+            )
+
+            with mock.patch.object(
+                evaluate_predictions.subprocess,
+                "run",
+                return_value=SimpleNamespace(returncode=2),
+            ):
+                with self.assertRaisesRegex(SystemExit, "exited with 2"):
+                    evaluate_predictions.run_official_pro_harness(args)
 
 
 if __name__ == "__main__":
