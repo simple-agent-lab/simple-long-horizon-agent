@@ -150,7 +150,12 @@ LANGUAGE_ALIASES = {
 def instance_language(instance: dict[str, Any]) -> str:
     """Return the normalized SWE-bench language for an instance record."""
 
-    raw = instance.get("language") or instance.get("programming_language") or "python"
+    raw = (
+        instance.get("repo_language")
+        or instance.get("language")
+        or instance.get("programming_language")
+        or "python"
+    )
     return normalize_language(str(raw))
 
 
