@@ -1,12 +1,14 @@
 """Run or normalize SWE-bench evaluation results.
 
-Run from the repo root:
-
-    PYTHONPATH=src python3 evals/swebench/evaluate_predictions.py --allow-missing-reports
+Supports both SWE-bench Verified and SWE-bench Pro. Pass ``--pro`` to
+switch to Pro mode.
 
 By default this script normalizes existing official harness output into the
-project-owned EvalResult JSONL shape. Pass --run-official to invoke
-`python -m swebench.harness.run_evaluation` first.
+project-owned EvalResult JSONL shape. Pass ``--run-official`` to invoke
+the official harness first:
+
+- Verified: ``python -m swebench.harness.run_evaluation``
+- Pro: ``swe_bench_pro_eval.py`` from scaleapi/SWE-bench_Pro-os
 """
 
 from __future__ import annotations
@@ -33,6 +35,9 @@ DEFAULT_DATASET = "princeton-nlp/SWE-bench_Lite"
 DEFAULT_SPLIT = "test"
 DEFAULT_RUN_ID = "simple-agent-lab-swebench"
 DEFAULT_OFFICIAL_OUTPUT_DIR = ROOT / "evals/out/swebench_official"
+DEFAULT_PRO_EVAL_SCRIPT = Path("/tmp/SWE-bench_Pro-os/swe_bench_pro_eval.py")
+DEFAULT_PRO_SCRIPTS_DIR = Path("/tmp/SWE-bench_Pro-os/run_scripts")
+DEFAULT_DOCKERHUB_USERNAME = "jefzda"
 EVAL_SCHEMA = "simple-agent-lab.evaluation.v1"
 
 
@@ -56,7 +61,21 @@ def eval_result_record(result: EvalResult) -> dict[str, Any]:
 
 
 def load_predictions(path: str | Path) -> list[dict[str, Any]]:
-    return [dict(record) for record in read_jsonl(path)]
+    prediction_path = Path(path)
+    raw = prediction_path.read_text(encoding="utf-8").strip()
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            return [dict(record) for record in parsed]
+        if isinstance(parsed, dict):
+            if "predictions" in parsed and isinstance(parsed["predictions"], list):
+                return [dict(record) for record in parsed["predictions"]]
+            return [dict(parsed)]
+    except json.JSONDecodeError:
+        pass
+    return [dict(record) for record in read_jsonl(prediction_path)]
 
 
 def run_official_harness(args: argparse.Namespace) -> None:
@@ -98,14 +117,106 @@ def run_official_harness(args: argparse.Namespace) -> None:
     subprocess.run(command, cwd=run_dir, check=True)
 
 
+def run_official_pro_harness(args: argparse.Namespace) -> None:
+    """Run the official SWE-bench Pro evaluation harness as a subprocess."""
+    if not args.instances:
+        raise SystemExit("--instances is required when using --pro --run-official")
+    pro_eval_script = Path(args.pro_eval_script)
+    if not pro_eval_script.exists():
+        raise SystemExit(
+            f"Official Pro evaluator not found: {pro_eval_script}\n"
+            "Clone https://github.com/scaleapi/SWE-bench_Pro-os and pass "
+            "--pro-eval-script /path/to/SWE-bench_Pro-os/swe_bench_pro_eval.py"
+        )
+
+    predictions_path = Path(args.predictions)
+    instances_path = Path(args.instances)
+    output_dir = official_report_dir(args)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    instance_ids = args.instance_ids or None
+
+    # Convert predictions to JSON array format expected by official script
+    preds = load_predictions(predictions_path)
+    patches: list[dict[str, str]] = []
+    for pred in preds:
+        iid = str(pred.get("instance_id") or "")
+        if instance_ids and iid not in instance_ids:
+            continue
+        patches.append(
+            {
+                "instance_id": iid,
+                "patch": str(pred.get("patch") or pred.get("model_patch") or ""),
+                "prefix": str(
+                    pred.get("prefix") or pred.get("model_name_or_path") or ""
+                ),
+            }
+        )
+
+    patches_path = output_dir / "patches.json"
+    patches_path.parent.mkdir(parents=True, exist_ok=True)
+    patches_path.write_text(json.dumps(patches, ensure_ascii=False), encoding="utf-8")
+
+    # Convert instances to JSONL format expected by official script.
+    instances_data = _load_instance_records(instances_path)
+    if instance_ids:
+        instances_data = [
+            i for i in instances_data if i.get("instance_id") in instance_ids
+        ]
+
+    # Ensure list fields are string representations (official script uses eval())
+    for record in instances_data:
+        for fld in ("fail_to_pass", "pass_to_pass", "selected_test_files_to_run"):
+            value = record.get(fld)
+            if isinstance(value, list):
+                record[fld] = json.dumps(value)
+
+    instances_jsonl_path = output_dir / "instances_for_official.jsonl"
+    with open(instances_jsonl_path, "w", encoding="utf-8") as fh:
+        for record in instances_data:
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    command = [
+        sys.executable,
+        str(pro_eval_script),
+        "--raw_sample_path",
+        str(instances_jsonl_path),
+        "--patch_path",
+        str(patches_path),
+        "--output_dir",
+        str(output_dir / "official"),
+        "--dockerhub_username",
+        args.dockerhub_username,
+        "--scripts_dir",
+        args.scripts_dir,
+        "--use_local_docker",
+        "--redo",
+    ]
+
+    print(f"Running official Pro evaluator: {pro_eval_script.name} ...")
+    result = subprocess.run(command, cwd=pro_eval_script.parent, check=False)
+    returncode = int(getattr(result, "returncode", 0) or 0)
+    if returncode != 0:
+        raise SystemExit(
+            f"Official Pro evaluator exited with {returncode}; see logs in "
+            f"{output_dir / 'official'}"
+        )
+
+    results_path = output_dir / "official" / "eval_results.json"
+    if not results_path.exists():
+        raise SystemExit(
+            f"Official Pro evaluator did not produce {results_path}\n"
+            f"Exit code: {returncode}"
+        )
+
+
 def load_official_results(args: argparse.Namespace) -> dict[str, dict[str, Any]]:
     results: dict[str, dict[str, Any]] = {}
     if args.results_json:
         results.update(results_from_summary(Path(args.results_json)))
     if args.instance_results_jsonl:
         results.update(results_from_instance_jsonl(Path(args.instance_results_jsonl)))
-    report_dir = official_report_dir(args)
     run_dir = official_run_dir(args)
+    report_dir = official_report_dir(args)
     results.update(results_from_summary_files(run_dir))
     results.update(results_from_instance_result_files(run_dir))
     results.update(results_from_report_dir(run_dir))
@@ -144,6 +255,16 @@ def results_from_summary(path: Path) -> dict[str, dict[str, Any]]:
     if not path.exists():
         return {}
     data = json.loads(path.read_text(encoding="utf-8"))
+    if _is_pro_eval_results_map(data):
+        return {
+            str(instance_id): {
+                "resolved": bool(resolved),
+                "status": "resolved" if resolved else "unresolved",
+                "summary_report": data,
+                "report_source": str(path),
+            }
+            for instance_id, resolved in data.items()
+        }
     resolved = set(data.get("resolved_ids") or [])
     unresolved = set(data.get("unresolved_ids") or [])
     empty = set(data.get("empty_patch_ids") or [])
@@ -186,7 +307,9 @@ def results_from_summary_files(path: Path) -> dict[str, dict[str, Any]]:
             data = json.loads(candidate.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             continue
-        if not isinstance(data, dict) or "submitted_ids" not in data:
+        if not isinstance(data, dict):
+            continue
+        if "submitted_ids" not in data and not _is_pro_eval_results_map(data):
             continue
         out.update(results_from_summary(candidate))
     return out
@@ -275,23 +398,32 @@ def eval_result_from_official(
     official: dict[str, Any],
 ) -> EvalResult:
     instance_id = str(prediction["instance_id"])
+    pro_prediction = "patch" in prediction or "prefix" in prediction
+    suite = "swebench_pro" if pro_prediction else "swebench"
+    scorer = (
+        "swebench_pro.official_harness.v1"
+        if pro_prediction
+        else "swebench.official_harness.v1"
+    )
+    patch = str(prediction.get("model_patch") or prediction.get("patch") or "")
+    model_name = prediction.get("model_name_or_path") or prediction.get("prefix")
     resolved = bool(official.get("resolved"))
     status = str(official.get("status") or ("resolved" if resolved else "unresolved"))
     reason = (
-        "resolved by official SWE-bench harness"
+        f"resolved by official {suite} harness"
         if resolved
-        else f"SWE-bench status: {status}"
+        else f"{suite} status: {status}"
     )
     return EvalResult(
         trace_id=f"swebench.{instance_id}",
-        scorer="swebench.official_harness.v1",
+        scorer=scorer,
         passed=resolved,
         score=1.0 if resolved else 0.0,
         reason=reason,
         metrics={
             "instance_id": instance_id,
-            "model_name_or_path": prediction.get("model_name_or_path"),
-            "patch_chars": len(str(prediction.get("model_patch") or "")),
+            "model_name_or_path": model_name,
+            "patch_chars": len(patch),
             "resolved": resolved,
             "status": status,
             "patch_exists": official.get("patch_exists"),
@@ -299,14 +431,16 @@ def eval_result_from_official(
             "tests_status": official.get("tests_status"),
         },
         meta={
-            "suite": "swebench",
+            "suite": suite,
             "report_source": official.get("report_source"),
         },
     )
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="Run or normalize SWE-bench (Verified / Pro) evaluation results."
+    )
     parser.add_argument(
         "--predictions",
         default=str(ROOT / "evals/out/swebench_predictions.jsonl"),
@@ -317,22 +451,40 @@ def main() -> None:
         default=str(ROOT / "evals/out/swebench_eval_results.jsonl"),
         help="Eval-result JSONL output.",
     )
+    # Verified harness args
     parser.add_argument("--dataset-name", default=DEFAULT_DATASET)
     parser.add_argument("--split", default=DEFAULT_SPLIT)
     parser.add_argument("--run-id", default=DEFAULT_RUN_ID)
     parser.add_argument("--max-workers", type=int, default=1)
-    parser.add_argument("--instance-ids", nargs="*", default=[])
     parser.add_argument("--cache-level", default="")
     parser.add_argument("--clean", action="store_true")
     parser.add_argument("--timeout", type=int)
+    # Pro mode
     parser.add_argument(
-        "--official-output-dir",
-        default=str(DEFAULT_OFFICIAL_OUTPUT_DIR),
-        help=(
-            "Root directory for official SWE-bench harness cwd, summary JSON, "
-            "logs, and default reports. Each run uses <official-output-dir>/<run-id>/."
-        ),
+        "--pro",
+        action="store_true",
+        help="Evaluate SWE-bench Pro predictions instead of Verified.",
     )
+    parser.add_argument(
+        "--instances",
+        help="Pro instance metadata JSON/JSONL (required for --pro --run-official).",
+    )
+    parser.add_argument(
+        "--scripts-dir",
+        default=str(DEFAULT_PRO_SCRIPTS_DIR),
+        help="Path to SWE-bench_Pro-os/run_scripts directory.",
+    )
+    parser.add_argument(
+        "--pro-eval-script",
+        default=str(DEFAULT_PRO_EVAL_SCRIPT),
+        help="Path to official swe_bench_pro_eval.py.",
+    )
+    parser.add_argument(
+        "--dockerhub-username",
+        default=DEFAULT_DOCKERHUB_USERNAME,
+        help="Docker Hub username for Pro images.",
+    )
+    # Result loading args
     parser.add_argument(
         "--report-dir",
         default=None,
@@ -341,14 +493,24 @@ def main() -> None:
             "<official-output-dir>/<run-id>/reports."
         ),
     )
+    parser.add_argument(
+        "--official-output-dir",
+        default=str(DEFAULT_OFFICIAL_OUTPUT_DIR),
+        help=(
+            "Root directory for official SWE-bench harness cwd, summary JSON, "
+            "logs, and default reports. Each run uses <official-output-dir>/<run-id>/."
+        ),
+    )
     parser.add_argument("--results-json", help="Official summary results JSON.")
     parser.add_argument(
         "--instance-results-jsonl", help="Official instance results JSONL."
     )
+    parser.add_argument("--instance-ids", nargs="*", default=[])
+    # Execution modes
     parser.add_argument(
         "--run-official",
         action="store_true",
-        help="Invoke the official SWE-bench Docker harness before normalizing.",
+        help="Invoke the official harness before normalizing.",
     )
     parser.add_argument(
         "--allow-missing-reports",
@@ -357,8 +519,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # Run official harness if requested
     if args.run_official:
-        run_official_harness(args)
+        if args.pro:
+            run_official_pro_harness(args)
+        else:
+            run_official_harness(args)
 
     predictions = load_predictions(args.predictions)
     official_results = load_official_results(args)
@@ -375,6 +541,45 @@ def main() -> None:
         print(
             f"{result.trace_id}: {status} score={result.score} reason={result.reason}"
         )
+
+
+def _is_pro_eval_results_map(data: Any) -> bool:
+    return (
+        bool(data)
+        and isinstance(data, dict)
+        and all(
+            isinstance(key, str) and isinstance(value, bool)
+            for key, value in data.items()
+        )
+    )
+
+
+def _load_instance_records(path: Path) -> list[dict[str, Any]]:
+    raw = path.read_text(encoding="utf-8").strip()
+    if not raw:
+        return []
+    if raw.startswith("[") or raw.startswith("{"):
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            if raw.startswith("["):
+                raise SystemExit(f"Expected valid JSON list in {path}")
+        else:
+            return _records_from_json(parsed, path)
+    return [dict(json.loads(line)) for line in raw.splitlines() if line.strip()]
+
+
+def _records_from_json(parsed: Any, path: Path) -> list[dict[str, Any]]:
+    if isinstance(parsed, list):
+        return [dict(item) for item in parsed]
+    if isinstance(parsed, dict):
+        if "instances" in parsed:
+            instances = parsed["instances"]
+            if not isinstance(instances, list):
+                raise SystemExit(f"Expected instances to be a JSON list in {path}")
+            return [dict(item) for item in instances]
+        return [dict(parsed)]
+    raise SystemExit(f"Expected JSON object, JSON list, or JSONL records in {path}")
 
 
 if __name__ == "__main__":
