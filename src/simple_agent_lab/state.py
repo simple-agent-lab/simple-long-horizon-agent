@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -74,10 +75,14 @@ class State:
     events: list[Event] = field(default_factory=list)
     snapshot: StateSnapshot = field(default_factory=StateSnapshot)
     data: dict[str, Any] = field(default_factory=dict)
+    _monotonic_origin: float = field(default_factory=time.monotonic, repr=False)
 
     def __post_init__(self) -> None:
         if self.events and not self.snapshot.messages:
             self.rebuild_snapshot()
+
+    def _elapsed(self) -> float:
+        return time.monotonic() - self._monotonic_origin
 
     @property
     def messages(self) -> list[Message]:
@@ -101,7 +106,7 @@ class State:
         return snapshot
 
     def record(self, message: Message) -> MessageEvent:
-        event = MessageEvent(len(self.events), message)
+        event = MessageEvent(len(self.events), self._elapsed(), message)
         self._append(event)
         return event
 
@@ -118,6 +123,7 @@ class State:
     ) -> ContextCompressionEvent:
         event = ContextCompressionEvent(
             len(self.events),
+            self._elapsed(),
             agent=agent,
             summary_message_index=summary_message_index,
             compressed_message_indices=compressed_message_indices,
@@ -130,22 +136,24 @@ class State:
         return event
 
     def agent_start(self) -> AgentStartEvent:
-        event = AgentStartEvent(len(self.events))
+        event = AgentStartEvent(len(self.events), self._elapsed())
         self._append(event)
         return event
 
     def agent_end(self, *, reason: str) -> AgentEndEvent:
-        event = AgentEndEvent(len(self.events), reason=reason)
+        event = AgentEndEvent(len(self.events), self._elapsed(), reason=reason)
         self._append(event)
         return event
 
     def turn_start(self, *, agent: AgentName) -> TurnStartEvent:
-        event = TurnStartEvent(len(self.events), agent=agent)
+        event = TurnStartEvent(len(self.events), self._elapsed(), agent=agent)
         self._append(event)
         return event
 
     def turn_end(self, *, agent: AgentName, terminated: bool = False) -> TurnEndEvent:
-        event = TurnEndEvent(len(self.events), agent=agent, terminated=terminated)
+        event = TurnEndEvent(
+            len(self.events), self._elapsed(), agent=agent, terminated=terminated
+        )
         self._append(event)
         return event
 
@@ -163,6 +171,7 @@ class State:
     ) -> ModelRequestEvent:
         event = ModelRequestEvent(
             len(self.events),
+            self._elapsed(),
             agent=agent,
             visible_count=visible_count,
             llm_message_count=llm_message_count,
@@ -186,6 +195,7 @@ class State:
     ) -> ModelResponseEvent:
         event = ModelResponseEvent(
             len(self.events),
+            self._elapsed(),
             agent=agent,
             output_kind=output_kind,
             target=target,
@@ -203,6 +213,7 @@ class State:
     ) -> ToolExecutionStartEvent:
         event = ToolExecutionStartEvent(
             len(self.events),
+            self._elapsed(),
             tool_call_id=tool_call_id,
             tool_name=tool_name,
         )
@@ -218,6 +229,7 @@ class State:
     ) -> ToolExecutionUpdateEvent:
         event = ToolExecutionUpdateEvent(
             len(self.events),
+            self._elapsed(),
             tool_call_id=tool_call_id,
             tool_name=tool_name,
             partial=partial,
@@ -235,6 +247,7 @@ class State:
     ) -> ToolExecutionEndEvent:
         event = ToolExecutionEndEvent(
             len(self.events),
+            self._elapsed(),
             tool_call_id=tool_call_id,
             tool_name=tool_name,
             is_error=is_error,

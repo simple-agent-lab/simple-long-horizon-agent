@@ -43,3 +43,20 @@ SWE-bench or running Docker:
 ```bash
 bash runs/run_swebench_smoke.sh
 ```
+
+## SWE-bench (Containerized)
+
+One-time setup: install Docker, build SWE-bench images for an instance:
+
+```bash
+bash runs/setup_swebench_docker.sh django__django-12113
+```
+
+Run the agent in a Docker container:
+
+```bash
+bash runs/run_swebench_container.sh django__django-12113
+```
+
+See `evals/swebench/README.md` for detailed Docker setup, macOS arm64
+workarounds, and troubleshooting.

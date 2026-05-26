@@ -21,6 +21,8 @@ Use [0000-template.md](0000-template.md) for new records. Number accepted decisi
 - [ADR 0012: Unify the Message Protocol on Content Blocks](0012-unify-message-protocol-on-content-blocks.md) — tool-result fragment superseded by ADR 0014
 - [ADR 0013: Provider-Namespaced `extra` Channel and Two-Layer Trace](0013-extra-channel-and-two-layer-trace.md)
 - [ADR 0014: Tool Results Are Content Blocks, Not a Separate Message Role](0014-tool-result-as-content-block.md)
+- [ADR 0015: Three-Layer Trace Architecture — Event, Span, Training](0015-three-layer-trace-event-span-training.md)
+- [ADR 0016: Eval Output Directory Convention](0016-eval-output-directory-convention.md)
 
 ## Withdrawn
 

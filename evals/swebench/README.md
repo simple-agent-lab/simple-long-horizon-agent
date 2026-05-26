@@ -15,6 +15,150 @@ The adapter keeps the existing Simple Agent Lab split:
 - Training/export flows should build from shared trajectory records after eval
   labels exist.
 
+## Quick Start
+
+One-time setup and a single-instance run from scratch:
+
+```bash
+# 1. Install Python deps (Docker SDK + SWE-bench)
+uv pip install docker "swebench>=3.0.0"
+
+# 2. Set up Docker (see "Docker Setup" below for details)
+bash runs/setup_swebench_docker.sh
+
+# 3. Configure .env with your model provider
+cat > .env <<'EOF'
+OPENAI_MODEL=your-model-name
+OPENAI_AUTH_TOKEN=your-api-key
+OPENAI_BASE_URL=https://your-provider/v1
+API_KIND=openai-chat
+EOF
+
+# 4. Fetch an instance, build images, and run the agent
+bash runs/run_swebench_container.sh django__django-12113
+```
+
+## Docker Setup
+
+SWE-bench runs agents inside Docker containers with pre-installed repo
+dependencies. Docker is required for the containerized path.
+
+### macOS (Apple Silicon / arm64)
+
+Docker Desktop requires sudo and has licensing constraints. Colima is a
+lightweight alternative that works without either:
+
+```bash
+brew install docker colima
+```
+
+SWE-bench images are x86_64. On Apple Silicon, Colima must start with
+**Rosetta 2** emulation (not QEMU — QEMU fails on Miniconda's embedded
+binaries):
+
+```bash
+colima start --cpu 4 --memory 8 --arch aarch64 --vm-type vz --vz-rosetta
+```
+
+Set the Docker socket for all subsequent commands:
+
+```bash
+export DOCKER_HOST=unix://$HOME/.colima/default/docker.sock
+```
+
+**Known issue: `docker build` + Rosetta.** The Docker BuildKit builder fails
+to run x86_64 ELF binaries through Rosetta during image builds (the dynamic
+linker `/lib64/ld-linux-x86-64.so.2` is not accessible in the build overlay).
+The same binaries work fine in `docker run`. The setup script works around this
+by building the SWE-bench base image via `docker run` + `docker commit` instead
+of `docker build`. The SWE-bench env and instance layers build normally on top
+of the committed base.
+
+### Linux (x86_64)
+
+Standard Docker Engine works directly:
+
+```bash
+sudo apt-get install docker.io
+# or: curl -fsSL https://get.docker.com | sh
+```
+
+No emulation or workarounds needed.
+
+## Instance Data
+
+SWE-bench instance records can be fetched from HuggingFace. The instance JSONL
+must include `repo`, `instance_id`, `base_commit`, `problem_statement`, and the
+private fields (`patch`, `test_patch`, `FAIL_TO_PASS`, `PASS_TO_PASS`) needed by
+`make_test_spec` for image builds.
+
+Fetch a single instance using the HuggingFace datasets API:
+
+```bash
+uv run python - <<'PY'
+import json
+from datasets import load_dataset
+ds = load_dataset("princeton-nlp/SWE-bench_Lite", split="test")
+row = ds.filter(lambda x: x["instance_id"] == "django__django-12113")[0]
+with open("evals/out/instance_django-12113.jsonl", "w") as f:
+    f.write(json.dumps(dict(row), ensure_ascii=False) + "\n")
+print("Saved instance to evals/out/instance_django-12113.jsonl")
+PY
+```
+
+Or use the REST API without installing `datasets`:
+
+```bash
+curl -s 'https://datasets-server.huggingface.co/rows?dataset=princeton-nlp/SWE-bench_Lite&config=default&split=test&offset=0&length=300' \
+  | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for row in data.get('rows', []):
+    r = row.get('row', {})
+    if r.get('instance_id') == 'django__django-12113':
+        print(json.dumps(r, ensure_ascii=False))
+        break
+" > evals/out/instance_django-12113.jsonl
+```
+
+## Building Docker Images
+
+SWE-bench images are built locally (not available on Docker Hub). Three layers:
+
+1. **Base image** (`sweb.base.py.x86_64:latest`): Ubuntu 22.04 + Miniconda +
+   build tools.
+2. **Env image** (`sweb.env.py.x86_64.<hash>:latest`): base + conda environment
+   matching the instance's Python version and repo dependencies.
+3. **Instance image** (`sweb.eval.x86_64.<instance-id>:latest`): env + repo
+   cloned at `base_commit`.
+
+On x86_64 Linux, the standard build works:
+
+```bash
+uv run python - <<'PY'
+import docker, json
+from swebench.harness.docker_build import build_instance_images
+with open("evals/out/instance_django-12113.jsonl") as f:
+    instance = json.loads(f.readline())
+client = docker.from_env()
+build_instance_images(client=client, dataset=[instance], tag="latest", env_image_tag="latest")
+PY
+```
+
+On macOS arm64 with Colima + Rosetta, the base image must be built via the
+`docker run` + `docker commit` workaround. The setup script
+`runs/setup_swebench_docker.sh` handles this automatically.
+
+After building, tag the instance image for the `swebench` namespace that
+`containerized_agent.py` expects:
+
+```bash
+docker tag sweb.eval.x86_64.django__django-12113:latest \
+  "swebench/sweb.eval.x86_64.django_$(echo django__django-12113 | md5sum | head -c4)_django-12113:latest"
+```
+
+The convenience scripts handle this automatically.
+
 ## Local Adapter Smoke
 
 This command does not install SWE-bench and does not run Docker. It runs the
@@ -69,23 +213,34 @@ Run one containerized agent:
 
 ```bash
 uv run python evals/swebench/containerized_agent.py \
-  --instance-json evals/out/swebench_verified_sympy__sympy-23824.jsonl \
-  --instance-id sympy__sympy-23824 \
-  --dataset-name princeton-nlp/SWE-bench_Verified \
+  --instance-json evals/out/instance_django-12113.jsonl \
+  --instance-id django__django-12113 \
+  --dataset-name princeton-nlp/SWE-bench_Lite \
   --split test \
-  --model-name simple-agent-lab-containerized-mimo-v2.5-pro \
+  --model-name simple-agent-lab-local \
   --provider openai \
-  --api-kind openai-responses \
+  --api-kind openai-chat \
   --dotenv .env \
   --max-turns 20 \
-  --run-id containerized-openai-sympy-23824 \
+  --run-id my-run \
+  --network-mode host \
   --force
 ```
 
+Or use the convenience script:
+
+```bash
+bash runs/run_swebench_container.sh django__django-12113
+```
+
 Outputs land under
-`evals/out/swebench_container_runs/<run-id>/<instance-id>/out/`. The official
-judge should still run in a separate clean container using the generated
-`prediction.jsonl`.
+`evals/out/swebench_container_runs/<run-id>/<instance-id>/out/`:
+
+- `trajectory.jsonl`: full agent trajectory (messages, events, model turns).
+- `prediction.jsonl`: SWE-bench prediction record with `model_patch`.
+
+The official judge should still run in a separate clean container using the
+generated `prediction.jsonl`.
 
 ## Official Harness
 
@@ -94,8 +249,7 @@ uses Docker. Install it in the repo Python environment before running official
 evaluation:
 
 ```bash
-git clone https://github.com/princeton-nlp/SWE-bench.git /tmp/SWE-bench
-uv pip install -e /tmp/SWE-bench
+uv pip install "swebench>=3.0.0"
 ```
 
 Verify the official setup with the gold patch smoke:
@@ -129,3 +283,13 @@ only when you want a different local artifact root.
 Do not pass SWE-bench gold `patch` or `test_patch` fields into the model-visible
 task. They belong to the official harness and scoring path, not trajectory
 collection.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `rosetta error: failed to open elf` during `docker build` | Rosetta + BuildKit overlay incompatibility | Use `runs/setup_swebench_docker.sh` (builds base via `docker run` + `docker commit`) |
+| `CondaHTTPError: HTTP 000 CONNECTION FAILED` | Container has no network | Check `colima status`; restart with `colima start` |
+| `exit code 255` from Miniconda installer | QEMU x86_64 emulation failure | Switch to Rosetta: `colima start --vm-type vz --vz-rosetta` |
+| `Missing SWE-bench image swebench/sweb.eval...` | Namespace mismatch between built images and `containerized_agent.py` | Pass matching `--namespace` or re-tag images (convenience scripts handle this) |
+| `OPENAI_AUTH_TOKEN` / `OPENAI_MODEL` missing | `.env` not configured | Create `.env` with provider credentials (see above) |

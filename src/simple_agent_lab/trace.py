@@ -46,24 +46,25 @@ def print_trace(state: State, *, raw: bool = False) -> None:
     print("-----")
     for event in state.events:
         kind = event.kind.value
+        t = f"@{event.elapsed:.3f}s"
         if isinstance(event, MessageEvent):
             message = event.message
             route = f"{message.sender} -> {message.target}"
             print(
-                f"{event.index:02d} {kind:<21} {message.kind:<10} "
+                f"{event.index:02d} {t:<10} {kind:<21} {message.kind:<10} "
                 f"{route:<24} {message_text(message)}"
             )
             extra = (message.data or {}).get("extra")
             if extra:
                 preview = ", ".join(f"{k}={v!r}" for k, v in extra.items())
-                print(f"   {'extra':<21} {preview[:200]}")
+                print(f"   {'':10} {'extra':<21} {preview[:200]}")
             if isinstance(message, AssistantMessage):
                 for thinking_block in message.thinking:
                     preview = thinking_block.text.replace("\n", " ")
                     if len(preview) > 200:
                         preview = preview[:200] + "..."
                     tag = "redacted_thinking" if thinking_block.redacted else "thinking"
-                    print(f"   {tag:<21} {preview}")
+                    print(f"   {'':10} {tag:<21} {preview}")
                 if raw:
                     raw_payload = (message.data or {}).get("raw")
                     if raw_payload:
@@ -72,7 +73,7 @@ def print_trace(state: State, *, raw: bool = False) -> None:
             candidate = event.candidate_id
             suffix = f" candidate={candidate}" if candidate is not None else ""
             print(
-                f"{event.index:02d} {kind:<21} "
+                f"{event.index:02d} {t:<10} {kind:<21} "
                 f"agent={event.agent} "
                 f"visible={event.visible_count} "
                 f"llm_messages={event.llm_message_count}{suffix}"
@@ -81,7 +82,7 @@ def print_trace(state: State, *, raw: bool = False) -> None:
             candidate = event.candidate_id
             suffix = f" candidate={candidate}" if candidate is not None else ""
             print(
-                f"{event.index:02d} {kind:<21} "
+                f"{event.index:02d} {t:<10} {kind:<21} "
                 f"agent={event.agent} "
                 f"kind={event.output_kind} "
                 f"target={event.target} "
@@ -89,7 +90,7 @@ def print_trace(state: State, *, raw: bool = False) -> None:
             )
         elif isinstance(event, ContextCompressionEvent):
             print(
-                f"{event.index:02d} {kind:<21} "
+                f"{event.index:02d} {t:<10} {kind:<21} "
                 f"agent={event.agent} "
                 f"compressed={event.compressed_message_indices} "
                 f"summary_idx={event.summary_message_index} "
@@ -99,9 +100,9 @@ def print_trace(state: State, *, raw: bool = False) -> None:
             extras = " ".join(
                 f"{field.name}={getattr(event, field.name)}"
                 for field in dataclasses.fields(event)
-                if field.name != "index"
+                if field.name not in ("index", "elapsed")
             )
-            print(f"{event.index:02d} {kind:<21} {extras}")
+            print(f"{event.index:02d} {t:<10} {kind:<21} {extras}")
 
 
 def openai_training_record(

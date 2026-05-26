@@ -108,8 +108,12 @@ def task_tool(
             return text_result(
                 f"Sub-agent {agent.name!r} produced no final message",
                 is_error=True,
+                details={"sub_events": list(state.events)},
             )
-        return text_result(text_of(final.content) or message_text(final))
+        return text_result(
+            text_of(final.content) or message_text(final),
+            details={"sub_events": list(state.events)},
+        )
 
     return AgentTool(
         name=name,
