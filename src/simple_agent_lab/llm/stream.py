@@ -15,7 +15,7 @@ a function and call `register_adapter("your-api", fn)`.
 
 from __future__ import annotations
 
-from typing import Callable, Iterator, Optional
+from typing import Callable, Iterator
 
 from .types import LLMRequest, LLMResponse, StreamEvent
 
@@ -57,7 +57,7 @@ def complete(req: LLMRequest) -> LLMResponse:
     caller is responsible for any retry / timeout policy beyond what
     the adapter itself does.
     """
-    response: Optional[LLMResponse] = None
+    response: LLMResponse | None = None
     for event in iter_stream(req):
         if event.kind == "done":
             response = event.payload["response"]

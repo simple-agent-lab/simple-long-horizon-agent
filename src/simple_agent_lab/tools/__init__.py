@@ -12,7 +12,7 @@ through to the LLM access layer without an intermediate translation step.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Literal, Optional
+from typing import Any, Callable, Literal
 
 from simple_agent_lab.messages import ImageBlock, TextBlock
 
@@ -57,7 +57,15 @@ class ToolResult:
 
 
 ToolUpdateFn = Callable[[ToolResult], None]
-ToolExecuteFn = Callable[..., ToolResult]
+# The canonical tool-execute signature called by `core.dispatch_tool_calls`:
+#   (call_id, args, abort, on_update) -> ToolResult
+# Tools that don't stream intermediate updates can ignore `on_update`;
+# tools that don't support cancellation can ignore `abort`. The shape is
+# fixed so static checkers can verify every `AgentTool.execute` matches.
+ToolExecuteFn = Callable[
+    [str, dict[str, Any], AbortFlag, ToolUpdateFn | None],
+    ToolResult,
+]
 
 
 @dataclass(frozen=True)
@@ -71,17 +79,19 @@ class Tool:
 
 @dataclass(frozen=True)
 class AgentTool(Tool):
-    """A tool definition plus local execution metadata.
+    """A tool definition plus its local execute function.
 
-    Runtimes may call `execute` with different signatures. For example, the
-    functional loop calls `(args)`, the event runtime calls `(call_id, args)`,
-    and the balanced runtime calls `(call_id, args, abort, on_update)`.
+    `execute` runs the tool with the canonical `ToolExecuteFn` signature
+    (see above). `execution_mode="sequential"` forces all calls in a
+    tool-call batch to run one at a time; `"parallel"` allows the runtime
+    to dispatch them concurrently. `timeout_seconds` (when set) bounds a
+    single call.
     """
 
-    execute: Optional[ToolExecuteFn] = None
+    execute: ToolExecuteFn | None = None
     label: str = ""
     execution_mode: ToolExecutionMode = "parallel"
-    timeout_seconds: Optional[float] = None
+    timeout_seconds: float | None = None
 
 
 def text_result(

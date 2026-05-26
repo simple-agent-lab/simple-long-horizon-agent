@@ -28,8 +28,42 @@ from typing import Any, Literal, TypeAlias
 
 
 Role: TypeAlias = Literal["system", "user", "assistant"]
-MessageKind: TypeAlias = str
-MessageChannel: TypeAlias = str
+
+# Routing-side discriminator for what kind of transcript entry a message is.
+# Closed set so static checkers catch typos and IDEs autocomplete; if you
+# genuinely need a new kind, extend the Literal here in one place rather
+# than scattering raw strings through callers.
+#   "message" — generic fallback (default for user/assistant messages)
+#   "system"  — runtime/system-level instruction
+#   "task"    — initial task for an agent
+#   "thought" — assistant intermediate output (still working)
+#   "final"   — agent's terminal message; the runtime loop stops on this
+#   "tool_result" — return value of a tool execution
+#   "note"    — out-of-band annotation injected onto the transcript
+#   "summary" — context compression summary
+#   "context" — extra context injected by task_tool delegation
+#   "trace"   — runtime trace entry
+#   "notification" — out-of-band entry that runtime adapters skip when
+#                    projecting to the LLM (reserved for extension code)
+MessageKind: TypeAlias = Literal[
+    "message",
+    "system",
+    "task",
+    "thought",
+    "final",
+    "tool_result",
+    "note",
+    "summary",
+    "context",
+    "trace",
+    "notification",
+]
+
+# Side-band channel for routing related messages off the default trace.
+#   "main"  — default visible channel
+#   "debug" — internal/debug-only messages (excluded from default context view)
+MessageChannel: TypeAlias = Literal["main", "debug"]
+
 AgentName: TypeAlias = str
 
 
@@ -442,13 +476,13 @@ def _normalize_visible(content: ToolResultContentInput) -> tuple[VisibleBlock, .
 
 
 def make_message(
-    role: str,
+    role: Role,
     content: ContentInput = "",
     *,
-    sender: str = "",
-    target: str = "",
-    kind: str = "message",
-    channel: str = "main",
+    sender: AgentName = "",
+    target: AgentName = "",
+    kind: MessageKind = "message",
+    channel: MessageChannel = "main",
     **data: Any,
 ) -> Message:
     """Construct the right role-specific Message variant."""

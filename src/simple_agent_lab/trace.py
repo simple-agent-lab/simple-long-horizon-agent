@@ -16,6 +16,7 @@ wire, so what trains is what runs.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from collections.abc import Sequence
 from pathlib import Path
@@ -24,7 +25,12 @@ from typing import Any
 from .llm.adapters.openai_chat import to_openai_chat_messages, to_openai_chat_tools
 from .llm.bridge import messages_to_llm_messages, tool_to_llm_tool
 from .messages import AssistantMessage, message_text
-from .protocols import MessageEvent, ModelRequestEvent, ModelResponseEvent
+from .protocols import (
+    ContextCompressionEvent,
+    MessageEvent,
+    ModelRequestEvent,
+    ModelResponseEvent,
+)
 from .state import State
 from .tools import AgentTool, Tool
 
@@ -81,8 +87,20 @@ def print_trace(state: State, *, raw: bool = False) -> None:
                 f"target={event.target} "
                 f"tool_calls={event.tool_call_count}{suffix}"
             )
+        elif isinstance(event, ContextCompressionEvent):
+            print(
+                f"{event.index:02d} {kind:<21} "
+                f"agent={event.agent} "
+                f"compressed={event.compressed_message_indices} "
+                f"summary_idx={event.summary_message_index} "
+                f"tokens={event.before_tokens}->{event.after_tokens}"
+            )
         else:
-            extras = " ".join(f"{key}={value}" for key, value in event.data.items())
+            extras = " ".join(
+                f"{field.name}={getattr(event, field.name)}"
+                for field in dataclasses.fields(event)
+                if field.name != "index"
+            )
             print(f"{event.index:02d} {kind:<21} {extras}")
 
 

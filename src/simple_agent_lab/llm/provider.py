@@ -16,7 +16,7 @@ No subclasses, no factory.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Literal
 
 
 # The set of wire protocols. Each value maps to one adapter in `_ADAPTERS`.
@@ -35,11 +35,11 @@ class Provider:
     id: str  # caller-chosen label, e.g. "claude-prod"
     api: ApiKind
     model: str  # provider's model id, e.g. "claude-sonnet-4-5"
-    base_url: Optional[str] = None  # override SDK default (Ollama, Azure, etc.)
+    base_url: str | None = None  # override SDK default (Ollama, Azure, etc.)
     api_key_env: str = ""  # env var name; "" = no key needed (fake / local)
     default_temperature: float = 1.0
-    default_max_tokens: Optional[int] = None
-    context_window: Optional[int] = None  # advisory only; not enforced
+    default_max_tokens: int | None = None
+    context_window: int | None = None  # advisory only; not enforced
     # When True, adapters that hold the model's prior reasoning replay it
     # on the next request so multi-turn tool-use stays continuous. Flip off
     # only for endpoints that handle reasoning continuity server-side or

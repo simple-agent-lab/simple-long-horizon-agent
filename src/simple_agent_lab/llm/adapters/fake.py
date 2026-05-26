@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import re
 import time
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator
 
 from ...messages import ContentBlock, TextBlock, ToolCallBlock
 from ..stream import register_adapter
@@ -174,7 +174,7 @@ def _strip_routing_header(text: str) -> str:
     return text
 
 
-def _last_message_text(req: LLMRequest, *, role: Optional[str] = None) -> str:
+def _last_message_text(req: LLMRequest, *, role: str | None = None) -> str:
     for message in reversed(req.messages):
         if role is not None and getattr(message, "role", "") != role:
             continue
