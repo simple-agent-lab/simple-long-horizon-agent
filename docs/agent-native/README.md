@@ -103,8 +103,8 @@ Stop and collect more evidence before changing behavior when:
 | Message protocol or provider conversion | `CONTEXT.md`, ADR 0006, `src/simple_agent_lab/messages.py`, `src/simple_agent_lab/llm/README.md` | Runtime-vs-model message boundary and vocabulary. |
 | Context visibility or budgeting | ADR 0010, `src/simple_agent_lab/context_view.py`, `tests/unit/test_core.py`, `tests/unit/test_token_usage.py` | Projection behavior and token-estimate constraints. |
 | Tool execution or bash demo | `src/simple_agent_lab/tools/`, `src/simple_agent_lab/agents/bash/` (preset agent), `tests/unit/test_bash_agent.py` | Tool result semantics and deterministic demo checks. |
-| Trace printing or OpenAI Chat JSONL export | ADR 0013, `src/simple_agent_lab/trace.py`, `tests/unit/test_openai_training.py` | Trace rendering and provider-shaped transcript export. |
-| Trajectories, evals, or training data | ADR 0008, ADR 0011, `src/simple_agent_lab/trace.py`, `evals/README.md`, `evals/swebench/README.md` | Separation between fact records, scores, provider-shaped exports, and suite adapters. |
+| Trace printing or OpenAI Chat JSONL export | ADR 0013, ADR 0015, `src/simple_agent_lab/trace.py`, `tests/unit/test_openai_training.py` | Trace rendering and provider-shaped transcript export. |
+| Trajectories, spans, or training data | ADR 0008, ADR 0011, ADR 0015, `src/simple_agent_lab/trajectory.py`, `evals/README.md`, `evals/swebench/README.md` | Three-layer trace: Event → Span → Training. |
 | External architecture borrowing | `docs/reference-architectures/README.md` (local notes workspace, gitignored) plus your own reference note | Capture rationale locally; record durable commitments in an ADR. |
 | Agent-native doc maintenance | This loading map, `docs/agent-native/operating-rules.md` | Canonical routing and stop conditions. |
 

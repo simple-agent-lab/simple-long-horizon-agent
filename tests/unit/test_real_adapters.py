@@ -1191,15 +1191,12 @@ class MultimodalToolResultTest(unittest.TestCase):
 class RawCaptureTest(unittest.TestCase):
     """`LLMResponse.raw` records the SDK call's request + response.
 
-    Messages history is pruned from the request snapshot because it
-    already lives in the runtime trajectory and copying it onto every
-    turn's raw payload turns long sessions into O(N^2) memory.
-    Everything else (model, tools, temperature, our outbound `extra`
-    translations, etc.) is retained so the trace can still answer
-    "did our cache_control / reasoning_content land?".
+    The request snapshot preserves the full outbound body including the
+    messages / input history so it can serve as a faithful HTTP-level
+    replay record.
     """
 
-    def test_openai_chat_raw_prunes_messages_keeps_other_fields(self) -> None:
+    def test_openai_chat_raw_preserves_messages_and_other_fields(self) -> None:
         captured: dict[str, Any] = {}
         module = _stub_openai(_chat_response(text="ok"), captured, kind="chat")
         req = LLMRequest(
@@ -1214,16 +1211,13 @@ class RawCaptureTest(unittest.TestCase):
             response = complete(req)
 
         request_snapshot = response.raw["request"]
-        self.assertEqual(
-            request_snapshot["messages"],
-            {"_pruned": True, "_count": 2},  # system + user
-        )
+        self.assertIsInstance(request_snapshot["messages"], list)
+        self.assertEqual(len(request_snapshot["messages"]), 2)  # system + user
         self.assertEqual(request_snapshot["model"], "gpt-test-1")
         self.assertIn("temperature", request_snapshot)
-        # Response side is captured in full (model_dump for pydantic, raw object otherwise).
         self.assertTrue(response.raw["response"])
 
-    def test_anthropic_raw_prunes_messages(self) -> None:
+    def test_anthropic_raw_preserves_messages(self) -> None:
         captured: dict[str, Any] = {}
         module = _stub_anthropic(_anthropic_response(text="ok"), captured)
         req = LLMRequest(
@@ -1235,11 +1229,10 @@ class RawCaptureTest(unittest.TestCase):
             mock.patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "k"}, clear=False),
         ):
             response = complete(req)
-        self.assertEqual(
-            response.raw["request"]["messages"], {"_pruned": True, "_count": 1}
-        )
+        self.assertIsInstance(response.raw["request"]["messages"], list)
+        self.assertEqual(len(response.raw["request"]["messages"]), 1)
 
-    def test_openai_responses_raw_prunes_input(self) -> None:
+    def test_openai_responses_raw_preserves_input(self) -> None:
         captured: dict[str, Any] = {}
         module = _stub_openai(
             _responses_response(text_blocks=["ok"]), captured, kind="responses"
@@ -1253,10 +1246,8 @@ class RawCaptureTest(unittest.TestCase):
             mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
         ):
             response = complete(req)
-        # OpenAI Responses uses `input` instead of `messages`.
-        self.assertEqual(
-            response.raw["request"]["input"], {"_pruned": True, "_count": 1}
-        )
+        self.assertIsInstance(response.raw["request"]["input"], list)
+        self.assertEqual(len(response.raw["request"]["input"]), 1)
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -7,17 +7,28 @@ from pathlib import Path
 from typing import cast
 
 from simple_agent_lab import (
+    Agent,
     AgentTool,
     ToolResult,
+    assistant_message,
     event_record,
     message_text,
     run_trace_from_state,
+    task_tool,
     tool_result_text,
     tool_results_of,
 )
 from simple_agent_lab.agents.bash import make_bash_agent
 from simple_agent_lab.llm import Provider
-from simple_agent_lab.trajectory import trace_record
+from simple_agent_lab.messages import Message
+from simple_agent_lab.trajectory import (
+    Span,
+    _collect_sub_events,
+    _tree_sort,
+    merge_sub_agent_spans,
+    spans_from_events,
+    trace_record,
+)
 from simple_agent_lab.tools.bash import (
     MAX_BASH_TIMEOUT_SECONDS,
     _resolve_timeout,
@@ -112,7 +123,7 @@ class BashToolTest(unittest.TestCase):
         )
         self.assertTrue(any(event.kind == "model_request" for event in state.events))
 
-    def test_run_trace_from_state_captures_model_turn_tools(self) -> None:
+    def test_run_trace_from_state_produces_span_tree(self) -> None:
         agent = make_bash_agent(provider=FAKE_PROVIDER, cwd=ROOT)
         state, events = agent.run(
             "Use bash to run command: `printf 'trace ok\\n'`",
@@ -127,17 +138,292 @@ class BashToolTest(unittest.TestCase):
             producer="tests",
         )
 
-        self.assertGreaterEqual(len(trace.model_turns), 2)
-        first_turn = trace.model_turns[0]
-        self.assertEqual(first_turn.agent, "bash_agent")
-        self.assertEqual(first_turn.tools[0]["name"], "bash")
-        self.assertEqual(first_turn.meta["visible_count"], 1)
-        event_kinds = [event["kind"] for event in trace.events]
+        spans = trace.spans()
+        model_calls = [s for s in spans if s.kind == "model_call"]
+        tool_calls = [s for s in spans if s.kind == "tool_call"]
+        turns = [s for s in spans if s.kind == "turn"]
+        agent_runs = [s for s in spans if s.kind == "agent_run"]
+
+        self.assertGreaterEqual(len(model_calls), 2)
+        self.assertGreaterEqual(len(tool_calls), 1)
+        self.assertGreaterEqual(len(turns), 1)
+        self.assertEqual(len(agent_runs), 1)
+
+        first_call = model_calls[0]
+        self.assertEqual(first_call.attributes["agent"], "bash_agent")
+        self.assertEqual(first_call.attributes["tools"][0]["name"], "bash")
+        self.assertEqual(first_call.attributes["visible_count"], 1)
+        self.assertGreaterEqual(first_call.start, 0.0)
+        self.assertGreater(first_call.end, first_call.start)
+
+        first_tool = tool_calls[0]
+        self.assertEqual(first_tool.attributes["tool_name"], "bash")
+        self.assertIsNotNone(first_tool.parent_id)
+
+        event_kinds = [e.kind.value for e in trace.events]
         self.assertIn("model_request", event_kinds)
         self.assertIn("tool_execution_start", event_kinds)
         record = trace_record(trace)
         self.assertEqual(record["events"][0]["kind"], "message")
+        self.assertGreater(len(record["spans"]), 0)
         self.assertEqual(event_record(state.events[0])["kind"], "message")
+
+
+class TraceSpanTest(unittest.TestCase):
+    """Tests for span extraction edge cases and serialization."""
+
+    def test_parent_id_returns_none_when_skip_exhausts_stack(self) -> None:
+        """_parent_id must return None, not the skipped entry, when all
+        stack entries match skip_kinds."""
+        from simple_agent_lab.protocols import (
+            AgentStartEvent,
+            ToolExecutionStartEvent,
+            ToolExecutionEndEvent,
+            TurnStartEvent,
+            TurnEndEvent,
+            AgentEndEvent,
+        )
+
+        events = [
+            AgentStartEvent(0, 0.0),
+            TurnStartEvent(1, 0.1, agent="a"),
+            ToolExecutionStartEvent(2, 0.2, tool_call_id="c1", tool_name="t1"),
+            ToolExecutionStartEvent(3, 0.3, tool_call_id="c2", tool_name="t2"),
+            ToolExecutionEndEvent(
+                4,
+                0.4,
+                tool_call_id="c1",
+                tool_name="t1",
+                is_error=False,
+                terminate=False,
+            ),
+            ToolExecutionEndEvent(
+                5,
+                0.5,
+                tool_call_id="c2",
+                tool_name="t2",
+                is_error=False,
+                terminate=False,
+            ),
+            TurnEndEvent(6, 0.6, agent="a"),
+            AgentEndEvent(7, 0.7, reason="done"),
+        ]
+        spans = spans_from_events("test", events)
+        tool_spans = [s for s in spans if s.kind == "tool_call"]
+        self.assertEqual(len(tool_spans), 2)
+        for ts in tool_spans:
+            turn_spans = [s for s in spans if s.kind == "turn"]
+            self.assertEqual(len(turn_spans), 1)
+            self.assertEqual(
+                ts.parent_id,
+                turn_spans[0].id,
+                "Parallel tool_call must be child of turn, not sibling tool_call",
+            )
+
+    def test_model_turns_extracted_from_trace(self) -> None:
+        agent = make_bash_agent(provider=FAKE_PROVIDER, cwd=ROOT)
+        state, events = agent.run(
+            "Use bash to run command: `printf 'mt ok\\n'`",
+            max_turns=3,
+        )
+        for _ in events:
+            pass
+
+        trace = run_trace_from_state(
+            state=state,
+            trace_id="test.mt",
+            producer="tests",
+        )
+        turns = trace.model_turns()
+        self.assertGreaterEqual(len(turns), 1)
+
+        first = turns[0]
+        self.assertEqual(first.agent, "bash_agent")
+        self.assertIn("model", first.step_id)
+        self.assertIsInstance(first.input_messages, list)
+        self.assertIsInstance(first.output_message, dict)
+        self.assertIsInstance(first.tools, list)
+        self.assertGreater(len(first.tools), 0)
+
+    def test_trace_record_includes_model_turns_and_spans(self) -> None:
+        agent = make_bash_agent(provider=FAKE_PROVIDER, cwd=ROOT)
+        state, events = agent.run(
+            "Use bash to run command: `printf 'rec ok\\n'`",
+            max_turns=3,
+        )
+        for _ in events:
+            pass
+
+        trace = run_trace_from_state(
+            state=state,
+            trace_id="test.rec",
+            producer="tests",
+        )
+        record = trace_record(trace)
+
+        self.assertIn("spans", record)
+        self.assertIn("model_turns", record)
+        self.assertGreater(len(record["spans"]), 0)
+        self.assertGreater(len(record["model_turns"]), 0)
+
+        first_mt = record["model_turns"][0]
+        self.assertIn("step_id", first_mt)
+        self.assertIn("input_messages", first_mt)
+        self.assertIn("output_message", first_mt)
+
+    def test_tree_sort_handles_orphans(self) -> None:
+        orphan = Span(
+            id="orphan", parent_id="nonexistent", kind="x", start=0.0, end=1.0
+        )
+        root = Span(id="root", parent_id=None, kind="agent_run", start=0.0, end=2.0)
+        child = Span(id="child", parent_id="root", kind="turn", start=0.1, end=1.9)
+        result = _tree_sort([orphan, root, child])
+        ids = [s.id for s in result]
+        self.assertEqual(ids[0], "root")
+        self.assertEqual(ids[1], "child")
+        self.assertIn("orphan", ids)
+
+
+class MergedSpansTest(unittest.TestCase):
+    """Tests for _collect_sub_events and merged_spans end-to-end."""
+
+    @staticmethod
+    def _make_echo_generate(name: str):
+        def generate(visible: list[Message]) -> Message:
+            task_msg = next(m for m in visible if m.kind == "task")
+            return assistant_message(
+                f"{name}:{message_text(task_msg)}",
+                sender=name,
+                target="user",
+                kind="final",
+            )
+
+        return generate
+
+    def test_collect_sub_events_extracts_from_tool_result_message(self) -> None:
+        """_collect_sub_events must find sub_events keyed by call_id
+        inside message.data['details'][call_id]['sub_events']."""
+        from simple_agent_lab.protocols import AgentStartEvent, AgentEndEvent
+
+        fake_sub_events = [
+            AgentStartEvent(0, 0.0),
+            AgentEndEvent(1, 1.0, reason="done"),
+        ]
+        from simple_agent_lab.messages import user_message
+
+        msg = user_message(
+            "result text",
+            kind="tool_result",
+            data={"details": {"call_42": {"sub_events": fake_sub_events}}},
+        )
+        collected = _collect_sub_events([msg])
+        self.assertIn("call_42", collected)
+        self.assertEqual(len(collected["call_42"]), 2)
+
+    def test_collect_sub_events_skips_non_tool_result_messages(self) -> None:
+        from simple_agent_lab.messages import user_message
+
+        msg = user_message("hello", kind="message")
+        self.assertEqual(_collect_sub_events([msg]), {})
+
+    def test_collect_sub_events_skips_empty_details(self) -> None:
+        from simple_agent_lab.messages import user_message
+
+        msg = user_message("r", kind="tool_result", data={"details": {}})
+        self.assertEqual(_collect_sub_events([msg]), {})
+
+    def test_collect_sub_events_skips_missing_sub_events_key(self) -> None:
+        from simple_agent_lab.messages import user_message
+
+        msg = user_message(
+            "r",
+            kind="tool_result",
+            data={"details": {"call_1": {"other": "stuff"}}},
+        )
+        self.assertEqual(_collect_sub_events([msg]), {})
+
+    def test_task_tool_merged_spans_inlines_sub_agent(self) -> None:
+        """Full end-to-end: task_tool run → RunTrace → merged_spans()
+        must produce sub-agent spans nested under the tool_call span."""
+        sub = Agent("sub", self._make_echo_generate("sub"), role="echo")
+        parent_generate = _make_delegating_generate("parent", "sub")
+        parent = Agent("parent", parent_generate, role="orchestrator")
+        parent.tools = [task_tool([sub])]
+
+        state, events = parent.run("do it", max_turns=3)
+        for _ in events:
+            pass
+
+        trace = run_trace_from_state(
+            state=state, trace_id="test.merge", producer="tests"
+        )
+
+        parent_only = trace.spans()
+        merged = trace.merged_spans()
+
+        self.assertGreater(len(merged), len(parent_only))
+
+        sub_agent_runs = [s for s in merged if s.kind == "agent_run"]
+        self.assertGreaterEqual(
+            len(sub_agent_runs), 2, "Should have parent + sub agent_run spans"
+        )
+
+        task_tool_spans = [
+            s
+            for s in merged
+            if s.kind == "tool_call"
+            and s.attributes
+            and s.attributes.get("tool_name") == "task"
+        ]
+        self.assertGreaterEqual(len(task_tool_spans), 1)
+
+        task_span = task_tool_spans[0]
+        sub_children = [s for s in merged if s.parent_id == task_span.id]
+        self.assertGreater(
+            len(sub_children), 0, "Sub-agent spans must be children of task tool_call"
+        )
+
+    def test_merged_spans_returns_parent_only_when_no_sub_events(self) -> None:
+        agent = make_bash_agent(provider=FAKE_PROVIDER, cwd=ROOT)
+        state, events = agent.run("printf 'hi\\n'", max_turns=2)
+        for _ in events:
+            pass
+
+        trace = run_trace_from_state(
+            state=state, trace_id="test.nosub", producer="tests"
+        )
+        self.assertEqual(trace.spans(), trace.merged_spans())
+
+
+def _make_delegating_generate(name: str, sub_name: str):
+    """Generate function that delegates to a sub-agent via task tool."""
+    call_count = 0
+
+    def generate(visible: list[Message]) -> Message:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            task_msg = next(m for m in visible if m.kind == "task")
+            from simple_agent_lab.messages import ToolCallBlock
+
+            return assistant_message(
+                (
+                    ToolCallBlock(
+                        id="task_1",
+                        name="task",
+                        arguments={
+                            "subagent_type": sub_name,
+                            "task": message_text(task_msg),
+                        },
+                    ),
+                ),
+                sender=name,
+                target="user",
+                kind="thought",
+            )
+        return assistant_message("done", sender=name, target="user", kind="final")
+
+    return generate
 
 
 class BashToolCrashSafetyTest(unittest.TestCase):

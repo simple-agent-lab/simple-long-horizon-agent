@@ -54,11 +54,13 @@ class RuntimeEvent(Protocol):
 @dataclass(frozen=True)
 class _BaseEvent:
     index: int
+    elapsed: float
 
 
 @dataclass(frozen=True)
 class MessageEvent:
     index: int
+    elapsed: float
     message: Message
 
     @property
