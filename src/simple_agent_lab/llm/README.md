@@ -125,11 +125,13 @@ Then use `Provider(api="my-api", ...)` like any built-in.
   one will raise — fail loud, not silently truncate.
 - **`Provider` carries no callable.** A custom Ollama setup is a literal:
   `Provider(api="openai-chat", base_url="http://localhost:11434/v1", ...)`.
-- **`role="tool_result"` is internal, not wire-format.** Each adapter
-  translates at its own boundary (OpenAI → `role="tool"` + tool_call_id;
-  Anthropic → `role="user"` + a `tool_result` content block). Keeping
-  the internal name distinct from any provider's role lets the same
-  transcript reach either provider with no caller-side shimming.
+- **Tool results stay in project-owned content blocks until the provider
+  boundary.** Runtime tool-result bundles project to
+  `LLMMessage(role="user", content=[...])` with `ToolResultBlock` entries.
+  Provider adapters then render the shape each API expects: OpenAI Chat splits
+  them into `role="tool"` messages, OpenAI Responses emits
+  `function_call_output` items, and Anthropic keeps them as `tool_result`
+  blocks inside a user message. Callers do not need provider-specific shims.
 - **`LLMMessage.extra` and `LLMRequest.extra`** are the two
   provider-specific opt-in channels: a namespaced bag of hints on one
   message (`extra["anthropic.cache_breakpoint"] = True`) and a
