@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal
 
 from ..messages import (
     ContentBlock,
@@ -125,10 +125,10 @@ class LLMRequest:
     provider: "Provider"
     messages: list[LLMMessage]
     tools: list[LLMTool] = field(default_factory=list)
-    system_prompt: Optional[str] = None
-    temperature: Optional[float] = None  # None → use provider.default_temperature
-    max_tokens: Optional[int] = None
-    timeout_seconds: Optional[float] = 60.0
+    system_prompt: str | None = None
+    temperature: float | None = None  # None → use provider.default_temperature
+    max_tokens: int | None = None
+    timeout_seconds: float | None = 60.0
     extra: dict[str, Any] = field(
         default_factory=dict
     )  # provider-specific request options
@@ -212,10 +212,6 @@ class StreamEvent:
     payload: dict[str, Any] = field(default_factory=dict)
 
 
-# Public alias for the legacy `ToolCall` name (now == ToolCallBlock).
-ToolCall = ToolCallBlock
-
-
 __all__ = [
     "ContentBlock",
     "LLMMessage",
@@ -229,7 +225,6 @@ __all__ = [
     "TextBlock",
     "ThinkingBlock",
     "TokenUsage",
-    "ToolCall",
     "ToolCallBlock",
     "ToolResultBlock",
     "llm_message",

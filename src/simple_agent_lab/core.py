@@ -1,22 +1,29 @@
 """Balanced message runtime for Simple Agent Lab.
 
-The core model is small:
+The core model is small::
 
     Agent + Message + State + context_view() + run()
 
-`run()` is a generator that records events, uses a `next_agent(state)`
-scheduler, exposes request/response trace events, and can dispatch tool
-calls. `Agent.run()` is the single-agent shortcut that drives the loop
-with `until_final` and returns `(state, events)` so callers can stream
-events and still inspect the populated state. `tools.task_tool([b, c, d])`
-bundles sub-agents as a single dispatch tool: the parent picks one via
-the `subagent_type` enum and the chosen sub-agent's final message comes
-back as the tool result.
+`run()` drives one agent as a generator: each turn, it builds a context view
+of the visible messages, calls `agent.generate(...)`, records request/response
+trace events, and dispatches any returned tool calls. The loop stops on the
+first turn whose output is the agent's `final` message, or when `max_turns`
+is exhausted (truncated runs surface as `agent_end(reason="max_turns")` so
+traces can distinguish "agent decided to stop" from "ran out of budget").
+
+`Agent.run(task)` is a convenience wrapper that seeds the state with a task
+message and calls `run(self, state, ...)`, returning `(state, events)` so the
+caller can stream events and still inspect the populated state.
+
+Multi-agent flows are expressed as a parent agent that delegates through
+`tools.task_tool([b, c, d])`: the parent picks one sub-agent via the
+`subagent_type` enum and the chosen sub-agent's final message comes back as
+the tool result.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass
 from typing import Callable, Iterator
 
 from .compression import maybe_compress_context
@@ -26,7 +33,6 @@ from .context_view import (
 )
 from .llm import messages_to_llm_messages
 from .messages import (
-    AgentName,
     Message,
     ToolCallBlock,
     ToolResultBlock,
@@ -37,116 +43,99 @@ from .messages import (
 from .protocols import (
     Event,
     ToolExecutionEndEvent,
-    TurnEndEvent,
 )
 from .state import State
 from .tools import AbortFlag, AgentTool, ToolResult, ToolUpdateFn, text_result
 
 
-StepFn = Callable[["Agent", list[Message], State], Message]
-TransformFn = Callable[[list[Message]], list[Message]]
-NextFn = Callable[[State], AgentName | None]
+# An Agent's `generate` produces the next message from the visible context.
+# It takes no other arguments: name/role/tools/etc. are closed over at the
+# point where the function is built (see `llm_agent.py` and the test fakes).
+GenerateFn = Callable[[list[Message]], Message]
 
 
 @dataclass
 class Agent:
     name: str
-    step: StepFn
+    generate: GenerateFn
     role: str = ""
-    tools: list[AgentTool] = field(default_factory=list)
+    # `tools` is a tuple to make explicit that tools are bound at construction:
+    # `run()` snapshots them once per call, so mutating this attribute mid-run
+    # has no effect on the in-flight loop.
+    tools: tuple[AgentTool, ...] = ()
     context_policy: ContextPolicy | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.tools, tuple):
+            self.tools = tuple(self.tools)
 
     def run(
         self,
         task: str,
         *,
         max_turns: int = 10,
-        transform: TransformFn = lambda messages: messages,
-        last: int | None = None,
         abort: AbortFlag = lambda: False,
     ) -> tuple[State, Iterator[Event]]:
         """Drive this agent on `task` until it emits a final message.
 
         Returns `(state, events)`. Caller iterates `events` to advance the
-        loop and inspects `state` for the message/event history.
+        loop and inspects `state` for the message/event history. Callers
+        that need to prepend extra messages (e.g. a sub-agent context
+        prelude) can `state.record(...)` them after this call and before
+        starting to iterate `events`.
         """
         state = State(task=task)
         state.send("task", "user", self.name, task)
         events = run(
-            {self.name: self},
+            self,
             state,
-            until_final(self.name, max_turns=max_turns),
-            transform=transform,
-            last=last,
+            max_turns=max_turns,
             abort=abort,
         )
         return state, events
 
 
-def until_final(name: AgentName, *, max_turns: int = 3) -> NextFn:
-    """Scheduler that re-runs `name` until it emits a final message or hits a turn cap."""
-
-    def next_agent(state: State) -> AgentName | None:
-        if any(
-            message.sender == name and message.kind == "final"
-            for message in state.messages
-        ):
-            return None
-        turns = sum(
-            1
-            for event in state.events
-            if isinstance(event, TurnEndEvent) and event.agent == name
-        )
-        return name if turns < max_turns else None
-
-    return next_agent
-
-
 def run(
-    agents: dict[str, Agent] | list[Agent],
+    agent: Agent,
     state: State,
-    next_agent: NextFn,
     *,
-    transform: TransformFn = lambda messages: messages,
-    last: int | None = None,
+    max_turns: int = 10,
     abort: AbortFlag = lambda: False,
 ) -> Iterator[Event]:
-    """Run agents as a generator. Each yielded Event is recorded in state."""
-    agent_by_name = (
-        agents if isinstance(agents, dict) else {agent.name: agent for agent in agents}
-    )
+    """Run one agent as a generator until it emits `final` or hits `max_turns`.
+
+    Each yielded `Event` is recorded in `state`. Multi-agent flows are
+    expressed by giving `agent` a `task_tool` whose sub-agents each call
+    their own `run()` inside the tool execute function.
+    """
+    name = agent.name
+    tool_by_name = {tool.name: tool for tool in agent.tools}
 
     yield state.agent_start()
-    while True:
-        name = next_agent(state)
-        if name is None:
-            break
-        if name not in agent_by_name:
-            raise KeyError(f"Unknown agent {name!r}")
-
-        agent = agent_by_name[name]
-        tool_by_name = {tool.name: tool for tool in agent.tools}
+    final_emitted = False
+    for _ in range(max_turns):
         yield state.turn_start(agent=name)
 
-        resolved_policy = _resolve_context_policy(agent.context_policy, last)
-        compression_events = maybe_compress_context(
-            agent,
-            state,
-            resolved_policy,
-        )
-        for compression_event in compression_events:
+        policy = agent.context_policy or ContextPolicy()
+        for compression_event in maybe_compress_context(agent, state, policy):
             yield compression_event
 
         context = build_context_view(
-            agent.name,
+            name,
             state.active_context_messages(),
-            policy=resolved_policy,
+            policy=policy,
         )
-        visible = transform(list(context.messages))
+        visible = list(context.messages)
         llm_payload = messages_to_llm_messages(visible, with_header=True)
         state.data["last_llm_payload"] = llm_payload
 
-        candidate_id = state.data.get("candidate_id")
+        # `state.data` is the open experiment bag (dict[str, Any]); pin
+        # the runtime-side projection of `candidate_id` to its real type
+        # so the typed event/state APIs are reached with a real `str | None`.
+        raw_candidate = state.data.get("candidate_id")
+        candidate_id: str | None = (
+            str(raw_candidate) if raw_candidate is not None else None
+        )
         yield state.model_request(
             agent=name,
             visible_count=len(visible),
@@ -169,13 +158,13 @@ def run(
                     "description": tool.description,
                     "parameters": tool.parameters,
                 }
-                for tool in (tool_by_name or {}).values()
+                for tool in tool_by_name.values()
             ],
             llm_payload=llm_payload,
             candidate_id=candidate_id,
         )
 
-        output = agent.step(agent, visible, state)
+        output = agent.generate(visible)
         output_tool_calls = message_tool_calls(output)
         yield state.model_response(
             agent=name,
@@ -186,6 +175,9 @@ def run(
         )
 
         yield state.record(output)
+
+        if output.sender == name and output.kind == "final":
+            final_emitted = True
 
         if tool_by_name and output_tool_calls:
             tool_terminated = False
@@ -200,7 +192,10 @@ def run(
 
         yield state.turn_end(agent=name)
 
-    yield state.agent_end(reason="done")
+        if final_emitted:
+            break
+
+    yield state.agent_end(reason="done" if final_emitted else "max_turns")
 
 
 def dispatch_tool_calls(
@@ -336,13 +331,3 @@ def _execute_one(
             )
     finally:
         pool.shutdown(wait=False)
-
-
-def _resolve_context_policy(
-    policy: ContextPolicy | None,
-    last: int | None,
-) -> ContextPolicy:
-    resolved = policy or ContextPolicy()
-    if last is not None:
-        resolved = replace(resolved, last=last)
-    return resolved

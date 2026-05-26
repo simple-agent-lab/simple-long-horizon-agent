@@ -6,8 +6,11 @@ Accepted
 
 Updated by [ADR 0009](0009-promote-balanced-runtime-to-src-core.md): the
 message-first direction remains, but the canonical `src` runtime now uses
-`Agent.step(...) -> Message`, simple `Event(index, kind, data)` records,
-`next_agent(state)` scheduling, and tool dispatch.
+`Agent.generate(visible) -> Message`, simple `Event(index, kind, data)`
+records, a single-agent `run()` loop with `max_turns` (truncated runs
+report `agent_end(reason="max_turns")`), and tool dispatch.
+Multi-agent flows are expressed by giving the parent agent a `task_tool`
+whose sub-agents each call `run()` from inside the tool.
 
 ## Context
 
@@ -29,7 +32,7 @@ Use this core model:
 Agent + Message + State + context_view() + run()
 ```
 
-- `Agent` is a named role with one `act` function.
+- `Agent` is a named role with one `generate` function.
 - `Message` is the communication and transcript unit inside the runtime. It
   contains model-adjacent `role` and `content`, plus lab-facing
   `sender`, `target`, `kind`, `channel`, and structured `data`.
@@ -37,7 +40,10 @@ Agent + Message + State + context_view() + run()
   experiment data.
 - `context_view()` is the context management boundary. It decides which
   messages an agent can see for one step.
-- `run()` is the schedule loop. It calls agents in order.
+- `run()` drives one agent until it emits a `final` message or hits
+  `max_turns`. Multi-agent flows go through `tools.task_tool`, where a
+  parent agent delegates by tool call and each sub-agent runs its own
+  `run()` inside the tool.
 
 `Event` is still useful, but only as trace structure: it wraps one `Message`
 with a step number inside `State.events`.

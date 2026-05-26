@@ -27,14 +27,20 @@ Promote the simplified balanced runtime into `src/simple_agent_lab/core.py`.
 
 The canonical runtime includes:
 
-- `Agent.step(agent, visible, state) -> Message`
+- `Agent.generate(visible) -> Message` (name/role/tools are closed over by
+  the factory that builds the function, e.g. `make_llm_agent`)
 - `State.events` as simple `Event(index, kind, data)` records
-- `next_agent(state) -> str | None` scheduling
-- `context_view` plus optional `transform` for context experiments
+- A single-agent `run(agent, state, max_turns=...)` loop that stops on
+  the first `final` message from the agent and reports truncation via
+  `agent_end(reason="max_turns")`
+- Multi-agent flows expressed through `tools.task_tool` (the parent agent
+  delegates by tool-call; each sub-agent runs its own `run()` inside the
+  tool's `execute`)
+- `context_view` with `ContextPolicy` for context-budgeting experiments
+  (callers wanting to inject extra messages do so by recording them onto
+  `state` before driving the event iterator; see `task_tool`)
 - `model_request` and `model_response` trace events
 - `AgentTool` dispatch and tool-result messages
-- `AgentRuntime` as a small stateful wrapper with `subscribe`, `abort`,
-  `prompt`, and `resume`
 
 Do not include steering or follow-up queues in the canonical `src` runtime.
 The 02 example folder now re-exports the `src` runtime so the demo remains
@@ -45,7 +51,7 @@ runnable without maintaining a second copy.
 Future implementation work should target `src/simple_agent_lab/core.py`, not a
 local design-version runtime copy.
 
-The beginner-facing recipe scripts now use the same `Agent.step -> Message`
+The beginner-facing recipe scripts now use the same `Agent.generate(visible) -> Message`
 contract as the agent-as-tool demo. This raises the core slightly above the
 original tiny schedule loop, but it removes a larger source of confusion:
 parallel runtimes with overlapping concepts.

@@ -46,7 +46,7 @@ from evals.swebench.in_container_runner import (
     with_llm_retry,
 )
 from simple_agent_lab.llm.provider import Provider
-from simple_agent_lab import make_llm_step
+from simple_agent_lab import make_llm_agent
 from simple_agent_lab.agents.bash import make_bash_agent
 from simple_agent_lab.state import State
 
@@ -170,7 +170,7 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
     def test_runner_can_thread_request_extra_through_agent_preset(self) -> None:
         self.assertIn("request_extra", inspect.signature(run_agent).parameters)
         self.assertIn("request_extra", inspect.signature(make_bash_agent).parameters)
-        self.assertIn("request_extra", inspect.signature(make_llm_step).parameters)
+        self.assertIn("request_extra", inspect.signature(make_llm_agent).parameters)
 
     def test_pro_task_includes_requirements_and_interface(self) -> None:
         task = task_from_instance(
@@ -317,7 +317,7 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
     def test_run_agent_sets_pro_suite_in_state_data(self) -> None:
         class FakeAgent:
             def __init__(self) -> None:
-                self.step = lambda *args: None
+                self.generate = lambda *args: None
 
             def run(self, task, max_turns):
                 del task, max_turns
@@ -656,21 +656,21 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
         logs: list[str] = []
         expected = object()
 
-        def flaky_step(agent, visible, state):
+        def flaky_generate(visible):
             nonlocal calls
-            del agent, visible, state
+            del visible
             calls += 1
             if calls < 4:
                 raise RuntimeError("TPM limit exceeded; retry after a while")
             return expected
 
         wrapped = with_llm_retry(
-            flaky_step,
+            flaky_generate,
             sleep_fn=sleeps.append,
             log_fn=logs.append,
         )
 
-        self.assertIs(wrapped(None, [], None), expected)
+        self.assertIs(wrapped([]), expected)
         self.assertEqual(calls, 4)
         self.assertEqual(sleeps, [4.0, 8.0, 16.0])
         self.assertEqual(len(logs), 3)
@@ -681,41 +681,41 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
         calls = 0
         sleeps: list[float] = []
 
-        def flaky_step(agent, visible, state):
+        def flaky_generate(visible):
             nonlocal calls
-            del agent, visible, state
+            del visible
             calls += 1
             if calls < 8:
                 raise RuntimeError("429 tokens per minute exceeded")
             return "ok"
 
         wrapped = with_llm_retry(
-            flaky_step,
+            flaky_generate,
             sleep_fn=sleeps.append,
             log_fn=lambda _: None,
         )
 
-        self.assertEqual(wrapped(None, [], None), "ok")
+        self.assertEqual(wrapped([]), "ok")
         self.assertEqual(sleeps, [4.0, 8.0, 16.0, 32.0, 60.0, 60.0, 60.0])
 
     def test_llm_retry_does_not_retry_non_rate_limit_errors(self) -> None:
         calls = 0
         sleeps: list[float] = []
 
-        def broken_step(agent, visible, state):
+        def broken_generate(visible):
             nonlocal calls
-            del agent, visible, state
+            del visible
             calls += 1
             raise RuntimeError("invalid request body")
 
         wrapped = with_llm_retry(
-            broken_step,
+            broken_generate,
             sleep_fn=sleeps.append,
             log_fn=lambda _: None,
         )
 
         with self.assertRaisesRegex(RuntimeError, "invalid request body"):
-            wrapped(None, [], None)
+            wrapped([])
         self.assertEqual(calls, 1)
         self.assertEqual(sleeps, [])
 
@@ -723,20 +723,20 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
         calls = 0
         sleeps: list[float] = []
 
-        def failing_step(agent, visible, state):
+        def failing_generate(visible):
             nonlocal calls
-            del agent, visible, state
+            del visible
             calls += 1
             raise RuntimeError(f"rate limit still active attempt={calls}")
 
         wrapped = with_llm_retry(
-            failing_step,
+            failing_generate,
             sleep_fn=sleeps.append,
             log_fn=lambda _: None,
         )
 
         with self.assertRaisesRegex(RuntimeError, "attempt=20"):
-            wrapped(None, [], None)
+            wrapped([])
         self.assertEqual(calls, 20)
         self.assertEqual(len(sleeps), 19)
         self.assertEqual(sleeps[:5], [4.0, 8.0, 16.0, 32.0, 60.0])

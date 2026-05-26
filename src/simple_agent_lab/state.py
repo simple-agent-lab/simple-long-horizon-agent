@@ -28,6 +28,7 @@ from .protocols import (
     TurnEndEvent,
     TurnStartEvent,
 )
+from .tools import ToolResult
 
 
 @dataclass
@@ -158,7 +159,7 @@ class State:
         context_view: dict[str, Any],
         tools: list[dict[str, Any]],
         llm_payload: list[Any],
-        candidate_id: Any = None,
+        candidate_id: str | None = None,
     ) -> ModelRequestEvent:
         event = ModelRequestEvent(
             len(self.events),
@@ -181,7 +182,7 @@ class State:
         output_kind: MessageKind,
         target: AgentName,
         tool_call_count: int,
-        candidate_id: Any = None,
+        candidate_id: str | None = None,
     ) -> ModelResponseEvent:
         event = ModelResponseEvent(
             len(self.events),
@@ -213,7 +214,7 @@ class State:
         *,
         tool_call_id: str,
         tool_name: str,
-        partial: Any,
+        partial: ToolResult,
     ) -> ToolExecutionUpdateEvent:
         event = ToolExecutionUpdateEvent(
             len(self.events),

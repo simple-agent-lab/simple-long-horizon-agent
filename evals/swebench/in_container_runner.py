@@ -158,7 +158,7 @@ def run_agent(
         system_prompt=AGENT_SYSTEM_PROMPT,
         request_extra=request_extra,
     )
-    agent.step = with_llm_retry(agent.step)
+    agent.generate = with_llm_retry(agent.generate)
     state, events = agent.run(task, max_turns=max_turns)
     for _ in events:
         pass
@@ -246,7 +246,7 @@ def build_openai_request_extra_from_env(
 
 
 def with_llm_retry(
-    step: Callable[..., Any],
+    generate: Callable[..., Any],
     *,
     max_attempts: int = LLM_RETRY_MAX_ATTEMPTS,
     initial_delay_seconds: float = LLM_RETRY_INITIAL_DELAY_SECONDS,
@@ -256,11 +256,11 @@ def with_llm_retry(
 ) -> Callable[..., Any]:
     """Retry containerized LLM calls when provider TPM/rate limits fire."""
 
-    def wrapped(agent: Any, visible: list[Any], state: Any) -> Any:
+    def wrapped(visible: list[Any]) -> Any:
         delay = initial_delay_seconds
         for attempt in range(1, max_attempts + 1):
             try:
-                return step(agent, visible, state)
+                return generate(visible)
             except Exception as exc:
                 if attempt >= max_attempts or not is_retryable_llm_error(exc):
                     raise

@@ -82,15 +82,17 @@ def task_tool(
             call_context=call_context,
         )
 
-        def inject_context(messages: list[Message]) -> list[Message]:
-            return [*context_messages, *messages]
-
         state, events = agent.run(
             task,
             max_turns=max_turns,
-            transform=inject_context,
             abort=abort_flag,
         )
+        # Record the sub-agent context onto `state` before driving `events`.
+        # Recording up-front (rather than a per-turn transform) keeps every
+        # message the sub-agent actually sees visible in `state.messages`
+        # and in the trace -- no hidden in-flight injection.
+        for context_message in context_messages:
+            state.record(context_message)
         for _ in events:
             if abort_flag():
                 break

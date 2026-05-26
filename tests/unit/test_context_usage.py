@@ -8,33 +8,53 @@ from simple_agent_lab import (
     Message,
     ModelRequestEvent,
     State,
+    TokenUsage,
     TurnEndEvent,
+    assistant_message,
     estimate_message_tokens,
-    make_llm_step,
     run,
 )
-from simple_agent_lab.llm import Provider
 
 
 class ContextUsageTest(unittest.TestCase):
     def test_next_turn_uses_latest_usage_plus_trailing_message_estimate(self) -> None:
-        provider = Provider(id="fake-context-usage", api="fake", model="fake-model")
-        agent = Agent(
-            "writer",
-            make_llm_step(
-                provider,
-                system_prompt="Answer briefly.",
-                target="user",
-            ),
+        # Hand-write a deterministic two-turn generator instead of going
+        # through `make_llm_agent` + the fake adapter: this test cares about
+        # a specific usage shape on turn 1, and threading that through a
+        # provider would obscure what we're actually validating, which is
+        # cross-turn context-token accounting (latest known usage + trailing
+        # estimate).
+        first_usage = TokenUsage(
+            input_tokens=100,
+            output_tokens=20,
+            cache_read_tokens=5,
+            cache_write_tokens=7,
         )
+        turn = {"n": 0}
+
+        def two_turn_generate(visible: list[Message]) -> Message:
+            del visible
+            turn["n"] += 1
+            if turn["n"] == 1:
+                return assistant_message(
+                    "first answer",
+                    sender="writer",
+                    target="user",
+                    kind="thought",
+                    usage=first_usage,
+                )
+            return assistant_message(
+                "done", sender="writer", target="user", kind="final"
+            )
+
+        agent = Agent("writer", two_turn_generate)
         state = State(
             "Explain why context accounting should use provider usage when available."
         )
         state.send("task", "user", "writer", state.task)
 
         trailing: Message | None = None
-        schedule = iter(["writer", "writer"])
-        for event in run([agent], state, lambda _: next(schedule, None)):
+        for event in run(agent, state, max_turns=2):
             if isinstance(event, TurnEndEvent) and trailing is None:
                 trailing = state.send(
                     "note",
@@ -59,9 +79,7 @@ class ContextUsageTest(unittest.TestCase):
             if isinstance(message, AssistantMessage) and message.sender == "writer"
         ]
         self.assertEqual(len(assistants), 2)
-        first_usage = assistants[0].usage
-        self.assertIsNotNone(first_usage)
-        assert first_usage is not None
+        self.assertEqual(assistants[0].usage, first_usage)
 
         usage_context_tokens = (
             first_usage.input_tokens

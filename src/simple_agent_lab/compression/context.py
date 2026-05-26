@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Callable, Protocol
 
 from ..context_view import ContextPolicy, estimate_context_tokens
 from ..messages import (
@@ -15,15 +15,22 @@ from ..messages import (
 )
 from ..protocols import ContextCompressionEvent, Event, MessageEvent
 
+# The compressor is invoked as a plain LLM function: we hand it the same
+# messages the agent already saw, followed by one trailing instruction
+# message that asks for a summary. Keeping the prior messages verbatim is
+# what lets prefix caching kick in on the next compression call, since
+# only the trailing message changes when new context accumulates.
 
+
+# Structural matches for `core.Agent` and `state.State`. Inlined instead
+# of importing from `core` / `state` to avoid a circular import: `core`
+# imports `compression` at module load time.
 class CompressionAgent(Protocol):
     name: AgentName
-    step: Any
+    generate: Callable[[list[Message]], Message]
 
 
 class CompressionState(Protocol):
-    snapshot: Any
-
     @property
     def messages(self) -> list[Message]: ...
 
@@ -88,15 +95,18 @@ def maybe_compress_context(
     if not compress_items:
         return []
 
-    prompt = _compression_prompt(agent.name, [message for _, message in compress_items])
-    prompt_message = make_message(
+    instruction_message = make_message(
         "user",
-        prompt,
+        _compression_instruction(agent.name),
         sender="runtime",
         target=context_compressor.name,
         kind="task",
     )
-    output = context_compressor.step(context_compressor, [prompt_message], state)
+    prompt_messages = [
+        *(message for _, message in compress_items),
+        instruction_message,
+    ]
+    output = context_compressor.generate(prompt_messages)
     summary = _full_message_text(output).strip()
     if not summary:
         summary = "Context was compressed, but the compressor returned no text."
@@ -109,7 +119,7 @@ def maybe_compress_context(
         kind="summary",
     )
     summary_event = state.record(summary_message)
-    summary_message_index = len(state.snapshot.messages) - 1
+    summary_message_index = len(state.messages) - 1
     after_messages = [
         *(message for _, message in preserved_items),
         summary_message,
@@ -128,7 +138,12 @@ def maybe_compress_context(
 
 
 def _preserve_during_compression(message: Message) -> bool:
-    return message.kind in {"task", "system"}
+    # `task` is the originating instruction; `system` is runtime-level
+    # policy; `context` is the sub-agent operating context recorded by
+    # `task_tool` at delegation time. All three are durable per-call
+    # constraints, so compression keeps them intact instead of folding
+    # them into the summary.
+    return message.kind in {"task", "system", "context"}
 
 
 def _keep_tool_pair_boundary(
@@ -153,42 +168,13 @@ def _is_tool_result_for(result: Message, assistant: Message) -> bool:
     )
 
 
-def _compression_prompt(agent_name: str, messages: list[Message]) -> str:
-    rendered = "\n\n".join(
-        _render_message_for_summary(index, message)
-        for index, message in enumerate(messages, start=1)
-    )
+def _compression_instruction(agent_name: str) -> str:
     return (
-        f"Summarize the older conversation context for agent {agent_name!r}.\n"
+        f"Summarize the older conversation context above for agent {agent_name!r}.\n"
         "Keep durable facts, decisions, tool results, constraints, and unresolved "
-        "questions. Omit low-value wording. The summary will replace the messages "
-        "below while the task and recent messages stay visible.\n\n"
-        f"{rendered}"
+        "questions. Omit low-value wording. Your summary will replace the prior "
+        "messages while the task and recent messages stay visible."
     )
-
-
-def _render_message_for_summary(index: int, message: Message) -> str:
-    lines = [
-        (
-            f"{index}. role={message.role} sender={message.sender} "
-            f"target={message.target} kind={message.kind}"
-        )
-    ]
-    text = text_of(message.content).strip()
-    if text:
-        lines.append(text)
-    if isinstance(message, AssistantMessage):
-        for call in message.tool_calls:
-            lines.append(
-                f"[tool_call id={call.id} name={call.name} args={dict(call.arguments)!r}]"
-            )
-    for result in tool_results_of(message.content):
-        result_text = text_of(result.content).strip()
-        lines.append(
-            f"[tool_result id={result.tool_call_id} name={result.tool_name}] "
-            f"{result_text}"
-        )
-    return "\n".join(lines)
 
 
 def _full_message_text(message: Message) -> str:

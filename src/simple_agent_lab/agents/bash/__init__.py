@@ -8,7 +8,7 @@ Usage::
     state, events = agent.run("list the files here")
     for _ in events: pass
 
-The preset is intentionally minimal — one step that calls bash, then
+The preset is intentionally minimal — one turn that calls bash, then
 finalizes. Override `name` / `role` / `system_prompt` on the factory to
 reuse the loop with a different prompt.
 """
