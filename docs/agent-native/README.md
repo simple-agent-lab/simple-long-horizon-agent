@@ -5,7 +5,7 @@ This is the single loading map for future agents. Read this file after
 
 Sources:
 
-- Current code snapshot: working tree inspected on 2026-05-22.
+- Current code snapshot: working tree inspected on 2026-05-27.
 - Recent first-parent history: `bf026ac`, `ddff527`, `312d5a9`, `5a90e1f`.
 - Primary anchors: `README.md`, `CONTEXT.md`, `docs/agent-native/`,
   `docs/decisions/`, `runs/README.md`, `tests/README.md`,
@@ -18,7 +18,7 @@ Sources:
 
 - `AGENTS.md`: primary collaboration contract and first-hop instructions.
 - `CONTEXT.md`: root vocabulary and resolved terminology boundaries for
-  `Message`, `ModelMessage`, provider adapters, content blocks, and sidecars.
+  `Message`, `LLMMessage`, provider adapters, content blocks, and sidecars.
 - `docs/agent-native/`: living agent context, loading map, project intent, code
   style, harness workflow, development commands, source-of-truth routing,
   owner questions, stop conditions, and validation map.
@@ -75,9 +75,10 @@ Stop and collect more evidence before changing behavior when:
 
 - A change would add a framework-style abstraction to the core runtime. Read
   ADR 0001 and ADR 0009 first.
-- A change modifies `Message`, `ModelMessage`, role names, tool-call blocks, or
-  provider-boundary conversion. Read ADR 0006, `src/simple_agent_lab/messages.py`,
-  and `src/simple_agent_lab/llm/README.md`.
+- A change modifies `Message`, `LLMMessage`, role names, tool-call or
+  tool-result blocks, or provider-boundary conversion. Read ADR 0006,
+  ADR 0012, ADR 0014, `src/simple_agent_lab/messages.py`, and
+  `src/simple_agent_lab/llm/README.md`.
 - A change alters context trimming, token estimates, or tool-call/tool-result
   grouping. Read ADR 0010 and `tests/unit/test_core.py`.
 - A change mixes raw trajectories, eval scores, or training labels. Read ADR
@@ -100,7 +101,7 @@ Stop and collect more evidence before changing behavior when:
 | Day-to-day implementation | `docs/agent-native/development.md`, `docs/agent-native/code-style.md`, `runs/README.md` | Commands, quality gate, and style constraints. |
 | Harness workflow or docs-first process | `docs/agent-native/harness-engineering.md`, ADR 0002, ADR 0003 | Feedback signal and repository-as-harness rules. |
 | Core runtime shape | ADR 0001, ADR 0005, ADR 0009, `src/simple_agent_lab/core.py` | Canonical runtime boundary and stateful run-loop rationale. |
-| Message protocol or provider conversion | `CONTEXT.md`, ADR 0006, `src/simple_agent_lab/messages.py`, `src/simple_agent_lab/llm/README.md` | Runtime-vs-model message boundary and vocabulary. |
+| Message protocol or provider conversion | `CONTEXT.md`, ADR 0006, ADR 0012, ADR 0014, `src/simple_agent_lab/messages.py`, `src/simple_agent_lab/llm/README.md` | Runtime-vs-model message boundary and vocabulary. |
 | Context visibility or budgeting | ADR 0010, `src/simple_agent_lab/context_view.py`, `tests/unit/test_core.py`, `tests/unit/test_token_usage.py` | Projection behavior and token-estimate constraints. |
 | Tool execution or bash demo | `src/simple_agent_lab/tools/`, `src/simple_agent_lab/agents/bash/` (preset agent), `tests/unit/test_bash_agent.py` | Tool result semantics and deterministic demo checks. |
 | Trace printing or OpenAI Chat JSONL export | ADR 0013, ADR 0015, `src/simple_agent_lab/trace.py`, `tests/unit/test_openai_training.py` | Trace rendering and provider-shaped transcript export. |

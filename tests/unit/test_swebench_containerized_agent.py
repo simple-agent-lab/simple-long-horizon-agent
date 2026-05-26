@@ -21,6 +21,8 @@ from evals.swebench.containerized_agent import (
     copy_file_to_container,
     copy_runner_support_files,
     load_instance as load_host_instance,
+    prepare_project_wheel,
+    prepare_wheelhouse_for_run,
     prepare_wheelhouse,
     prepare_run_directory,
     resolve_api_kind,
@@ -69,7 +71,7 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
             '"$AGENT_PYTHON" -m pip install --no-index --find-links /agent/wheelhouse',
             command,
         )
-        self.assertIn("'simple-agent-lab[openai]'", command)
+        self.assertIn(" simple-agent-lab", command)
         self.assertIn(
             '"$AGENT_PYTHON" /agent/evals/swebench/in_container_runner.py',
             command,
@@ -308,7 +310,49 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
             prepare_wheelhouse(Path(tmp), runner=runner)
 
         self.assertEqual(calls[0][:3], ["uv", "build", "--wheel"])
+        self.assertIn("anthropic>=0.39.0", calls[1])
         self.assertIn("openai>=1.50.0", calls[1])
+
+    def test_prepare_project_wheel_refreshes_only_local_package(self) -> None:
+        calls: list[list[str]] = []
+
+        def runner(command: list[str]) -> None:
+            calls.append(command)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            prepare_project_wheel(Path(tmp), runner=runner)
+
+        self.assertEqual(calls, [["uv", "build", "--wheel", "--out-dir", tmp]])
+
+    def test_prepare_wheelhouse_for_run_refreshes_project_wheel_by_default(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wheelhouse = Path(tmp)
+            with mock.patch(
+                "evals.swebench.containerized_agent.prepare_project_wheel"
+            ) as project_wheel:
+                with mock.patch(
+                    "evals.swebench.containerized_agent.prepare_wheelhouse"
+                ) as full_wheelhouse:
+                    prepare_wheelhouse_for_run(wheelhouse, prepare_all=False)
+
+        project_wheel.assert_called_once_with(wheelhouse)
+        full_wheelhouse.assert_not_called()
+
+    def test_prepare_wheelhouse_for_run_can_prepare_full_wheelhouse(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wheelhouse = Path(tmp)
+            with mock.patch(
+                "evals.swebench.containerized_agent.prepare_project_wheel"
+            ) as project_wheel:
+                with mock.patch(
+                    "evals.swebench.containerized_agent.prepare_wheelhouse"
+                ) as full_wheelhouse:
+                    prepare_wheelhouse_for_run(wheelhouse, prepare_all=True)
+
+        project_wheel.assert_not_called()
+        full_wheelhouse.assert_called_once_with(wheelhouse)
 
     def test_llm_retry_recovers_from_tpm_error_with_exponential_backoff(self) -> None:
         calls = 0

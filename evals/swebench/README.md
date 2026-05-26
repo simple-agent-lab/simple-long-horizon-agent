@@ -21,7 +21,7 @@ One-time setup and a single-instance run from scratch:
 
 ```bash
 # 1. Install Python deps (Docker SDK + SWE-bench)
-uv pip install docker "swebench>=3.0.0"
+uv sync --extra swebench
 
 # 2. Set up Docker (see "Docker Setup" below for details)
 bash runs/setup_swebench_docker.sh
@@ -196,6 +196,13 @@ prepare_wheelhouse(Path("evals/out/wheelhouse/cp311-manylinux"))
 PY
 ```
 
+The container launcher refreshes the local `simple-agent-lab` wheel every time
+it mounts a wheelhouse. This keeps cached third-party wheels reusable while
+preventing the container from installing an older build of the current checkout.
+If you see an import error for a symbol that exists in `src/simple_agent_lab/`,
+rerun the container command; the launcher should rebuild the project wheel
+before starting Docker.
+
 Use `.env` for provider settings:
 
 ```bash
@@ -244,12 +251,12 @@ generated `prediction.jsonl`.
 
 ## Official Harness
 
-SWE-bench itself remains an optional external dependency because it is heavy and
-uses Docker. Install it in the repo Python environment before running official
+SWE-bench itself remains an optional dependency because it is heavy and uses
+Docker. Install the extra in the repo Python environment before running official
 evaluation:
 
 ```bash
-uv pip install "swebench>=3.0.0"
+uv sync --extra swebench
 ```
 
 Verify the official setup with the gold patch smoke:

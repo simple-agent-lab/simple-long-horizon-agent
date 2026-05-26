@@ -59,6 +59,8 @@ if [ ! -f .env ]; then
 fi
 
 # --- Prepare wheelhouse if missing ---
+# containerized_agent.py refreshes the current simple-agent-lab wheel on every
+# run so a populated wheelhouse cannot silently use stale repo code.
 if [ ! -d "$WHEELHOUSE" ] || [ -z "$(ls -A "$WHEELHOUSE" 2>/dev/null)" ]; then
   echo "==> Preparing wheelhouse..."
   "${PYTHON[@]}" - <<'PY'

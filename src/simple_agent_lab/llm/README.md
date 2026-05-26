@@ -161,17 +161,10 @@ Then use `Provider(api="my-api", ...)` like any built-in.
 | `openai-chat`        | ✅ blocking           | `openai`    | also serves OpenAI-compatible endpoints (Ollama, vLLM, OpenRouter) via `base_url` |
 | `openai-responses`   | ✅ blocking           | `openai`    | uses `instructions` for system prompt; flat function tools |
 
-The real-provider SDKs are **optional** — the base package keeps
-`dependencies = []`. Install on demand::
-
-    uv pip install 'simple-agent-lab[anthropic]'   # anthropic only
-    uv pip install 'simple-agent-lab[openai]'      # openai only
-    uv pip install 'simple-agent-lab[providers]'   # both
-
-Each real adapter imports its SDK lazily inside `stream()`. Loading
-`simple_agent_lab.llm` still works without the SDK installed; only when
-the adapter is *called* will it raise a clear `RuntimeError` instructing
-the user to install the extra.
+The real-provider SDKs are base package dependencies because the supported
+provider adapters are part of the normal runtime path. Each real adapter still
+imports its SDK lazily inside `stream()` so adapter registration stays cheap, and
+the import error remains explicit if an environment was created incorrectly.
 
 Token-by-token streaming is a follow-up: today the real adapters call
 the blocking endpoint and emit a single `text_delta` carrying the full

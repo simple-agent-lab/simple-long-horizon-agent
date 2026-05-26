@@ -158,10 +158,10 @@ def build_runner_command(
                 '"$AGENT_PYTHON" -m pip install --no-index --find-links '
                 + shlex.quote(wheelhouse_mount)
                 + " "
-                + shlex.quote("simple-agent-lab[openai]")
+                + shlex.quote("simple-agent-lab")
             )
         else:
-            parts.append('"$AGENT_PYTHON" -m pip install simple-agent-lab[openai]')
+            parts.append('"$AGENT_PYTHON" -m pip install simple-agent-lab')
     parts.append(
         '"$AGENT_PYTHON" '
         + shlex.quote(runner_path)
@@ -209,8 +209,7 @@ def run_containerized_agent(args: argparse.Namespace) -> RunPaths:
         load_dotenv(args.dotenv)
     environment = _container_environment(args.provider)
     wheelhouse = Path(args.wheelhouse) if args.wheelhouse else None
-    if args.prepare_wheelhouse and wheelhouse is not None:
-        prepare_wheelhouse(wheelhouse)
+    prepare_wheelhouse_for_run(wheelhouse, prepare_all=args.prepare_wheelhouse)
 
     spec = make_test_spec(
         instance,
@@ -487,9 +486,7 @@ def prepare_wheelhouse(
     """Download provider wheels for the container's CPython 3.11 runtime."""
 
     run = runner or _run_checked
-    path.mkdir(parents=True, exist_ok=True)
-    build_command = ["uv", "build", "--wheel", "--out-dir", str(path)]
-    run(build_command)
+    prepare_project_wheel(path, runner=run)
     pip_args = [
         "download",
         "--only-binary=:all:",
@@ -503,6 +500,7 @@ def prepare_wheelhouse(
         "cp311",
         "--platform",
         "manylinux2014_x86_64",
+        "anthropic>=0.39.0",
         "openai>=1.50.0",
     ]
     uv = shutil.which("uv")
@@ -512,6 +510,29 @@ def prepare_wheelhouse(
         else [sys.executable, "-m", "pip", *pip_args]
     )
     run(command)
+
+
+def prepare_wheelhouse_for_run(wheelhouse: Path | None, *, prepare_all: bool) -> None:
+    """Prepare mounted wheels, keeping local project code fresh for each run."""
+
+    if wheelhouse is None:
+        return
+    if prepare_all:
+        prepare_wheelhouse(wheelhouse)
+    else:
+        prepare_project_wheel(wheelhouse)
+
+
+def prepare_project_wheel(
+    path: Path,
+    *,
+    runner: Callable[[list[str]], None] | None = None,
+) -> None:
+    """Build the current repo wheel so containers do not use stale wheelhouse cache."""
+
+    run = runner or _run_checked
+    path.mkdir(parents=True, exist_ok=True)
+    run(["uv", "build", "--wheel", "--out-dir", str(path)])
 
 
 def _run_checked(command: list[str]) -> None:

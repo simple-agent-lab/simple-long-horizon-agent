@@ -9,8 +9,8 @@ The project is aimed at college students, small company teams, and agent learner
 This project supports Python 3.10 and newer.
 
 It uses [uv](https://docs.astral.sh/uv/) to manage the Python
-environment. The runtime itself is stdlib-only, but `uv run` makes the version
-of Python explicit and lets future dependencies land without a global install.
+environment. The base package installs the supported model-provider SDKs; the
+heavier benchmark tooling stays behind optional extras.
 
 ```bash
 # install uv (one of):
@@ -25,11 +25,11 @@ uv run python scripts/lint_docs.py
 uv run ty check src
 ```
 
-Plain `python3` works too when it is Python 3.10 or newer (no third-party deps
-yet). `uv run` is the recommended path so the same command keeps working when
-dependencies are added. The repo smoke scripts prefer `uv run python` when `uv`
-is installed and fall back to `python3`; they also set `PYTHONPATH=src` for the
-current src-layout:
+Plain `python3` works too when it is Python 3.10 or newer and dependencies are
+installed. `uv run` is the recommended path so the same command keeps working
+when optional extras are added. The repo smoke scripts prefer `uv run python`
+when `uv` is installed and fall back to `python3`; they also set `PYTHONPATH=src`
+for the current src-layout:
 
 ```bash
 bash runs/run_bash_agent_demo.sh
@@ -52,19 +52,19 @@ Message =
   UserMessage
   | SystemMessage
   | AssistantMessage
-  | ToolResultMessage
 
-ModelMessage =
-  ModelUserMessage
-  | ModelSystemMessage
-  | ModelAssistantMessage
-  | ModelToolResultMessage
+ContentBlock =
+  TextBlock
+  | ImageBlock
+  | ThinkingBlock
+  | ToolCallBlock
+  | ToolResultBlock
 ```
 
 Runtime `Message` values keep `sender`, `target`, `kind`, `channel`, and rare
-sidecar `data`. Provider-boundary `ModelMessage` values remove runtime routing
-fields and keep structured content blocks for text, images, thinking, and tool
-calls.
+sidecar `data`. The LLM bridge projects them into routing-free `LLMMessage`
+values that preserve ordered content blocks for text, images, thinking, tool
+calls, and tool results.
 
 The architecture decision history lives in
 [docs/decisions](docs/decisions/README.md); keep detailed rationale there

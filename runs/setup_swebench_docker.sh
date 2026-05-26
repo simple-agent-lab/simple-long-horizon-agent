@@ -24,7 +24,7 @@ INSTANCE_JSONL="evals/out/instance_${INSTANCE_ID}.jsonl"
 # ──────────────────────────────────────────────────────────────────────
 echo "==> [1/5] Checking Python dependencies..."
 "${PYTHON[@]}" -c "import docker; import swebench" 2>/dev/null \
-  || { echo "  Installing docker + swebench..."; uv pip install docker "swebench>=3.0.0"; }
+  || { echo "  Installing SWE-bench extra..."; uv sync --extra swebench; }
 
 # ──────────────────────────────────────────────────────────────────────
 # Step 2: Docker runtime
@@ -178,7 +178,12 @@ echo "==> [5/5] Preparing wheelhouse..."
 WHEELHOUSE="evals/out/wheelhouse/cp311-manylinux"
 
 if [ -d "$WHEELHOUSE" ] && [ -n "$(ls -A "$WHEELHOUSE" 2>/dev/null)" ]; then
-  echo "  Wheelhouse already populated."
+  echo "  Wheelhouse already populated; refreshing project wheel."
+  "${PYTHON[@]}" - <<'PY'
+from pathlib import Path
+from evals.swebench.containerized_agent import prepare_project_wheel
+prepare_project_wheel(Path("evals/out/wheelhouse/cp311-manylinux"))
+PY
 else
   "${PYTHON[@]}" - <<'PY'
 from pathlib import Path

@@ -33,8 +33,9 @@ Python. All must exit `0`. CI runs the same gate against Python 3.10 through
 3.13.
 
 If you add a new dev dependency, put it under `[dependency-groups] dev` in
-`pyproject.toml`, not `[project] dependencies`. The runtime is supposed to
-install with zero third-party deps.
+`pyproject.toml`, not `[project] dependencies`. Add runtime dependencies only
+when the package or supported provider adapters need them; keep heavy eval-only
+tooling behind optional extras.
 
 ## Pull requests
 
