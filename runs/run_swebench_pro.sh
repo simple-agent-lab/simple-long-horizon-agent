@@ -6,8 +6,8 @@
 #   bash runs/run_swebench_pro.sh instance_navidrome__navidrome-8e640bb8...  # one custom instance
 #   bash runs/run_swebench_pro.sh --all --parallel 4                         # full split, 4 at a time
 #
-# Requires Docker and a .env with provider credentials. Downloading uncached
-# dataset records uses `uv run --with datasets python` when uv is available.
+# Requires Docker, `uv sync --extra swebench`, and a .env with provider credentials.
+# Downloading uncached dataset records uses `datasets`.
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -16,7 +16,9 @@ source runs/_python.sh
 DATASET="ScaleAI/SWE-bench_Pro"
 SPLIT="test"
 DEFAULT_INSTANCE_ID="instance_navidrome__navidrome-8e640bb8580affb7e0ea6225c0bbe240186b6b08"
-INSTANCE_DIR="evals/out/swebench_pro_instances"
+INSTANCE_DIR="evals/out/swebench/pro/instances"
+CONTAINER_RUN_ROOT="evals/out/swebench/pro/container_runs"
+PREDICTION_DIR="evals/out/swebench/pro/predictions"
 MODEL_NAME="simple-agent-lab-pro"
 MAX_TURNS=40
 RUN_ID="pro-$(date +%Y%m%d-%H%M%S)"
@@ -77,7 +79,7 @@ ensure_fetch_python() {
     return
   fi
   if command -v uv >/dev/null 2>&1; then
-    FETCH_PYTHON=(uv run --with datasets python)
+    FETCH_PYTHON=(uv run --extra swebench python)
     return
   fi
   if "${PYTHON[@]}" - <<'PY' >/dev/null 2>&1
@@ -88,8 +90,7 @@ PY
     return
   fi
   echo "ERROR: fetching uncached SWE-bench records requires the Python 'datasets' package." >&2
-  echo "Install it for your Python environment or install uv so this script can use:" >&2
-  echo "  uv run --with datasets python" >&2
+  echo "Install it with: uv sync --extra swebench" >&2
   exit 1
 }
 
@@ -171,6 +172,7 @@ run_container() {
     --dotenv .env \
     --max-turns "$MAX_TURNS" \
     --run-id "$RUN_ID" \
+    --run-root "$CONTAINER_RUN_ROOT" \
     --network-mode host \
     --force \
     "$@"
@@ -185,12 +187,13 @@ running_jobs() {
 }
 
 collect_predictions() {
-  local pred_out="evals/out/${RUN_ID}_predictions.jsonl"
+  mkdir -p "$PREDICTION_DIR"
+  local pred_out="${PREDICTION_DIR}/${RUN_ID}_predictions.jsonl"
   : > "$pred_out"
   for instance_id in "${INSTANCE_IDS[@]}"; do
     local safe_id
     safe_id="$(safe_part "$instance_id")"
-    local pred_file="evals/out/swebench_container_runs/${RUN_ID}/${safe_id}/out/prediction.jsonl"
+    local pred_file="${CONTAINER_RUN_ROOT}/${RUN_ID}/${safe_id}/out/prediction.jsonl"
     if [ -f "$pred_file" ]; then
       cat "$pred_file" >> "$pred_out"
     fi
@@ -217,7 +220,7 @@ PY
     while [ "$(running_jobs)" -ge "$PARALLEL" ]; do
       wait -n || FAIL=$((FAIL + 1))
     done
-    log="evals/out/swebench_container_runs/${RUN_ID}/${instance_id}.log"
+    log="${CONTAINER_RUN_ROOT}/${RUN_ID}/${instance_id}.log"
     mkdir -p "$(dirname "$log")"
     echo "Starting: ${instance_id}"
     run_container "$INSTANCE_JSON" "$instance_id" > "$log" 2>&1 &
@@ -228,7 +231,7 @@ PY
   done
 
   collect_predictions
-  echo "Outputs: evals/out/swebench_container_runs/${RUN_ID}/"
+  echo "Outputs: ${CONTAINER_RUN_ROOT}/${RUN_ID}/"
   if [ "$FAIL" -gt 0 ]; then
     echo "Failed runs: $FAIL" >&2
     exit 1
@@ -244,5 +247,5 @@ else
   echo "Run ID: $RUN_ID"
   run_container "$INSTANCE_JSON" "${INSTANCE_IDS[0]}" --prepare-wheelhouse
   collect_predictions
-  echo "Outputs: evals/out/swebench_container_runs/${RUN_ID}/"
+  echo "Outputs: ${CONTAINER_RUN_ROOT}/${RUN_ID}/"
 fi

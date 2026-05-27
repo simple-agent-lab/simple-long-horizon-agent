@@ -12,6 +12,50 @@ from evals.swebench import evaluate_predictions
 
 
 class SwebenchEvaluatePredictionsTest(unittest.TestCase):
+    def test_default_official_and_pro_harness_paths_live_under_suite_output(
+        self,
+    ) -> None:
+        self.assertEqual(
+            evaluate_predictions.DEFAULT_OFFICIAL_OUTPUT_DIR,
+            evaluate_predictions.ROOT / "evals/out/swebench/verified/official",
+        )
+        self.assertEqual(
+            evaluate_predictions.DEFAULT_PRO_OFFICIAL_OUTPUT_DIR,
+            evaluate_predictions.ROOT / "evals/out/swebench/pro/official",
+        )
+        self.assertEqual(
+            evaluate_predictions.DEFAULT_PRO_EVAL_SCRIPT,
+            evaluate_predictions.ROOT
+            / "evals/out/swebench/pro/SWE-bench_Pro-os/swe_bench_pro_eval.py",
+        )
+        self.assertEqual(
+            evaluate_predictions.DEFAULT_PRO_SCRIPTS_DIR,
+            evaluate_predictions.ROOT
+            / "evals/out/swebench/pro/SWE-bench_Pro-os/run_scripts",
+        )
+
+    def test_pro_mode_defaults_to_pro_output_paths(self) -> None:
+        args = evaluate_predictions.parse_args(["--pro"])
+
+        self.assertEqual(
+            args.predictions,
+            str(
+                evaluate_predictions.ROOT
+                / "evals/out/swebench/pro/predictions/swebench_pro_predictions.jsonl"
+            ),
+        )
+        self.assertEqual(
+            args.jsonl,
+            str(
+                evaluate_predictions.ROOT
+                / "evals/out/swebench/pro/eval_results/swebench_pro_eval_results.jsonl"
+            ),
+        )
+        self.assertEqual(
+            args.official_output_dir,
+            str(evaluate_predictions.DEFAULT_PRO_OFFICIAL_OUTPUT_DIR),
+        )
+
     def test_official_paths_default_under_run_specific_output_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             args = Namespace(
@@ -44,14 +88,14 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
     def test_run_official_harness_uses_run_dir_as_cwd(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             args = Namespace(
-                dataset_name="princeton-nlp/SWE-bench_Lite",
+                dataset_name="princeton-nlp/SWE-bench_Verified",
                 split="test",
                 predictions="gold",
                 max_workers=1,
                 run_id="validate-gold",
                 official_output_dir=str(Path(tmp) / "official"),
                 report_dir=None,
-                instance_ids=["sympy__sympy-20590"],
+                instance_ids=["sympy__sympy-23824"],
                 cache_level="",
                 clean=False,
                 timeout=None,

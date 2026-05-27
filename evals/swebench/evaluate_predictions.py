@@ -20,7 +20,7 @@ import json
 import subprocess
 import sys
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Sequence
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -31,12 +31,26 @@ if str(SRC) not in sys.path:
 from simple_agent_lab.trajectory import json_safe, read_jsonl, write_jsonl  # noqa: E402
 
 
-DEFAULT_DATASET = "princeton-nlp/SWE-bench_Lite"
+DEFAULT_DATASET = "princeton-nlp/SWE-bench_Verified"
 DEFAULT_SPLIT = "test"
 DEFAULT_RUN_ID = "simple-agent-lab-swebench"
-DEFAULT_OFFICIAL_OUTPUT_DIR = ROOT / "evals/out/swebench_official"
-DEFAULT_PRO_EVAL_SCRIPT = Path("/tmp/SWE-bench_Pro-os/swe_bench_pro_eval.py")
-DEFAULT_PRO_SCRIPTS_DIR = Path("/tmp/SWE-bench_Pro-os/run_scripts")
+DEFAULT_PREDICTIONS = (
+    ROOT / "evals/out/swebench/verified/predictions/swebench_predictions.jsonl"
+)
+DEFAULT_EVAL_RESULTS = (
+    ROOT / "evals/out/swebench/verified/eval_results/swebench_eval_results.jsonl"
+)
+DEFAULT_OFFICIAL_OUTPUT_DIR = ROOT / "evals/out/swebench/verified/official"
+DEFAULT_PRO_PREDICTIONS = (
+    ROOT / "evals/out/swebench/pro/predictions/swebench_pro_predictions.jsonl"
+)
+DEFAULT_PRO_EVAL_RESULTS = (
+    ROOT / "evals/out/swebench/pro/eval_results/swebench_pro_eval_results.jsonl"
+)
+DEFAULT_PRO_OFFICIAL_OUTPUT_DIR = ROOT / "evals/out/swebench/pro/official"
+DEFAULT_PRO_REPO = ROOT / "evals/out/swebench/pro/SWE-bench_Pro-os"
+DEFAULT_PRO_EVAL_SCRIPT = DEFAULT_PRO_REPO / "swe_bench_pro_eval.py"
+DEFAULT_PRO_SCRIPTS_DIR = DEFAULT_PRO_REPO / "run_scripts"
 DEFAULT_DOCKERHUB_USERNAME = "jefzda"
 EVAL_SCHEMA = "simple-agent-lab.evaluation.v1"
 
@@ -440,18 +454,18 @@ def eval_result_from_official(
     )
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run or normalize SWE-bench (Verified / Pro) evaluation results."
     )
     parser.add_argument(
         "--predictions",
-        default=str(ROOT / "evals/out/swebench_predictions.jsonl"),
+        default=None,
         help="SWE-bench prediction JSONL input.",
     )
     parser.add_argument(
         "--jsonl",
-        default=str(ROOT / "evals/out/swebench_eval_results.jsonl"),
+        default=None,
         help="Eval-result JSONL output.",
     )
     # Verified harness args
@@ -498,7 +512,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--official-output-dir",
-        default=str(DEFAULT_OFFICIAL_OUTPUT_DIR),
+        default=None,
         help=(
             "Root directory for official SWE-bench harness cwd, summary JSON, "
             "logs, and default reports. Each run uses <official-output-dir>/<run-id>/."
@@ -520,7 +534,28 @@ def main() -> None:
         action="store_true",
         help="Write missing-report eval rows for local adapter smoke tests.",
     )
-    args = parser.parse_args()
+    return parser
+
+
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    args = build_parser().parse_args(argv)
+    if args.pro:
+        args.predictions = args.predictions or str(DEFAULT_PRO_PREDICTIONS)
+        args.jsonl = args.jsonl or str(DEFAULT_PRO_EVAL_RESULTS)
+        args.official_output_dir = args.official_output_dir or str(
+            DEFAULT_PRO_OFFICIAL_OUTPUT_DIR
+        )
+    else:
+        args.predictions = args.predictions or str(DEFAULT_PREDICTIONS)
+        args.jsonl = args.jsonl or str(DEFAULT_EVAL_RESULTS)
+        args.official_output_dir = args.official_output_dir or str(
+            DEFAULT_OFFICIAL_OUTPUT_DIR
+        )
+    return args
+
+
+def main() -> None:
+    args = parse_args()
 
     # Run official harness if requested
     if args.run_official:

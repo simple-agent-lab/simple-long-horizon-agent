@@ -2,16 +2,21 @@ from __future__ import annotations
 
 import inspect
 import json
+import os
+import sys
 import tarfile
 import tempfile
 import unittest
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from evals.swebench import in_container_runner
 from evals.swebench.containerized_agent import (
     API_KIND_ENV,
+    DEFAULT_RUN_ROOT,
+    DEFAULT_WHEELHOUSE,
     OPENAI_AUTH_ENV,
     OPENAI_BASE_URL_ENV,
     OPENAI_LOG_ID_ENV,
@@ -34,6 +39,7 @@ from evals.swebench.containerized_agent import (
     prepare_run_directory,
     resolve_api_kind,
     resolve_workdir,
+    run_containerized_agent,
 )
 from evals.swebench.in_container_runner import (
     AGENT_SYSTEM_PROMPT,
@@ -55,6 +61,16 @@ from simple_agent_lab.trajectory import trace_record
 
 
 class SwebenchContainerizedAgentTest(unittest.TestCase):
+    def test_default_artifact_paths_live_under_swebench_output_root(self) -> None:
+        self.assertEqual(
+            DEFAULT_RUN_ROOT,
+            Path("evals/out/swebench/verified/container_runs").resolve(),
+        )
+        self.assertEqual(
+            DEFAULT_WHEELHOUSE,
+            Path("evals/out/swebench/shared/wheelhouse/cp311-manylinux").resolve(),
+        )
+
     def test_container_name_is_stable_and_docker_safe(self) -> None:
         self.assertEqual(
             container_name("sympy__sympy-23824", "container/run:1"),
@@ -451,6 +467,7 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
                 OPENAI_BASE_URL_ENV: "https://example.invalid/v1",
                 OPENAI_SESSION_ID_ENV: "session-1",
                 OPENAI_LOG_ID_ENV: "log-1",
+                API_KIND_ENV: "openai-responses",
                 "NO_PROXY": ".example.invalid",
                 "no_proxy": ".internal.invalid",
             },
@@ -463,6 +480,7 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
         self.assertEqual(env[OPENAI_BASE_URL_ENV], "https://example.invalid/v1")
         self.assertEqual(env[OPENAI_SESSION_ID_ENV], "session-1")
         self.assertEqual(env[OPENAI_LOG_ID_ENV], "log-1")
+        self.assertEqual(env[API_KIND_ENV], "openai-responses")
         self.assertEqual(env["NO_PROXY"], ".example.invalid")
         self.assertEqual(env["no_proxy"], ".internal.invalid")
 
@@ -567,6 +585,156 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
         self.assertNotIn("FAIL_TO_PASS", record)
         self.assertNotIn("PASS_TO_PASS", record)
         self.assertNotIn("selected_test_files_to_run", record)
+
+    def test_prepare_run_directory_resolves_relative_run_root(self) -> None:
+        instance = {
+            "instance_id": "sympy__sympy-23824",
+            "problem_statement": "Fix it.",
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            old_cwd = Path.cwd()
+            try:
+                os.chdir(tmp)
+                paths = prepare_run_directory(
+                    run_root=Path("relative-runs"),
+                    instance=instance,
+                    run_id="container-run",
+                )
+            finally:
+                os.chdir(old_cwd)
+
+            self.assertTrue(paths.root.is_absolute())
+            self.assertEqual(
+                paths.root,
+                Path(tmp) / "relative-runs" / "container-run" / "sympy__sympy-23824",
+            )
+
+    def test_run_containerized_agent_uses_absolute_host_mounts(self) -> None:
+        instance_id = "instance_owner__repo-abc-vnan"
+
+        class FakeImages:
+            def get(self, image_key: str) -> object:
+                del image_key
+                return object()
+
+        class FakeContainer:
+            name = "container"
+
+            def start(self) -> None:
+                pass
+
+            def wait(self) -> dict[str, int]:
+                return {"StatusCode": 0}
+
+            def logs(self, stdout: bool, stderr: bool) -> bytes:
+                del stdout, stderr
+                return b""
+
+            def remove(self, force: bool) -> None:
+                del force
+
+        class FakeContainers:
+            def __init__(self) -> None:
+                self.created: dict[str, object] = {}
+
+            def list(self, all: bool, filters: dict[str, str]) -> list[object]:
+                del all, filters
+                return []
+
+            def create(self, **kwargs: object) -> FakeContainer:
+                self.created = kwargs
+                return FakeContainer()
+
+        fake_containers = FakeContainers()
+        fake_docker = SimpleNamespace(
+            from_env=lambda: SimpleNamespace(
+                images=FakeImages(),
+                containers=fake_containers,
+            ),
+            errors=SimpleNamespace(
+                ImageNotFound=LookupError,
+                DockerException=RuntimeError,
+            ),
+        )
+        fake_docker_errors = fake_docker.errors
+
+        with tempfile.TemporaryDirectory() as tmp:
+            old_cwd = Path.cwd()
+            try:
+                os.chdir(tmp)
+                instance_json = Path("instances.jsonl")
+                instance_json.write_text(
+                    json.dumps(
+                        {
+                            "instance_id": instance_id,
+                            "repo": "owner/repo",
+                            "problem_statement": "Fix it.",
+                        }
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                args = SimpleNamespace(
+                    instance_json=str(instance_json),
+                    instance_id=instance_id,
+                    dataset_name="ScaleAI/SWE-bench_Pro",
+                    split="test",
+                    model_name="model",
+                    provider="fake",
+                    api_kind=None,
+                    dotenv=".env",
+                    max_turns=1,
+                    run_id="container-run",
+                    run_root="relative-runs",
+                    run_mount="/agent/run",
+                    wheelhouse="relative-wheelhouse",
+                    wheelhouse_mount="/agent/wheelhouse",
+                    prepare_wheelhouse=False,
+                    runner_path=__file__,
+                    container_runner_path="/agent/runner.py",
+                    uv_binary="",
+                    workdir="",
+                    namespace="swebench",
+                    instance_image_tag="latest",
+                    env_image_tag="latest",
+                    dockerhub_username="jefzda",
+                    docker_platform="",
+                    network_mode="",
+                    pull="missing",
+                    skip_install=True,
+                    keep_container=False,
+                    force=True,
+                )
+
+                with (
+                    mock.patch.dict(
+                        sys.modules,
+                        {
+                            "docker": fake_docker,
+                            "docker.errors": fake_docker_errors,
+                        },
+                    ),
+                    mock.patch(
+                        "evals.swebench.containerized_agent.prepare_wheelhouse_for_run"
+                    ),
+                    mock.patch(
+                        "evals.swebench.containerized_agent.copy_file_to_container"
+                    ),
+                    mock.patch(
+                        "evals.swebench.containerized_agent.copy_runner_support_files"
+                    ),
+                ):
+                    run_containerized_agent(args)
+            finally:
+                os.chdir(old_cwd)
+
+            volumes = fake_containers.created["volumes"]
+
+        assert isinstance(volumes, dict)
+        self.assertTrue(volumes)
+        for host_path in volumes:
+            self.assertTrue(Path(host_path).is_absolute(), host_path)
 
     def test_load_instance_accepts_instances_wrapper(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -38,8 +38,8 @@ DEFAULT_RUNNER_PATH = "/agent/evals/swebench/in_container_runner.py"
 DEFAULT_WORKDIR = "/testbed"
 DEFAULT_PRO_WORKDIR = "/app"
 DEFAULT_PRO_DOCKERHUB_USERNAME = "jefzda"
-DEFAULT_RUN_ROOT = ROOT / "evals/out/swebench_container_runs"
-DEFAULT_WHEELHOUSE = ROOT / "evals/out/wheelhouse/cp311-manylinux"
+DEFAULT_RUN_ROOT = ROOT / "evals/out/swebench/verified/container_runs"
+DEFAULT_WHEELHOUSE = ROOT / "evals/out/swebench/shared/wheelhouse/cp311-manylinux"
 DEFAULT_UV_BINARY = shutil.which("uv") or ""
 UV_CONTAINER_PATH = "/tmp/uv"
 DEFAULT_LOCAL_RUNNER = ROOT / "evals/swebench/in_container_runner.py"
@@ -56,6 +56,7 @@ OPENAI_PASSTHROUGH_ENVS = (
     OPENAI_BASE_URL_ENV,
     OPENAI_SESSION_ID_ENV,
     OPENAI_LOG_ID_ENV,
+    API_KIND_ENV,
 )
 PRIVATE_INSTANCE_FIELDS = {
     "patch",
@@ -95,6 +96,7 @@ def prepare_run_directory(
     """Create input/output dirs and write the model-visible instance record."""
 
     instance_id = str(instance["instance_id"])
+    run_root = run_root.resolve()
     root = run_root / _safe_docker_part(run_id) / _safe_docker_part(instance_id)
     input_dir = root / "input"
     output_dir = root / "out"
@@ -354,7 +356,7 @@ def run_containerized_agent(args: argparse.Namespace) -> RunPaths:
     if args.provider == "openai":
         load_dotenv(args.dotenv)
     environment = _container_environment(args.provider)
-    wheelhouse = Path(args.wheelhouse) if args.wheelhouse else None
+    wheelhouse = Path(args.wheelhouse).resolve() if args.wheelhouse else None
     prepare_wheelhouse_for_run(wheelhouse, prepare_all=args.prepare_wheelhouse)
 
     pro_instance = is_swebench_pro_instance(instance, dataset_name=args.dataset_name)
