@@ -52,7 +52,7 @@ bash runs/run_swebench_smoke.sh
 One-time setup: install Docker, build SWE-bench images for an instance:
 
 ```bash
-bash runs/setup_swebench_docker.sh django__django-12113
+bash runs/setup_swebench_docker.sh sympy__sympy-23824
 ```
 
 These run the containerized SWE-bench agent for one default instance, one named
@@ -69,18 +69,19 @@ bash runs/run_swebench_pro.sh instance_navidrome__navidrome-8e640bb8580affb7e0ea
 bash runs/run_swebench_pro.sh --all --parallel 4
 ```
 
-Both scripts cache downloaded instance records under `evals/out/`, write per-run
-container logs under `evals/out/swebench_container_runs/`, and collect generated
-prediction rows into `evals/out/<run-id>_predictions.jsonl`. When records are
-not cached, the scripts use `uv run --with datasets python` to fetch the
-HuggingFace dataset rows without making `datasets` a project dependency.
+Verified outputs land under `evals/out/swebench/verified/`; Pro outputs land
+under `evals/out/swebench/pro/`. Each branch has its own `instances/`,
+`container_runs/`, `predictions/`, `eval_results/`, and `official/`
+directories. Shared wheels live under `evals/out/swebench/shared/wheelhouse/`.
+When records are not cached, the scripts use the `datasets` package from
+`uv sync --extra swebench` to fetch the HuggingFace dataset rows.
 
 This wrapper runs or normalizes official SWE-bench / SWE-bench Pro evaluation
 results for an existing predictions file:
 
 ```bash
-bash runs/eval_swebench.sh --run-official --predictions evals/out/swebench_predictions.jsonl
-bash runs/eval_swebench.sh --pro --predictions evals/out/pro-20260525-120000_predictions.jsonl --results-json evals/out/swebench_pro_eval/eval_results.json
+bash runs/eval_swebench.sh --run-official --predictions evals/out/swebench/verified/predictions/swebench_predictions.jsonl
+bash runs/eval_swebench.sh --pro --predictions evals/out/swebench/pro/predictions/pro-20260525-120000_predictions.jsonl --results-json evals/out/swebench/pro/eval_results/eval_results.json
 ```
 
 See `evals/swebench/README.md` for detailed Docker setup, macOS arm64
