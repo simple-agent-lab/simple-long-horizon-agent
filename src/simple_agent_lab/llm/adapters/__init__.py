@@ -20,23 +20,13 @@ TOOL_RESULT_VISUAL_CAPTION = "Visual output from {tool_name}:"
 
 
 def capture_request(kwargs: dict[str, Any]) -> dict[str, Any]:
-    """Snapshot a provider request for `LLMResponse.raw`.
+    """Snapshot a provider request for ``LLMResponse.raw``.
 
-    Strips the chat history (`messages` for OpenAI Chat / Anthropic,
-    `input` for OpenAI Responses) — that history is already canonical
-    in the runtime trajectory, and copying it onto every turn's raw
-    payload turns a long session into O(N^2) memory. Everything else
-    (model, tools, temperature, system / instructions, our outbound
-    `extra` translations, …) stays so the "did our cache_control or
-    reasoning_content land?" debug question remains answerable from
-    one turn's `raw["request"]` alone.
+    Returns a shallow copy of the outbound kwargs so every turn's
+    ``raw["request"]`` preserves the full request body including the
+    messages / input history.
     """
-    snapshot = dict(kwargs)
-    for history_key in ("messages", "input"):
-        history = snapshot.get(history_key)
-        if isinstance(history, list):
-            snapshot[history_key] = {"_pruned": True, "_count": len(history)}
-    return snapshot
+    return dict(kwargs)
 
 
 def sdk_dump(value: Any) -> Any:

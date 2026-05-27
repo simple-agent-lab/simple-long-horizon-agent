@@ -20,6 +20,9 @@ prediction-evaluation unit tests without installing SWE-bench or running
 Docker.
 
 Generated files under `evals/out/` are local artifacts and are ignored by git.
+Each subdirectory keeps a committed README describing the expected output layout
+so that every user sees the same directory skeleton after cloning. See
+[`evals/out/README.md`](out/README.md) for the full structure.
 
 Record types:
 

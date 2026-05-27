@@ -125,11 +125,13 @@ Then use `Provider(api="my-api", ...)` like any built-in.
   one will raise — fail loud, not silently truncate.
 - **`Provider` carries no callable.** A custom Ollama setup is a literal:
   `Provider(api="openai-chat", base_url="http://localhost:11434/v1", ...)`.
-- **`role="tool_result"` is internal, not wire-format.** Each adapter
-  translates at its own boundary (OpenAI → `role="tool"` + tool_call_id;
-  Anthropic → `role="user"` + a `tool_result` content block). Keeping
-  the internal name distinct from any provider's role lets the same
-  transcript reach either provider with no caller-side shimming.
+- **Tool results stay in project-owned content blocks until the provider
+  boundary.** Runtime tool-result bundles project to
+  `LLMMessage(role="user", content=[...])` with `ToolResultBlock` entries.
+  Provider adapters then render the shape each API expects: OpenAI Chat splits
+  them into `role="tool"` messages, OpenAI Responses emits
+  `function_call_output` items, and Anthropic keeps them as `tool_result`
+  blocks inside a user message. Callers do not need provider-specific shims.
 - **`LLMMessage.extra` and `LLMRequest.extra`** are the two
   provider-specific opt-in channels: a namespaced bag of hints on one
   message (`extra["anthropic.cache_breakpoint"] = True`) and a
@@ -159,17 +161,10 @@ Then use `Provider(api="my-api", ...)` like any built-in.
 | `openai-chat`        | ✅ blocking           | `openai`    | also serves OpenAI-compatible endpoints (Ollama, vLLM, OpenRouter) via `base_url` |
 | `openai-responses`   | ✅ blocking           | `openai`    | uses `instructions` for system prompt; flat function tools |
 
-The real-provider SDKs are **optional** — the base package keeps
-`dependencies = []`. Install on demand::
-
-    uv pip install 'simple-agent-lab[anthropic]'   # anthropic only
-    uv pip install 'simple-agent-lab[openai]'      # openai only
-    uv pip install 'simple-agent-lab[providers]'   # both
-
-Each real adapter imports its SDK lazily inside `stream()`. Loading
-`simple_agent_lab.llm` still works without the SDK installed; only when
-the adapter is *called* will it raise a clear `RuntimeError` instructing
-the user to install the extra.
+The real-provider SDKs are base package dependencies because the supported
+provider adapters are part of the normal runtime path. Each real adapter still
+imports its SDK lazily inside `stream()` so adapter registration stays cheap, and
+the import error remains explicit if an environment was created incorrectly.
 
 Token-by-token streaming is a follow-up: today the real adapters call
 the blocking endpoint and emit a single `text_delta` carrying the full

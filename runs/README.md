@@ -47,6 +47,14 @@ SWE-bench or running Docker:
 bash runs/run_swebench_smoke.sh
 ```
 
+## SWE-bench (Containerized)
+
+One-time setup: install Docker, build SWE-bench images for an instance:
+
+```bash
+bash runs/setup_swebench_docker.sh django__django-12113
+```
+
 These run the containerized SWE-bench agent for one default instance, one named
 instance, or the full dataset split. Full-split runs use `--all` and can limit
 Docker/model concurrency with `--parallel N`:
@@ -74,3 +82,6 @@ results for an existing predictions file:
 bash runs/eval_swebench.sh --run-official --predictions evals/out/swebench_predictions.jsonl
 bash runs/eval_swebench.sh --pro --predictions evals/out/pro-20260525-120000_predictions.jsonl --results-json evals/out/swebench_pro_eval/eval_results.json
 ```
+
+See `evals/swebench/README.md` for detailed Docker setup, macOS arm64
+workarounds, and troubleshooting.

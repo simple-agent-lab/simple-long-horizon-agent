@@ -24,12 +24,16 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-dependencies = []
+dependencies = [
+    "anthropic>=0.39.0",
+    "openai>=1.50.0",
+]
 
 [project.optional-dependencies]
-anthropic = ["anthropic>=0.39.0"]
-openai = ["openai>=1.50.0"]
-providers = ["anthropic>=0.39.0", "openai>=1.50.0"]
+swebench = [
+    "docker>=7.0.0",
+    "swebench>=3.0.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/simple-agent-lab/simple-agent-lab"
@@ -40,13 +44,6 @@ Issues = "https://github.com/simple-agent-lab/simple-agent-lab/issues"
 dev = [
     "ruff>=0.15.12",
     "ty>=0.0.1a26",
-    # Optional provider SDKs are listed here so `uv sync --group dev`
-    # installs them for the type checker. The adapters defer the actual
-    # import to `stream()`, so the package still works at runtime
-    # without these installed (they remain optional via the `[anthropic]`
-    # / `[openai]` extras).
-    "anthropic>=0.39.0",
-    "openai>=1.50.0",
 ]
 
 [tool.uv]

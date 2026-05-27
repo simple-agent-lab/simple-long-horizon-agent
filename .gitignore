@@ -20,8 +20,12 @@ env/
 .ruff_cache/
 .python-version
 
-# Local eval artifacts
-evals/out/
+# Local eval artifacts — keep README.md files for directory structure docs
+evals/out/*
+!evals/out/README.md
+!evals/out/swebench/
+evals/out/swebench/*
+!evals/out/swebench/README.md
 logs/
 
 # Local reference-architecture research notes — kept off the public repo.

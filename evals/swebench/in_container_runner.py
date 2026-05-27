@@ -23,8 +23,8 @@ from simple_agent_lab.state import State
 from simple_agent_lab.trajectory import (
     ModelTurn,
     RunTrace,
-    event_record,
     json_safe,
+    run_trace_from_state,
     trace_record,
     write_jsonl,
 )
@@ -363,13 +363,10 @@ def trace_from_state(
     instance_id = str(instance["instance_id"])
     trace_id = f"swebench.{instance_id}"
     suite = suite_for_instance(dataset_name=dataset_name, instance_id=instance_id)
-    return RunTrace(
+    return run_trace_from_state(
+        state=state,
         trace_id=trace_id,
         producer=f"suite:{suite}",
-        task=state.task,
-        messages=json_safe(state.messages),
-        events=[event_record(event) for event in state.events],
-        model_turns=model_turns_from_events(trace_id, state.events),
         meta={
             "suite": suite,
             "dataset_name": dataset_name,

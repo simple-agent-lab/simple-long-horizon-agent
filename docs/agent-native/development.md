@@ -5,9 +5,10 @@ remote and local CI both enforce.
 
 ## Setup
 
-The runtime itself is stdlib-only, but `ruff` (formatter) and `ty` (type
-checker) are dev tools and live in the `dev` dependency group. Use `uv` to
-manage the environment:
+The base package includes the supported model-provider SDKs. Heavier benchmark
+tooling, such as SWE-bench, stays behind optional extras. `ruff` (formatter) and
+`ty` (type checker) are dev tools and live in the `dev` dependency group. Use
+`uv` to manage the environment:
 
 ```bash
 uv sync --group dev
@@ -15,7 +16,7 @@ uv sync --group dev
 
 `--group dev` installs the dev tools. Without the flag you get the runtime
 install only — fine for a quick demo, not enough to run the formatter or type
-check.
+check. Add `--extra swebench` only when working on the SWE-bench adapter.
 
 ## The quality gate
 
@@ -92,9 +93,9 @@ When extending the gate (e.g. a linter, a smoke test, a doc check):
 ## Adding a new dev dependency
 
 Add it to `[dependency-groups] dev` in `pyproject.toml`, then `uv sync
---group dev`. Do **not** add it to `[project] dependencies` unless the
-runtime needs it at import time — the package is supposed to install with
-zero third-party deps for the simple-demo path.
+--group dev`. Do **not** add it to `[project] dependencies` unless the runtime
+or supported provider adapters need it. Heavy eval-only dependencies should live
+under `[project.optional-dependencies]`.
 
 ## When CI is wrong
 

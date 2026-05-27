@@ -28,6 +28,8 @@ from evals.swebench.containerized_agent import (
     docker_image_for_instance,
     docker_run_command,
     load_instance as load_host_instance,
+    prepare_project_wheel,
+    prepare_wheelhouse_for_run,
     prepare_wheelhouse,
     prepare_run_directory,
     resolve_api_kind,
@@ -49,6 +51,7 @@ from simple_agent_lab.llm.provider import Provider
 from simple_agent_lab import make_llm_agent
 from simple_agent_lab.agents.bash import make_bash_agent
 from simple_agent_lab.state import State
+from simple_agent_lab.trajectory import trace_record
 
 
 class SwebenchContainerizedAgentTest(unittest.TestCase):
@@ -115,7 +118,8 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
             command,
         )
         self.assertNotIn("--break-system-packages", command)
-        self.assertIn("'simple-agent-lab[openai]'", command)
+        self.assertIn(" simple-agent-lab", command)
+        self.assertNotIn("simple-agent-lab[openai]", command)
         self.assertIn(
             '"$AGENT_PYTHON" /agent/evals/swebench/in_container_runner.py',
             command,
@@ -367,8 +371,10 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
             patch_source="containerized-diff",
         )
 
-        self.assertEqual(trace.events[0]["kind"], "message")
-        self.assertIn("message", trace.events[0])
+        record = trace_record(trace)
+
+        self.assertEqual(record["events"][0]["kind"], "message")
+        self.assertIn("message", record["events"][0])
 
     def test_system_prompt_sets_swebench_repair_operating_rules(self) -> None:
         self.assertIn("general and consistent with the codebase", AGENT_SYSTEM_PROMPT)
@@ -596,6 +602,7 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
             prepare_wheelhouse(Path(tmp), runner=runner)
 
         self.assertEqual(calls[0][:3], ["uv", "build", "--wheel"])
+        self.assertIn("anthropic>=0.39.0", calls[1])
         self.assertIn("openai>=1.50.0", calls[1])
 
     def test_pull_always_refreshes_existing_image(self) -> None:
@@ -649,6 +656,47 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
         )
 
         self.assertEqual(images.pulls, [])
+
+    def test_prepare_project_wheel_refreshes_only_local_package(self) -> None:
+        calls: list[list[str]] = []
+
+        def runner(command: list[str]) -> None:
+            calls.append(command)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            prepare_project_wheel(Path(tmp), runner=runner)
+
+        self.assertEqual(calls, [["uv", "build", "--wheel", "--out-dir", tmp]])
+
+    def test_prepare_wheelhouse_for_run_refreshes_project_wheel_by_default(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wheelhouse = Path(tmp)
+            with mock.patch(
+                "evals.swebench.containerized_agent.prepare_project_wheel"
+            ) as project_wheel:
+                with mock.patch(
+                    "evals.swebench.containerized_agent.prepare_wheelhouse"
+                ) as full_wheelhouse:
+                    prepare_wheelhouse_for_run(wheelhouse, prepare_all=False)
+
+        project_wheel.assert_called_once_with(wheelhouse)
+        full_wheelhouse.assert_not_called()
+
+    def test_prepare_wheelhouse_for_run_can_prepare_full_wheelhouse(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wheelhouse = Path(tmp)
+            with mock.patch(
+                "evals.swebench.containerized_agent.prepare_project_wheel"
+            ) as project_wheel:
+                with mock.patch(
+                    "evals.swebench.containerized_agent.prepare_wheelhouse"
+                ) as full_wheelhouse:
+                    prepare_wheelhouse_for_run(wheelhouse, prepare_all=True)
+
+        project_wheel.assert_not_called()
+        full_wheelhouse.assert_called_once_with(wheelhouse)
 
     def test_llm_retry_recovers_from_tpm_error_with_exponential_backoff(self) -> None:
         calls = 0

@@ -12,20 +12,22 @@ The repeated control flow where the system observes state, asks a model for the 
 
 The runtime transcript unit exchanged between agents. In the current core it
 has model-adjacent `role` and `content`, plus lab-facing `sender`, `target`,
-`kind`, `channel`, and structured `data`. It is projected into a model-facing
-payload before a provider call.
+`kind`, `channel`, and structured `data`. It is projected into an `LLMMessage`
+before a provider call.
 
 ## SystemMessage
 
 A message variant for system, instruction, summary, or runtime guidance that should stay visible in transcript state.
 
-## ModelMessage
+## LLMMessage
 
-The provider-facing payload derived from runtime messages for a model call.
+A provider-agnostic model-call payload derived from a runtime message. It
+keeps role and ordered content blocks, but drops runtime routing fields.
 
 ## Content Block
 
-A typed unit of model-visible content such as text, image, thinking, or tool call.
+A typed unit of model-visible content such as text, image, thinking, tool call,
+or tool result.
 
 ## Message Sidecar
 

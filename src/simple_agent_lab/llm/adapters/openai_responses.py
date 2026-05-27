@@ -63,7 +63,7 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
     except ImportError as exc:  # pragma: no cover - import error path
         raise RuntimeError(
             "openai-responses adapter requires the 'openai' package. "
-            "Install with: uv pip install 'simple-agent-lab[openai]' "
+            "Install the package dependencies with: uv sync "
             "or: pip install openai"
         ) from exc
 

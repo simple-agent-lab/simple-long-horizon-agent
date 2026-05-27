@@ -6,8 +6,7 @@ Uses the official `anthropic` SDK. Blocking-only: calls
 `usage_update`, and a final `done`. Token-by-token streaming can be added
 later by switching to `client.messages.stream(...)`.
 
-The SDK is imported lazily inside `stream()` so installing
-`simple-agent-lab` without `[anthropic]` still lets the module register.
+The SDK is imported lazily inside `stream()` so module registration stays cheap.
 Calling the adapter without the SDK raises a clear error.
 
 Provider config:
@@ -66,7 +65,7 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
     except ImportError as exc:  # pragma: no cover - import error path
         raise RuntimeError(
             "anthropic-messages adapter requires the 'anthropic' package. "
-            "Install with: uv pip install 'simple-agent-lab[anthropic]' "
+            "Install the package dependencies with: uv sync "
             "or: pip install anthropic"
         ) from exc
 
