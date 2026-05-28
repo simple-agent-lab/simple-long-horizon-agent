@@ -51,7 +51,6 @@ bash runs/run_ci.sh
 uv run python -m unittest discover -s tests/unit
 uv run python scripts/lint_docs.py
 bash runs/run_bash_agent_demo.sh
-bash runs/run_swebench_smoke.sh
 ```
 
 ## Report Format

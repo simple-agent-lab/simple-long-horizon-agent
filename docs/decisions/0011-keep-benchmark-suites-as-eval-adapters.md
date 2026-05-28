@@ -33,8 +33,8 @@ For SWE-bench, the first adapter lives under `evals/swebench/`:
   files.
 - `evaluate_predictions.py` invokes or normalizes the official SWE-bench harness
   output into `EvalResult` records.
-- `runs/run_swebench_smoke.sh` verifies the adapter's unit-smoke path without
-  Docker.
+- The SWE-bench adapter unit tests (run via `run_ci.sh`) verify the adapter's
+  unit-smoke path without Docker.
 - `runs/run_swebench_gold_smoke.sh` verifies the external SWE-bench harness when
   the optional dependency and Docker are available.
 

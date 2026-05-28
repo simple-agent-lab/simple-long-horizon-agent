@@ -1,0 +1,13 @@
+{
+  "name": "trace-viewer",
+  "version": "1.0.0",
+  "description": "A single-file HTML viewer for `simple-agent-lab.trajectory.v3` trace records.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}

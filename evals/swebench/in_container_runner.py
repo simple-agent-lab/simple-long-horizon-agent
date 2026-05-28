@@ -20,6 +20,11 @@ from simple_agent_lab.agents.bash import make_bash_agent
 from simple_agent_lab.llm import Provider as LLMProvider
 from simple_agent_lab.protocols import Event, MessageEvent, ModelRequestEvent
 from simple_agent_lab.state import State
+from simple_agent_lab.live_trace import (
+    LiveTraceSession,
+    default_stderr_flush_error,
+    write_canonical_trace,
+)
 from simple_agent_lab.trajectory import (
     ModelTurn,
     RunTrace,
@@ -62,19 +67,23 @@ AGENT_ROLE = (
     "and focused tests, then return a concise final note."
 )
 AGENT_SYSTEM_PROMPT = (
-    "You are a tiny SWE-bench repair agent running inside the instance "
-    "container. The repository is local. Use bash to inspect files, edit code, "
-    "and run focused tests. Work from evidence: inspect relevant files before "
-    "editing, reproduce the reported behavior when practical, and make a fix "
-    "that is general and consistent with the codebase. Each bash tool call runs "
-    "in a fresh shell, so include any needed cd or environment setup in the "
-    "command. Use non-interactive command flags and avoid editors that require "
-    "user input. Keep command output focused. When the repository is patched, "
-    "return a short final summary; the harness will collect git diff separately."
+    "You are a software engineer interacting with a SWE-bench instance "
+    "container through the bash tool. Each bash call runs in a fresh shell "
+    "rooted at the workspace, so include any cd or env setup in the command "
+    "and use non-interactive flags (`-y`, `--no-pager`, avoid `vi`/`nano`). "
+    "Independent read-only bash calls may run in parallel; never run parallel "
+    "writes against the same file. Work from evidence: inspect, reproduce, "
+    "edit, verify — make a fix that is general and consistent with the "
+    "codebase. Keep command output focused. When the repository is patched, "
+    "return a short final summary; the harness collects git diff separately."
 )
+AGENT_DEFAULT_TEMPERATURE = 0.0
 LLM_RETRY_MAX_ATTEMPTS = 20
 LLM_RETRY_INITIAL_DELAY_SECONDS = 4.0
 LLM_RETRY_MAX_DELAY_SECONDS = 60.0
+# Incremental flush cadence: a fresh trajectory.jsonl snapshot every ~2s
+# keeps the viewer responsive without rewriting multi-MB JSON per event.
+INCREMENTAL_TRACE_FLUSH_INTERVAL_S = 2.0
 
 
 def load_instance(path: str | Path, instance_id: str | None) -> dict[str, Any]:
@@ -104,29 +113,38 @@ def task_from_instance(instance: dict[str, Any], *, workdir: str) -> str:
     interface = _optional_context(instance.get("interface"))
     lines = [
         "Solve this SWE-bench instance.",
+        "",
+        "## Environment",
+        "- You are running inside the SWE-bench container.",
+        f"- The bash tool runs locally in {workdir}.",
+        "- A full Linux shell is available; install missing tools only if strictly needed.",
+        "- Always pass non-interactive flags (`-y`, `--no-pager`); avoid editors that wait for input.",
+        "",
+        "## What to modify",
+        "- MODIFY: regular source files in the repository.",
+        "- DO NOT MODIFY: tests, reproduction scripts you create, configuration files",
+        "  (pyproject.toml, setup.cfg, tox.ini, etc.) unless code evidence shows the fix",
+        "  belongs there.",
+        "- Keep temporary reproduction helpers out of the final diff (write them under",
+        "  `/tmp/` or delete them before you stop).",
+        "",
+        "## Workflow",
+        "1. Locate the relevant code. Prefer parallel read-only commands",
+        "   (`grep -rn`, `find`, `sed -n 'A,Bp'`) over reading whole files.",
+        "2. Reproduce the reported behavior with a tiny script when practical.",
+        "3. Edit the smallest set of source files needed for a general fix.",
+        "4. Re-run the reproduction. Then run a focused subset of existing tests",
+        "   (single file or `-k pattern`) and explain if any are unavailable.",
+        "5. Stop as soon as the fix is in place and verified. Do not keep exploring",
+        "   once you can describe the change.",
+        "",
+        "## Final answer",
+        "Return a short summary of the files you changed and how you verified the fix.",
+        "Do NOT paste the patch — the harness collects `git diff` separately.",
+        "",
+        "## Problem statement",
+        problem,
     ]
-    lines.extend(
-        [
-            "",
-            "Workspace instructions:",
-            "- You are running inside the SWE-bench container.",
-            f"- The bash tool runs locally in {workdir}.",
-            "- Modify files in that repository to solve the issue in a way that is general and consistent with the codebase.",
-            "- Do not modify tests, reproduction files, or configuration files unless the issue explicitly requires it or code evidence shows they are part of the fix.",
-            "- Keep temporary reproduction helpers out of the final diff.",
-            "- Final answer: summarize changed files and verification; do not include a patch because git diff is collected separately.",
-            "",
-            "Recommended workflow:",
-            "1. Read relevant files before editing.",
-            "2. Create or run a small reproduction from the problem statement when practical.",
-            "3. Edit the smallest set of source files needed to resolve the issue.",
-            "4. Re-run the reproduction or focused failing check.",
-            "5. Run relevant existing tests or explain why they are unavailable.",
-            "",
-            "problem_statement:",
-            problem,
-        ]
-    )
     if requirements:
         lines.extend(["", "requirements:", requirements])
     if interface:
@@ -142,8 +160,21 @@ def run_agent(
     workdir: Path,
     max_turns: int,
     dataset_name: str = DEFAULT_DATASET,
+    incremental_trace_path: str | Path | None = None,
+    incremental_trace_meta_fn: Callable[[State], dict[str, Any]] | None = None,
+    incremental_trace_id: str | None = None,
+    incremental_trace_producer: str | None = None,
+    incremental_flush_interval_s: float = INCREMENTAL_TRACE_FLUSH_INTERVAL_S,
 ) -> State:
-    """Run the bash-use agent inside the local container filesystem."""
+    """Run the bash-use agent inside the local container filesystem.
+
+    When ``incremental_trace_path`` is provided a background writer
+    re-serializes the in-flight ``RunTrace`` to that path every
+    ``incremental_flush_interval_s`` seconds so live viewers can tail the
+    file.  The canonical end-of-run write is still performed by
+    :func:`main` so the on-disk shape after the run matches the
+    pre-incremental behavior exactly.
+    """
 
     language = instance_language(instance)
     instance_id = str(instance["instance_id"])
@@ -160,19 +191,39 @@ def run_agent(
     )
     agent.generate = with_llm_retry(agent.generate)
     state, events = agent.run(task, max_turns=max_turns)
-    for _ in events:
-        pass
     state.data.update(
         {
             "suite": suite,
             "instance": instance,
             "workspace": str(workdir),
-            "model_patch": git_diff(
-                workdir,
-                language=language,
-                commit=baseline_commit or instance_base_commit(instance),
-            ),
         }
+    )
+
+    trace_id = incremental_trace_id or f"swebench.{instance.get('instance_id', '?')}"
+    meta_fn = (
+        (lambda: incremental_trace_meta_fn(state))
+        if incremental_trace_meta_fn is not None
+        else None
+    )
+    if incremental_trace_path is not None:
+        with LiveTraceSession(
+            incremental_trace_path,
+            state,
+            trace_id=trace_id,
+            producer=incremental_trace_producer or f"suite:{suite}",
+            meta_fn=meta_fn,
+            flush_interval_s=incremental_flush_interval_s,
+            on_error=default_stderr_flush_error,
+        ) as session:
+            # main() writes the canonical final record — stop skips final_flush.
+            session.drain(events)
+    else:
+        for _ in events:
+            pass
+    state.data["model_patch"] = git_diff(
+        workdir,
+        language=language,
+        commit=baseline_commit or instance_base_commit(instance),
     )
     return state
 
@@ -211,6 +262,7 @@ def build_openai_provider_from_env(api_kind: str = "openai-chat") -> LLMProvider
             if api_kind == "openai-responses"
             else None
         ),
+        default_temperature=AGENT_DEFAULT_TEMPERATURE,
     )
 
 
@@ -444,7 +496,7 @@ def main() -> None:
         help="Adapter API kind to use when --provider openai.",
     )
     parser.add_argument("--workdir", default="/testbed")
-    parser.add_argument("--max-turns", type=int, default=20)
+    parser.add_argument("--max-turns", type=int, default=75)
     parser.add_argument("--traces", required=True)
     parser.add_argument("--predictions", required=True)
     args = parser.parse_args()
@@ -455,6 +507,22 @@ def main() -> None:
         else LLMProvider(id="fake", api="fake", model="fake-model")
     )
     instance = load_instance(args.instance_json, args.instance_id)
+    instance_id = str(instance["instance_id"])
+    suite = suite_for_instance(dataset_name=args.dataset_name, instance_id=instance_id)
+
+    def live_meta_fn(state: State) -> dict[str, Any]:
+        return {
+            "suite": suite,
+            "dataset_name": args.dataset_name,
+            "split": args.split,
+            "instance_id": instance_id,
+            "model_name_or_path": args.model_name,
+            "patch_source": "containerized-diff",
+            "patch_chars": len(str(state.data.get("model_patch") or "")),
+            "workspace": state.data.get("workspace"),
+            "in_progress": True,
+        }
+
     state = run_agent(
         instance=instance,
         provider=provider,
@@ -464,6 +532,10 @@ def main() -> None:
         workdir=Path(args.workdir),
         max_turns=args.max_turns,
         dataset_name=args.dataset_name,
+        incremental_trace_path=args.traces,
+        incremental_trace_meta_fn=live_meta_fn,
+        incremental_trace_id=f"swebench.{instance_id}",
+        incremental_trace_producer=f"suite:{suite}",
     )
     patch = str(state.data.get("model_patch") or "")
     trace = trace_from_state(
@@ -480,7 +552,7 @@ def main() -> None:
         patch,
         dataset_name=args.dataset_name,
     )
-    write_jsonl(args.traces, [trace_record(trace)])
+    write_canonical_trace(args.traces, record=trace_record(trace))
     write_jsonl(args.predictions, [prediction])
     print(f"wrote 1 SWE-bench trajectory to {args.traces}")
     print(f"wrote 1 SWE-bench prediction to {args.predictions}")

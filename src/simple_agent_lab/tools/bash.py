@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import math
+import os
 import re
 import shlex
 import subprocess
@@ -19,15 +20,35 @@ from typing import Any
 
 from simple_agent_lab.messages import ImageBlock, TextBlock
 
-from . import AbortFlag, AgentTool, ToolResult, ToolUpdateFn, text_result
+from . import (
+    AbortFlag,
+    AgentTool,
+    ToolExecutionMode,
+    ToolResult,
+    ToolUpdateFn,
+    text_result,
+)
 
 
 BASH_TOOL_NAME = "bash"
 
-DEFAULT_BASH_TIMEOUT_SECONDS = 10.0
+DEFAULT_BASH_TIMEOUT_SECONDS = 30.0
 DEFAULT_BASH_MAX_OUTPUT_CHARS = 4000
 MAX_BASH_TIMEOUT_SECONDS = 60.0
 DEFAULT_BASH_MAX_ATTACH_BYTES = 5 * 1024 * 1024  # 5 MiB per attached image
+
+# Env vars we inject (additively) into the bash subprocess so that paging tools
+# and progress bars do not blow the model-visible output budget. Mirrors the
+# defaults used by mini-swe-agent's SWE-bench config. We do not override values
+# the caller already exported, so the user keeps full control when they want
+# colored or paged output for their own debugging.
+NON_INTERACTIVE_BASH_ENV: dict[str, str] = {
+    "PAGER": "cat",
+    "MANPAGER": "cat",
+    "LESS": "-R",
+    "PIP_PROGRESS_BAR": "off",
+    "TQDM_DISABLE": "1",
+}
 
 _IMAGE_MIME_BY_SUFFIX: dict[str, str] = {
     ".png": "image/png",
@@ -73,6 +94,7 @@ def make_bash_tool(
     max_timeout_seconds: float = MAX_BASH_TIMEOUT_SECONDS,
     max_output_chars: int = DEFAULT_BASH_MAX_OUTPUT_CHARS,
     max_attach_bytes: int = DEFAULT_BASH_MAX_ATTACH_BYTES,
+    execution_mode: ToolExecutionMode = "parallel",
 ) -> AgentTool:
     """Return an `AgentTool` that executes one local bash command."""
 
@@ -175,7 +197,7 @@ def make_bash_tool(
         },
         execute=execute,
         label="Run bash command",
-        execution_mode="sequential",
+        execution_mode=execution_mode,
         timeout_seconds=max_timeout_seconds + 1,
     )
 
@@ -197,6 +219,7 @@ def run_bash(
         raise ValueError("max_output_chars must be > 0")
 
     root = Path(cwd or ".").resolve()
+    env = _bash_subprocess_env()
     start = time.monotonic()
     try:
         completed = subprocess.run(
@@ -207,6 +230,7 @@ def run_bash(
             check=False,
             encoding="utf-8",
             errors="replace",
+            env=env,
         )
         stdout = completed.stdout
         stderr = completed.stderr
@@ -280,7 +304,11 @@ def format_bash_observation(execution: BashExecution) -> str:
     if execution.exit_code != 0:
         lines.append(f"exit_code: {execution.exit_code}")
     if execution.stdout_truncated or execution.stderr_truncated:
-        lines.append("note: output was truncated for model context")
+        lines.append(
+            "note: output was truncated for model context. "
+            "Re-run with a narrower view: `head`/`tail`, `sed -n 'A,Bp' FILE`, "
+            "or a more selective `grep`/`find` pattern."
+        )
     return "\n".join(lines)
 
 
@@ -388,6 +416,18 @@ def _last_base_command(command: str) -> str:
 
 def _failure_message(exit_code: int) -> str:
     return f"Command failed with exit code {exit_code}" if exit_code != 0 else ""
+
+
+def _bash_subprocess_env() -> dict[str, str]:
+    """Return a copy of os.environ with non-interactive defaults filled in.
+
+    Caller-provided values always win so the user can override (e.g. set
+    ``PAGER=less`` if they want paging back in a local terminal demo).
+    """
+    env = os.environ.copy()
+    for key, value in NON_INTERACTIVE_BASH_ENV.items():
+        env.setdefault(key, value)
+    return env
 
 
 def _coerce_process_text(value: bytes | str | None) -> str:

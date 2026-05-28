@@ -27,7 +27,8 @@ Freshness:
    part of that setup become required CI?
 
    Evidence: ADR 0011 and `evals/swebench/README.md` keep SWE-bench as an
-   optional external dependency, while `runs/run_swebench_smoke.sh` avoids Docker.
+   optional external dependency; the adapter's unit tests (covered by `run_ci.sh`)
+   avoid Docker.
 
    Recommended default: keep official SWE-bench evaluation optional; required CI
    should stay `ty` plus `unittest` until the owner accepts the setup cost.

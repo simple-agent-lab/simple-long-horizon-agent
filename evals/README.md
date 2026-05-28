@@ -12,7 +12,10 @@ their collector beside their scorer when that makes the suite easier to read.
 The first suite example is the local SWE-bench adapter smoke check:
 
 ```bash
-bash runs/run_swebench_smoke.sh
+uv run python -m unittest \
+  tests.unit.test_swebench_patch_extract \
+  tests.unit.test_swebench_containerized_agent \
+  tests.unit.test_swebench_evaluate_predictions
 ```
 
 That script runs the focused patch extraction, containerized-agent, and

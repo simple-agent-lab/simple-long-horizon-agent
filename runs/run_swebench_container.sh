@@ -21,7 +21,7 @@ ROOT="$PWD"
 source runs/_python.sh
 
 INSTANCE_ID="${1:?Usage: $0 <instance-id> [max-turns] [run-id]}"
-MAX_TURNS="${2:-20}"
+MAX_TURNS="${2:-75}"
 RUN_ID="${3:-swebench-$(date +%Y%m%d-%H%M%S)}"
 
 INSTANCE_JSONL="evals/out/swebench/instance_${INSTANCE_ID}.jsonl"
@@ -29,12 +29,19 @@ DATASET="princeton-nlp/SWE-bench_Verified"
 WHEELHOUSE="evals/out/swebench/wheelhouse/cp311-manylinux"
 CONTAINER_RUN_ROOT="evals/out/swebench"
 
-# --- Resolve DOCKER_HOST for Colima if needed ---
+# --- Resolve DOCKER_HOST when callers haven't set one ---
+# The Python `docker` SDK defaults to /var/run/docker.sock, which is absent on
+# Docker Desktop (macOS) and Colima. Probe known locations in order so the
+# launcher works headless under either runtime.
 if [ -z "${DOCKER_HOST:-}" ]; then
-  COLIMA_SOCK="$HOME/.colima/default/docker.sock"
-  if [ -S "$COLIMA_SOCK" ]; then
-    export DOCKER_HOST="unix://$COLIMA_SOCK"
-  fi
+  for SOCK in \
+    "$HOME/.docker/run/docker.sock" \
+    "$HOME/.colima/default/docker.sock"; do
+    if [ -S "$SOCK" ]; then
+      export DOCKER_HOST="unix://$SOCK"
+      break
+    fi
+  done
 fi
 
 # --- Verify Docker ---

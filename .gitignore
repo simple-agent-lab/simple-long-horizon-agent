@@ -41,6 +41,10 @@ docs/reference-architectures/*
 # uv
 # (commit uv.lock; ignore the local cache only)
 
+
+# Node
+node_modules/
+
 # Editor / OS
 .DS_Store
 .idea/

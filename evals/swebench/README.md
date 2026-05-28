@@ -7,7 +7,9 @@ The adapter keeps the existing Simple Agent Lab split:
 - `containerized_agent.py` starts the SWE-bench instance container and runs the
   Simple Agent Lab runner inside it.
 - `in_container_runner.py` records what happened and writes the official
-  SWE-bench prediction JSONL shape from inside the container.
+  SWE-bench prediction JSONL shape from inside the container. Incremental
+  traces for the host viewer use `simple_agent_lab.live_trace` — see
+  `docs/agent-native/docker-live-trace.md`.
 - `patch_extract.py` collects the final `model_patch` while filtering generated
   files.
 - `evaluate_predictions.py` runs or normalizes the official SWE-bench harness
@@ -65,6 +67,11 @@ Set the Docker socket for all subsequent commands:
 ```bash
 export DOCKER_HOST=unix://$HOME/.colima/default/docker.sock
 ```
+
+`runs/run_swebench_container.sh` also probes
+`~/.docker/run/docker.sock` (Docker Desktop) and the Colima socket above when
+`DOCKER_HOST` is unset, so headless invocations from CI or chat sessions reach
+the right daemon without an explicit export.
 
 **Known issue: `docker build` + Rosetta.** The Docker BuildKit builder fails
 to run x86_64 ELF binaries through Rosetta during image builds (the dynamic
@@ -165,10 +172,14 @@ The convenience scripts handle this automatically.
 ## Local Adapter Smoke
 
 This command does not install SWE-bench and does not run Docker. It runs the
-focused unit-smoke checks for the containerized adapter:
+focused unit-smoke checks for the containerized adapter (also covered by
+`bash runs/run_ci.sh`):
 
 ```bash
-bash runs/run_swebench_smoke.sh
+uv run python -m unittest \
+  tests.unit.test_swebench_patch_extract \
+  tests.unit.test_swebench_containerized_agent \
+  tests.unit.test_swebench_evaluate_predictions
 ```
 
 ## Containerized Agent
