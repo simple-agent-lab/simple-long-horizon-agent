@@ -19,7 +19,7 @@ source runs/_python.sh
 INSTANCE_ID="${1:?Usage: $0 <instance-id>}"
 DATASET="princeton-nlp/SWE-bench_Verified"
 SPLIT="test"
-INSTANCE_JSONL="evals/out/swebench/verified/instances/${INSTANCE_ID}.jsonl"
+INSTANCE_JSONL="evals/out/swebench/instance_${INSTANCE_ID}.jsonl"
 
 # ──────────────────────────────────────────────────────────────────────
 # Step 1: Python dependencies
@@ -173,20 +173,20 @@ PY
 # Step 5: Prepare wheelhouse
 # ──────────────────────────────────────────────────────────────────────
 echo "==> [5/5] Preparing wheelhouse..."
-WHEELHOUSE="evals/out/swebench/shared/wheelhouse/cp311-manylinux"
+WHEELHOUSE="evals/out/swebench/wheelhouse/cp311-manylinux"
 
 if [ -d "$WHEELHOUSE" ] && [ -n "$(ls -A "$WHEELHOUSE" 2>/dev/null)" ]; then
   echo "  Wheelhouse already populated; refreshing project wheel."
   "${PYTHON[@]}" - <<'PY'
 from pathlib import Path
 from evals.swebench.containerized_agent import prepare_project_wheel
-prepare_project_wheel(Path("evals/out/swebench/shared/wheelhouse/cp311-manylinux"))
+prepare_project_wheel(Path("evals/out/swebench/wheelhouse/cp311-manylinux"))
 PY
 else
   "${PYTHON[@]}" - <<'PY'
 from pathlib import Path
 from evals.swebench.containerized_agent import prepare_wheelhouse
-prepare_wheelhouse(Path("evals/out/swebench/shared/wheelhouse/cp311-manylinux"))
+prepare_wheelhouse(Path("evals/out/swebench/wheelhouse/cp311-manylinux"))
 PY
 fi
 

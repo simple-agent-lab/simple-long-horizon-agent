@@ -17,21 +17,15 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
     ) -> None:
         self.assertEqual(
             evaluate_predictions.DEFAULT_OFFICIAL_OUTPUT_DIR,
-            evaluate_predictions.ROOT / "evals/out/swebench/verified/official",
-        )
-        self.assertEqual(
-            evaluate_predictions.DEFAULT_PRO_OFFICIAL_OUTPUT_DIR,
-            evaluate_predictions.ROOT / "evals/out/swebench/pro/official",
+            evaluate_predictions.ROOT / "evals/out/swebench_official",
         )
         self.assertEqual(
             evaluate_predictions.DEFAULT_PRO_EVAL_SCRIPT,
-            evaluate_predictions.ROOT
-            / "evals/out/swebench/pro/SWE-bench_Pro-os/swe_bench_pro_eval.py",
+            Path("/tmp/SWE-bench_Pro-os/swe_bench_pro_eval.py"),
         )
         self.assertEqual(
             evaluate_predictions.DEFAULT_PRO_SCRIPTS_DIR,
-            evaluate_predictions.ROOT
-            / "evals/out/swebench/pro/SWE-bench_Pro-os/run_scripts",
+            Path("/tmp/SWE-bench_Pro-os/run_scripts"),
         )
 
     def test_pro_mode_defaults_to_pro_output_paths(self) -> None:
@@ -41,14 +35,14 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
             args.predictions,
             str(
                 evaluate_predictions.ROOT
-                / "evals/out/swebench/pro/predictions/swebench_pro_predictions.jsonl"
+                / "evals/out/swebench_pro/swebench_pro_predictions.jsonl"
             ),
         )
         self.assertEqual(
             args.jsonl,
             str(
                 evaluate_predictions.ROOT
-                / "evals/out/swebench/pro/eval_results/swebench_pro_eval_results.jsonl"
+                / "evals/out/swebench_pro/swebench_pro_eval_results.jsonl"
             ),
         )
         self.assertEqual(

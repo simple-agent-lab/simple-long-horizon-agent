@@ -34,23 +34,16 @@ from simple_agent_lab.trajectory import json_safe, read_jsonl, write_jsonl  # no
 DEFAULT_DATASET = "princeton-nlp/SWE-bench_Verified"
 DEFAULT_SPLIT = "test"
 DEFAULT_RUN_ID = "simple-agent-lab-swebench"
-DEFAULT_PREDICTIONS = (
-    ROOT / "evals/out/swebench/verified/predictions/swebench_predictions.jsonl"
-)
-DEFAULT_EVAL_RESULTS = (
-    ROOT / "evals/out/swebench/verified/eval_results/swebench_eval_results.jsonl"
-)
-DEFAULT_OFFICIAL_OUTPUT_DIR = ROOT / "evals/out/swebench/verified/official"
-DEFAULT_PRO_PREDICTIONS = (
-    ROOT / "evals/out/swebench/pro/predictions/swebench_pro_predictions.jsonl"
-)
+DEFAULT_PREDICTIONS = ROOT / "evals/out/swebench_predictions.jsonl"
+DEFAULT_EVAL_RESULTS = ROOT / "evals/out/swebench_eval_results.jsonl"
+DEFAULT_OFFICIAL_OUTPUT_DIR = ROOT / "evals/out/swebench_official"
+DEFAULT_PRO_PREDICTIONS = ROOT / "evals/out/swebench_pro/swebench_pro_predictions.jsonl"
 DEFAULT_PRO_EVAL_RESULTS = (
-    ROOT / "evals/out/swebench/pro/eval_results/swebench_pro_eval_results.jsonl"
+    ROOT / "evals/out/swebench_pro/swebench_pro_eval_results.jsonl"
 )
-DEFAULT_PRO_OFFICIAL_OUTPUT_DIR = ROOT / "evals/out/swebench/pro/official"
-DEFAULT_PRO_REPO = ROOT / "evals/out/swebench/pro/SWE-bench_Pro-os"
-DEFAULT_PRO_EVAL_SCRIPT = DEFAULT_PRO_REPO / "swe_bench_pro_eval.py"
-DEFAULT_PRO_SCRIPTS_DIR = DEFAULT_PRO_REPO / "run_scripts"
+DEFAULT_PRO_OFFICIAL_OUTPUT_DIR = ROOT / "evals/out/swebench_pro_official"
+DEFAULT_PRO_EVAL_SCRIPT = Path("/tmp/SWE-bench_Pro-os/swe_bench_pro_eval.py")
+DEFAULT_PRO_SCRIPTS_DIR = Path("/tmp/SWE-bench_Pro-os/run_scripts")
 DEFAULT_DOCKERHUB_USERNAME = "jefzda"
 EVAL_SCHEMA = "simple-agent-lab.evaluation.v1"
 

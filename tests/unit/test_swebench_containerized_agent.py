@@ -15,6 +15,8 @@ from unittest import mock
 from evals.swebench import in_container_runner
 from evals.swebench.containerized_agent import (
     API_KIND_ENV,
+    DEFAULT_PRO_RUN_ROOT,
+    DEFAULT_PRO_WHEELHOUSE,
     DEFAULT_RUN_ROOT,
     DEFAULT_WHEELHOUSE,
     OPENAI_AUTH_ENV,
@@ -32,6 +34,7 @@ from evals.swebench.containerized_agent import (
     copy_runner_support_files,
     docker_image_for_instance,
     docker_run_command,
+    is_swebench_pro_instance,
     load_instance as load_host_instance,
     prepare_project_wheel,
     prepare_wheelhouse_for_run,
@@ -45,6 +48,7 @@ from evals.swebench.in_container_runner import (
     AGENT_SYSTEM_PROMPT,
     build_openai_request_extra_from_env,
     build_openai_provider_from_env,
+    is_swebench_pro,
     is_retryable_llm_error,
     load_instance as load_runner_instance,
     prediction_record,
@@ -64,11 +68,19 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
     def test_default_artifact_paths_live_under_swebench_output_root(self) -> None:
         self.assertEqual(
             DEFAULT_RUN_ROOT,
-            Path("evals/out/swebench/verified/container_runs").resolve(),
+            Path("evals/out/swebench").resolve(),
         )
         self.assertEqual(
             DEFAULT_WHEELHOUSE,
-            Path("evals/out/swebench/shared/wheelhouse/cp311-manylinux").resolve(),
+            Path("evals/out/swebench/wheelhouse/cp311-manylinux").resolve(),
+        )
+        self.assertEqual(
+            DEFAULT_PRO_RUN_ROOT,
+            Path("evals/out/swebench_pro").resolve(),
+        )
+        self.assertEqual(
+            DEFAULT_PRO_WHEELHOUSE,
+            Path("evals/out/swebench_pro/wheelhouse/cp311-manylinux").resolve(),
         )
 
     def test_container_name_is_stable_and_docker_safe(self) -> None:
@@ -98,6 +110,34 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
                 dataset_name="ScaleAI/SWE-bench_Pro",
             ),
             {"entrypoint": ""},
+        )
+
+    def test_pro_dataset_detection_only_accepts_hyphenated_marker(self) -> None:
+        instance = {"instance_id": "sympy__sympy-23824"}
+
+        self.assertTrue(
+            is_swebench_pro_instance(
+                instance,
+                dataset_name="ScaleAI/SWE-bench_Pro",
+            )
+        )
+        self.assertTrue(
+            is_swebench_pro(
+                dataset_name="ScaleAI/SWE-bench_Pro",
+                instance_id="sympy__sympy-23824",
+            )
+        )
+        self.assertFalse(
+            is_swebench_pro_instance(
+                instance,
+                dataset_name="local/swebench_pro",
+            )
+        )
+        self.assertFalse(
+            is_swebench_pro(
+                dataset_name="local/swebench_pro",
+                instance_id="sympy__sympy-23824",
+            )
         )
 
     def test_runner_command_installs_agent_and_runs_inside_container(self) -> None:

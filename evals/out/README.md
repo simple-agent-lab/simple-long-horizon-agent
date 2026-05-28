@@ -8,24 +8,31 @@ gitignored except for README files that document the expected structure.
 ```text
 evals/out/
 ├── README.md                          ← this file
-└── swebench/                          ← SWE-bench suite outputs
-    ├── README.md                      ← per-suite structure docs
-    ├── verified/                      ← SWE-bench Verified outputs
-    │   ├── instances/
-    │   ├── container_runs/
-    │   ├── predictions/
-    │   ├── eval_results/
-    │   └── official/
-    ├── pro/                           ← SWE-bench Pro outputs
-    │   ├── instances/
-    │   ├── container_runs/
-    │   ├── predictions/
-    │   ├── eval_results/
-    │   ├── official/
-    │   └── SWE-bench_Pro-os/          ← optional local Pro evaluator checkout
-    └── shared/
-        └── wheelhouse/
-            └── cp311-manylinux/*.whl  ← pre-built wheels for container installs
+├── swebench/                          ← SWE-bench suite outputs
+│   ├── README.md                      ← per-suite structure docs
+│   ├── instance_<id>.jsonl            ← fetched instance records
+│   ├── wheelhouse/                    ← pre-built wheels for container installs
+│   │   └── cp311-manylinux/
+│   │       └── *.whl
+│   └── <run-id>/
+│       └── <instance-id>/
+│           ├── input/
+│           │   └── instance.json      ← sanitized instance fed to the agent
+│           └── out/
+│               ├── trajectory.jsonl   ← three-layer trace (events, spans, model_turns)
+│               └── prediction.jsonl   ← SWE-bench prediction with model_patch
+└── swebench_pro/                      ← SWE-bench Pro suite outputs
+    ├── README.md
+    ├── instance_<id>.jsonl
+    ├── wheelhouse/
+    │   └── cp311-manylinux/*.whl
+    └── <run-id>/
+        └── <instance-id>/
+            ├── input/
+            │   └── instance.json
+            └── out/
+                ├── trajectory.jsonl
+                └── prediction.jsonl
 ```
 
 Each benchmark suite gets its own subdirectory under `evals/out/`, matching
@@ -41,8 +48,9 @@ bash runs/setup_swebench_docker.sh sympy__sympy-23824
 bash runs/run_swebench_container.sh sympy__sympy-23824
 ```
 
-Outputs land under `swebench/verified/container_runs/<run-id>/<instance-id>/out/`
-or `swebench/pro/container_runs/<run-id>/<instance-id>/out/`.
+Outputs land under `swebench/<run-id>/<instance-id>/out/`.
+SWE-bench Pro outputs use the same layout under
+`swebench_pro/<run-id>/<instance-id>/out/`.
 
 ## Adding a New Benchmark
 

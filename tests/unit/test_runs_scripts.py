@@ -71,35 +71,37 @@ class RunsScriptsTest(unittest.TestCase):
             with self.subTest(script=script.name):
                 self.assertIn("--dotenv .env", text)
 
-    def test_swebench_run_scripts_use_suite_output_root(self) -> None:
+    def test_swebench_run_scripts_use_flat_suite_output_layout(self) -> None:
         expected_paths = {
             "run_swebench_verified.sh": [
-                "evals/out/swebench/verified/instances",
-                "evals/out/swebench/verified/container_runs",
-                "evals/out/swebench/verified/predictions",
+                'INSTANCE_DIR="evals/out/swebench"',
+                'CONTAINER_RUN_ROOT="evals/out/swebench"',
+                'PREDICTION_DIR="evals/out/swebench"',
+                "instance_${instance_id}.jsonl",
             ],
             "run_swebench_pro.sh": [
-                "evals/out/swebench/pro/instances",
-                "evals/out/swebench/pro/container_runs",
-                "evals/out/swebench/pro/predictions",
+                'INSTANCE_DIR="evals/out/swebench_pro"',
+                'CONTAINER_RUN_ROOT="evals/out/swebench_pro"',
+                'PREDICTION_DIR="evals/out/swebench_pro"',
+                'WHEELHOUSE="evals/out/swebench_pro/wheelhouse/cp311-manylinux"',
+                "instance_${instance_id}.jsonl",
+                '--wheelhouse "$WHEELHOUSE"',
             ],
             "run_swebench_container.sh": [
-                "evals/out/swebench/verified/instances",
-                "evals/out/swebench/verified/container_runs",
-                "evals/out/swebench/shared/wheelhouse",
+                "evals/out/swebench/instance_${INSTANCE_ID}.jsonl",
+                "evals/out/swebench/wheelhouse",
+                'CONTAINER_RUN_ROOT="evals/out/swebench"',
             ],
             "setup_swebench_docker.sh": [
-                "evals/out/swebench/verified/instances",
-                "evals/out/swebench/shared/wheelhouse",
+                "evals/out/swebench/instance_${INSTANCE_ID}.jsonl",
+                "evals/out/swebench/wheelhouse",
             ],
             "run_swebench_gold_smoke.sh": [
-                "evals/out/swebench/verified/official",
+                "evals/out/swebench_official",
             ],
             "eval_swebench.sh": [
-                "evals/out/swebench/verified/predictions",
-                "evals/out/swebench/pro/predictions",
-                "evals/out/swebench/pro/instances",
-                "evals/out/swebench/pro/eval_results",
+                "evals/out/swebench_predictions.jsonl",
+                "evals/out/swebench_pro/swebench_pro_predictions.jsonl",
             ],
         }
 
@@ -108,6 +110,26 @@ class RunsScriptsTest(unittest.TestCase):
             with self.subTest(script=script_name):
                 for path in paths:
                     self.assertIn(path, text)
+                self.assertNotIn("evals/out/swebench/verified", text)
+                self.assertNotIn("evals/out/swebench/pro", text)
+                self.assertNotIn("evals/out/swebench/shared", text)
+
+    def test_swebench_output_docs_show_flat_suite_layout(self) -> None:
+        docs = [
+            ROOT / "evals/out/README.md",
+            ROOT / "evals/out/swebench/README.md",
+            ROOT / "evals/out/swebench_pro/README.md",
+        ]
+
+        for path in docs:
+            text = path.read_text(encoding="utf-8")
+            with self.subTest(path=path.relative_to(ROOT)):
+                self.assertIn("instance_<id>.jsonl", text)
+                self.assertIn("wheelhouse/", text)
+                self.assertIn("<run-id>/", text)
+                self.assertNotIn("├── verified/", text)
+                self.assertNotIn("├── pro/", text)
+                self.assertNotIn("└── shared/", text)
 
     def test_verified_swebench_entries_do_not_use_lite_dataset(self) -> None:
         files = [

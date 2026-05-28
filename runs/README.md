@@ -69,19 +69,19 @@ bash runs/run_swebench_pro.sh instance_navidrome__navidrome-8e640bb8580affb7e0ea
 bash runs/run_swebench_pro.sh --all --parallel 4
 ```
 
-Verified outputs land under `evals/out/swebench/verified/`; Pro outputs land
-under `evals/out/swebench/pro/`. Each branch has its own `instances/`,
-`container_runs/`, `predictions/`, `eval_results/`, and `official/`
-directories. Shared wheels live under `evals/out/swebench/shared/wheelhouse/`.
-When records are not cached, the scripts use the `datasets` package from
-`uv sync --extra swebench` to fetch the HuggingFace dataset rows.
+SWE-bench Verified artifacts land under `evals/out/swebench/`; SWE-bench Pro
+artifacts land under the sibling `evals/out/swebench_pro/`. Both roots use the
+same flat layout: `instance_<id>.jsonl` for cached records, `wheelhouse/` for
+wheels, and `<run-id>/<instance-id>/` for per-instance outputs. When records are
+not cached, the scripts use the `datasets` package from `uv sync --extra
+swebench` to fetch the HuggingFace dataset rows.
 
 This wrapper runs or normalizes official SWE-bench / SWE-bench Pro evaluation
 results for an existing predictions file:
 
 ```bash
-bash runs/eval_swebench.sh --run-official --predictions evals/out/swebench/verified/predictions/swebench_predictions.jsonl
-bash runs/eval_swebench.sh --pro --predictions evals/out/swebench/pro/predictions/pro-20260525-120000_predictions.jsonl --results-json evals/out/swebench/pro/eval_results/eval_results.json
+bash runs/eval_swebench.sh --run-official --predictions evals/out/swebench_predictions.jsonl
+bash runs/eval_swebench.sh --pro --predictions evals/out/swebench_pro/swebench_pro_predictions.jsonl --results-json evals/out/swebench_pro_eval/eval_results.json
 ```
 
 See `evals/swebench/README.md` for detailed Docker setup, macOS arm64

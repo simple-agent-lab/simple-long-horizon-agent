@@ -16,9 +16,9 @@ source runs/_python.sh
 DATASET="princeton-nlp/SWE-bench_Verified"
 SPLIT="test"
 DEFAULT_INSTANCE_ID="sympy__sympy-23824"
-INSTANCE_DIR="evals/out/swebench/verified/instances"
-CONTAINER_RUN_ROOT="evals/out/swebench/verified/container_runs"
-PREDICTION_DIR="evals/out/swebench/verified/predictions"
+INSTANCE_DIR="evals/out/swebench"
+CONTAINER_RUN_ROOT="evals/out/swebench"
+PREDICTION_DIR="evals/out/swebench"
 MODEL_NAME="simple-agent-lab-verified"
 MAX_TURNS=20
 RUN_ID="verified-$(date +%Y%m%d-%H%M%S)"
@@ -98,7 +98,7 @@ mkdir -p "$INSTANCE_DIR"
 
 fetch_one_instance() {
   local instance_id="$1"
-  local instance_json="${INSTANCE_DIR}/${instance_id}.jsonl"
+  local instance_json="${INSTANCE_DIR}/instance_${instance_id}.jsonl"
   if [ ! -f "$instance_json" ]; then
     ensure_fetch_python
     echo "Fetching instance ${instance_id} from ${DATASET}..." >&2
@@ -126,8 +126,8 @@ PY
 }
 
 fetch_all_instances() {
-  local all_json="${INSTANCE_DIR}/all-${SPLIT}.jsonl"
-  local ids_file="${INSTANCE_DIR}/all-${SPLIT}.ids"
+  local all_json="${INSTANCE_DIR}/instance_all-${SPLIT}.jsonl"
+  local ids_file="${INSTANCE_DIR}/instance_all-${SPLIT}.ids"
   if [ ! -f "$all_json" ] || [ ! -f "$ids_file" ]; then
     ensure_fetch_python
     echo "Fetching full ${DATASET} ${SPLIT} split..."

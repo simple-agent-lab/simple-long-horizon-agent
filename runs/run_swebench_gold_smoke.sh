@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT="$PWD"
 RUN_ID="validate-gold"
-OFFICIAL_OUTPUT_DIR="$ROOT/evals/out/swebench/verified/official/$RUN_ID"
+OFFICIAL_OUTPUT_DIR="$ROOT/evals/out/swebench_official/$RUN_ID"
 
 source runs/_python.sh
 

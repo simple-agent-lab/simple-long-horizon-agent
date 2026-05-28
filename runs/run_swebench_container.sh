@@ -24,10 +24,10 @@ INSTANCE_ID="${1:?Usage: $0 <instance-id> [max-turns] [run-id]}"
 MAX_TURNS="${2:-20}"
 RUN_ID="${3:-swebench-$(date +%Y%m%d-%H%M%S)}"
 
-INSTANCE_JSONL="evals/out/swebench/verified/instances/${INSTANCE_ID}.jsonl"
+INSTANCE_JSONL="evals/out/swebench/instance_${INSTANCE_ID}.jsonl"
 DATASET="princeton-nlp/SWE-bench_Verified"
-WHEELHOUSE="evals/out/swebench/shared/wheelhouse/cp311-manylinux"
-CONTAINER_RUN_ROOT="evals/out/swebench/verified/container_runs"
+WHEELHOUSE="evals/out/swebench/wheelhouse/cp311-manylinux"
+CONTAINER_RUN_ROOT="evals/out/swebench"
 
 # --- Resolve DOCKER_HOST for Colima if needed ---
 if [ -z "${DOCKER_HOST:-}" ]; then
@@ -66,7 +66,7 @@ if [ ! -d "$WHEELHOUSE" ] || [ -z "$(ls -A "$WHEELHOUSE" 2>/dev/null)" ]; then
   "${PYTHON[@]}" - <<'PY'
 from pathlib import Path
 from evals.swebench.containerized_agent import prepare_wheelhouse
-prepare_wheelhouse(Path("evals/out/swebench/shared/wheelhouse/cp311-manylinux"))
+prepare_wheelhouse(Path("evals/out/swebench/wheelhouse/cp311-manylinux"))
 PY
 fi
 

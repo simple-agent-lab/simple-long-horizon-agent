@@ -38,8 +38,10 @@ DEFAULT_RUNNER_PATH = "/agent/evals/swebench/in_container_runner.py"
 DEFAULT_WORKDIR = "/testbed"
 DEFAULT_PRO_WORKDIR = "/app"
 DEFAULT_PRO_DOCKERHUB_USERNAME = "jefzda"
-DEFAULT_RUN_ROOT = ROOT / "evals/out/swebench/verified/container_runs"
-DEFAULT_WHEELHOUSE = ROOT / "evals/out/swebench/shared/wheelhouse/cp311-manylinux"
+DEFAULT_RUN_ROOT = ROOT / "evals/out/swebench"
+DEFAULT_WHEELHOUSE = ROOT / "evals/out/swebench/wheelhouse/cp311-manylinux"
+DEFAULT_PRO_RUN_ROOT = ROOT / "evals/out/swebench_pro"
+DEFAULT_PRO_WHEELHOUSE = ROOT / "evals/out/swebench_pro/wheelhouse/cp311-manylinux"
 DEFAULT_UV_BINARY = shutil.which("uv") or ""
 UV_CONTAINER_PATH = "/tmp/uv"
 DEFAULT_LOCAL_RUNNER = ROOT / "evals/swebench/in_container_runner.py"
@@ -152,7 +154,6 @@ def is_swebench_pro_instance(
     instance_id = str(instance.get("instance_id") or "")
     return (
         "swe-bench_pro" in dataset
-        or "swebench_pro" in dataset
         or "dockerhub_tag" in instance
         or instance_id.startswith("instance_")
     )
@@ -346,8 +347,12 @@ def run_containerized_agent(args: argparse.Namespace) -> RunPaths:
     import docker.errors
 
     instance = load_instance(args.instance_json, args.instance_id)
+    pro_instance = is_swebench_pro_instance(instance, dataset_name=args.dataset_name)
+    run_root = Path(args.run_root)
+    if pro_instance and str(args.run_root) == str(DEFAULT_RUN_ROOT):
+        run_root = DEFAULT_PRO_RUN_ROOT
     paths = prepare_run_directory(
-        run_root=Path(args.run_root),
+        run_root=run_root,
         instance=instance,
         run_id=args.run_id,
     )
@@ -356,10 +361,12 @@ def run_containerized_agent(args: argparse.Namespace) -> RunPaths:
     if args.provider == "openai":
         load_dotenv(args.dotenv)
     environment = _container_environment(args.provider)
-    wheelhouse = Path(args.wheelhouse).resolve() if args.wheelhouse else None
+    wheelhouse_path = args.wheelhouse
+    if pro_instance and wheelhouse_path == str(DEFAULT_WHEELHOUSE):
+        wheelhouse_path = str(DEFAULT_PRO_WHEELHOUSE)
+    wheelhouse = Path(wheelhouse_path).resolve() if wheelhouse_path else None
     prepare_wheelhouse_for_run(wheelhouse, prepare_all=args.prepare_wheelhouse)
 
-    pro_instance = is_swebench_pro_instance(instance, dataset_name=args.dataset_name)
     image_key = docker_image_for_instance(
         instance,
         dataset_name=args.dataset_name,

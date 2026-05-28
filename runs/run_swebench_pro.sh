@@ -16,9 +16,10 @@ source runs/_python.sh
 DATASET="ScaleAI/SWE-bench_Pro"
 SPLIT="test"
 DEFAULT_INSTANCE_ID="instance_navidrome__navidrome-8e640bb8580affb7e0ea6225c0bbe240186b6b08"
-INSTANCE_DIR="evals/out/swebench/pro/instances"
-CONTAINER_RUN_ROOT="evals/out/swebench/pro/container_runs"
-PREDICTION_DIR="evals/out/swebench/pro/predictions"
+INSTANCE_DIR="evals/out/swebench_pro"
+CONTAINER_RUN_ROOT="evals/out/swebench_pro"
+PREDICTION_DIR="evals/out/swebench_pro"
+WHEELHOUSE="evals/out/swebench_pro/wheelhouse/cp311-manylinux"
 MODEL_NAME="simple-agent-lab-pro"
 MAX_TURNS=40
 RUN_ID="pro-$(date +%Y%m%d-%H%M%S)"
@@ -98,7 +99,7 @@ mkdir -p "$INSTANCE_DIR"
 
 fetch_one_instance() {
   local instance_id="$1"
-  local instance_json="${INSTANCE_DIR}/${instance_id}.jsonl"
+  local instance_json="${INSTANCE_DIR}/instance_${instance_id}.jsonl"
   if [ ! -f "$instance_json" ]; then
     ensure_fetch_python
     echo "Fetching instance ${instance_id} from ${DATASET}..." >&2
@@ -126,8 +127,8 @@ PY
 }
 
 fetch_all_instances() {
-  local all_json="${INSTANCE_DIR}/all-${SPLIT}.jsonl"
-  local ids_file="${INSTANCE_DIR}/all-${SPLIT}.ids"
+  local all_json="${INSTANCE_DIR}/instance_all-${SPLIT}.jsonl"
+  local ids_file="${INSTANCE_DIR}/instance_all-${SPLIT}.ids"
   if [ ! -f "$all_json" ] || [ ! -f "$ids_file" ]; then
     ensure_fetch_python
     echo "Fetching full ${DATASET} ${SPLIT} split..."
@@ -173,6 +174,7 @@ run_container() {
     --max-turns "$MAX_TURNS" \
     --run-id "$RUN_ID" \
     --run-root "$CONTAINER_RUN_ROOT" \
+    --wheelhouse "$WHEELHOUSE" \
     --network-mode host \
     --force \
     "$@"
@@ -211,8 +213,8 @@ if [ "$RUN_ALL" -eq 1 ]; then
 
   echo "Preparing wheelhouse once before launching batch..."
   "${PYTHON[@]}" - <<'PY'
-from evals.swebench.containerized_agent import DEFAULT_WHEELHOUSE, prepare_wheelhouse
-prepare_wheelhouse(DEFAULT_WHEELHOUSE)
+from evals.swebench.containerized_agent import DEFAULT_PRO_WHEELHOUSE, prepare_wheelhouse
+prepare_wheelhouse(DEFAULT_PRO_WHEELHOUSE)
 PY
 
   FAIL=0

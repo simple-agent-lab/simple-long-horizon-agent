@@ -7,22 +7,16 @@ Each run is named `swebench-<timestamp>` or a custom label.
 ```text
 evals/out/swebench/
 ├── README.md                       ← this file
-├── verified/
-│   ├── instances/                  ← cached Verified dataset rows
-│   ├── container_runs/             ← per-instance agent run dirs
-│   ├── predictions/                ← collected prediction JSONL files
-│   ├── eval_results/               ← normalized eval-result outputs
-│   └── official/                   ← official SWE-bench harness outputs
-├── pro/
-│   ├── instances/                  ← cached Pro dataset rows
-│   ├── container_runs/             ← per-instance agent run dirs
-│   ├── predictions/                ← collected prediction JSONL files
-│   ├── eval_results/               ← normalized eval-result outputs
-│   ├── official/                   ← official Pro harness outputs
-│   └── SWE-bench_Pro-os/           ← optional local Pro evaluator checkout
-└── shared/
-    └── wheelhouse/                 ← pre-built wheels for container installs
-        └── cp311-manylinux/*.whl
+├── instance_<id>.jsonl             ← fetched instance records
+├── wheelhouse/                     ← pre-built wheels for container installs
+│   └── cp311-manylinux/*.whl
+└── <run-id>/
+    └── <instance-id>/              (e.g. django__django-12113)
+        ├── input/
+        │   └── instance.json       sanitized instance fed to the agent
+        └── out/
+            ├── trajectory.jsonl    three-layer trace (schema v3)
+            └── prediction.jsonl    {instance_id, model_name_or_path, model_patch}
 ```
 
 ## Generating a Run
@@ -40,8 +34,8 @@ bash runs/run_swebench_pro.sh --all --parallel 4
 
 ```bash
 python evals/swebench/evaluate_predictions.py \
-  --predictions evals/out/swebench/verified/predictions/<run-id>_predictions.jsonl \
-  --jsonl evals/out/swebench/verified/eval_results/<run-id>_eval_results.jsonl
+  --predictions evals/out/swebench/<run-id>/<id>/out/prediction.jsonl \
+  --instance    evals/out/swebench/<run-id>/<id>/input/instance.json
 ```
 
 ## File Sizes
@@ -49,5 +43,3 @@ python evals/swebench/evaluate_predictions.py \
 - `trajectory.jsonl`: 50 KB – 5 MB per instance (contains raw LLM I/O)
 - `prediction.jsonl`: < 10 KB per instance
 - `instance.json`: < 50 KB per instance
-- `pro/SWE-bench_Pro-os/`: external checkout; intentionally empty in git until
-  you clone `scaleapi/SWE-bench_Pro-os` there.
