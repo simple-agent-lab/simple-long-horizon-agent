@@ -15,6 +15,8 @@ from pathlib import Path
 import argparse
 import importlib.util
 import json
+import os
+import stat
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -59,12 +61,38 @@ def load_predictions(path: str | Path) -> list[dict[str, Any]]:
     return [dict(record) for record in read_jsonl(path)]
 
 
+def ensure_docker_host_env() -> None:
+    """Probe known Docker socket locations when DOCKER_HOST is unset.
+
+    The Python `docker` SDK that ships with SWE-bench falls back to
+    `/var/run/docker.sock`, which doesn't exist on Docker Desktop (macOS) or
+    Colima setups. Mirror the launcher script so `--run-official` works in
+    headless / CI sessions without an explicit export.
+    """
+    if os.environ.get("DOCKER_HOST"):
+        return
+    home = Path(os.environ.get("HOME") or "~").expanduser()
+    candidates = (
+        home / ".docker/run/docker.sock",
+        home / ".colima/default/docker.sock",
+    )
+    for sock in candidates:
+        try:
+            if stat.S_ISSOCK(sock.stat().st_mode):
+                os.environ["DOCKER_HOST"] = f"unix://{sock}"
+                return
+        except FileNotFoundError:
+            continue
+
+
 def run_official_harness(args: argparse.Namespace) -> None:
     if importlib.util.find_spec("swebench") is None:
         raise SystemExit(
             "SWE-bench is not installed in this Python environment. "
             "Install it before using --run-official."
         )
+
+    ensure_docker_host_env()
 
     run_dir = official_run_dir(args)
     run_dir.mkdir(parents=True, exist_ok=True)

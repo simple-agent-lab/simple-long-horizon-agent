@@ -3,7 +3,12 @@
 The host starts a SWE-bench instance container with a wheelhouse and run
 directory mounted, copies in the eval runner, installs the `simple-agent-lab`
 wheel, then runs the agent loop inside that container using the normal local
-bash tool against `/testbed`.
+bash tool against `/testbed``.
+
+Live traces: host ``evals/out/.../<run>/out/`` is bind-mounted at
+``/agent/run``; the in-container runner writes
+``/agent/run/out/trajectory.jsonl`` for the host trace viewer. See
+``docs/agent-native/docker-live-trace.md``.
 """
 
 from __future__ import annotations
@@ -313,7 +318,7 @@ def main() -> None:
         ),
     )
     parser.add_argument("--dotenv", default=str(ROOT / ".env"))
-    parser.add_argument("--max-turns", type=int, default=20)
+    parser.add_argument("--max-turns", type=int, default=75)
     parser.add_argument("--run-id", default="containerized-agent")
     parser.add_argument("--run-root", default=str(DEFAULT_RUN_ROOT))
     parser.add_argument("--run-mount", default=DEFAULT_RUN_MOUNT)

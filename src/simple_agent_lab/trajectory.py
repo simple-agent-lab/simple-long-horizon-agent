@@ -12,10 +12,13 @@ spans are computed on demand via ``RunTrace.spans()``.
 
 from __future__ import annotations
 
+import json
+import os
+import threading
+import time
 from dataclasses import asdict, dataclass, is_dataclass
 from pathlib import Path
-from typing import Any, Iterable, Mapping
-import json
+from typing import Any, Callable, Iterable, Mapping
 
 from .protocols import (
     AgentEndEvent,
@@ -32,6 +35,7 @@ from .protocols import (
 )
 
 __all__ = [
+    "IncrementalTraceWriter",
     "ModelTurn",
     "RunTrace",
     "Span",
@@ -44,6 +48,7 @@ __all__ = [
     "trace_record",
     "read_jsonl",
     "write_jsonl",
+    "write_jsonl_atomic",
     "json_safe",
 ]
 
@@ -557,8 +562,37 @@ def span_record(span: Span) -> dict[str, Any]:
 
 
 def read_jsonl(path: str | Path) -> list[dict[str, Any]]:
-    with Path(path).open(encoding="utf-8") as f:
-        return [json.loads(line) for line in f if line.strip()]
+    """Read all JSON records from a file.
+
+    Supports both single-line JSONL and pretty-printed (``indent=2``) records.
+    """
+    text = Path(path).read_text(encoding="utf-8")
+    return _parse_json_records(text)
+
+
+def _parse_json_records(text: str) -> list[dict[str, Any]]:
+    """Extract all top-level JSON objects from *text* using incremental decoding."""
+    records: list[dict[str, Any]] = []
+    decoder = json.JSONDecoder()
+    idx = 0
+    length = len(text)
+    while idx < length:
+        idx = _skip_whitespace(text, idx, length)
+        if idx >= length:
+            break
+        try:
+            obj, end = decoder.raw_decode(text, idx)
+        except json.JSONDecodeError:
+            break
+        records.append(obj)
+        idx = end
+    return records
+
+
+def _skip_whitespace(text: str, idx: int, length: int) -> int:
+    while idx < length and text[idx] in " \t\n\r":
+        idx += 1
+    return idx
 
 
 def write_jsonl(path: str | Path, records: Iterable[Mapping[str, Any]]) -> None:
@@ -566,8 +600,215 @@ def write_jsonl(path: str | Path, records: Iterable[Mapping[str, Any]]) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w", encoding="utf-8") as f:
         for record in records:
-            f.write(json.dumps(json_safe(record), ensure_ascii=False, sort_keys=True))
+            f.write(
+                json.dumps(
+                    json_safe(record),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    indent=2,
+                )
+            )
             f.write("\n")
+
+
+def write_jsonl_atomic(
+    path: str | Path,
+    records: Iterable[Mapping[str, Any]],
+) -> None:
+    """Write ``records`` to ``path`` via tmp-file + rename so readers never see a torn file.
+
+    The same on-disk shape as :func:`write_jsonl` (pretty-printed JSON,
+    one record per top-level object); only the write strategy differs.
+    Used by the incremental writer so a polling viewer reading the path
+    mid-run always observes a complete record.
+    """
+
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.with_name(f"{out.name}.part")
+    try:
+        with tmp.open("w", encoding="utf-8") as f:
+            for record in records:
+                f.write(
+                    json.dumps(
+                        json_safe(record),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        indent=2,
+                    )
+                )
+                f.write("\n")
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except OSError:
+                # fsync is best-effort; e.g. on tmpfs it may not be supported.
+                pass
+        os.replace(tmp, out)
+    except BaseException:
+        # Make sure we never leave a stray ``.part`` file behind on error.
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
+
+# ---------------------------------------------------------------------------
+# Incremental writer
+# ---------------------------------------------------------------------------
+
+
+class IncrementalTraceWriter:
+    """Periodically dump a live ``RunTrace`` to disk so viewers can tail it.
+
+    The trace file is the SAME single-record JSONL the final writer produces:
+    one canonical :func:`trace_record` per file, atomically rewritten as the
+    run progresses.  Anything reading ``trajectory.jsonl`` (the viewer,
+    ``read_jsonl``, ``jq``) keeps working unchanged — they just see a record
+    that grows over time.
+
+    Cadence: a background daemon thread takes a snapshot of ``state`` every
+    ``min_interval_s`` seconds and rewrites the file only when the event log
+    has actually grown.  Chatty agents with hundreds of fast events per
+    second therefore pay at most one rewrite per interval, not one per event.
+
+    Lifecycle::
+
+        writer = IncrementalTraceWriter(
+            path=traces_path,
+            state=state,
+            trace_id=trace_id,
+            producer="suite:swebench",
+            meta_fn=lambda: {...},
+            min_interval_s=2.0,
+        )
+        writer.start()
+        try:
+            ... drive the agent loop ...
+        finally:
+            writer.stop()  # also performs one final flush
+    """
+
+    def __init__(
+        self,
+        *,
+        path: str | Path,
+        state: Any,
+        trace_id: str,
+        producer: str,
+        meta_fn: Callable[[], Mapping[str, Any] | None] | None = None,
+        min_interval_s: float = 2.0,
+        on_error: Callable[[BaseException], None] | None = None,
+    ) -> None:
+        self._path = Path(path)
+        self._state = state
+        self._trace_id = trace_id
+        self._producer = producer
+        self._meta_fn = meta_fn
+        self._min_interval_s = max(0.1, float(min_interval_s))
+        self._on_error = on_error
+
+        self._thread: threading.Thread | None = None
+        self._stop_event = threading.Event()
+        self._write_lock = threading.Lock()
+        # Tracks how many events were on disk last flush; cheap "did anything
+        # change since last write" check so we don't rewrite an unchanged
+        # multi-megabyte JSON record every interval.
+        self._last_event_count: int = -1
+
+    @property
+    def path(self) -> Path:
+        return self._path
+
+    def start(self) -> None:
+        """Spawn the background flush thread (no-op if already running)."""
+
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self._stop_event.clear()
+        thread = threading.Thread(
+            target=self._run,
+            name="incremental-trace-writer",
+            daemon=True,
+        )
+        self._thread = thread
+        thread.start()
+
+    def stop(self, *, final_flush: bool = True) -> None:
+        """Signal the background thread to exit and (optionally) flush once more."""
+
+        self._stop_event.set()
+        thread = self._thread
+        if thread is not None:
+            thread.join(timeout=self._min_interval_s * 2 + 1.0)
+        self._thread = None
+        if final_flush:
+            try:
+                self.flush_now(force=True)
+            except Exception as exc:  # pragma: no cover - defensive
+                self._report_error(exc)
+
+    def __enter__(self) -> "IncrementalTraceWriter":
+        self.start()
+        return self
+
+    def __exit__(self, *exc_info: Any) -> None:
+        self.stop()
+
+    def flush_now(self, *, force: bool = False) -> bool:
+        """Serialize the current ``state`` and atomically rewrite the file.
+
+        Returns ``True`` when a write actually happened (state grew, or
+        ``force`` was passed).  ``False`` when there was nothing new to
+        write.  Thread-safe via an internal lock so the background thread
+        and an explicit ``flush_now`` call from the agent thread can't
+        clobber each other.
+        """
+
+        with self._write_lock:
+            events = list(getattr(self._state, "events", []) or [])
+            count = len(events)
+            if not force and count == self._last_event_count:
+                return False
+
+            meta: Mapping[str, Any] | None
+            try:
+                meta = self._meta_fn() if self._meta_fn is not None else None
+            except Exception as exc:  # pragma: no cover - defensive
+                self._report_error(exc)
+                meta = None
+
+            trace = run_trace_from_state(
+                state=self._state,
+                trace_id=self._trace_id,
+                producer=self._producer,
+                meta=meta,
+            )
+            try:
+                write_jsonl_atomic(self._path, [trace_record(trace)])
+            except Exception as exc:
+                self._report_error(exc)
+                return False
+            self._last_event_count = count
+            return True
+
+    def _run(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                self.flush_now()
+            except Exception as exc:  # pragma: no cover - defensive
+                self._report_error(exc)
+            if self._stop_event.wait(self._min_interval_s):
+                return
+
+    def _report_error(self, exc: BaseException) -> None:
+        if self._on_error is None:
+            return
+        try:
+            self._on_error(exc)
+        except Exception:  # pragma: no cover - defensive
+            pass
 
 
 def json_safe(value: Any) -> Any:

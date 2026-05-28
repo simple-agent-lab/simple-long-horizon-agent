@@ -126,7 +126,9 @@ def run(
             policy=policy,
         )
         visible = list(context.messages)
-        llm_payload = messages_to_llm_messages(visible, with_header=True)
+        # Match make_llm_agent / provider wire shape (no routing headers).
+        # Routing metadata stays on model_request.visible[] for trace UI.
+        llm_payload = messages_to_llm_messages(visible, with_header=False)
         state.data["last_llm_payload"] = llm_payload
 
         # `state.data` is the open experiment bag (dict[str, Any]); pin

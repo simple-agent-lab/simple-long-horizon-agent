@@ -31,6 +31,7 @@ from simple_agent_lab.trajectory import (
 )
 from simple_agent_lab.tools.bash import (
     MAX_BASH_TIMEOUT_SECONDS,
+    NON_INTERACTIVE_BASH_ENV,
     _resolve_timeout,
     bash_execution_to_tool_result,
     detect_blocked_sleep_pattern,
@@ -70,6 +71,21 @@ class BashToolTest(unittest.TestCase):
         self.assertEqual(tool.parameters["required"], ["command", "description"])
         self.assertFalse(tool.parameters["additionalProperties"])
 
+    def test_bash_tool_defaults_to_parallel_execution(self) -> None:
+        tool = make_bash_tool(cwd=ROOT)
+
+        self.assertEqual(tool.execution_mode, "parallel")
+
+    def test_bash_tool_can_be_forced_sequential(self) -> None:
+        tool = make_bash_tool(cwd=ROOT, execution_mode="sequential")
+
+        self.assertEqual(tool.execution_mode, "sequential")
+
+    def test_bash_agent_uses_parallel_bash_tool(self) -> None:
+        agent = make_bash_agent(provider=FAKE_PROVIDER, cwd=ROOT)
+
+        self.assertEqual(agent.tools[0].execution_mode, "parallel")
+
     def test_grep_no_match_is_observation_not_tool_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             execution = run_bash(
@@ -86,6 +102,53 @@ class BashToolTest(unittest.TestCase):
         )
         self.assertIn("No matches found", tool_result_text(result))
         self.assertIn("exit_code: 1", tool_result_text(result))
+
+    def test_injects_non_interactive_env_defaults(self) -> None:
+        import os
+        from unittest import mock
+
+        # Clear any pre-existing values so the test exercises the injection path
+        # regardless of the user's shell setup.
+        scrubbed = {
+            key: "" for key in ("PAGER", "MANPAGER", "TQDM_DISABLE", "PIP_PROGRESS_BAR")
+        }
+        with mock.patch.dict(os.environ, scrubbed, clear=False):
+            for key in scrubbed:
+                os.environ.pop(key, None)
+            execution = run_bash(
+                'printf "%s,%s,%s\\n" "$PAGER" "$TQDM_DISABLE" "$PIP_PROGRESS_BAR"',
+                cwd=ROOT,
+                timeout_seconds=2,
+            )
+        self.assertEqual(execution.exit_code, 0)
+        self.assertEqual(execution.raw_stdout, "cat,1,off")
+
+    def test_caller_env_overrides_non_interactive_defaults(self) -> None:
+        import os
+        from unittest import mock
+
+        # If the caller already exported PAGER, our defaults must not clobber it.
+        with mock.patch.dict(os.environ, {"PAGER": "less"}, clear=False):
+            execution = run_bash('printf "%s" "$PAGER"', cwd=ROOT, timeout_seconds=2)
+        self.assertEqual(execution.raw_stdout, "less")
+
+    def test_truncation_note_suggests_narrowing_strategies(self) -> None:
+        # Force truncation by emitting more than the default budget.
+        big = "x" * 5000
+        with tempfile.TemporaryDirectory() as tmp:
+            execution = run_bash(f"printf '{big}'", cwd=tmp, timeout_seconds=2)
+        self.assertTrue(execution.stdout_truncated)
+        observation = bash_execution_to_tool_result(execution)
+        text = tool_result_text(observation)
+        self.assertIn("Re-run with a narrower view", text)
+        self.assertIn("sed -n", text)
+
+    def test_non_interactive_env_constant_lists_expected_keys(self) -> None:
+        # Sanity guard so the public constant keeps documenting the contract.
+        self.assertEqual(
+            set(NON_INTERACTIVE_BASH_ENV),
+            {"PAGER", "MANPAGER", "LESS", "PIP_PROGRESS_BAR", "TQDM_DISABLE"},
+        )
 
     def test_blocks_long_leading_sleep_without_waiting(self) -> None:
         self.assertEqual(detect_blocked_sleep_pattern("sleep 2"), "standalone sleep 2")

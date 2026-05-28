@@ -113,14 +113,13 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
         self.assertIn("You are running inside the SWE-bench container.", task)
         self.assertIn("The bash tool runs locally in /testbed.", task)
         self.assertIn("Fix gamma matrices.", task)
-        self.assertIn("Recommended workflow:", task)
-        self.assertIn("Read relevant files before editing.", task)
-        self.assertIn("Create or run a small reproduction", task)
-        self.assertIn(
-            "Do not modify tests, reproduction files, or configuration files unless",
-            task,
-        )
-        self.assertIn("do not include a patch", task)
+        self.assertIn("## Workflow", task)
+        self.assertIn("Locate the relevant code", task)
+        self.assertIn("Reproduce the reported behavior", task)
+        self.assertIn("## What to modify", task)
+        self.assertIn("DO NOT MODIFY: tests", task)
+        self.assertIn("Stop as soon as the fix is in place and verified.", task)
+        self.assertIn("Do NOT paste the patch", task)
         self.assertNotIn("docker exec", task)
 
     def test_runner_does_not_thread_request_extra_through_agent_preset(self) -> None:
@@ -130,10 +129,13 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
 
     def test_system_prompt_sets_swebench_repair_operating_rules(self) -> None:
         self.assertIn("general and consistent with the codebase", AGENT_SYSTEM_PROMPT)
-        self.assertIn("Each bash tool call runs in a fresh shell", AGENT_SYSTEM_PROMPT)
-        self.assertIn("Use non-interactive command flags", AGENT_SYSTEM_PROMPT)
+        self.assertIn("Each bash call runs in a fresh shell", AGENT_SYSTEM_PROMPT)
+        self.assertIn("non-interactive flags", AGENT_SYSTEM_PROMPT)
         self.assertIn("Keep command output focused", AGENT_SYSTEM_PROMPT)
-        self.assertNotIn("parallel bash tool calls", AGENT_SYSTEM_PROMPT)
+        self.assertIn(
+            "Independent read-only bash calls may run in parallel",
+            AGENT_SYSTEM_PROMPT,
+        )
 
     def test_copy_file_to_container_writes_runner_archive(self) -> None:
         class FakeContainer:
@@ -248,6 +250,15 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
         self.assertEqual(provider.model, "gpt-test-1")
         self.assertEqual(provider.base_url, "https://example.invalid/v1")
         self.assertEqual(provider.api_key_env, OPENAI_AUTH_ENV)
+
+    def test_openai_provider_from_env_defaults_temperature_to_zero(self) -> None:
+        with mock.patch.dict(
+            "os.environ",
+            {OPENAI_MODEL_ENV: "gpt-test-1", OPENAI_AUTH_ENV: "token"},
+            clear=True,
+        ):
+            provider = build_openai_provider_from_env("openai-chat")
+        self.assertEqual(provider.default_temperature, 0.0)
 
     def test_prepare_run_directory_writes_sanitized_instance_input(self) -> None:
         instance = {

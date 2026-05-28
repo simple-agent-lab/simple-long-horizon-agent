@@ -10,7 +10,6 @@ The style follows nanochat's `runs/` convention: a script should be readable, co
 bash runs/run_ci.sh
 bash runs/run_docs_lint.sh
 bash runs/run_bash_agent_demo.sh
-bash runs/run_swebench_smoke.sh
 ```
 
 `runs/run_ci.sh` mirrors the GitHub Actions workflow at
@@ -37,11 +36,13 @@ This runs a deterministic mini-SWE-style bash-use agent demo:
 bash runs/run_bash_agent_demo.sh
 ```
 
-This verifies the SWE-bench adapter's local unit-smoke path without installing
-SWE-bench or running Docker:
+To verify SWE-bench adapter tests specifically (already included in `run_ci.sh`):
 
 ```bash
-bash runs/run_swebench_smoke.sh
+uv run python -m unittest \
+  tests.unit.test_swebench_patch_extract \
+  tests.unit.test_swebench_containerized_agent \
+  tests.unit.test_swebench_evaluate_predictions
 ```
 
 ## SWE-bench (Containerized)

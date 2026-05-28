@@ -12,7 +12,10 @@ their collector beside their scorer when that makes the suite easier to read.
 The first example is:
 
 ```bash
-bash runs/run_swebench_smoke.sh
+uv run python -m unittest \
+  tests.unit.test_swebench_patch_extract \
+  tests.unit.test_swebench_containerized_agent \
+  tests.unit.test_swebench_evaluate_predictions
 ```
 
 Generated files under `evals/out/` are local artifacts and are ignored by git.

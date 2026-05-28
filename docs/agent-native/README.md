@@ -106,6 +106,7 @@ Stop and collect more evidence before changing behavior when:
 | Tool execution or bash demo | `src/simple_agent_lab/tools/`, `src/simple_agent_lab/agents/bash/` (preset agent), `tests/unit/test_bash_agent.py` | Tool result semantics and deterministic demo checks. |
 | Trace printing or OpenAI Chat JSONL export | ADR 0013, ADR 0015, `src/simple_agent_lab/trace.py`, `tests/unit/test_openai_training.py` | Trace rendering and provider-shaped transcript export. |
 | Trajectories, spans, or training data | ADR 0008, ADR 0011, ADR 0015, `src/simple_agent_lab/trajectory.py`, `evals/README.md`, `evals/swebench/README.md` | Three-layer trace: Event → Span → Training. |
+| Docker incremental trace / host viewer | `docs/agent-native/docker-live-trace.md`, `src/simple_agent_lab/live_trace.py`, `scripts/run_live_trace_demo.py` | Bind-mount contract and reusable live export API. |
 | External architecture borrowing | `docs/reference-architectures/README.md` (local notes workspace, gitignored) plus your own reference note | Capture rationale locally; record durable commitments in an ADR. |
 | Agent-native doc maintenance | This loading map, `docs/agent-native/operating-rules.md` | Canonical routing and stop conditions. |
 
