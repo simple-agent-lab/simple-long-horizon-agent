@@ -42,6 +42,7 @@
 
       --pane-left-w:  300px;
       --pane-right-w: 360px;
+      --sidebar-w:    240px;
       --resize-hit:   5px;
     }
 
@@ -377,6 +378,11 @@
       outline-offset: 1px;
     }
     .chrome-icon-btn[hidden] { display: none; }
+    .chrome-icon-btn.active {
+      color: var(--lapis);
+      background: rgba(124, 163, 255, 0.1);
+      border-color: rgba(124, 163, 255, 0.2);
+    }
 
     .info-bar-panel {
       margin: 0 0 6px 0;
@@ -401,7 +407,7 @@
     header.bar[data-task-expanded="0"] .info-bar-panel { display: none; }
 
     .top-chrome .meta-strip-compact { display: none; }
-    .top-chrome #strip-toggle { display: none; }
+    
 
     .meta-strip-wrap {
       margin: 0 0 6px 0;
@@ -442,7 +448,7 @@
     .meta-strip-compact .cseg.warn .ck::before {
       content: "◇ "; color: var(--solar);
     }
-    #strip-toggle[aria-expanded="true"] { color: var(--phosphor); }
+    
     .stat {
       flex: 1 1 0;
       min-width: 110px;
@@ -529,6 +535,8 @@
     main.grid.workspace {
       display: grid;
       grid-template-columns:
+        var(--sidebar-w)
+        var(--resize-hit)
         minmax(0, var(--pane-left-w))
         var(--resize-hit)
         minmax(0, 1fr)
@@ -539,6 +547,201 @@
       min-height: 0;
       overflow: hidden;
     }
+    main.grid.workspace[data-sidebar-hidden="1"] {
+      grid-template-columns:
+        0px 0px
+        minmax(0, var(--pane-left-w))
+        var(--resize-hit)
+        minmax(0, 1fr)
+        var(--resize-hit)
+        minmax(0, var(--pane-right-w));
+    }
+    main.grid.workspace[data-sidebar-hidden="1"] .exp-sidebar,
+    main.grid.workspace[data-sidebar-hidden="1"] #resize-sidebar {
+      visibility: hidden;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    /* ---------- experiment sidebar ---------- */
+    .exp-sidebar {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      min-height: 0;
+      overflow: hidden;
+      background: var(--ink-0);
+      border-right: 1px solid var(--ink-3);
+    }
+    .exp-sidebar-head {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 10px 6px;
+      flex-shrink: 0;
+    }
+    .exp-sidebar-head .exp-title {
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--paper-dim);
+      flex: 1;
+      min-width: 0;
+    }
+    .exp-sidebar-toggle {
+      width: 22px;
+      height: 22px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      color: var(--paper-dim);
+      font-size: 14px;
+      flex-shrink: 0;
+      transition: color 100ms, background 100ms;
+    }
+    .exp-sidebar-toggle:hover {
+      color: var(--paper);
+      background: var(--ink-3);
+    }
+    .exp-filter {
+      padding: 0 8px 6px;
+      flex-shrink: 0;
+    }
+    .exp-filter input {
+      width: 100%;
+      height: 26px;
+      padding: 0 8px;
+      border: 1px solid var(--ink-3);
+      border-radius: 4px;
+      background: var(--ink-1);
+      color: var(--paper);
+      font: 11px/1 "IBM Plex Sans", system-ui, sans-serif;
+      outline: none;
+      transition: border-color 100ms;
+    }
+    .exp-filter input::placeholder { color: var(--ash); }
+    .exp-filter input:focus { border-color: var(--lapis); }
+    .exp-list {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      scrollbar-width: thin;
+      scrollbar-color: var(--ink-3) transparent;
+    }
+    .exp-list::-webkit-scrollbar { width: 4px; }
+    .exp-list::-webkit-scrollbar-thumb { background: var(--ink-3); border-radius: 2px; }
+    .exp-group-hdr {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      height: 28px;
+      cursor: pointer;
+      user-select: none;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--paper-mid);
+      transition: color 100ms, background 100ms;
+    }
+    .exp-group-hdr:hover {
+      color: var(--paper);
+      background: var(--ink-2);
+    }
+    .exp-group-hdr .exp-caret {
+      display: inline-block;
+      width: 12px;
+      text-align: center;
+      font-size: 9px;
+      color: var(--ash);
+      flex-shrink: 0;
+      transition: transform 120ms ease;
+    }
+    .exp-group-hdr[data-collapsed="1"] .exp-caret {
+      transform: rotate(-90deg);
+    }
+    .exp-group-hdr .exp-group-name {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .exp-group-hdr .exp-group-count {
+      font-size: 10px;
+      color: var(--ash);
+      flex-shrink: 0;
+    }
+    .exp-group-hdr .exp-group-time {
+      font-size: 10px;
+      color: var(--ash);
+      flex-shrink: 0;
+      font-family: "JetBrains Mono", monospace;
+    }
+    .exp-group-items[data-collapsed="1"] { display: none; }
+    .exp-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px 3px 26px;
+      height: 30px;
+      cursor: pointer;
+      user-select: none;
+      font-size: 11px;
+      color: var(--paper-dim);
+      transition: color 80ms, background 80ms;
+    }
+    .exp-item:hover {
+      color: var(--paper);
+      background: var(--ink-2);
+    }
+    .exp-item[data-active="1"] {
+      color: var(--paper);
+      background: rgba(124, 163, 255, 0.10);
+      border-left: 2px solid var(--lapis);
+      padding-left: 24px;
+    }
+    .exp-item .exp-item-name {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .exp-item .exp-kind-badge {
+      font-size: 9px;
+      font-family: "JetBrains Mono", monospace;
+      padding: 1px 4px;
+      border-radius: 3px;
+      background: var(--ink-3);
+      color: var(--paper-dim);
+      flex-shrink: 0;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .exp-item .exp-item-time {
+      font-size: 10px;
+      color: var(--ash);
+      flex-shrink: 0;
+      font-family: "JetBrains Mono", monospace;
+    }
+    .exp-item[data-fresh="1"]::before {
+      content: "";
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--lapis);
+      flex-shrink: 0;
+      margin-left: -11px;
+    }
+    .exp-empty {
+      padding: 20px 12px;
+      text-align: center;
+      font-size: 11px;
+      color: var(--ash);
+    }
+
+
     .resize-handle {
       position: relative;
       z-index: 2;
@@ -1259,7 +1462,7 @@
     }
     .inspector dt {
       font-family: "JetBrains Mono", monospace;
-      font-size: 9.5px;
+      font-size: 10.5px;
       letter-spacing: 0.08em;
       text-transform: uppercase;
       color: var(--paper-dim);
@@ -1395,8 +1598,8 @@
       border-top-width: 2px;
       border-radius: 4px;
       background: var(--ink-2);
-      font-size: 12px;
-      line-height: 1.45;
+      font-size: 13px;
+      line-height: 1.5;
       white-space: normal;
       word-break: break-word;
     }
@@ -1416,13 +1619,13 @@
     .content-block.b-call {
       border-top-color: var(--lapis);
       font-family: "JetBrains Mono", monospace;
-      font-size: 11px;
+      font-size: 12px;
       color: var(--paper);
     }
     .content-block.b-result {
       border-top-color: var(--phosphor);
       font-family: "JetBrains Mono", monospace;
-      font-size: 11px;
+      font-size: 12px;
       color: var(--paper);
     }
     .content-block.b-result.is-error {
@@ -1432,7 +1635,7 @@
     }
     .content-block .blk-head {
       font-family: "JetBrains Mono", monospace;
-      font-size: 9.5px;
+      font-size: 10.5px;
       letter-spacing: 0.08em;
       text-transform: uppercase;
       color: var(--paper-dim);
@@ -2297,7 +2500,6 @@
 
     /* ---------- responsive (narrow / split viewports) ---------- */
     @media (max-width: 1100px) {
-      .top-chrome #strip-toggle { display: inline-flex; }
       .top-chrome .meta-strip-compact:not([hidden]) {
         display: flex;
         flex: 0 1 auto;
@@ -2332,12 +2534,15 @@
       }
       .crumb-track { height: 24px; padding: 0 8px; font-size: 11px; }
       .loader .btn { padding: 3px 6px; font-size: 11px; }
-      main.grid.workspace {
+      main.grid.workspace,
+      main.grid.workspace[data-sidebar-hidden="1"] {
         grid-template-columns:
+          0px 0px
           minmax(0, 1fr)
           var(--resize-hit)
           minmax(0, min(var(--pane-right-w), 42vw));
       }
+      .exp-sidebar, #resize-sidebar,
       aside.left,
       #resize-left { display: none; }
       .center-head-toolbar { gap: 6px; }
@@ -2350,6 +2555,8 @@
     <!-- ============ HEADER ============ -->
     <header class="bar" id="header-bar" data-task-expanded="0">
       <div class="top-chrome">
+        <button type="button" class="chrome-icon-btn active" id="sidebar-toggle"
+                title="Toggle experiment sidebar (⌘B)">☰</button>
         <span class="brand-mark" title="Observatory trace viewer">obs</span>
         <div class="info-bar-wrap" id="info-bar-wrap">
           <div class="crumb-anchor" id="crumb-anchor" data-disabled="1">
@@ -2383,9 +2590,6 @@
           </label>
           <button class="btn" id="sample-btn">Sample</button>
         </div>
-        <button type="button" class="chrome-icon-btn" id="strip-toggle"
-                aria-controls="stat-strip" aria-expanded="false"
-                title="Stats detail">≡</button>
         <button type="button" class="chrome-icon-btn" id="info-bar-toggle"
                 aria-controls="info-bar-panel" aria-expanded="false"
                 title="Task detail" hidden>⌄</button>
@@ -2479,7 +2683,24 @@
     <div class="replay-toast" id="replay-toast" role="status" aria-live="polite" aria-hidden="true"></div>
 
     <!-- ============ MAIN ============ -->
-    <main class="grid workspace">
+    <main class="grid workspace" data-sidebar-hidden="0">
+      <!-- ===== EXPERIMENT SIDEBAR ===== -->
+      <aside class="exp-sidebar" id="exp-sidebar">
+        <div class="exp-sidebar-head">
+          <span class="exp-title">Experiments</span>
+          <button type="button" class="exp-sidebar-toggle" id="exp-sidebar-hide"
+                  title="Hide sidebar (⌘B)" aria-label="Hide experiment sidebar">◀</button>
+        </div>
+        <div class="exp-filter">
+          <input type="search" id="exp-filter-q" placeholder="filter experiments…" autocomplete="off" />
+        </div>
+        <div class="exp-list" id="exp-list"></div>
+      </aside>
+
+      <button type="button" class="resize-handle" id="resize-sidebar" data-resize="sidebar"
+              role="separator" aria-orientation="vertical" aria-label="Resize experiment sidebar"
+              aria-valuemin="180" aria-valuenow="240" aria-valuemax="360" tabindex="0"></button>
+
       <!-- ===== LEFT: span tree ===== -->
       <aside class="left">
         <div class="pane">
@@ -5228,12 +5449,19 @@
   const MIN_CENTER_W = 300;
   const PANE_HANDLES_W = 10;
 
+  var _expSidebarReady = false;
+  function sidebarReserved() {
+    if (!_expSidebarReady || !ExpSidebar.visible) return 0;
+    const v = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--sidebar-w"), 10);
+    return (Number.isFinite(v) ? v : 240) + 5;
+  }
+
   function fitPaneWidths(left, right) {
     let lw = clampPaneWidth("left", left);
     let rw = clampPaneWidth("right", right);
     const maxSides = Math.max(
       PANE_LIMITS.left.min + PANE_LIMITS.right.min,
-      window.innerWidth - MIN_CENTER_W - PANE_HANDLES_W,
+      window.innerWidth - MIN_CENTER_W - PANE_HANDLES_W - sidebarReserved(),
     );
     if (lw + rw > maxSides) {
       let excess = lw + rw - maxSides;
@@ -5352,6 +5580,7 @@
     }
 
     $$(".resize-handle").forEach((handle) => {
+      if (handle.dataset.resize === "sidebar") return;
       handle.addEventListener("pointerdown", (e) => startDrag(handle, e));
       handle.addEventListener("pointermove", onPointerMove);
       handle.addEventListener("pointerup", stopDrag);
@@ -5391,9 +5620,6 @@
     // Stat strip — default to collapsed (high info density)
     const stripCollapsed = p.stripCollapsed !== false;
     $("#stat-strip-wrap").dataset.collapsed = stripCollapsed ? "1" : "0";
-    const stripBtn = $("#strip-toggle");
-    stripBtn.setAttribute("aria-expanded", stripCollapsed ? "false" : "true");
-    stripBtn.title = stripCollapsed ? "Stats detail" : "Hide stats detail";
     // Waterfall — default to expanded
     const wfCollapsed = p.wfCollapsed === true;
     $("#waterfall-wrap").dataset.collapsed = wfCollapsed ? "1" : "0";
@@ -5411,6 +5637,225 @@
   }
   initPaneResize();
   applyPrefs();
+
+  /* ============================================================
+   * Experiment sidebar
+   * ============================================================ */
+  const ExpSidebar = {
+    visible: true,
+    collapsedGroups: new Set(),
+    filter: "",
+    prevTracePaths: new Set(),
+  };
+  _expSidebarReady = true;
+
+  const SIDEBAR_LIMITS = { min: 180, max: 360, default: 240 };
+
+  function setSidebarVisible(show, { persist = false } = {}) {
+    ExpSidebar.visible = show;
+    const grid = $("main.grid.workspace");
+    grid.dataset.sidebarHidden = show ? "0" : "1";
+    const toggle = $("#sidebar-toggle");
+    if (toggle) toggle.classList.toggle("active", show);
+    if (persist) {
+      const p = loadPrefs();
+      p.sidebarVisible = show;
+      savePrefs(p);
+    }
+    const cur = readPaneWidths();
+    setPaneWidths(cur.left, cur.right, { persist: false });
+  }
+
+  function setSidebarWidth(px, { persist = false } = {}) {
+    const w = Math.max(SIDEBAR_LIMITS.min, Math.min(SIDEBAR_LIMITS.max, Math.round(px)));
+    document.documentElement.style.setProperty("--sidebar-w", w + "px");
+    const h = $("#resize-sidebar");
+    if (h) h.setAttribute("aria-valuenow", String(w));
+    if (persist) {
+      const p = loadPrefs();
+      p.sidebarWidth = w;
+      savePrefs(p);
+    }
+    return w;
+  }
+
+  function readSidebarWidth() {
+    const v = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--sidebar-w"), 10);
+    return Number.isFinite(v) ? v : SIDEBAR_LIMITS.default;
+  }
+
+  function initSidebarResize() {
+    let drag = null;
+    const handle = $("#resize-sidebar");
+    if (!handle) return;
+
+    function stop() {
+      if (!drag) return;
+      handle.classList.remove("dragging");
+      document.body.classList.remove("resizing-panes");
+      try { handle.releasePointerCapture(drag.pid); } catch (_) {}
+      setSidebarWidth(drag.last, { persist: true });
+      drag = null;
+    }
+    function move(e) {
+      if (!drag || e.pointerId !== drag.pid) return;
+      e.preventDefault();
+      const w = drag.startW + (e.clientX - drag.startX);
+      drag.last = setSidebarWidth(w, { persist: false });
+    }
+    function start(e) {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      drag = {
+        pid: e.pointerId,
+        startX: e.clientX,
+        startW: readSidebarWidth(),
+        last: readSidebarWidth(),
+      };
+      handle.classList.add("dragging");
+      document.body.classList.add("resizing-panes");
+      handle.setPointerCapture(e.pointerId);
+    }
+    handle.addEventListener("pointerdown", start);
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", stop);
+    handle.addEventListener("pointercancel", stop);
+    handle.addEventListener("lostpointercapture", stop);
+    handle.addEventListener("dblclick", () => {
+      setSidebarWidth(SIDEBAR_LIMITS.default, { persist: true });
+    });
+  }
+  initSidebarResize();
+
+  function renderExpSidebar() {
+    const list = $("#exp-list");
+    if (!list) return;
+    const traces = Picker.traces;
+    if (!traces.length) {
+      list.innerHTML = '<div class="exp-empty">No traces found</div>';
+      return;
+    }
+
+    const q = ExpSidebar.filter.toLowerCase();
+    const onlyTrajectories = traces.filter(t => t.kind === "trajectory");
+    const filtered = q
+      ? onlyTrajectories.filter(t => {
+          const haystack = [t.group, t.name, t.instance_id, t.rel_path]
+            .filter(Boolean).join(" ").toLowerCase();
+          return haystack.includes(q);
+        })
+      : onlyTrajectories;
+
+    if (!filtered.length) {
+      list.innerHTML = '<div class="exp-empty">No matching experiments</div>';
+      return;
+    }
+
+    const groups = new Map();
+    for (const t of filtered) {
+      const g = t.group || "(ungrouped)";
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g).push(t);
+    }
+
+    const parts = [];
+    for (const [groupName, items] of groups) {
+      const collapsed = ExpSidebar.collapsedGroups.has(groupName);
+      const newest = items[0];
+      const timeStr = newest.mtime_iso ? fmtAgo(newest.mtime_iso) : "";
+
+      parts.push(
+        `<div class="exp-group-hdr" data-group="${escapeAttr(groupName)}" data-collapsed="${collapsed ? "1" : "0"}">` +
+          `<span class="exp-caret">▾</span>` +
+          `<span class="exp-group-name" title="${escapeAttr(groupName)}">${escapeHtml(groupName)}</span>` +
+          `<span class="exp-group-count">${items.length}</span>` +
+          `<span class="exp-group-time">${escapeHtml(timeStr)}</span>` +
+        `</div>`
+      );
+
+      parts.push(`<div class="exp-group-items" data-collapsed="${collapsed ? "1" : "0"}">`);
+      for (const t of items) {
+        const active = t.path === Picker.loadedPath;
+        const fresh = Picker.freshPaths.has(t.path) ? "1" : "0";
+        const label = t.instance_id || t.name || t.trace_id || t.rel_path || "trace";
+        const kindBadge = t.kind === "trajectory" ? "" :
+          `<span class="exp-kind-badge">${escapeHtml(t.kind || "?")}</span>`;
+        const timeStr2 = t.mtime_iso ? fmtAgo(t.mtime_iso) : "";
+        parts.push(
+          `<div class="exp-item" data-path="${escapeAttr(t.path)}" data-active="${active ? "1" : "0"}" data-fresh="${fresh}">` +
+            `<span class="exp-item-name" title="${escapeAttr(t.rel_path || label)}">${escapeHtml(label)}</span>` +
+            kindBadge +
+            `<span class="exp-item-time">${escapeHtml(timeStr2)}</span>` +
+          `</div>`
+        );
+      }
+      parts.push(`</div>`);
+    }
+
+    list.innerHTML = parts.join("");
+  }
+
+  // Click handlers for sidebar
+  $("#exp-list").addEventListener("click", (e) => {
+    const item = e.target.closest(".exp-item");
+    if (item) {
+      const path = item.dataset.path;
+      const entry = Picker.traces.find(t => t.path === path);
+      if (entry) loadTraceFromEntry(entry);
+      return;
+    }
+    const hdr = e.target.closest(".exp-group-hdr");
+    if (hdr) {
+      const group = hdr.dataset.group;
+      const wasCollapsed = hdr.dataset.collapsed === "1";
+      hdr.dataset.collapsed = wasCollapsed ? "0" : "1";
+      const items = hdr.nextElementSibling;
+      if (items) items.dataset.collapsed = wasCollapsed ? "0" : "1";
+      if (wasCollapsed) {
+        ExpSidebar.collapsedGroups.delete(group);
+      } else {
+        ExpSidebar.collapsedGroups.add(group);
+      }
+    }
+  });
+
+  // Filter input
+  $("#exp-filter-q").addEventListener("input", (e) => {
+    ExpSidebar.filter = e.target.value;
+    renderExpSidebar();
+  });
+
+  // Hide button
+  $("#exp-sidebar-hide").addEventListener("click", () => {
+    setSidebarVisible(false, { persist: true });
+  });
+
+  // Sidebar toggle in header (☰ button)
+  $("#sidebar-toggle").addEventListener("click", () => {
+    setSidebarVisible(!ExpSidebar.visible, { persist: true });
+  });
+
+  // Keyboard shortcut: Cmd+B / Ctrl+B
+  document.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "b" && !e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      setSidebarVisible(!ExpSidebar.visible, { persist: true });
+    }
+  });
+
+  // Apply saved sidebar prefs
+  (function applySidebarPrefs() {
+    const p = loadPrefs();
+    const w = p.sidebarWidth;
+    if (Number.isFinite(w) && w > 0) {
+      setSidebarWidth(w, { persist: false });
+    }
+    const vis = p.sidebarVisible;
+    if (vis === false) {
+      setSidebarVisible(false, { persist: false });
+    }
+  })();
+
   (function initCrumbPopover() {
     const anchor = $("#crumb-anchor");
     if (!anchor) return;
@@ -5430,17 +5875,7 @@
     const { left, right } = readPaneWidths();
     setPaneWidths(left, right, { persist: false });
   });
-  $("#strip-toggle").addEventListener("click", () => {
-    const wrap = $("#stat-strip-wrap");
-    const newCollapsed = wrap.dataset.collapsed !== "1";
-    wrap.dataset.collapsed = newCollapsed ? "1" : "0";
-    const stripBtn = $("#strip-toggle");
-    stripBtn.setAttribute("aria-expanded", newCollapsed ? "false" : "true");
-    stripBtn.title = newCollapsed ? "Stats detail" : "Hide stats detail";
-    const p = loadPrefs();
-    p.stripCollapsed = newCollapsed;
-    savePrefs(p);
-  });
+  
   $("#wf-toggle").addEventListener("click", () => {
     const p = loadPrefs();
     const wrap = $("#waterfall-wrap");
@@ -5688,7 +6123,7 @@
       return false;
     }
     Picker.info = info;
-    $("#traces-btn").hidden = false;
+    $("#traces-btn").hidden = true;
     $("#tp-scan-dir").textContent = info.scan_dir;
     await refreshTraces({ silent: true });
     // Keep the embedded sample as the first paint; the user picks a real
@@ -5762,6 +6197,7 @@
       updateActiveTraceLive();
 
       if (Picker.open) renderPicker();
+      renderExpSidebar();
       return body;
     } catch (e) {
       const lbl = $("#tp-refresh-label");
@@ -6036,6 +6472,7 @@
     updateActiveTraceLive();
     if (stillActive()) Progress.done();
     if (Picker.open) renderPicker();
+    renderExpSidebar();
   }
 
   /* Re-fetch the currently-loaded trace and rerender it in place.
