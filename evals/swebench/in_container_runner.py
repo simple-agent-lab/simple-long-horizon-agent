@@ -54,7 +54,7 @@ OPENAI_SESSION_ID_ENV = "OPENAI_SESSION_ID"
 OPENAI_LOG_ID_ENV = "OPENAI_LOG_ID"
 API_KIND_ENV = "API_KIND"
 API_KIND_CHOICES = ("openai-chat", "openai-responses")
-SWE_BENCH_PRO_DATASET_MARKERS = ("swe-bench_pro", "swebench_pro")
+SWE_BENCH_PRO_DATASET_MARKER = "swe-bench_pro"
 
 AGENT_NAME = "swebench_agent"
 AGENT_ROLE = (
@@ -340,8 +340,8 @@ def prediction_record(
 
 def is_swebench_pro(*, dataset_name: str = "", instance_id: str = "") -> bool:
     dataset = dataset_name.casefold()
-    return any(marker in dataset for marker in SWE_BENCH_PRO_DATASET_MARKERS) or (
-        instance_id.startswith("instance_")
+    return SWE_BENCH_PRO_DATASET_MARKER in dataset or instance_id.startswith(
+        "instance_"
     )
 
 
