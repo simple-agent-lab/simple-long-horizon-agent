@@ -167,6 +167,11 @@ class LLMResponse:
     content: MessageContent = ()
     stop_reason: StopReason = "end_turn"
     usage: TokenUsage = field(default_factory=TokenUsage)
+    # The model that served this response. Adapters may set it from the
+    # provider's echoed `response.model`; when left blank, `complete()`
+    # stamps the requested `provider.model` so every drained response
+    # carries a model id for downstream cost/routing analysis.
+    model: str = ""
     raw: dict[str, Any] = field(default_factory=dict)
 
     @property

@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
-from .messages import AgentName, Message, MessageKind
+from .messages import AgentName, Message, MessageKind, TokenUsage
 
 if TYPE_CHECKING:
     from .tools import ToolResult
@@ -115,6 +115,12 @@ class ModelResponseEvent(_BaseEvent):
     output_kind: MessageKind
     target: AgentName
     tool_call_count: int
+    # Per-call cost primitives, snapshotted from the response message
+    # alongside the facts above. `usage` is None when the provider didn't
+    # report counts; `model` is "" when unknown. Carrying them here lets the
+    # span layer fold cost without walking messages or the raw blob.
+    usage: TokenUsage | None = None
+    model: str = ""
 
 
 @dataclass(frozen=True, kw_only=True)

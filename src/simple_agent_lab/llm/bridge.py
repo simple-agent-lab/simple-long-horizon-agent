@@ -96,6 +96,7 @@ def llm_response_to_assistant_message(
         target=target,
         kind=kind,
         usage=_usage_or_none(response.usage),
+        model=response.model,
         sidecar=merged,
     )
 

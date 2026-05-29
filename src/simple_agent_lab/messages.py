@@ -221,6 +221,10 @@ class AssistantMessage:
     target: AgentName = "all"
     kind: MessageKind = "message"
     usage: TokenUsage | None = None
+    # The model that produced this message (provider-reported). Sibling to
+    # `usage`: together they are the per-call cost primitives the analysis
+    # layer reads. Empty when unknown (e.g. fabricated or fake messages).
+    model: str = ""
     sidecar: MessageSidecar = field(default_factory=dict)
 
     @property
@@ -268,10 +272,18 @@ def assistant_message(
     target: AgentName = "all",
     kind: MessageKind = "message",
     usage: TokenUsage | None = None,
+    model: str = "",
     sidecar: MessageSidecar | None = None,
 ) -> AssistantMessage:
     return _build_message(
-        AssistantMessage, content, sender, target, kind, sidecar, usage=usage
+        AssistantMessage,
+        content,
+        sender,
+        target,
+        kind,
+        sidecar,
+        usage=usage,
+        model=model,
     )
 
 
@@ -291,7 +303,7 @@ def _build_message(
 
     Normalizes `content`, copies `sidecar` (so callers can't mutate the
     message's sidecar later), threads any role-specific kwargs through
-    `extra` (currently only `usage` for assistants), and runs
+    `extra` (`usage` and `model` for assistants), and runs
     `validate_message` so block placement is checked uniformly.
     """
     message = cls(
