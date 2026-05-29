@@ -24,7 +24,7 @@ from simple_agent_lab.messages import (
     assistant_message,
     is_tool_result_message,
 )
-from simple_agent_lab.tools import AgentTool, Tool
+from simple_agent_lab.tools import Tool
 
 from .types import LLMMessage, LLMResponse, LLMTool
 
@@ -58,8 +58,13 @@ def messages_to_llm_messages(
     ]
 
 
-def tool_to_llm_tool(tool: Tool | AgentTool) -> LLMTool:
-    """Project a shared Tool value to the LLM layer's wire tool definition."""
+def tool_to_llm_tool(tool: Tool) -> LLMTool:
+    """Project a shared Tool value to the LLM layer's wire tool definition.
+
+    Typed against the `Tool` base so it accepts both a declaration-only
+    `Tool` and an executable `AgentTool` (a subclass); only the shared
+    wire fields are read.
+    """
     return LLMTool(
         name=tool.name,
         description=tool.description,

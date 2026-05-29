@@ -299,16 +299,12 @@ def _execute_one(
     tool = tools.get(tool_call.name)
     if tool is None:
         return text_result(f"Tool {tool_call.name!r} not found", is_error=True)
-    execute = tool.execute
-    if execute is None:
-        return text_result(
-            f"Tool {tool_call.name!r} has no execute function",
-            is_error=True,
-        )
 
     def run_tool() -> ToolResult:
         try:
-            return execute(tool_call.id, dict(tool_call.arguments), abort, on_update)
+            return tool.execute(
+                tool_call.id, dict(tool_call.arguments), abort, on_update
+            )
         except Exception as exc:
             return text_result(f"{type(exc).__name__}: {exc}", is_error=True)
 

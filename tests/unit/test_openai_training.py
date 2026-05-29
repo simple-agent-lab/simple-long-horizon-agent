@@ -8,9 +8,9 @@ import unittest
 from pathlib import Path
 
 from simple_agent_lab import (
-    AgentTool,
     State,
     TextBlock,
+    Tool,
     ToolCallBlock,
     assistant_message,
     tool_results_message,
@@ -19,11 +19,13 @@ from simple_agent_lab.messages import ImageBlock, ToolResultBlock
 from simple_agent_lab.trace import append_openai_training_record, openai_training_record
 
 
-_BASH_TOOL = AgentTool(
+# Declaration-only tool: this suite only serializes the wire shape
+# (name/description/parameters); it never dispatches, so a plain `Tool`
+# (no execute) is the right type rather than an `AgentTool`.
+_BASH_TOOL = Tool(
     name="bash",
     description="Run a bash command.",
     parameters={"type": "object", "properties": {"command": {"type": "string"}}},
-    execute=None,
 )
 
 
