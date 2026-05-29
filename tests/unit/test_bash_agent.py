@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 import tempfile
 import unittest
@@ -23,12 +24,11 @@ from simple_agent_lab.llm import Provider
 from simple_agent_lab.messages import Message
 from simple_agent_lab.trajectory import (
     Span,
-    _collect_sub_events,
-    _tree_sort,
     merge_sub_agent_spans,
     spans_from_events,
     trace_record,
 )
+from simple_agent_lab.trajectory.spans import _collect_sub_events, _tree_sort
 from simple_agent_lab.tools.bash import (
     MAX_BASH_TIMEOUT_SECONDS,
     NON_INTERACTIVE_BASH_ENV,
@@ -248,28 +248,32 @@ class TraceSpanTest(unittest.TestCase):
         )
 
         events = [
-            AgentStartEvent(0, 0.0),
-            TurnStartEvent(1, 0.1, agent="a"),
-            ToolExecutionStartEvent(2, 0.2, tool_call_id="c1", tool_name="t1"),
-            ToolExecutionStartEvent(3, 0.3, tool_call_id="c2", tool_name="t2"),
+            AgentStartEvent(index=0, elapsed=0.0),
+            TurnStartEvent(index=1, elapsed=0.1, agent="a"),
+            ToolExecutionStartEvent(
+                index=2, elapsed=0.2, tool_call_id="c1", tool_name="t1"
+            ),
+            ToolExecutionStartEvent(
+                index=3, elapsed=0.3, tool_call_id="c2", tool_name="t2"
+            ),
             ToolExecutionEndEvent(
-                4,
-                0.4,
+                index=4,
+                elapsed=0.4,
                 tool_call_id="c1",
                 tool_name="t1",
                 is_error=False,
                 terminate=False,
             ),
             ToolExecutionEndEvent(
-                5,
-                0.5,
+                index=5,
+                elapsed=0.5,
                 tool_call_id="c2",
                 tool_name="t2",
                 is_error=False,
                 terminate=False,
             ),
-            TurnEndEvent(6, 0.6, agent="a"),
-            AgentEndEvent(7, 0.7, reason="done"),
+            TurnEndEvent(index=6, elapsed=0.6, agent="a"),
+            AgentEndEvent(index=7, elapsed=0.7, reason="done"),
         ]
         spans = spans_from_events("test", events)
         tool_spans = [s for s in spans if s.kind == "tool_call"]
@@ -369,8 +373,8 @@ class MergedSpansTest(unittest.TestCase):
         from simple_agent_lab.protocols import AgentStartEvent, AgentEndEvent
 
         fake_sub_events = [
-            AgentStartEvent(0, 0.0),
-            AgentEndEvent(1, 1.0, reason="done"),
+            AgentStartEvent(index=0, elapsed=0.0),
+            AgentEndEvent(index=1, elapsed=1.0, reason="done"),
         ]
         from simple_agent_lab.messages import user_message
 
@@ -456,6 +460,54 @@ class MergedSpansTest(unittest.TestCase):
             state=state, trace_id="test.nosub", producer="tests"
         )
         self.assertEqual(trace.spans(), trace.merged_spans())
+
+    def test_task_tool_sub_events_survive_json_round_trip(self) -> None:
+        """`task_tool` stashes sub-agent events under a tool_result's
+        `data.details[call_id].sub_events`. Those events MUST keep their
+        `kind` discriminator after a JSON round-trip, because the trace
+        viewer (JS) and any other on-disk consumer dispatch on
+        `ev.kind`. Guards against `kind` regressing to a `@property`
+        that `dataclasses.asdict` would silently drop."""
+        sub = Agent("sub", self._make_echo_generate("sub"), role="echo")
+        parent_generate = _make_delegating_generate("parent", "sub")
+        parent = Agent("parent", parent_generate, role="orchestrator")
+        parent.tools = [task_tool([sub])]
+
+        state, events = parent.run("do it", max_turns=3)
+        for _ in events:
+            pass
+
+        trace = run_trace_from_state(
+            state=state, trace_id="test.round_trip", producer="tests"
+        )
+        parsed = json.loads(json.dumps(trace_record(trace)))
+
+        sub_event_lists: list[list[dict]] = []
+        for msg in parsed["messages"]:
+            details = (msg.get("data") or {}).get("details") or {}
+            for call_details in details.values():
+                sub_events = call_details.get("sub_events")
+                if isinstance(sub_events, list) and sub_events:
+                    sub_event_lists.append(sub_events)
+
+        self.assertTrue(sub_event_lists, "task_tool run produced no on-disk sub_events")
+        kinds: set[str] = set()
+        for sub_events in sub_event_lists:
+            for ev in sub_events:
+                self.assertIn(
+                    "kind",
+                    ev,
+                    f"on-disk sub-event lost its discriminator: {ev!r}",
+                )
+                self.assertIsInstance(ev["kind"], str)
+                kinds.add(ev["kind"])
+        # A sub-agent that ran to a `final` should at least cover the
+        # agent + turn boundaries: this is what the viewer needs to
+        # reconstruct the nested span tree.
+        self.assertIn("agent_start", kinds)
+        self.assertIn("turn_start", kinds)
+        self.assertIn("turn_end", kinds)
+        self.assertIn("agent_end", kinds)
 
 
 def _make_delegating_generate(name: str, sub_name: str):

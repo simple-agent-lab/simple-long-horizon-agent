@@ -2,11 +2,16 @@
 # Run one SWE-bench instance in a Docker container.
 #
 # Usage:
-#   bash runs/run_swebench_container.sh <instance-id> [max-turns] [run-id]
+#   bash runs/run_swebench_container.sh <instance-id> [max-turns] [run-id] [agent-flavor]
 #
 # Examples:
 #   bash runs/run_swebench_container.sh django__django-12113
-#   bash runs/run_swebench_container.sh django__django-12113 20 my-experiment
+#   bash runs/run_swebench_container.sh django__django-12113 20 my-experiment bash_task
+#
+# Agent flavors (env AGENT_FLAVOR also accepted, CLI arg wins):
+#   - bash      : parent agent has only the bash tool (default, current baseline).
+#   - bash_task : parent has bash + task; task dispatches a bash worker
+#                 ("explorer") sub-agent for context-isolating exploration.
 #
 # Prerequisites:
 #   - Docker running (colima / Docker Desktop / Docker Engine)
@@ -20,9 +25,10 @@ ROOT="$PWD"
 
 source runs/_python.sh
 
-INSTANCE_ID="${1:?Usage: $0 <instance-id> [max-turns] [run-id]}"
+INSTANCE_ID="${1:?Usage: $0 <instance-id> [max-turns] [run-id] [agent-flavor]}"
 MAX_TURNS="${2:-75}"
 RUN_ID="${3:-swebench-$(date +%Y%m%d-%H%M%S)}"
+AGENT_FLAVOR="${4:-${AGENT_FLAVOR:-bash}}"
 
 INSTANCE_JSONL="evals/out/instance_${INSTANCE_ID}.jsonl"
 WHEELHOUSE="evals/out/wheelhouse/cp311-manylinux"
@@ -90,9 +96,10 @@ fi
 
 # --- Run containerized agent ---
 echo "==> Running SWE-bench agent"
-echo "    instance:   $INSTANCE_ID"
-echo "    max-turns:  $MAX_TURNS"
-echo "    run-id:     $RUN_ID"
+echo "    instance:    $INSTANCE_ID"
+echo "    max-turns:   $MAX_TURNS"
+echo "    run-id:      $RUN_ID"
+echo "    agent:       $AGENT_FLAVOR"
 echo ""
 
 "${PYTHON[@]}" evals/swebench/containerized_agent.py \
@@ -104,6 +111,7 @@ echo ""
   --provider openai \
   --dotenv .env \
   --max-turns "$MAX_TURNS" \
+  --agent-flavor "$AGENT_FLAVOR" \
   --run-id "$RUN_ID" \
   --network-mode host \
   $NAMESPACE_ARG \

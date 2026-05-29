@@ -350,6 +350,7 @@ def _chat_response(
     completion_tokens: int = 4,
     cached: int = 0,
     reasoning_content: str | None = None,
+    reasoning: str | None = None,
 ) -> Any:
     tcs = []
     for tc in tool_calls or []:
@@ -363,6 +364,8 @@ def _chat_response(
     message_kwargs: dict[str, Any] = {"content": text, "tool_calls": tcs or None}
     if reasoning_content is not None:
         message_kwargs["reasoning_content"] = reasoning_content
+    if reasoning is not None:
+        message_kwargs["reasoning"] = reasoning
     message = SimpleNamespace(**message_kwargs)
     choice = SimpleNamespace(message=message, finish_reason=finish_reason)
     usage = SimpleNamespace(
@@ -534,8 +537,23 @@ def _responses_response(
     input_tokens: int = 7,
     output_tokens: int = 3,
     cached: int = 0,
+    reasoning_summary: str | None = None,
+    reasoning_id: str = "rs_1",
 ) -> Any:
     output_items: list[Any] = []
+    if reasoning_summary is not None:
+        output_items.append(
+            SimpleNamespace(
+                type="reasoning",
+                id=reasoning_id,
+                summary=[
+                    SimpleNamespace(type="summary_text", text=reasoning_summary)
+                ],
+                content=None,
+                encrypted_content=None,
+                status=None,
+            )
+        )
     if text_blocks:
         content = [
             SimpleNamespace(type="output_text", text=block) for block in text_blocks
@@ -652,6 +670,128 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
         self.assertEqual(response.tool_calls[0].arguments, {"command": "pwd"})
         self.assertEqual(response.usage.input_tokens, 7)
         self.assertEqual(response.usage.output_tokens, 3)
+
+    def test_inbound_reasoning_item_becomes_thinking_block(self) -> None:
+        """An output ``reasoning`` item's summary text is lifted into a
+        ThinkingBlock, with the item id kept on ``signature`` so the next
+        outbound turn can echo the exact wire item back."""
+        captured: dict[str, Any] = {}
+        module = _stub_openai(
+            _responses_response(
+                reasoning_summary="23*19 is 437.",
+                reasoning_id="rs_abc",
+                text_blocks=["437"],
+            ),
+            captured,
+            kind="responses",
+        )
+        req = LLMRequest(
+            provider=OPENAI_RESPONSES_PROVIDER,
+            messages=[LLMMessage(role="user", content="23*19?")],
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            events = list(iter_stream(req))
+
+        response = events[-1].payload["response"]
+        self.assertEqual(len(response.thinking_blocks), 1)
+        block = response.thinking_blocks[0]
+        self.assertEqual(block.text, "23*19 is 437.")
+        self.assertEqual(block.signature, "rs_abc")
+        self.assertEqual(block.source_field, "reasoning")
+
+    def test_outbound_replays_reasoning_item_before_tool_call(self) -> None:
+        """A reasoning model served over Responses (deepseek-via-zenmux)
+        rejects the next turn unless the prior reasoning item is echoed
+        back ahead of the function_call it preceded."""
+        captured: dict[str, Any] = {}
+        module = _stub_openai(
+            _responses_response(text_blocks=["done"]), captured, kind="responses"
+        )
+        req = LLMRequest(
+            provider=OPENAI_RESPONSES_PROVIDER,  # replay_reasoning=True by default
+            messages=[
+                LLMMessage(role="user", content="multiply 23 and 19"),
+                LLMMessage(
+                    role="assistant",
+                    content=[
+                        ThinkingBlock(text="23*19 is 437.", signature="rs_abc"),
+                        ToolCall(id="c1", name="bash", arguments={"command": "echo"}),
+                    ],
+                ),
+                LLMMessage(
+                    role="user",
+                    content=[
+                        ToolResultBlock(
+                            tool_call_id="c1",
+                            tool_name="bash",
+                            content=(TextBlock("437"),),
+                        )
+                    ],
+                ),
+            ],
+            tools=[_bash_tool()],
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            complete(req)
+
+        input_items = captured["input"]
+        reasoning_items = [i for i in input_items if i["type"] == "reasoning"]
+        self.assertEqual(len(reasoning_items), 1)
+        self.assertEqual(reasoning_items[0]["id"], "rs_abc")
+        self.assertEqual(
+            reasoning_items[0]["summary"],
+            [{"type": "summary_text", "text": "23*19 is 437."}],
+        )
+        # The reasoning item must precede the function_call it belonged to.
+        reasoning_pos = input_items.index(reasoning_items[0])
+        call_pos = next(
+            i for i, item in enumerate(input_items) if item["type"] == "function_call"
+        )
+        self.assertLess(reasoning_pos, call_pos)
+
+    def test_outbound_skips_reasoning_when_replay_disabled(self) -> None:
+        """With ``replay_reasoning=False`` no reasoning item is sent, for
+        endpoints that manage reasoning continuity server-side."""
+        captured: dict[str, Any] = {}
+        module = _stub_openai(
+            _responses_response(text_blocks=["done"]), captured, kind="responses"
+        )
+        provider = Provider(
+            id="gpt-resp-noreplay",
+            api="openai-responses",
+            model="gpt-test-1",
+            api_key_env="TEST_OPENAI_KEY",
+            replay_reasoning=False,
+        )
+        req = LLMRequest(
+            provider=provider,
+            messages=[
+                LLMMessage(role="user", content="multiply 23 and 19"),
+                LLMMessage(
+                    role="assistant",
+                    content=[
+                        ThinkingBlock(text="23*19 is 437.", signature="rs_abc"),
+                        TextBlock(text="437"),
+                    ],
+                ),
+                LLMMessage(role="user", content="thanks"),
+            ],
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            complete(req)
+
+        self.assertFalse(
+            [i for i in captured["input"] if i["type"] == "reasoning"]
+        )
 
     def test_incomplete_max_tokens_maps_to_max_tokens_stop(self) -> None:
         captured: dict[str, Any] = {}
@@ -795,6 +935,74 @@ class OpenAIChatReasoningTest(unittest.TestCase):
             m for m in captured["messages"] if m["role"] == "assistant"
         )
         self.assertNotIn("reasoning_content", assistant_entry)
+
+    def test_inbound_reasoning_alias_field_becomes_thinking_block(self) -> None:
+        """Some DeepSeek-via-gateway deployments return the reasoning under
+        ``message.reasoning`` instead of ``message.reasoning_content``. The
+        adapter must still lift it into a ThinkingBlock so subsequent turns
+        can replay it."""
+        captured: dict[str, Any] = {}
+        module = _stub_openai(
+            _chat_response(
+                text="Result: 6.",
+                reasoning="2*3 is 6.",
+                finish_reason="stop",
+            ),
+            captured,
+            kind="chat",
+        )
+        req = LLMRequest(
+            provider=OPENAI_CHAT_PROVIDER,
+            messages=[LLMMessage(role="user", content="2*3?")],
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            events = list(iter_stream(req))
+
+        response = events[-1].payload["response"]
+        self.assertEqual(len(response.thinking_blocks), 1)
+        block = response.thinking_blocks[0]
+        self.assertEqual(block.text, "2*3 is 6.")
+        # Source field is recorded so the next outbound turn echoes the
+        # same key back to the provider.
+        self.assertEqual(block.source_field, "reasoning")
+
+    def test_outbound_always_uses_canonical_reasoning_content(self) -> None:
+        """Even when a prior assistant turn recorded a non-canonical
+        ``source_field`` (e.g. ``"reasoning"`` for deepseek-via-zenmux),
+        the outbound request must replay thinking under the canonical
+        ``reasoning_content``. Empirically the strict gateways emit
+        ``reasoning`` but still require the canonical key on echo;
+        ``source_field`` is retained as a trace-debug memo only."""
+        captured: dict[str, Any] = {}
+        module = _stub_openai(_chat_response(text="ok"), captured, kind="chat")
+        req = LLMRequest(
+            provider=OPENAI_CHAT_PROVIDER,  # replay_reasoning=True by default
+            messages=[
+                LLMMessage(role="user", content="Compute 2*3."),
+                LLMMessage(
+                    role="assistant",
+                    content=[
+                        ThinkingBlock(text="2*3 is 6.", source_field="reasoning"),
+                        TextBlock(text="6"),
+                    ],
+                ),
+                LLMMessage(role="user", content="now double it"),
+            ],
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            complete(req)
+
+        assistant_entry = next(
+            m for m in captured["messages"] if m["role"] == "assistant"
+        )
+        self.assertEqual(assistant_entry["reasoning_content"], "2*3 is 6.")
+        self.assertNotIn("reasoning", assistant_entry)
 
 
 class AnthropicReasoningReplayTest(unittest.TestCase):

@@ -89,11 +89,11 @@ both humans and coding agents.
 Use this shape as the project grows (PyPA-recommended src-layout):
 
 ```text
-src/simple_agent_lab/   # installable package (core + llm/ + future modules)
+src/simple_agent_lab/   # installable package (core + llm/ + agents/ + future modules)
 scripts/                # command-line entrypoints
 runs/                   # reproducible experiment shell scripts
-examples/               # readable standalone examples
 tests/                  # focused behavioral tests
+evals/                  # optional behavior checks (e.g. SWE-bench adapter)
 docs/                   # design notes and decisions
 ```
 

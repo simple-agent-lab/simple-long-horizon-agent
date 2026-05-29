@@ -8,6 +8,14 @@ flat `input` items, and function tools are unwrapped (no `{"type":"function",
 
 The SDK import is deferred to `stream()`.
 
+Reasoning is a first-class block here too. Inbound, the adapter flattens an
+output `reasoning` item's `summary_text` parts into a `ThinkingBlock` (the
+item id is kept on `ThinkingBlock.signature`). Outbound, prior reasoning is
+replayed as a `reasoning` input item ahead of the assistant message/tool
+call it preceded -- reasoning models served this way (e.g.
+deepseek-via-zenmux) reject the next turn otherwise. Gated by
+`Provider.replay_reasoning`.
+
 Provider config:
 
     Provider(
@@ -38,6 +46,7 @@ from ...messages import (
     ContentBlock,
     ImageBlock,
     TextBlock,
+    ThinkingBlock,
     ToolCallBlock,
     ToolResultBlock,
     encode_image_data_url,
@@ -71,7 +80,7 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         base_url=req.provider.base_url,
     )
 
-    items = _to_responses_input(req)
+    items = _to_responses_input(req, include_reasoning=req.provider.replay_reasoning)
     tools = _to_responses_tools(req.tools)
 
     kwargs: dict[str, Any] = {
@@ -110,7 +119,17 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
     blocks: list[ContentBlock] = []
     for item in getattr(sdk_response, "output", None) or []:
         itype = getattr(item, "type", None)
-        if itype == "message":
+        if itype == "reasoning":
+            reasoning_text = _reasoning_summary_text(item)
+            if reasoning_text:
+                blocks.append(
+                    ThinkingBlock(
+                        text=reasoning_text,
+                        signature=getattr(item, "id", None),
+                        source_field="reasoning",
+                    )
+                )
+        elif itype == "message":
             for block in getattr(item, "content", None) or []:
                 if getattr(block, "type", None) == "output_text":
                     text = getattr(block, "text", "") or ""
@@ -135,7 +154,9 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
     usage = _responses_usage(getattr(sdk_response, "usage", None))
 
     for block in blocks:
-        if isinstance(block, TextBlock) and block.text:
+        if isinstance(block, ThinkingBlock) and block.text:
+            yield StreamEvent(kind="thinking_delta", payload={"delta": block.text})
+        elif isinstance(block, TextBlock) and block.text:
             yield StreamEvent(kind="text_delta", payload={"delta": block.text})
         elif isinstance(block, ToolCallBlock):
             yield StreamEvent(kind="tool_call_start", payload={"tool_call": block})
@@ -163,7 +184,9 @@ def _api_key(req: LLMRequest) -> str | None:
     return api_key
 
 
-def _to_responses_input(req: LLMRequest) -> list[dict[str, Any]]:
+def _to_responses_input(
+    req: LLMRequest, *, include_reasoning: bool = True
+) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for message in req.messages:
         if message.role == "system":
@@ -222,6 +245,14 @@ def _to_responses_input(req: LLMRequest) -> list[dict[str, Any]]:
                     }
                 )
         elif message.role == "assistant":
+            # Reasoning models served over the Responses API (e.g.
+            # deepseek-via-zenmux) reject a follow-up turn whose assistant
+            # message had thinking unless the prior reasoning item is
+            # echoed back ahead of the message/tool_call it preceded.
+            if include_reasoning:
+                reasoning_item = _reasoning_item(message)
+                if reasoning_item is not None:
+                    items.append(reasoning_item)
             text = text_of(message.content)
             if text:
                 items.append(
@@ -241,6 +272,44 @@ def _to_responses_input(req: LLMRequest) -> list[dict[str, Any]]:
                     }
                 )
     return items
+
+
+def _reasoning_summary_text(item: Any) -> str:
+    """Join an output ``reasoning`` item's ``summary_text`` parts.
+
+    The Responses API carries a model's thinking as a list of
+    ``summary`` parts on the reasoning item. We flatten the text parts
+    into one string; the structured shape is rebuilt on replay.
+    """
+    parts: list[str] = []
+    for part in getattr(item, "summary", None) or []:
+        if getattr(part, "type", None) == "summary_text":
+            text = getattr(part, "text", "") or ""
+            if text:
+                parts.append(text)
+    return "\n\n".join(parts)
+
+
+def _reasoning_item(message: LLMMessage) -> dict[str, Any] | None:
+    """Rebuild the reasoning item to echo back for an assistant turn.
+
+    Mirrors the inbound shape: one ``summary_text`` part per stored
+    `ThinkingBlock`. The original item id (kept on `ThinkingBlock.signature`)
+    is replayed when present so the wire item matches what the model emitted.
+    """
+    blocks = [block for block in message.thinking_blocks if block.text]
+    if not blocks:
+        return None
+    item: dict[str, Any] = {
+        "type": "reasoning",
+        "summary": [
+            {"type": "summary_text", "text": block.text} for block in blocks
+        ],
+    }
+    signature = next((block.signature for block in blocks if block.signature), None)
+    if signature:
+        item["id"] = signature
+    return item
 
 
 def _to_responses_user_content(message: LLMMessage) -> list[dict[str, Any]]:

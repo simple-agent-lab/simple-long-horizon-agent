@@ -36,13 +36,20 @@ from .messages import (
     Message,
     ToolCallBlock,
     ToolResultBlock,
-    message_text,
     message_tool_calls,
     tool_results_message,
 )
 from .protocols import (
+    AgentEndEvent,
+    AgentStartEvent,
     Event,
+    ModelRequestEvent,
+    ModelResponseEvent,
     ToolExecutionEndEvent,
+    ToolExecutionStartEvent,
+    ToolExecutionUpdateEvent,
+    TurnEndEvent,
+    TurnStartEvent,
 )
 from .state import State
 from .tools import AbortFlag, AgentTool, ToolResult, ToolUpdateFn, text_result
@@ -111,10 +118,10 @@ def run(
     name = agent.name
     tool_by_name = {tool.name: tool for tool in agent.tools}
 
-    yield state.agent_start()
+    yield state.record_event(AgentStartEvent())
     final_emitted = False
     for _ in range(max_turns):
-        yield state.turn_start(agent=name)
+        yield state.record_event(TurnStartEvent(agent=name))
 
         policy = agent.context_policy or ContextPolicy()
         for compression_event in maybe_compress_context(agent, state, policy):
@@ -127,9 +134,7 @@ def run(
         )
         visible = list(context.messages)
         # Match make_llm_agent / provider wire shape (no routing headers).
-        # Routing metadata stays on model_request.visible[] for trace UI.
         llm_payload = messages_to_llm_messages(visible, with_header=False)
-        state.data["last_llm_payload"] = llm_payload
 
         # `state.data` is the open experiment bag (dict[str, Any]); pin
         # the runtime-side projection of `candidate_id` to its real type
@@ -138,42 +143,35 @@ def run(
         candidate_id: str | None = (
             str(raw_candidate) if raw_candidate is not None else None
         )
-        yield state.model_request(
-            agent=name,
-            visible_count=len(visible),
-            llm_message_count=len(llm_payload),
-            visible=[
-                {
-                    "role": message.role,
-                    "sender": message.sender,
-                    "target": message.target,
-                    "kind": message.kind,
-                    "channel": message.channel,
-                    "text": message_text(message),
-                }
-                for message in visible
-            ],
-            context_view=context.as_dict(),
-            tools=[
-                {
-                    "name": tool.name,
-                    "description": tool.description,
-                    "parameters": tool.parameters,
-                }
-                for tool in tool_by_name.values()
-            ],
-            llm_payload=llm_payload,
-            candidate_id=candidate_id,
+        yield state.record_event(
+            ModelRequestEvent(
+                agent=name,
+                visible_count=len(visible),
+                llm_message_count=len(llm_payload),
+                context_view=context.as_dict(),
+                tools=[
+                    {
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": tool.parameters,
+                    }
+                    for tool in tool_by_name.values()
+                ],
+                llm_payload=llm_payload,
+                candidate_id=candidate_id,
+            )
         )
 
         output = agent.generate(visible)
         output_tool_calls = message_tool_calls(output)
-        yield state.model_response(
-            agent=name,
-            output_kind=output.kind,
-            target=output.target,
-            tool_call_count=len(output_tool_calls),
-            candidate_id=candidate_id,
+        yield state.record_event(
+            ModelResponseEvent(
+                agent=name,
+                output_kind=output.kind,
+                target=output.target,
+                tool_call_count=len(output_tool_calls),
+                candidate_id=candidate_id,
+            )
         )
 
         yield state.record(output)
@@ -188,16 +186,18 @@ def run(
                 if isinstance(event, ToolExecutionEndEvent) and event.terminate:
                     tool_terminated = True
             if tool_terminated:
-                yield state.turn_end(agent=name, terminated=True)
-                yield state.agent_end(reason="tool_terminate")
+                yield state.record_event(TurnEndEvent(agent=name, terminated=True))
+                yield state.record_event(AgentEndEvent(reason="tool_terminate"))
                 return
 
-        yield state.turn_end(agent=name)
+        yield state.record_event(TurnEndEvent(agent=name))
 
         if final_emitted:
             break
 
-    yield state.agent_end(reason="done" if final_emitted else "max_turns")
+    yield state.record_event(
+        AgentEndEvent(reason="done" if final_emitted else "max_turns")
+    )
 
 
 def dispatch_tool_calls(
@@ -222,9 +222,11 @@ def dispatch_tool_calls(
     workers = 1 if sequential else min(max_concurrency, len(tool_calls))
 
     for tool_call in tool_calls:
-        yield state.tool_execution_start(
-            tool_call_id=tool_call.id,
-            tool_name=tool_call.name,
+        yield state.record_event(
+            ToolExecutionStartEvent(
+                tool_call_id=tool_call.id,
+                tool_name=tool_call.name,
+            )
         )
 
     update_buffers: dict[str, list[ToolResult]] = {
@@ -261,16 +263,20 @@ def dispatch_tool_calls(
             results[tool_call.id] = result
 
             for partial in update_buffers[tool_call.id]:
-                yield state.tool_execution_update(
+                yield state.record_event(
+                    ToolExecutionUpdateEvent(
+                        tool_call_id=tool_call.id,
+                        tool_name=tool_call.name,
+                        partial=partial,
+                    )
+                )
+            yield state.record_event(
+                ToolExecutionEndEvent(
                     tool_call_id=tool_call.id,
                     tool_name=tool_call.name,
-                    partial=partial,
+                    is_error=result.is_error,
+                    terminate=result.terminate,
                 )
-            yield state.tool_execution_end(
-                tool_call_id=tool_call.id,
-                tool_name=tool_call.name,
-                is_error=result.is_error,
-                terminate=result.terminate,
             )
 
     bundle = tool_results_message(

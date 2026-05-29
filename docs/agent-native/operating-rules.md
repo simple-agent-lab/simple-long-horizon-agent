@@ -43,6 +43,19 @@ needed as a routing hint.
 6. If a change creates a hard-to-reverse architectural commitment, add or
    update an ADR instead of burying the decision in a topic doc.
 
+## Dates In Docs
+
+- Do not add dates or freshness timestamps to routine doc updates — no
+  "updated on", "as of <date>", "inspected on <date>", or similar lines. They
+  go stale on the next edit and cause avoidable merge conflicts.
+- Express freshness through content that can be checked against the repo
+  (paths, commands, exports, ADR numbers, commit refs), not a hand-maintained
+  date.
+- Exception: a date that records an immutable historical event may stay — ADR
+  acceptance or withdrawal metadata, a dated owner decision, or a changelog
+  entry. These are facts about the past, not freshness stamps that need
+  re-touching on every edit.
+
 ## Usually Safe To Edit
 
 Agents can usually edit these with code evidence and a narrow check:

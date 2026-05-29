@@ -6,7 +6,6 @@ import unittest
 
 from simple_agent_lab import (
     AssistantMessage,
-    ContextPolicy,
     TokenUsage,
     assistant_message,
     build_context_view,
@@ -294,29 +293,6 @@ class ContextStatsUsesUsageTest(unittest.TestCase):
         self.assertEqual(estimate_message_tokens(a1), 11)
         self.assertEqual(view.stats.usage_known_messages, 1)
 
-    def test_context_tokens_fall_back_when_last_drops_usage_prefix(self) -> None:
-        omitted = user_message("omitted but included in usage", target="agent")
-        a1 = assistant_message(
-            "first answer",
-            sender="agent",
-            target="user",
-            usage=TokenUsage(input_tokens=500, output_tokens=10),
-        )
-        u2 = user_message("recent follow-up", target="agent")
-
-        view = build_context_view(
-            "agent",
-            [omitted, a1, u2],
-            policy=ContextPolicy(last=2),
-        )
-
-        self.assertEqual(view.messages, (a1, u2))
-        self.assertEqual(
-            view.stats.estimated_tokens,
-            estimate_message_tokens(a1) + estimate_message_tokens(u2),
-        )
-        self.assertLess(view.stats.estimated_tokens, 500)
-
     def test_usage_known_messages_in_stats_dict(self) -> None:
         # Surface in as_dict() so the runtime trace records it.
         message = assistant_message(
@@ -328,28 +304,6 @@ class ContextStatsUsesUsageTest(unittest.TestCase):
         view = build_context_view("agent", [message])
         self.assertIn("usage_known_messages", view.stats.as_dict())
         self.assertEqual(view.stats.as_dict()["usage_known_messages"], 1)
-
-    def test_dropped_messages_do_not_count_toward_tokens(self) -> None:
-        # A message dropped by the budget shouldn't count its tokens in the
-        # stats — this is what "selected" means. Here the assistant is dropped
-        # by a tight max_chars, so its exact 200 output_tokens must not show up.
-        big_assistant = assistant_message(
-            "x" * 1000,
-            sender="agent",
-            target="user",
-            usage=TokenUsage(output_tokens=200),
-        )
-        recent = user_message("ping", target="agent")
-        # max_chars tight enough to evict the big assistant but keep the
-        # reserved-recent user message.
-        policy = ContextPolicy(max_chars=80)
-        view = build_context_view("agent", [big_assistant, recent], policy=policy)
-
-        self.assertNotIn(big_assistant, view.messages)
-        self.assertIn(recent, view.messages)
-        # The 200 must NOT appear in the tokens estimate.
-        self.assertLess(view.stats.estimated_tokens, 200)
-        self.assertEqual(view.stats.usage_known_messages, 0)
 
 
 class EndToEndUsagePropagationTest(unittest.TestCase):

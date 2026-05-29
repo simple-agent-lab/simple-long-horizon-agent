@@ -43,8 +43,18 @@ from simple_agent_lab.messages import (  # noqa: E402
     UserMessage,
     make_message,
 )
+from simple_agent_lab.protocols import (  # noqa: E402
+    AgentEndEvent,
+    AgentStartEvent,
+    ModelRequestEvent,
+    ModelResponseEvent,
+    ToolExecutionEndEvent,
+    ToolExecutionStartEvent,
+    TurnEndEvent,
+    TurnStartEvent,
+)
 from simple_agent_lab.state import State  # noqa: E402
-from simple_agent_lab.live_trace import (  # noqa: E402
+from simple_agent_lab.trajectory import (  # noqa: E402
     LiveTraceSession,
     TraceMeta,
     default_stderr_flush_error,
@@ -79,27 +89,30 @@ TOOL_RESULT_SAMPLES = [
 def _emit_turn(state: State, turn_index: int, agent: str, *, turn_delay: float) -> None:
     """Append one full turn's worth of events to ``state`` with realistic pacing."""
 
-    state.turn_start(agent=agent)
+    state.record_event(TurnStartEvent(agent=agent))
     time.sleep(max(0.05, turn_delay * 0.05))
 
-    state.model_request(
-        agent=agent,
-        visible_count=turn_index * 2 + 1,
-        llm_message_count=turn_index * 2 + 1,
-        visible=[],
-        context_view={"input_tokens_estimate": 600 + 220 * turn_index, "messages": turn_index * 2 + 1},
-        tools=[{"name": "bash", "description": "Run a bash command."}],
-        llm_payload=[],
+    state.record_event(
+        ModelRequestEvent(
+            agent=agent,
+            visible_count=turn_index * 2 + 1,
+            llm_message_count=turn_index * 2 + 1,
+            context_view={"input_tokens_estimate": 600 + 220 * turn_index, "messages": turn_index * 2 + 1},
+            tools=[{"name": "bash", "description": "Run a bash command."}],
+            llm_payload=[],
+        )
     )
     # Simulate LLM latency.
     time.sleep(max(0.1, turn_delay * 0.35))
 
     call_id = f"call_{turn_index:02d}"
-    state.model_response(
-        agent=agent,
-        output_kind="thought",
-        target=agent,
-        tool_call_count=1,
+    state.record_event(
+        ModelResponseEvent(
+            agent=agent,
+            output_kind="thought",
+            target=agent,
+            tool_call_count=1,
+        )
     )
     assistant_msg = AssistantMessage(
         sender=agent,
@@ -117,15 +130,19 @@ def _emit_turn(state: State, turn_index: int, agent: str, *, turn_delay: float) 
     )
     state.record(assistant_msg)
 
-    state.tool_execution_start(tool_call_id=call_id, tool_name="bash")
+    state.record_event(
+        ToolExecutionStartEvent(tool_call_id=call_id, tool_name="bash")
+    )
     # This is the long stretch — the agent loop is now blocked inside the
     # tool call. The background writer should keep flushing during this gap.
     time.sleep(max(0.1, turn_delay * 0.45))
-    state.tool_execution_end(
-        tool_call_id=call_id,
-        tool_name="bash",
-        is_error=False,
-        terminate=False,
+    state.record_event(
+        ToolExecutionEndEvent(
+            tool_call_id=call_id,
+            tool_name="bash",
+            is_error=False,
+            terminate=False,
+        )
     )
 
     tool_result = make_message(
@@ -144,7 +161,7 @@ def _emit_turn(state: State, turn_index: int, agent: str, *, turn_delay: float) 
         channel="main",
     )
     state.record(tool_result)
-    state.turn_end(agent=agent, terminated=False)
+    state.record_event(TurnEndEvent(agent=agent, terminated=False))
     time.sleep(max(0.05, turn_delay * 0.15))
 
 
@@ -188,7 +205,7 @@ def main() -> None:
     # Seed the conversation with the original task as a user message so the
     # viewer's "task" preview lines up with what the agent actually sees.
     state.send("task", "user", args.agent, state.task)
-    state.agent_start()
+    state.record_event(AgentStartEvent())
 
     trace_meta = TraceMeta(
         trace_id="demo.live.001",
@@ -242,7 +259,7 @@ def main() -> None:
                 ),
             )
         )
-        state.agent_end(reason="final")
+        state.record_event(AgentEndEvent(reason="final"))
 
     write_canonical_trace(
         out_path,

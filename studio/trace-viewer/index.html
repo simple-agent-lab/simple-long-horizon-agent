@@ -1091,19 +1091,22 @@
     .waterfall[data-collapsed="1"] { padding-bottom: 6px; }
     .waterfall[data-collapsed="1"] .waterfall-head { margin-bottom: 0; }
     .wf-toggle {
-      background: transparent;
+      background: rgba(255,255,255,0.05);
       border: 1px solid var(--ink-3);
-      border-radius: 2px;
-      width: 22px; height: 20px;
-      color: var(--paper-dim);
+      border-radius: 3px;
+      min-width: 30px; height: 26px;
+      padding: 0 8px;
+      color: var(--paper);
       font-family: "JetBrains Mono", monospace;
-      font-size: 10px;
+      font-size: 15px;
+      font-weight: 600;
       line-height: 1;
       cursor: pointer;
-      margin-left: 10px;
-      vertical-align: 2px;
+      margin-left: 12px;
+      vertical-align: -7px;
+      transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
     }
-    .wf-toggle:hover { color: var(--phosphor); border-color: var(--phosphor); }
+    .wf-toggle:hover { color: var(--phosphor); border-color: var(--phosphor); background: rgba(0,255,170,0.10); }
     .wf-toggle:focus-visible { outline: 2px solid var(--phosphor); outline-offset: 1px; }
     .waterfall-head {
       display: flex;
@@ -1302,6 +1305,30 @@
       margin-left: 4px;
       background: linear-gradient(90deg, rgba(228,103,209,0.11), transparent 88px);
     }
+
+    /* collapsible sub-agent group header */
+    .row.subagent-group {
+      cursor: pointer;
+      align-items: center;
+      background: linear-gradient(90deg, rgba(228,103,209,0.10), rgba(228,103,209,0.02) 60%, transparent);
+      border-left: 2px solid var(--magenta);
+    }
+    .row.subagent-group:hover { background: linear-gradient(90deg, rgba(228,103,209,0.16), rgba(228,103,209,0.04) 60%, transparent); }
+    .row.subagent-group .body { display: flex; align-items: center; gap: 10px; }
+    .row.subagent-group .sg-caret {
+      display: inline-block;
+      width: 12px;
+      color: var(--magenta);
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11px;
+    }
+    .row.subagent-group .sg-label {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      color: var(--paper);
+    }
+    .row.subagent-group .sg-count { color: var(--paper-dim); }
 
     /* compression row visual */
     .row.is-compression {
@@ -2825,6 +2852,7 @@
     filters: { errors: false, compress: false, thinking: true, q: "" },
     selected: { kind: null, id: null }, // {kind: 'event'|'span'|'message'|'turn', id: ...}
     collapsedSpans: new Set(),
+    expandedSubagents: new Set(),     // sub-agent callIds expanded in the message stream
   };
 
   /* ---------- performance instrumentation (?perf=1) ---------- */
@@ -3557,17 +3585,21 @@
     const compress = events.filter(e => e.kind === "context_compression").length;
     let tokensIn = 0;
     let tokensOut = 0;
+    let cacheRead = 0;
+    let cacheWrite = 0;
     for (const e of events) {
       if (e.kind === "message" && e.message?.usage) {
         tokensIn += e.message.usage.input_tokens || 0;
         tokensOut += e.message.usage.output_tokens || 0;
+        cacheRead += e.message.usage.cache_read_tokens || 0;
+        cacheWrite += e.message.usage.cache_write_tokens || 0;
       }
     }
     const subAgents = State.spans.filter(s => s.kind === "agent_run" && s.depth > 0).length;
     const finalEvent = events.find(e => e.kind === "agent_end");
     const reason = finalEvent?.reason || NA;
     return {
-      total, turns, modelCalls, toolEnds, errs, compress, tokensIn, tokensOut, subAgents, reason,
+      total, turns, modelCalls, toolEnds, errs, compress, tokensIn, tokensOut, cacheRead, cacheWrite, subAgents, reason,
     };
   }
 
@@ -3617,6 +3649,8 @@
         ${metric("sub-agents", fmt(m.subAgents), m.subAgents ? "warn" : "")}
         ${metric("tokens in", fmt(m.tokensIn))}
         ${metric("tokens out", fmt(m.tokensOut))}
+        ${metric("cache read", fmt(m.cacheRead))}
+        ${metric("cache write", fmt(m.cacheWrite))}
         ${metric("exit", m.reason, exitCls)}
       </div>`;
   }
@@ -3700,7 +3734,7 @@
       }
       return;
     }
-    const { total, turns, modelCalls, toolEnds, errs, compress, tokensIn, tokensOut, subAgents, reason } = metrics;
+    const { total, turns, modelCalls, toolEnds, errs, compress, tokensIn, tokensOut, cacheRead, cacheWrite, subAgents, reason } = metrics;
     const stats = [
       { k: "duration", v: dur(total),          cls: "" , mono: true },
       { k: "turns",     v: fmt(turns),         cls: "" },
@@ -3711,6 +3745,8 @@
       { k: "sub-agents", v: fmt(subAgents),    cls: subAgents ? "stat--warn" : "" },
       { k: "tokens in",  v: fmt(tokensIn),     cls: "", mono: true },
       { k: "tokens out", v: fmt(tokensOut),    cls: "", mono: true },
+      { k: "cache read", v: fmt(cacheRead),    cls: "", mono: true },
+      { k: "cache write",v: fmt(cacheWrite),   cls: "", mono: true },
       { k: "exit",       v: reason,            cls: "" },
     ];
     $("#stat-strip").innerHTML = stats.map(s =>
@@ -3726,7 +3762,7 @@
         { k: "model", v: fmt(modelCalls), cls: "" },
         { k: "tools", v: fmt(toolEnds.length), cls: "" },
         { k: "err", v: fmt(errs), cls: errs ? "alarm" : "" },
-        { k: "tok", v: `${fmt(tokensIn)}↓ ${fmt(tokensOut)}↑`, cls: "" },
+        { k: "tok", v: `${fmt(tokensIn)}↓ ${fmt(tokensOut)}↑${cacheRead > 0 ? ` · cache ${fmt(cacheRead)}` : ""}`, cls: "" },
       ];
       compactEl.innerHTML = compact.map(s =>
         `<span class="cseg ${s.cls}"><span class="ck">${s.k}</span><span class="cv">${escapeHtml(s.v)}</span></span>`
@@ -3948,7 +3984,15 @@
   const STREAM_VIRT_MIN = 120;
   const STREAM_ROW_EST = 72;
   const STREAM_VIRT_OVERSCAN = 6;
-  const StreamVirt = { entries: [], scrollRoot: null, onScroll: null };
+  const StreamVirt = {
+    entries: [],
+    heights: [],
+    offsets: [],
+    totalH: 0,
+    scrollRoot: null,
+    onScroll: null,
+    resizeObs: null,
+  };
 
   function bindStreamRowClicks(scope) {
     const root = scope || document.getElementById("stream");
@@ -3957,6 +4001,10 @@
       if (el.dataset.bound === "1") return;
       el.dataset.bound = "1";
       el.addEventListener("click", () => {
+        if (el.classList.contains("subagent-group")) {
+          toggleSubagent(el.dataset.subgroup || "");
+          return;
+        }
         State.selected = { kind: el.dataset.selKind, id: el.dataset.selId };
         applySelection({ scroll: "tree" });
       });
@@ -3967,9 +4015,16 @@
     if (StreamVirt.scrollRoot && StreamVirt.onScroll) {
       StreamVirt.scrollRoot.removeEventListener("scroll", StreamVirt.onScroll);
     }
+    if (StreamVirt.resizeObs) {
+      StreamVirt.resizeObs.disconnect();
+    }
     StreamVirt.scrollRoot = null;
     StreamVirt.onScroll = null;
+    StreamVirt.resizeObs = null;
     StreamVirt.entries = [];
+    StreamVirt.heights = [];
+    StreamVirt.offsets = [];
+    StreamVirt.totalH = 0;
   }
 
   function streamVirtIndexForSelection() {
@@ -3986,19 +4041,65 @@
     const inner = host?.firstElementChild;
     if (!inner) return;
     const scrollRoot = StreamVirt.scrollRoot;
-    const targetTop = inner.offsetTop + i * STREAM_ROW_EST - scrollRoot.clientHeight * 0.35;
+    const offset = StreamVirt.offsets[i] ?? i * STREAM_ROW_EST;
+    const targetTop = inner.offsetTop + offset - scrollRoot.clientHeight * 0.35;
     scrollRoot.scrollTop = Math.max(0, targetTop);
     if (StreamVirt.onScroll) StreamVirt.onScroll();
+  }
+
+  // Measure each virtualized row off-screen so we use real heights instead of a
+  // single estimate. With variable preview lengths (e.g. multi-line user
+  // messages, multiple tool calls) a fixed-height assumption causes rows to
+  // overlap.
+  function measureStreamRowHeights(rowHtml, host) {
+    if (!rowHtml.length) return { heights: [], offsets: [], totalH: 0 };
+    const cs = window.getComputedStyle(host);
+    const padL = parseFloat(cs.paddingLeft) || 0;
+    const padR = parseFloat(cs.paddingRight) || 0;
+    const w = Math.max(0, host.clientWidth - padL - padR);
+    const measure = document.createElement("div");
+    measure.setAttribute("aria-hidden", "true");
+    measure.style.cssText =
+      `position: absolute; left: -10000px; top: 0; ` +
+      `visibility: hidden; pointer-events: none; ` +
+      `width: ${w}px;`;
+    measure.innerHTML = rowHtml.join("");
+    document.body.appendChild(measure);
+    const heights = [];
+    const offsets = [];
+    let acc = 0;
+    for (const el of measure.children) {
+      offsets.push(acc);
+      const h = el.offsetHeight || STREAM_ROW_EST;
+      heights.push(h);
+      acc += h;
+    }
+    measure.remove();
+    return { heights, offsets, totalH: acc };
+  }
+
+  // Largest index where arr[i] <= target, or -1 if none.
+  function streamVirtFloorIndex(arr, target) {
+    let lo = 0, hi = arr.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (arr[mid] <= target) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo - 1;
   }
 
   function renderStreamVirtual(entries) {
     teardownStreamVirt();
     const host = $("#stream");
     const rowHtml = entries.map((e) => e.html);
-    const totalH = rowHtml.length * STREAM_ROW_EST;
+    let { heights, offsets, totalH } = measureStreamRowHeights(rowHtml, host);
     host.innerHTML = `<div class="stream-virt-inner" style="height:${totalH}px"></div>`;
     const inner = host.firstElementChild;
     StreamVirt.entries = entries;
+    StreamVirt.heights = heights;
+    StreamVirt.offsets = offsets;
+    StreamVirt.totalH = totalH;
 
     const scrollRoot = host.closest(".pane-body");
     if (!scrollRoot) {
@@ -4008,16 +4109,16 @@
     }
 
     const mounted = new Map();
-    function rowTop(i) { return i * STREAM_ROW_EST; }
 
     function paint() {
       const hostTop = inner.offsetTop;
       const viewTop = Math.max(0, scrollRoot.scrollTop - hostTop);
       const viewBottom = viewTop + scrollRoot.clientHeight;
-      let start = Math.floor(viewTop / STREAM_ROW_EST) - STREAM_VIRT_OVERSCAN;
-      let end = Math.ceil(viewBottom / STREAM_ROW_EST) + STREAM_VIRT_OVERSCAN;
-      start = Math.max(0, start);
-      end = Math.min(rowHtml.length, end);
+      let start = streamVirtFloorIndex(StreamVirt.offsets, viewTop);
+      if (start < 0) start = 0;
+      let end = streamVirtFloorIndex(StreamVirt.offsets, viewBottom) + 1;
+      start = Math.max(0, start - STREAM_VIRT_OVERSCAN);
+      end = Math.min(rowHtml.length, end + STREAM_VIRT_OVERSCAN);
       for (const [i, el] of mounted) {
         if (i < start || i >= end) {
           el.remove();
@@ -4030,16 +4131,44 @@
         wrap.innerHTML = rowHtml[i];
         const row = wrap.firstElementChild;
         if (!row) continue;
-        row.style.top = `${rowTop(i)}px`;
+        row.style.top = `${StreamVirt.offsets[i]}px`;
         inner.appendChild(row);
         mounted.set(i, row);
       }
+      bindStreamRowClicks(inner);
       syncSelectionHighlight();
+    }
+
+    function remeasureAndRepaint() {
+      const next = measureStreamRowHeights(rowHtml, host);
+      StreamVirt.heights = next.heights;
+      StreamVirt.offsets = next.offsets;
+      StreamVirt.totalH = next.totalH;
+      inner.style.height = `${next.totalH}px`;
+      for (const [i, el] of mounted) {
+        el.style.top = `${StreamVirt.offsets[i]}px`;
+      }
+      paint();
     }
 
     StreamVirt.onScroll = () => requestAnimationFrame(paint);
     StreamVirt.scrollRoot = scrollRoot;
     scrollRoot.addEventListener("scroll", StreamVirt.onScroll, { passive: true });
+
+    if (typeof ResizeObserver !== "undefined") {
+      let lastW = host.clientWidth;
+      let pending = 0;
+      const obs = new ResizeObserver(() => {
+        const w = host.clientWidth;
+        if (w === lastW) return;
+        lastW = w;
+        if (pending) cancelAnimationFrame(pending);
+        pending = requestAnimationFrame(remeasureAndRepaint);
+      });
+      obs.observe(host);
+      StreamVirt.resizeObs = obs;
+    }
+
     paint();
     bindStreamRowClicks(inner);
   }
@@ -4056,12 +4185,12 @@
 
     let rows = [];
     if (State.mode === "messages") {
-      // Flatten messages (parent + inlined sub-agent messages)
+      // Flatten messages; sub-agent messages are collected into collapsible groups.
       const flat = [];
       for (const ev of events) {
         if (ev.kind === "message") {
-          flat.push({ depth: 0, ev, t: ev.elapsed });
-          // inline sub-agent messages chronologically right after the bundle
+          flat.push({ kind: "msg", depth: 0, ev, t: ev.elapsed });
+          // collect sub-agent messages into a foldable group at the tool-call time
           if (ev.message?.kind === "tool_result") {
             const details = ev.message?.data?.details || {};
             for (const [callId, d] of Object.entries(details)) {
@@ -4073,21 +4202,36 @@
                   }
                   return 0;
                 })();
+                const subRows = [];
                 for (const se of d.sub_events) {
-                  if (se.kind === "message") flat.push({ depth: 1, ev: se, t: se.elapsed + toolStart, subCallId: callId });
+                  if (se.kind === "message") subRows.push({ kind: "msg", depth: 1, ev: se, t: se.elapsed + toolStart, subCallId: callId });
                 }
+                if (subRows.length) flat.push({ kind: "subgroup", callId, t: toolStart, rows: subRows });
               }
             }
           }
         }
       }
       flat.sort((a,b) => a.t - b.t);
-      for (const r of flat) {
+      const matchMsgRow = (r) => {
         const msg = r.ev.message;
-        if (!msg) continue;
-        if (errOnly && !messageHasError(msg)) continue;
-        if (q && !messageMatchesQuery(msg, q)) continue;
-        rows.push(renderMessageRow(r));
+        if (!msg) return false;
+        if (errOnly && !messageHasError(msg)) return false;
+        if (q && !messageMatchesQuery(msg, q)) return false;
+        return true;
+      };
+      for (const item of flat) {
+        if (item.kind === "subgroup") {
+          const childRows = item.rows.filter(matchMsgRow);
+          if (!childRows.length) continue;
+          // auto-expand while searching/filtering so inner matches stay visible
+          const expanded = State.expandedSubagents.has(item.callId) || !!q || errOnly;
+          rows.push(renderSubagentGroupHeader(item.callId, childRows.length, expanded));
+          if (expanded) for (const r of childRows) rows.push(renderMessageRow(r));
+        } else {
+          if (!matchMsgRow(item)) continue;
+          rows.push(renderMessageRow(item));
+        }
       }
       $("#stream-label").textContent = `messages · ${rows.length}`;
     } else if (State.mode === "events") {
@@ -4167,6 +4311,28 @@
   function messageMatchesQuery(msg, q) {
     const text = JSON.stringify(msg).toLowerCase();
     return text.includes(q);
+  }
+
+  function renderSubagentGroupHeader(callId, count, expanded) {
+    const caret = expanded ? "▾" : "▸";
+    const short = (callId || "").slice(-4);
+    return `
+      <div class="row subagent-group" data-subgroup="${escapeHtml(callId)}" data-expanded="${expanded ? "1" : "0"}">
+        <div class="frame"></div>
+        <div class="t"></div>
+        <div class="body">
+          <span class="sg-caret">${caret}</span>
+          <span class="tag subagent">sub · ${escapeHtml(short)}</span>
+          <span class="sg-label">sub-agent · <span class="sg-count">${count} message${count === 1 ? "" : "s"}</span></span>
+        </div>
+      </div>
+    `;
+  }
+
+  function toggleSubagent(callId) {
+    if (State.expandedSubagents.has(callId)) State.expandedSubagents.delete(callId);
+    else State.expandedSubagents.add(callId);
+    renderStream();
   }
 
   function renderMessageRow(r) {
@@ -5740,7 +5906,7 @@
     const onlyTrajectories = traces.filter(t => t.kind === "trajectory");
     const filtered = q
       ? onlyTrajectories.filter(t => {
-          const haystack = [t.group, t.name, t.instance_id, t.rel_path]
+          const haystack = [t.run_id, t.group, t.name, t.instance_id, t.rel_path]
             .filter(Boolean).join(" ").toLowerCase();
           return haystack.includes(q);
         })
@@ -5751,9 +5917,12 @@
       return;
     }
 
+    // Prefer aggregating by run_id (set by the server for the
+    // ``<run_id>/<instance_id>/out/trajectory.jsonl`` layout) so a parallel
+    // run shows up as one row with N instances instead of N siblings.
     const groups = new Map();
     for (const t of filtered) {
-      const g = t.group || "(ungrouped)";
+      const g = t.run_id || t.group || "(ungrouped)";
       if (!groups.has(g)) groups.set(g, []);
       groups.get(g).push(t);
     }

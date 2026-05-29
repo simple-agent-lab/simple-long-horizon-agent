@@ -1,24 +1,33 @@
-"""Model-visible context projection helpers.
+"""Model-visible context projection: policy, contract, and view builder.
 
 `State.events` keeps the full trace. A context view is the smaller, explicit
-projection an agent sees before one model step.
+projection an agent sees before one model step. Projection here means only
+visibility filtering: messages whose `kind` is in `skip_kinds` are dropped
+because they were never meant for the model.
+
+This module owns the two pieces that describe *what* should happen to a
+view: `ContextPolicy` (the per-agent config) and the compression contract
+(`CompressionStrategy` / `CompressionDecision`) that policies reference.
+The concrete strategies and the runtime that applies them live in
+`simple_agent_lab.compression`, which depends on this module — never the
+other way around. Strategies mutate the active view through
+`ContextCompressionEvent` *before* `build_context_view` runs, so this module
+never has to know how the active view was shaped.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
-from typing import Any
+from dataclasses import dataclass, field
+from typing import Protocol
 
 from .messages import (
     AssistantMessage,
     ImageBlock,
     Message,
     MessageKind,
-    SystemMessage,
     TextBlock,
     TokenUsage,
-    is_tool_result_message,
     tool_results_of,
 )
 
@@ -30,55 +39,74 @@ IMAGE_CHAR_ESTIMATE = 7373
 
 
 @dataclass(frozen=True)
+class CompressionDecision:
+    """What a strategy returns.
+
+    `compress_indices` lists the positions in `state.messages` that should
+    be removed from the active view. `replacement` is the single message
+    the framework writes in their place (typically a `kind="summary"`
+    system message).
+    """
+
+    compress_indices: tuple[int, ...]
+    replacement: Message
+
+
+class CompressionStrategy(Protocol):
+    """Signature every strategy must satisfy.
+
+    Args:
+        active: `(index, message)` pairs the agent currently sees, in
+            display order. Already filtered to exclude `policy.skip_kinds`,
+            so the strategy can act on every item it receives.
+        agent_name: target for the replacement message (typically the
+            agent whose context is being shrunk).
+
+    A strategy is free to pick any subset of indices for compression.
+    Convention is that each strategy owns a `preserve_kinds` knob so the
+    caller can tune what stays anchored (see
+    `simple_agent_lab.compression.DEFAULT_PRESERVE_KINDS`). Concrete
+    strategies live in `simple_agent_lab.compression`.
+    """
+
+    def __call__(
+        self,
+        active: list[tuple[int, Message]],
+        agent_name: str,
+    ) -> CompressionDecision | None: ...
+
+
+@dataclass(frozen=True)
 class ContextPolicy:
-    """Budget and trimming policy for one agent context view."""
+    """Visibility filter + compression strategy list for one agent.
+
+    `skip_kinds` are never shown to the model. `strategies` is evaluated
+    in order before each model request; each strategy may return a
+    `CompressionDecision` that the runtime applies to state.
+    """
 
     skip_kinds: tuple[MessageKind, ...] = ("notification", "trace")
-    pinned_kinds: tuple[MessageKind, ...] = ("task", "system", "summary")
-    last: int | None = None
-    max_chars: int | None = None
-    max_message_chars: int | None = None
-    reserve_recent: int = 1
-    compress_at_tokens: int | None = None
-    compress_keep_recent: int = 4
-    compressor: Any | None = None
+    strategies: tuple[CompressionStrategy, ...] = field(default_factory=tuple)
 
-    def __post_init__(self) -> None:
-        _validate_positive("last", self.last)
-        _validate_positive("max_chars", self.max_chars)
-        _validate_positive("max_message_chars", self.max_message_chars)
-        _validate_positive("compress_at_tokens", self.compress_at_tokens)
-        if self.reserve_recent < 0:
-            raise ValueError(
-                f"ContextPolicy.reserve_recent must be >= 0, got {self.reserve_recent!r}"
-            )
-        if self.compress_keep_recent < 0:
-            raise ValueError(
-                "ContextPolicy.compress_keep_recent must be >= 0, "
-                f"got {self.compress_keep_recent!r}"
-            )
+    def is_visible(self, message: Message) -> bool:
+        """Whether this message survives the agent's visibility filter."""
+        return message.kind not in self.skip_kinds
 
 
 @dataclass(frozen=True)
 class ContextStats:
     total_messages: int
     visible_messages: int
-    selected_messages: int
-    dropped_messages: int
     estimated_chars: int
     estimated_tokens: int
-    clipped_messages: int
     usage_known_messages: int = 0
 
     def as_dict(self) -> dict[str, int]:
         return {
             "total_messages": self.total_messages,
             "visible_messages": self.visible_messages,
-            "selected_messages": self.selected_messages,
-            "dropped_messages": self.dropped_messages,
             "estimated_chars": self.estimated_chars,
             "estimated_tokens": self.estimated_tokens,
-            "clipped_messages": self.clipped_messages,
             "usage_known_messages": self.usage_known_messages,
         }
 
@@ -88,21 +116,12 @@ class ContextView:
     agent: str
     messages: tuple[Message, ...]
     stats: ContextStats
-    notes: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, object]:
         return {
             "agent": self.agent,
             **self.stats.as_dict(),
-            "notes": list(self.notes),
         }
-
-
-@dataclass(frozen=True)
-class _ContextGroup:
-    messages: tuple[Message, ...]
-    chars: int
-    pinned: bool
 
 
 def build_context_view(
@@ -111,41 +130,20 @@ def build_context_view(
     *,
     policy: ContextPolicy | None = None,
 ) -> ContextView:
-    """Project a full transcript into the messages visible to one agent."""
+    """Project a transcript into the messages visible to one agent.
+
+    This is a pure visibility filter. To shrink the active context, attach
+    a `CompressionStrategy` to `ContextPolicy.strategies`; the runtime
+    runs strategies before this call and `messages` will already reflect
+    their effect.
+    """
     resolved = policy or ContextPolicy()
-    visible = [
-        message for message in messages if message.kind not in resolved.skip_kinds
-    ]
-    last = resolved.last
-    omitted_by_last = max(0, len(visible) - last) if last is not None else 0
-    if last is not None and omitted_by_last:
-        visible = visible[-last:]
-
-    clipped_messages = 0
-    clipped: list[Message] = []
-    for message in visible:
-        next_message, did_clip = clip_message(message, resolved.max_message_chars)
-        clipped.append(next_message)
-        if did_clip:
-            clipped_messages += 1
-
-    groups = _group_messages(clipped, resolved)
-    selected_groups, dropped_groups, budget_notes = _select_groups(groups, resolved)
-    selected_messages = tuple(
-        message for group in selected_groups for message in group.messages
-    )
-    dropped_count = sum(len(group.messages) for group in dropped_groups)
-    estimated_chars = sum(group.chars for group in selected_groups)
-    usage_baseline_is_valid = (
-        omitted_by_last == 0 and dropped_count == 0 and clipped_messages == 0
-    )
-    estimated_tokens = estimate_context_tokens(
-        selected_messages,
-        allow_usage_baseline=usage_baseline_is_valid,
-    )
+    visible = tuple(message for message in messages if resolved.is_visible(message))
+    estimated_chars = sum(estimate_message_chars(message) for message in visible)
+    estimated_tokens = estimate_context_tokens(visible)
     usage_known_messages = sum(
         1
-        for message in selected_messages
+        for message in visible
         if isinstance(message, AssistantMessage)
         and message.usage is not None
         and message.usage.output_tokens > 0
@@ -153,19 +151,11 @@ def build_context_view(
     stats = ContextStats(
         total_messages=len(messages),
         visible_messages=len(visible),
-        selected_messages=len(selected_messages),
-        dropped_messages=dropped_count,
         estimated_chars=estimated_chars,
         estimated_tokens=estimated_tokens,
-        clipped_messages=clipped_messages,
         usage_known_messages=usage_known_messages,
     )
-    return ContextView(
-        agent=agent_name,
-        messages=selected_messages,
-        stats=stats,
-        notes=tuple(budget_notes),
-    )
+    return ContextView(agent=agent_name, messages=visible, stats=stats)
 
 
 def estimate_message_chars(message: Message) -> int:
@@ -222,9 +212,9 @@ def estimate_context_tokens(
 
     When possible, use the latest provider-reported assistant usage as the
     authoritative size of everything up to that response, then estimate only
-    messages added after it. If the caller has dropped or clipped earlier
-    context, pass ``allow_usage_baseline=False`` so omitted text is not counted
-    through the historical usage total.
+    messages added after it. Pass ``allow_usage_baseline=False`` when the
+    caller knows older context has been dropped or summarized — the historical
+    usage figure would over-count text that is no longer present.
     """
     if allow_usage_baseline:
         for index in range(len(messages) - 1, -1, -1):
@@ -236,119 +226,6 @@ def estimate_context_tokens(
                     for trailing in messages[index + 1 :]
                 )
     return sum(estimate_message_tokens(message) for message in messages)
-
-
-def clip_message(
-    message: Message,
-    max_chars: int | None,
-) -> tuple[Message, bool]:
-    """Clip large text content while preserving message identity fields.
-
-    Only the leading TextBlock is clipped — non-text blocks (images,
-    thinking, tool_call) pass through untouched so we keep tool-use
-    continuity even under aggressive budgets.
-    """
-    if max_chars is None:
-        return message, False
-    blocks = message.content
-    if not blocks or not isinstance(blocks[0], TextBlock):
-        return message, False
-    head = blocks[0]
-    if len(head.text) <= max_chars:
-        return message, False
-
-    marker = f"\n[context clipped: omitted {len(head.text) - max_chars} chars]"
-    keep_chars = max(0, max_chars - len(marker))
-    marker = f"\n[context clipped: omitted {len(head.text) - keep_chars} chars]"
-    clipped = TextBlock(text=f"{head.text[:keep_chars]}{marker}")
-    return replace(message, content=(clipped, *blocks[1:])), True
-
-
-def _group_messages(
-    messages: Sequence[Message],
-    policy: ContextPolicy,
-) -> list[_ContextGroup]:
-    groups: list[_ContextGroup] = []
-    consumed: set[int] = set()
-    for index, message in enumerate(messages):
-        if index in consumed:
-            continue
-        group = [message]
-        if isinstance(message, AssistantMessage) and message.tool_calls:
-            wanted = {tool_call.id for tool_call in message.tool_calls}
-            next_index = index + 1
-            while next_index < len(messages) and wanted:
-                candidate = messages[next_index]
-                candidate_results = tool_results_of(candidate.content)
-                if is_tool_result_message(candidate) and any(
-                    result.tool_call_id in wanted for result in candidate_results
-                ):
-                    group.append(candidate)
-                    consumed.add(next_index)
-                    for result in candidate_results:
-                        wanted.discard(result.tool_call_id)
-                    next_index += 1
-                    continue
-                break
-        groups.append(
-            _ContextGroup(
-                messages=tuple(group),
-                chars=sum(estimate_message_chars(item) for item in group),
-                pinned=any(_is_pinned(item, policy) for item in group),
-            )
-        )
-    return groups
-
-
-def _select_groups(
-    groups: Sequence[_ContextGroup],
-    policy: ContextPolicy,
-) -> tuple[list[_ContextGroup], list[_ContextGroup], list[str]]:
-    if policy.max_chars is None:
-        return list(groups), [], []
-
-    max_chars = policy.max_chars
-    selected: set[int] = set()
-    notes: list[str] = []
-    total_chars = 0
-
-    def add(index: int, *, force: bool) -> bool:
-        nonlocal total_chars
-        if index in selected:
-            return True
-        group = groups[index]
-        if force or total_chars + group.chars <= max_chars:
-            selected.add(index)
-            total_chars += group.chars
-            return True
-        return False
-
-    for index, group in enumerate(groups):
-        if group.pinned:
-            add(index, force=True)
-
-    if policy.reserve_recent:
-        first_recent = max(0, len(groups) - policy.reserve_recent)
-        for index in range(first_recent, len(groups)):
-            add(index, force=True)
-
-    for index in range(len(groups) - 1, -1, -1):
-        add(index, force=False)
-
-    selected_groups = [group for index, group in enumerate(groups) if index in selected]
-    dropped_groups = [
-        group for index, group in enumerate(groups) if index not in selected
-    ]
-    dropped_count = sum(len(group.messages) for group in dropped_groups)
-    if dropped_count:
-        notes.append(f"budget dropped {dropped_count} message(s)")
-    if total_chars > max_chars:
-        notes.append("pinned/recent context exceeds max_chars")
-    return selected_groups, dropped_groups, notes
-
-
-def _is_pinned(message: Message, policy: ContextPolicy) -> bool:
-    return isinstance(message, SystemMessage) or message.kind in policy.pinned_kinds
 
 
 def _content_chars(content: object) -> int:
@@ -378,8 +255,3 @@ def _usage_context_tokens(usage: TokenUsage) -> int:
         + usage.cache_read_tokens
         + usage.cache_write_tokens
     )
-
-
-def _validate_positive(name: str, value: int | None) -> None:
-    if value is not None and value <= 0:
-        raise ValueError(f"ContextPolicy.{name} must be > 0, got {value!r}")

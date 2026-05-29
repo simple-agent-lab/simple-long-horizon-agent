@@ -17,17 +17,20 @@ from pathlib import Path
 from typing import Any, Callable
 
 from simple_agent_lab.agents.bash import make_bash_agent
+from simple_agent_lab.agents.bash_task import (
+    BASH_TASK_EXPLORER_ADDENDUM,
+    make_bash_task_agent,
+)
+from simple_agent_lab.core import Agent
 from simple_agent_lab.llm import Provider as LLMProvider
 from simple_agent_lab.state import State
-from simple_agent_lab.live_trace import (
-    LiveTraceSession,
-    default_stderr_flush_error,
-    write_canonical_trace,
-)
 from simple_agent_lab.trajectory import (
+    LiveTraceSession,
     RunTrace,
+    default_stderr_flush_error,
     run_trace_from_state,
     trace_record,
+    write_canonical_trace,
     write_jsonl,
 )
 
@@ -53,6 +56,8 @@ OPENAI_AUTH_ENV = "OPENAI_AUTH_TOKEN"
 OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
 API_KIND_ENV = "API_KIND"
 API_KIND_CHOICES = ("openai-chat", "openai-responses")
+AGENT_FLAVOR_CHOICES = ("bash", "bash_task")
+DEFAULT_AGENT_FLAVOR = "bash"
 
 AGENT_NAME = "swebench_agent"
 AGENT_ROLE = (
@@ -70,6 +75,10 @@ AGENT_SYSTEM_PROMPT = (
     "codebase. Keep command output focused. When the repository is patched, "
     "return a short final summary; the harness collects git diff separately."
 )
+# The bash_task flavor appends the package's canonical explorer addendum
+# (`BASH_TASK_EXPLORER_ADDENDUM`) to AGENT_SYSTEM_PROMPT so the parent
+# prompt stays a small superset of the plain bash-agent prompt and the
+# wording can never drift from the shipped preset.
 AGENT_DEFAULT_TEMPERATURE = 0.0
 LLM_RETRY_MAX_ATTEMPTS = 20
 LLM_RETRY_INITIAL_DELAY_SECONDS = 4.0
@@ -145,13 +154,19 @@ def run_agent(
     provider: LLMProvider,
     workdir: Path,
     max_turns: int,
+    agent_flavor: str = DEFAULT_AGENT_FLAVOR,
     incremental_trace_path: str | Path | None = None,
     incremental_trace_meta_fn: Callable[[State], dict[str, Any]] | None = None,
     incremental_trace_id: str | None = None,
     incremental_trace_producer: str = "suite:swebench",
     incremental_flush_interval_s: float = INCREMENTAL_TRACE_FLUSH_INTERVAL_S,
 ) -> State:
-    """Run the bash-use agent inside the local container filesystem.
+    """Run the configured agent flavor inside the local container filesystem.
+
+    ``agent_flavor`` selects between the plain bash agent (``"bash"``) and
+    the bash + task delegation agent (``"bash_task"``). Both presets share
+    the same ``cwd`` and SWE-bench task / system prompt so the only
+    difference is the parent's tool surface.
 
     When ``incremental_trace_path`` is provided a background writer
     re-serializes the in-flight ``RunTrace`` to that path every
@@ -164,12 +179,10 @@ def run_agent(
     language = instance_language(instance)
     baseline_commit = prepare_baseline_commit(workdir, language=language)
     task = task_from_instance(instance, workdir=str(workdir))
-    agent = make_bash_agent(
+    agent = build_swebench_agent(
+        flavor=agent_flavor,
         provider=provider,
         cwd=workdir,
-        name=AGENT_NAME,
-        role=AGENT_ROLE,
-        system_prompt=AGENT_SYSTEM_PROMPT,
     )
     agent.generate = with_llm_retry(agent.generate)
     state, events = agent.run(task, max_turns=max_turns)
@@ -208,6 +221,44 @@ def run_agent(
         commit=baseline_commit or instance_base_commit(instance),
     )
     return state
+
+
+def build_swebench_agent(
+    *,
+    flavor: str,
+    provider: LLMProvider,
+    cwd: Path,
+) -> Agent:
+    """Build the SWE-bench agent for ``flavor`` with shared name/role/prompt.
+
+    The ``bash_task`` flavor reuses ``AGENT_SYSTEM_PROMPT`` and only
+    appends a small addendum describing the ``task`` tool, so behavior
+    is comparable between flavors (only the parent's tool surface and
+    one addendum paragraph differ).
+    """
+
+    if flavor == "bash":
+        return make_bash_agent(
+            provider=provider,
+            cwd=cwd,
+            name=AGENT_NAME,
+            role=AGENT_ROLE,
+            system_prompt=AGENT_SYSTEM_PROMPT,
+        )
+    if flavor == "bash_task":
+        return make_bash_task_agent(
+            provider=provider,
+            cwd=cwd,
+            name=AGENT_NAME,
+            role=AGENT_ROLE,
+            system_prompt=(
+                AGENT_SYSTEM_PROMPT + "\n\n" + BASH_TASK_EXPLORER_ADDENDUM
+            ),
+        )
+    raise SystemExit(
+        f"Unsupported agent flavor {flavor!r}; expected one of: "
+        + ", ".join(AGENT_FLAVOR_CHOICES)
+    )
 
 
 def build_openai_provider_from_env(api_kind: str = "openai-chat") -> LLMProvider:
@@ -370,6 +421,16 @@ def main() -> None:
     )
     parser.add_argument("--workdir", default="/testbed")
     parser.add_argument("--max-turns", type=int, default=75)
+    parser.add_argument(
+        "--agent-flavor",
+        choices=AGENT_FLAVOR_CHOICES,
+        default=DEFAULT_AGENT_FLAVOR,
+        help=(
+            "Agent preset: 'bash' (parent has only the bash tool, current "
+            "baseline) or 'bash_task' (parent has bash + task with an "
+            "explorer sub-agent for context-isolating heavy reads)."
+        ),
+    )
     parser.add_argument("--traces", required=True)
     parser.add_argument("--predictions", required=True)
     args = parser.parse_args()
@@ -400,10 +461,12 @@ def main() -> None:
         provider=provider,
         workdir=Path(args.workdir),
         max_turns=args.max_turns,
+        agent_flavor=args.agent_flavor,
         incremental_trace_path=args.traces,
         incremental_trace_meta_fn=live_meta_fn,
         incremental_trace_id=f"swebench.{instance_id}",
     )
+    state.data["agent_flavor"] = args.agent_flavor
     patch = str(state.data.get("model_patch") or "")
     trace = trace_from_state(
         state=state,

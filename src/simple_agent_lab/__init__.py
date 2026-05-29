@@ -8,13 +8,8 @@ surface. Import them explicitly, e.g.::
     from simple_agent_lab.agents.bash import make_bash_agent
 """
 
-from .core import (
-    Agent,
-    GenerateFn,
-    dispatch_tool_calls,
-    run,
-)
-from .state import State, StateSnapshot
+from .core import Agent, run
+from .state import State
 from .llm_agent import make_llm_agent
 from .messages import make_message
 from .protocols import (
@@ -26,19 +21,22 @@ from .protocols import (
     MessageEvent,
     ModelRequestEvent,
     ModelResponseEvent,
-    RuntimeEvent,
     ToolExecutionEndEvent,
     ToolExecutionStartEvent,
     ToolExecutionUpdateEvent,
     TurnEndEvent,
     TurnStartEvent,
 )
+from .compression import (
+    SummarizeStrategy,
+    ToolCompactStrategy,
+)
 from .context_view import (
+    CompressionDecision,
+    CompressionStrategy,
     ContextPolicy,
-    ContextStats,
     ContextView,
     build_context_view,
-    clip_message,
     estimate_context_tokens,
     estimate_message_chars,
     estimate_message_tokens,
@@ -63,11 +61,8 @@ from .messages import (
     assistant_message,
     is_tool_result_message,
     message_text,
-    message_tool_calls,
     system_message,
     text_of,
-    thinking_blocks_of,
-    tool_calls_of,
     tool_result_message,
     tool_results_message,
     tool_results_of,
@@ -105,8 +100,6 @@ __all__ = [
     "MessageEvent",
     "ModelRequestEvent",
     "ModelResponseEvent",
-    "GenerateFn",
-    "RuntimeEvent",
     "ToolExecutionEndEvent",
     "ToolExecutionStartEvent",
     "ToolExecutionUpdateEvent",
@@ -130,25 +123,22 @@ __all__ = [
     "UserMessage",
     "is_tool_result_message",
     "text_of",
-    "thinking_blocks_of",
-    "tool_calls_of",
     "tool_results_of",
     "State",
-    "StateSnapshot",
+    "CompressionDecision",
+    "CompressionStrategy",
     "ContextPolicy",
-    "ContextStats",
     "ContextView",
+    "SummarizeStrategy",
+    "ToolCompactStrategy",
     "assistant_message",
     "build_context_view",
-    "clip_message",
-    "dispatch_tool_calls",
     "estimate_context_tokens",
     "estimate_message_chars",
     "estimate_message_tokens",
     "make_message",
     "make_llm_agent",
     "message_text",
-    "message_tool_calls",
     "print_trace",
     "run",
     "ModelTurn",
