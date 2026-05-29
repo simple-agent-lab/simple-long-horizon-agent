@@ -89,7 +89,6 @@ class AgentTool(Tool):
     """
 
     execute: ToolExecuteFn | None = None
-    label: str = ""
     execution_mode: ToolExecutionMode = "parallel"
     timeout_seconds: float | None = None
 
