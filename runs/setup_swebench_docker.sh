@@ -124,6 +124,8 @@ bash miniconda.sh -b -p /opt/miniconda3
 export PATH=/opt/miniconda3/bin:$PATH
 conda init --all
 conda config --append channels conda-forge
+# Keep pip compatible with Python 3.9 task environments.
+conda config --add pinned_packages "pip<25"
 adduser --disabled-password --gecos "dog" nonroot
 echo "DONE"
 '
