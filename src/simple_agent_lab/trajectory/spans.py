@@ -8,7 +8,7 @@ reads the append-only event log and produces ``Span`` values, with no IO.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from ..protocols import (
@@ -40,6 +40,26 @@ class Span:
     attributes: dict[str, Any] | None = None
 
 
+@dataclass
+class _OpenSpan:
+    """A span still on the extraction stack, awaiting its end event.
+
+    The in-flight counterpart to the frozen `Span`: a typed accumulator
+    (not an untyped dict) so the start/end handlers below read `.kind` /
+    `.parent_id` instead of stringly keys. `parent_id` is fixed at push
+    time for every kind; fields a given kind doesn't use stay at their
+    defaults.
+    """
+
+    id: str
+    kind: str
+    start: float
+    parent_id: str | None = None
+    input: Any | None = None
+    output: Any | None = None
+    attributes: dict[str, Any] = field(default_factory=dict)
+
+
 def spans_from_events(
     trace_id: str,
     events: Iterable[Event],
@@ -53,7 +73,7 @@ def spans_from_events(
 
     events_list = list(events)
     spans: list[Span] = []
-    stack: list[dict[str, Any]] = []
+    stack: list[_OpenSpan] = []
     counters: dict[str, int] = {}
 
     def _next_id(kind: str) -> str:
@@ -65,122 +85,121 @@ def spans_from_events(
             return None
         if skip_kinds:
             for i in range(len(stack) - 1, -1, -1):
-                if stack[i]["kind"] not in skip_kinds:
-                    return stack[i]["id"]
+                if stack[i].kind not in skip_kinds:
+                    return stack[i].id
             return None
-        return stack[-1]["id"]
+        return stack[-1].id
 
     for event in events_list:
         if isinstance(event, AgentStartEvent):
-            span_id = _next_id("run")
             stack.append(
-                {
-                    "id": span_id,
-                    "kind": "agent_run",
-                    "start": event.elapsed,
-                    "input": None,
-                    "attributes": {},
-                }
+                _OpenSpan(
+                    id=_next_id("run"),
+                    kind="agent_run",
+                    start=event.elapsed,
+                    parent_id=_parent_id(),
+                )
             )
 
         elif isinstance(event, AgentEndEvent):
-            if stack and stack[-1]["kind"] == "agent_run":
+            if stack and stack[-1].kind == "agent_run":
                 open_span = stack.pop()
                 spans.append(
                     Span(
-                        id=open_span["id"],
-                        parent_id=_parent_id(),
+                        id=open_span.id,
+                        parent_id=open_span.parent_id,
                         kind="agent_run",
-                        start=open_span["start"],
+                        start=open_span.start,
                         end=event.elapsed,
-                        input=open_span.get("input"),
-                        output=open_span.get("output"),
+                        input=open_span.input,
+                        output=open_span.output,
                         attributes={"reason": event.reason},
                     )
                 )
 
         elif isinstance(event, TurnStartEvent):
-            span_id = _next_id("turn")
             stack.append(
-                {
-                    "id": span_id,
-                    "parent_id": _parent_id(),
-                    "kind": "turn",
-                    "start": event.elapsed,
-                    "attributes": {"agent": event.agent},
-                }
+                _OpenSpan(
+                    id=_next_id("turn"),
+                    kind="turn",
+                    start=event.elapsed,
+                    parent_id=_parent_id(),
+                    attributes={"agent": event.agent},
+                )
             )
 
         elif isinstance(event, TurnEndEvent):
-            if stack and stack[-1]["kind"] == "turn":
+            if stack and stack[-1].kind == "turn":
                 open_span = stack.pop()
                 spans.append(
                     Span(
-                        id=open_span["id"],
-                        parent_id=open_span.get("parent_id"),
+                        id=open_span.id,
+                        parent_id=open_span.parent_id,
                         kind="turn",
-                        start=open_span["start"],
+                        start=open_span.start,
                         end=event.elapsed,
                         attributes={
-                            **open_span.get("attributes", {}),
+                            **open_span.attributes,
                             "terminated": event.terminated,
                         },
                     )
                 )
 
         elif isinstance(event, ModelRequestEvent):
-            span_id = _next_id("call")
-            parent = _parent_id()
             stack.append(
-                {
-                    "id": span_id,
-                    "parent_id": parent,
-                    "kind": "model_call",
-                    "start": event.elapsed,
-                    "input": event.llm_payload,
-                    "attributes": {
+                _OpenSpan(
+                    id=_next_id("call"),
+                    kind="model_call",
+                    start=event.elapsed,
+                    parent_id=_parent_id(),
+                    input=event.llm_payload,
+                    attributes={
                         "agent": event.agent,
                         "visible_count": event.visible_count,
                         "llm_message_count": event.llm_message_count,
                         "tools": event.tools,
                     },
-                }
+                )
             )
 
         elif isinstance(event, ModelResponseEvent):
-            if stack and stack[-1]["kind"] == "model_call":
+            if stack and stack[-1].kind == "model_call":
                 open_span = stack.pop()
+                # Cost primitives: model is always recorded (may be ""),
+                # usage only when the provider reported it, so a cost fold
+                # reads both off `model_call` span attributes.
+                attributes = {**open_span.attributes, "model": event.model}
+                if event.usage is not None:
+                    attributes["usage"] = event.usage
                 spans.append(
                     Span(
-                        id=open_span["id"],
-                        parent_id=open_span.get("parent_id"),
+                        id=open_span.id,
+                        parent_id=open_span.parent_id,
                         kind="model_call",
-                        start=open_span["start"],
+                        start=open_span.start,
                         end=event.elapsed,
-                        input=json_safe(open_span.get("input")),
+                        input=json_safe(open_span.input),
                         output={
                             "kind": event.output_kind,
                             "target": event.target,
                             "tool_call_count": event.tool_call_count,
                         },
-                        attributes=open_span.get("attributes"),
+                        attributes=attributes,
                     )
                 )
 
         elif isinstance(event, ToolExecutionStartEvent):
-            span_id = _next_id("tool")
-            parent = _parent_id(skip_kinds={"tool_call"})
             stack.append(
-                {
-                    "id": span_id,
-                    "parent_id": parent,
-                    "kind": "tool_call",
-                    "start": event.elapsed,
-                    "attributes": {
+                _OpenSpan(
+                    id=_next_id("tool"),
+                    kind="tool_call",
+                    start=event.elapsed,
+                    parent_id=_parent_id(skip_kinds={"tool_call"}),
+                    attributes={
                         "tool_call_id": event.tool_call_id,
                         "tool_name": event.tool_name,
                     },
-                }
+                )
             )
 
         elif isinstance(event, ToolExecutionEndEvent):
@@ -188,21 +207,21 @@ def spans_from_events(
             for i in range(len(stack) - 1, -1, -1):
                 entry = stack[i]
                 if (
-                    entry["kind"] == "tool_call"
-                    and entry["attributes"].get("tool_call_id") == event.tool_call_id
+                    entry.kind == "tool_call"
+                    and entry.attributes.get("tool_call_id") == event.tool_call_id
                 ):
                     matched = stack.pop(i)
                     break
             if matched is not None:
                 spans.append(
                     Span(
-                        id=matched["id"],
-                        parent_id=matched.get("parent_id"),
+                        id=matched.id,
+                        parent_id=matched.parent_id,
                         kind="tool_call",
-                        start=matched["start"],
+                        start=matched.start,
                         end=event.elapsed,
                         attributes={
-                            **matched.get("attributes", {}),
+                            **matched.attributes,
                             "is_error": event.is_error,
                             "terminate": event.terminate,
                         },

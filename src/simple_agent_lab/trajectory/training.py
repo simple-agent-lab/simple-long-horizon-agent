@@ -27,6 +27,23 @@ class ModelTurn:
     meta: dict[str, Any] | None = None
 
 
+@dataclass
+class _PendingTurn:
+    """A model call awaiting its assistant reply, mid-extraction.
+
+    Typed counterpart to the in-flight dict: the request half of a
+    `ModelTurn`, held between a `ModelRequestEvent` and the next matching
+    assistant `MessageEvent`.
+    """
+
+    agent: str
+    input_messages: Any
+    tools: Any
+    request_event_index: int
+    visible_count: int
+    model_message_count: int
+
+
 def model_turns_from_events(
     trace_id: str,
     events: Iterable[Event],
@@ -38,22 +55,20 @@ def model_turns_from_events(
     """
 
     turns: list[ModelTurn] = []
-    pending: dict[str, Any] | None = None
+    pending: _PendingTurn | None = None
     model_call_index = 0
 
     for event in events:
         if isinstance(event, ModelRequestEvent):
             model_call_index += 1
-            pending = {
-                "agent": str(event.agent or ""),
-                "input_messages": event.llm_payload,
-                "tools": event.tools,
-                "request_event_index": event.index,
-                "meta": {
-                    "visible_count": event.visible_count,
-                    "model_message_count": event.llm_message_count,
-                },
-            }
+            pending = _PendingTurn(
+                agent=str(event.agent or ""),
+                input_messages=event.llm_payload,
+                tools=event.tools,
+                request_event_index=event.index,
+                visible_count=event.visible_count,
+                model_message_count=event.llm_message_count,
+            )
             continue
 
         if not isinstance(event, MessageEvent) or pending is None:
@@ -61,19 +76,20 @@ def model_turns_from_events(
         message = event.message
         if message.role != "assistant":
             continue
-        agent = pending["agent"] or message.sender
+        agent = pending.agent or message.sender
         if message.sender != agent:
             continue
         turns.append(
             ModelTurn(
                 step_id=f"{trace_id}.model{model_call_index}",
                 agent=agent,
-                input_messages=json_safe(pending["input_messages"]),
+                input_messages=json_safe(pending.input_messages),
                 output_message=json_safe(message),
-                tools=json_safe(pending["tools"]),
+                tools=json_safe(pending.tools),
                 meta={
-                    **pending["meta"],
-                    "request_event_index": pending["request_event_index"],
+                    "visible_count": pending.visible_count,
+                    "model_message_count": pending.model_message_count,
+                    "request_event_index": pending.request_event_index,
                     "message_event_index": event.index,
                 },
             )
