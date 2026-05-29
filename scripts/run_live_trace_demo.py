@@ -111,7 +111,7 @@ def _emit_turn(state: State, turn_index: int, agent: str, *, turn_delay: float) 
     state.record_event(
         ModelResponseEvent(
             agent=agent,
-            output_kind="thought",
+            output_kind="step",
             target=agent,
             tool_call_count=1,
         )
@@ -119,7 +119,7 @@ def _emit_turn(state: State, turn_index: int, agent: str, *, turn_delay: float) 
     assistant_msg = AssistantMessage(
         sender=agent,
         target=agent,
-        kind="thought",
+        kind="step",
         content=(
             TextBlock(text=random.choice(TEXT_SAMPLES)),
             ToolCallBlock(

@@ -38,7 +38,7 @@ def _state_with_bash_roundtrip() -> State:
             ],
             sender="agent",
             target="user",
-            kind="thought",
+            kind="step",
         )
     )
     state.record(
@@ -133,7 +133,7 @@ class OpenAITrainingRecordTest(unittest.TestCase):
                 [ToolCallBlock("c1", "shot", {})],
                 sender="agent",
                 target="user",
-                kind="thought",
+                kind="step",
             )
         )
         state.record(

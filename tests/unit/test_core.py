@@ -84,7 +84,7 @@ class CoreTest(unittest.TestCase):
                 ],
                 sender="coordinator",
                 target="coordinator",
-                kind="thought",
+                kind="step",
             )
 
         def echo_tool(
@@ -169,7 +169,7 @@ class CoreTest(unittest.TestCase):
                 "still thinking",
                 sender="chatty",
                 target="user",
-                kind="thought",
+                kind="step",
             )
 
         state = State("ramble")
@@ -527,7 +527,7 @@ class CoreTest(unittest.TestCase):
                     ],
                     sender="writer",
                     target="user",
-                    kind="thought",
+                    kind="step",
                 )
             )
             state.record(
@@ -613,7 +613,7 @@ class CoreTest(unittest.TestCase):
                     ],
                     sender="writer",
                     target="user",
-                    kind="thought",
+                    kind="step",
                 )
             )
             state.record(
@@ -672,7 +672,7 @@ class CoreTest(unittest.TestCase):
             ],
             sender="writer",
             target="user",
-            kind="thought",
+            kind="step",
         )
         state.record(call_msg)
         result_msg = tool_result_message(

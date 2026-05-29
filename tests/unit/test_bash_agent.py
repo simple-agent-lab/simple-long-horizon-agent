@@ -533,7 +533,7 @@ def _make_delegating_generate(name: str, sub_name: str):
                 ),
                 sender=name,
                 target="user",
-                kind="thought",
+                kind="step",
             )
         return assistant_message("done", sender=name, target="user", kind="final")
 

@@ -36,7 +36,10 @@ Role: TypeAlias = Literal["system", "user", "assistant"]
 #   "message" — generic fallback (default for user/assistant messages)
 #   "system"  — runtime/system-level instruction
 #   "task"    — initial task for an agent
-#   "thought" — assistant intermediate output (still working)
+#   "step"    — a non-terminal assistant turn; the loop continues after it
+#               (typically because it issued tool calls). Pairs with
+#               "final". Note: this is the *turn* kind, distinct from a
+#               `ThinkingBlock` (reasoning content carried inside a turn).
 #   "final"   — agent's terminal message; the runtime loop stops on this
 #   "tool_result" — return value of a tool execution
 #   "summary" — context compression summary
@@ -45,7 +48,7 @@ MessageKind: TypeAlias = Literal[
     "message",
     "system",
     "task",
-    "thought",
+    "step",
     "final",
     "tool_result",
     "summary",

@@ -40,7 +40,7 @@ class ContextUsageTest(unittest.TestCase):
                     "first answer",
                     sender="writer",
                     target="user",
-                    kind="thought",
+                    kind="step",
                     usage=first_usage,
                 )
             return assistant_message(
