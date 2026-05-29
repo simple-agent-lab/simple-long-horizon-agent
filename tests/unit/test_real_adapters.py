@@ -546,9 +546,7 @@ def _responses_response(
             SimpleNamespace(
                 type="reasoning",
                 id=reasoning_id,
-                summary=[
-                    SimpleNamespace(type="summary_text", text=reasoning_summary)
-                ],
+                summary=[SimpleNamespace(type="summary_text", text=reasoning_summary)],
                 content=None,
                 encrypted_content=None,
                 status=None,
@@ -789,9 +787,7 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
         ):
             complete(req)
 
-        self.assertFalse(
-            [i for i in captured["input"] if i["type"] == "reasoning"]
-        )
+        self.assertFalse([i for i in captured["input"] if i["type"] == "reasoning"])
 
     def test_incomplete_max_tokens_maps_to_max_tokens_stop(self) -> None:
         captured: dict[str, Any] = {}

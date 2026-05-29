@@ -18,6 +18,9 @@ uv sync --group dev
 printf '\n=== ruff format --check . ===\n'
 uv run ruff format --check .
 
+printf '\n=== ruff check . ===\n'
+uv run ruff check .
+
 printf '\n=== docs lint ===\n'
 uv run python scripts/lint_docs.py
 

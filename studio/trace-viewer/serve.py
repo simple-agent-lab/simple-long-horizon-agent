@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
+import re
 import sys
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -49,8 +50,6 @@ GZIPPABLE_PREFIXES = (
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
 DEFAULT_SCAN_DIR = PROJECT_ROOT / "evals" / "out"
-
-import re
 
 MAX_PEEK_BYTES = 96 * 1024
 TRAJECTORY_SCHEMA_PREFIX = "simple-agent-lab.trajectory"

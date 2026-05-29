@@ -232,9 +232,7 @@ def user_message(
     channel: MessageChannel = "main",
     data: Sidecar | None = None,
 ) -> UserMessage:
-    return _build_message(
-        UserMessage, content, sender, target, kind, channel, data
-    )
+    return _build_message(UserMessage, content, sender, target, kind, channel, data)
 
 
 def system_message(
@@ -246,9 +244,7 @@ def system_message(
     channel: MessageChannel = "main",
     data: Sidecar | None = None,
 ) -> SystemMessage:
-    return _build_message(
-        SystemMessage, content, sender, target, kind, channel, data
-    )
+    return _build_message(SystemMessage, content, sender, target, kind, channel, data)
 
 
 def assistant_message(

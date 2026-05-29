@@ -24,7 +24,6 @@ from simple_agent_lab.llm import Provider
 from simple_agent_lab.messages import Message
 from simple_agent_lab.trajectory import (
     Span,
-    merge_sub_agent_spans,
     spans_from_events,
     trace_record,
 )

@@ -60,7 +60,6 @@ from ...messages import (
     TextBlock,
     ThinkingBlock,
     ToolCallBlock,
-    ToolResultBlock,
     encode_image_data_url,
     text_of,
 )

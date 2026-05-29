@@ -511,7 +511,9 @@ class CoreTest(unittest.TestCase):
 
         state = State("tool compact")
         state.send("task", "user", "writer", state.task)
-        for index, payload in enumerate(("alpha result", "beta result", "gamma result")):
+        for index, payload in enumerate(
+            ("alpha result", "beta result", "gamma result")
+        ):
             state.record(
                 assistant_message(
                     [

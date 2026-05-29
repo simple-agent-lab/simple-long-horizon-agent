@@ -49,7 +49,6 @@ from ...messages import (
     TextBlock,
     ThinkingBlock,
     ToolCallBlock,
-    ToolResultBlock,
     encode_image_data_url,
     text_of,
 )
@@ -304,9 +303,7 @@ def _reasoning_item(message: LLMMessage) -> dict[str, Any] | None:
         return None
     item: dict[str, Any] = {
         "type": "reasoning",
-        "summary": [
-            {"type": "summary_text", "text": block.text} for block in blocks
-        ],
+        "summary": [{"type": "summary_text", "text": block.text} for block in blocks],
     }
     signature = next((block.signature for block in blocks if block.signature), None)
     if signature:

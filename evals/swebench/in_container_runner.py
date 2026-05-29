@@ -272,9 +272,7 @@ def build_swebench_agent(
             cwd=cwd,
             name=AGENT_NAME,
             role=AGENT_ROLE,
-            system_prompt=(
-                AGENT_SYSTEM_PROMPT + "\n\n" + BASH_TASK_EXPLORER_ADDENDUM
-            ),
+            system_prompt=(AGENT_SYSTEM_PROMPT + "\n\n" + BASH_TASK_EXPLORER_ADDENDUM),
             request_extra=request_extra,
         )
     raise SystemExit(

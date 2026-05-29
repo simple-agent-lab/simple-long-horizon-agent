@@ -162,9 +162,7 @@ def _format_compact_summary(
         if not isinstance(assistant, AssistantMessage):
             continue
         for tool_call in assistant.tool_calls:
-            result_text = _find_tool_result_text(
-                by_index, result_indices, tool_call.id
-            )
+            result_text = _find_tool_result_text(by_index, result_indices, tool_call.id)
             preview = (
                 result_text[:preview_chars] + "…"
                 if len(result_text) > preview_chars
@@ -215,14 +213,10 @@ class SummarizeStrategy:
         before_tokens = estimate_context_tokens([message for _, message in active])
         if before_tokens <= self.threshold_tokens:
             return None
-        droppable = [
-            item for item in active if item[1].kind not in self.preserve_kinds
-        ]
+        droppable = [item for item in active if item[1].kind not in self.preserve_kinds]
         if len(droppable) <= self.keep_recent:
             return None
-        to_compress = (
-            droppable[: -self.keep_recent] if self.keep_recent else droppable
-        )
+        to_compress = droppable[: -self.keep_recent] if self.keep_recent else droppable
         if not to_compress:
             return None
 
@@ -301,12 +295,11 @@ def _apply_decision(
     )
     kept_before = [index for index, _ in active[:first_compress_pos]]
     kept_after = [
-        index for index, _ in active[first_compress_pos + 1 :]
+        index
+        for index, _ in active[first_compress_pos + 1 :]
         if index not in compress_set
     ]
-    kept_messages = [
-        message for index, message in active if index not in compress_set
-    ]
+    kept_messages = [message for index, message in active if index not in compress_set]
 
     before_tokens = estimate_context_tokens([message for _, message in active])
     after_tokens = estimate_context_tokens(kept_messages + [decision.replacement])

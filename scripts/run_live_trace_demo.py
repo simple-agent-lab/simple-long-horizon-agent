@@ -40,7 +40,6 @@ from simple_agent_lab.messages import (  # noqa: E402
     TextBlock,
     ToolCallBlock,
     ToolResultBlock,
-    UserMessage,
     make_message,
 )
 from simple_agent_lab.protocols import (  # noqa: E402
@@ -97,7 +96,10 @@ def _emit_turn(state: State, turn_index: int, agent: str, *, turn_delay: float) 
             agent=agent,
             visible_count=turn_index * 2 + 1,
             llm_message_count=turn_index * 2 + 1,
-            context_view={"input_tokens_estimate": 600 + 220 * turn_index, "messages": turn_index * 2 + 1},
+            context_view={
+                "input_tokens_estimate": 600 + 220 * turn_index,
+                "messages": turn_index * 2 + 1,
+            },
             tools=[{"name": "bash", "description": "Run a bash command."}],
             llm_payload=[],
         )
@@ -130,9 +132,7 @@ def _emit_turn(state: State, turn_index: int, agent: str, *, turn_delay: float) 
     )
     state.record(assistant_msg)
 
-    state.record_event(
-        ToolExecutionStartEvent(tool_call_id=call_id, tool_name="bash")
-    )
+    state.record_event(ToolExecutionStartEvent(tool_call_id=call_id, tool_name="bash"))
     # This is the long stretch — the agent loop is now blocked inside the
     # tool call. The background writer should keep flushing during this gap.
     time.sleep(max(0.1, turn_delay * 0.45))
@@ -238,7 +238,9 @@ def main() -> None:
         # A short pause with no new events lets you see the LIVE pill
         # stay on for a moment before fading.
         if args.linger_s > 0:
-            print(f"[live-demo] lingering {args.linger_s:g}s with no events", flush=True)
+            print(
+                f"[live-demo] lingering {args.linger_s:g}s with no events", flush=True
+            )
             time.sleep(args.linger_s)
         # Mark final message + agent end so the viewer's stat strip shows a
         # clean "done" exit reason once the run finishes.

@@ -27,7 +27,6 @@ from .jsonl import (
     write_jsonl_atomic,
 )
 from .live import (
-    DEFAULT_FLUSH_INTERVAL_S,
     LIVE_TRACE_PATH_ENV,
     IncrementalTraceWriter,
     LiveTraceSession,
