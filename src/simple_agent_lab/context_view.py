@@ -86,6 +86,16 @@ class ContextPolicy:
     `strategies` is evaluated in order before each model request; each
     strategy may return a `CompressionDecision` that the runtime applies
     to state.
+
+    `skip_kinds` is *visibility*, not *compression*. It decides whether a
+    kind reaches the model at all — it is not the way to keep a kind out
+    of summaries. To exempt a kind from compression (e.g. keep `"system"`
+    or `"task"` verbatim instead of folding it into a summary), use a
+    strategy's `preserve_kinds` knob (see
+    `simple_agent_lab.compression.DEFAULT_PRESERVE_KINDS`, which already
+    pins `task`/`system`/`summary`/`context`). Do not add `"system"` here
+    to protect it from compression — that would hide the system messages
+    from the model entirely.
     """
 
     skip_kinds: tuple[MessageKind, ...] = ()
