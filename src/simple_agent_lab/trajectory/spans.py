@@ -316,10 +316,10 @@ def _collect_sub_events(messages: Iterable[Any]) -> dict[str, list[Any]]:
     for message in messages:
         if getattr(message, "kind", None) != "tool_result":
             continue
-        data = getattr(message, "data", None)
-        if not isinstance(data, dict):
+        sidecar = getattr(message, "sidecar", None)
+        if not isinstance(sidecar, dict):
             continue
-        details = data.get("details")
+        details = sidecar.get("details")
         if not isinstance(details, dict):
             continue
         for call_id, call_details in details.items():

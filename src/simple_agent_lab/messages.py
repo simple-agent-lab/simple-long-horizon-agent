@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Literal, TypeAlias, TypeVar
+from typing import Any, Literal, TypeAlias, TypedDict, TypeVar, cast
 
 
 Role: TypeAlias = Literal["system", "user", "assistant"]
@@ -158,7 +158,35 @@ VisibleBlock: TypeAlias = TextBlock | ImageBlock  # blocks legal inside a tool_r
 MessageContent: TypeAlias = tuple[ContentBlock, ...]
 ContentInput: TypeAlias = str | Sequence[ContentBlock]
 ToolResultContentInput: TypeAlias = str | Sequence[VisibleBlock]
-Sidecar: TypeAlias = Mapping[str, Any]
+
+
+class MessageSidecar(TypedDict, total=False):
+    """Closed set of out-of-band fields that ride alongside a message.
+
+    Not message *content* and never shown to the model -- these are
+    provider-/tooling-side attachments. A closed `TypedDict` (rather than
+    an open `dict[str, Any]`) so the known keys and their types are
+    documented in one place and static checkers catch typos. All keys are
+    optional; most messages carry an empty sidecar.
+
+    Keys:
+        extra:   per-message provider wire hints, lifted to
+                 `LLMMessage.extra` by the bridge for adapters that opt in.
+        raw:     the adapter's raw request/response snapshot, stashed on an
+                 assistant message so `print_trace(raw=True)` can show the
+                 provider-level view.
+        details: per-tool-call `ToolResult.details`, keyed by call id, on a
+                 `tool_result` message (e.g. sub-agent events).
+    """
+
+    extra: Mapping[str, Any]
+    raw: Any
+    details: Mapping[str, Any]
+
+
+def _copy_sidecar(sidecar: MessageSidecar | None) -> MessageSidecar:
+    """Defensive shallow copy so a caller can't mutate a message later."""
+    return cast("MessageSidecar", dict(sidecar)) if sidecar else {}
 
 
 TOOL_RESULT_KIND = "tool_result"
@@ -172,7 +200,7 @@ class UserMessage:
     sender: AgentName = "user"
     target: AgentName = "all"
     kind: MessageKind = "message"
-    data: Sidecar = field(default_factory=dict)
+    sidecar: MessageSidecar = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -182,7 +210,7 @@ class SystemMessage:
     sender: AgentName = "system"
     target: AgentName = "all"
     kind: MessageKind = "system"
-    data: Sidecar = field(default_factory=dict)
+    sidecar: MessageSidecar = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -193,7 +221,7 @@ class AssistantMessage:
     target: AgentName = "all"
     kind: MessageKind = "message"
     usage: TokenUsage | None = None
-    data: Sidecar = field(default_factory=dict)
+    sidecar: MessageSidecar = field(default_factory=dict)
 
     @property
     def thinking(self) -> tuple[ThinkingBlock, ...]:
@@ -217,9 +245,9 @@ def user_message(
     sender: AgentName = "user",
     target: AgentName = "all",
     kind: MessageKind = "message",
-    data: Sidecar | None = None,
+    sidecar: MessageSidecar | None = None,
 ) -> UserMessage:
-    return _build_message(UserMessage, content, sender, target, kind, data)
+    return _build_message(UserMessage, content, sender, target, kind, sidecar)
 
 
 def system_message(
@@ -228,9 +256,9 @@ def system_message(
     sender: AgentName = "system",
     target: AgentName = "all",
     kind: MessageKind = "system",
-    data: Sidecar | None = None,
+    sidecar: MessageSidecar | None = None,
 ) -> SystemMessage:
-    return _build_message(SystemMessage, content, sender, target, kind, data)
+    return _build_message(SystemMessage, content, sender, target, kind, sidecar)
 
 
 def assistant_message(
@@ -240,10 +268,10 @@ def assistant_message(
     target: AgentName = "all",
     kind: MessageKind = "message",
     usage: TokenUsage | None = None,
-    data: Sidecar | None = None,
+    sidecar: MessageSidecar | None = None,
 ) -> AssistantMessage:
     return _build_message(
-        AssistantMessage, content, sender, target, kind, data, usage=usage
+        AssistantMessage, content, sender, target, kind, sidecar, usage=usage
     )
 
 
@@ -256,12 +284,12 @@ def _build_message(
     sender: AgentName,
     target: AgentName,
     kind: MessageKind,
-    data: Sidecar | None,
+    sidecar: MessageSidecar | None,
     **extra: Any,
 ) -> _MessageT:
     """Shared constructor body for the three role-specific helpers.
 
-    Normalizes `content`, copies `data` (so callers can't mutate the
+    Normalizes `content`, copies `sidecar` (so callers can't mutate the
     message's sidecar later), threads any role-specific kwargs through
     `extra` (currently only `usage` for assistants), and runs
     `validate_message` so block placement is checked uniformly.
@@ -271,7 +299,7 @@ def _build_message(
         sender=sender,
         target=target,
         kind=kind,
-        data=dict(data or {}),
+        sidecar=_copy_sidecar(sidecar),
         **extra,
     )
     validate_message(message)
@@ -287,7 +315,7 @@ def tool_result_message(
     sender: AgentName | None = None,
     is_error: bool = False,
     kind: MessageKind = TOOL_RESULT_KIND,
-    data: Sidecar | None = None,
+    sidecar: MessageSidecar | None = None,
 ) -> UserMessage:
     """Build a UserMessage wrapping a single ToolResultBlock.
 
@@ -305,7 +333,7 @@ def tool_result_message(
         sender=sender if sender is not None else TOOL_RESULT_SENDER,
         target=target,
         kind=kind,
-        data=dict(data or {}),
+        sidecar=_copy_sidecar(sidecar),
     )
     validate_message(message)
     return message
@@ -317,7 +345,7 @@ def tool_results_message(
     target: AgentName,
     sender: AgentName = TOOL_RESULT_SENDER,
     kind: MessageKind = TOOL_RESULT_KIND,
-    data: Sidecar | None = None,
+    sidecar: MessageSidecar | None = None,
 ) -> UserMessage:
     """Bundle N tool results from one assistant turn into a single message.
 
@@ -332,7 +360,7 @@ def tool_results_message(
         sender=sender,
         target=target,
         kind=kind,
-        data=dict(data or {}),
+        sidecar=_copy_sidecar(sidecar),
     )
     validate_message(message)
     return message
@@ -485,7 +513,7 @@ def make_message(
     sender: AgentName = "",
     target: AgentName = "",
     kind: MessageKind = "message",
-    **data: Any,
+    sidecar: MessageSidecar | None = None,
 ) -> Message:
     """Construct the right role-specific Message variant."""
     if role == "user":
@@ -494,7 +522,7 @@ def make_message(
             sender=sender or "user",
             target=target or "all",
             kind=kind,
-            data=data,
+            sidecar=sidecar,
         )
     if role == "system":
         return system_message(
@@ -502,7 +530,7 @@ def make_message(
             sender=sender or "system",
             target=target or "all",
             kind=kind,
-            data=data,
+            sidecar=sidecar,
         )
     if role == "assistant":
         return assistant_message(
@@ -510,6 +538,6 @@ def make_message(
             sender=sender or "assistant",
             target=target or "all",
             kind=kind,
-            data=data,
+            sidecar=sidecar,
         )
     raise ValueError(f"Unknown message role: {role!r}")

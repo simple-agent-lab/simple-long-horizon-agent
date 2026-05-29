@@ -281,7 +281,7 @@ def dispatch_tool_calls(
             for tool_call in tool_calls
         ],
         target=target,
-        data={
+        sidecar={
             "details": {
                 tool_call.id: results[tool_call.id].details for tool_call in tool_calls
             },

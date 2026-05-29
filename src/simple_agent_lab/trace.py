@@ -54,7 +54,7 @@ def print_trace(state: State, *, raw: bool = False) -> None:
                 f"{event.index:02d} {t:<10} {kind:<21} {message.kind:<10} "
                 f"{route:<24} {message_text(message)}"
             )
-            extra = (message.data or {}).get("extra")
+            extra = (message.sidecar or {}).get("extra")
             if extra:
                 preview = ", ".join(f"{k}={v!r}" for k, v in extra.items())
                 print(f"   {'':10} {'extra':<21} {preview[:200]}")
@@ -66,7 +66,7 @@ def print_trace(state: State, *, raw: bool = False) -> None:
                     tag = "redacted_thinking" if thinking_block.redacted else "thinking"
                     print(f"   {'':10} {tag:<21} {preview}")
                 if raw:
-                    raw_payload = (message.data or {}).get("raw")
+                    raw_payload = (message.sidecar or {}).get("raw")
                     if raw_payload:
                         _print_raw(raw_payload)
         elif isinstance(event, ModelRequestEvent):

@@ -368,7 +368,7 @@ class MergedSpansTest(unittest.TestCase):
 
     def test_collect_sub_events_extracts_from_tool_result_message(self) -> None:
         """_collect_sub_events must find sub_events keyed by call_id
-        inside message.data['details'][call_id]['sub_events']."""
+        inside message.sidecar['details'][call_id]['sub_events']."""
         from simple_agent_lab.protocols import AgentStartEvent, AgentEndEvent
 
         fake_sub_events = [
@@ -380,7 +380,7 @@ class MergedSpansTest(unittest.TestCase):
         msg = user_message(
             "result text",
             kind="tool_result",
-            data={"details": {"call_42": {"sub_events": fake_sub_events}}},
+            sidecar={"details": {"call_42": {"sub_events": fake_sub_events}}},
         )
         collected = _collect_sub_events([msg])
         self.assertIn("call_42", collected)
@@ -395,7 +395,7 @@ class MergedSpansTest(unittest.TestCase):
     def test_collect_sub_events_skips_empty_details(self) -> None:
         from simple_agent_lab.messages import user_message
 
-        msg = user_message("r", kind="tool_result", data={"details": {}})
+        msg = user_message("r", kind="tool_result", sidecar={"details": {}})
         self.assertEqual(_collect_sub_events([msg]), {})
 
     def test_collect_sub_events_skips_missing_sub_events_key(self) -> None:
@@ -404,7 +404,7 @@ class MergedSpansTest(unittest.TestCase):
         msg = user_message(
             "r",
             kind="tool_result",
-            data={"details": {"call_1": {"other": "stuff"}}},
+            sidecar={"details": {"call_1": {"other": "stuff"}}},
         )
         self.assertEqual(_collect_sub_events([msg]), {})
 
@@ -483,7 +483,7 @@ class MergedSpansTest(unittest.TestCase):
 
         sub_event_lists: list[list[dict]] = []
         for msg in parsed["messages"]:
-            details = (msg.get("data") or {}).get("details") or {}
+            details = (msg.get("sidecar") or {}).get("details") or {}
             for call_details in details.values():
                 sub_events = call_details.get("sub_events")
                 if isinstance(sub_events, list) and sub_events:

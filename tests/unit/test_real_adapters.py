@@ -1212,7 +1212,9 @@ class MessageExtraTest(unittest.TestCase):
 
         msg = user_message(
             "hello",
-            data={"extra": {"anthropic.cache_breakpoint": True, "openai.name": "bob"}},
+            sidecar={
+                "extra": {"anthropic.cache_breakpoint": True, "openai.name": "bob"}
+            },
         )
         llm = message_to_llm_message(msg)
         self.assertEqual(

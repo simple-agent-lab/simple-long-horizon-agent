@@ -12,6 +12,7 @@ from .messages import (
     ContentInput,
     Message,
     MessageKind,
+    MessageSidecar,
     Role,
     make_message,
 )
@@ -66,6 +67,11 @@ class State:
     task: str
     events: list[Event] = field(default_factory=list)
     snapshot: StateSnapshot = field(default_factory=StateSnapshot)
+    # Open scratchpad for harnesses/experiments to hang run-level metadata
+    # on a State (e.g. the SWE-bench runner stashes `model_patch`,
+    # `workspace`). Intentionally untyped: the core runtime never reads or
+    # writes it -- it's an extension point, not part of the message loop.
+    # (Distinct from a message's typed `MessageSidecar`.)
     data: dict[str, Any] = field(default_factory=dict)
     _monotonic_origin: float = field(default_factory=time.monotonic, repr=False)
 
@@ -120,7 +126,7 @@ class State:
         target: AgentName,
         content: ContentInput = "",
         role: Role | None = None,
-        **data: Any,
+        sidecar: MessageSidecar | None = None,
     ) -> Message:
         resolved_role = role
         if resolved_role is None:
@@ -136,7 +142,7 @@ class State:
             sender=sender,
             target=target,
             kind=kind,
-            **data,
+            sidecar=sidecar,
         )
         self.record(message)
         return message

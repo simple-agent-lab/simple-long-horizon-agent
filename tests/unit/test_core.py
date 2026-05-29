@@ -315,6 +315,7 @@ class CoreTest(unittest.TestCase):
             "MessageContent",
             "MessageEvent",
             "MessageKind",
+            "MessageSidecar",
             "ModelRequestEvent",
             "ModelResponseEvent",
             "ModelTurn",

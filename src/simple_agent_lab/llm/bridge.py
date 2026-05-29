@@ -13,12 +13,12 @@ the same `tuple[ContentBlock, ...]` shape, so the bridge only:
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
 
 from simple_agent_lab.messages import (
     AgentName,
     Message,
     MessageKind,
+    MessageSidecar,
     TextBlock,
     TokenUsage,
     assistant_message,
@@ -34,11 +34,11 @@ def message_to_llm_message(
 ) -> LLMMessage:
     """Project a runtime Message into the LLM layer's provider-neutral shape.
 
-    Per-message provider hints stashed under ``message.data["extra"]``
+    Per-message provider hints stashed under ``message.sidecar["extra"]``
     are lifted to ``LLMMessage.extra`` so adapters that opt in can
     apply them on the wire.
     """
-    extra = dict(message.data.get("extra") or {}) if message.data else {}
+    extra = dict(message.sidecar.get("extra") or {}) if message.sidecar else {}
     header = _routing_header(message) if with_header else ""
     content = (TextBlock(header), *message.content) if header else message.content
     return LLMMessage(role=message.role, content=content, extra=extra)
@@ -73,28 +73,30 @@ def llm_response_to_assistant_message(
     sender: AgentName,
     target: AgentName,
     kind: MessageKind,
-    data: dict[str, Any] | None = None,
+    sidecar: MessageSidecar | None = None,
 ) -> Message:
     """Wrap a drained LLM response in a runtime AssistantMessage.
 
     `response.content` is already the canonical block tuple, so we just
     pass it through. The adapter's `raw` snapshot (the request/response
     pair, with the messages history pruned) rides along on
-    `AssistantMessage.data["raw"]` so the runtime trace can show the
+    `AssistantMessage.sidecar["raw"]` so the runtime trace can show the
     provider-level view alongside the standardized content blocks,
     and so applications can pull provider-specific response fields
     that the standardized layer doesn't surface.
     """
-    merged_data = dict(data or {})
+    merged: MessageSidecar = {}
+    if sidecar:
+        merged.update(sidecar)
     if response.raw:
-        merged_data["raw"] = response.raw
+        merged["raw"] = response.raw
     return assistant_message(
         response.content,
         sender=sender,
         target=target,
         kind=kind,
         usage=_usage_or_none(response.usage),
-        data=merged_data,
+        sidecar=merged,
     )
 
 
