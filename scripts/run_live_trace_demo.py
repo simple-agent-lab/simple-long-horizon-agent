@@ -87,7 +87,10 @@ def _emit_turn(state: State, turn_index: int, agent: str, *, turn_delay: float) 
         visible_count=turn_index * 2 + 1,
         llm_message_count=turn_index * 2 + 1,
         visible=[],
-        context_view={"input_tokens_estimate": 600 + 220 * turn_index, "messages": turn_index * 2 + 1},
+        context_view={
+            "input_tokens_estimate": 600 + 220 * turn_index,
+            "messages": turn_index * 2 + 1,
+        },
         tools=[{"name": "bash", "description": "Run a bash command."}],
         llm_payload=[],
     )
@@ -221,7 +224,9 @@ def main() -> None:
         # A short pause with no new events lets you see the LIVE pill
         # stay on for a moment before fading.
         if args.linger_s > 0:
-            print(f"[live-demo] lingering {args.linger_s:g}s with no events", flush=True)
+            print(
+                f"[live-demo] lingering {args.linger_s:g}s with no events", flush=True
+            )
             time.sleep(args.linger_s)
         # Mark final message + agent end so the viewer's stat strip shows a
         # clean "done" exit reason once the run finishes.

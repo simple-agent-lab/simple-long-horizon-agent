@@ -111,6 +111,7 @@ class SwebenchPatchExtractTest(unittest.TestCase):
     ) -> None:
         self.assertEqual(instance_language({}), "python")
         self.assertEqual(instance_language({"language": "TypeScript"}), "ts")
+        self.assertEqual(instance_language({"repo_language": "JavaScript"}), "js")
         self.assertEqual(instance_base_commit({"base_commit": "abc123"}), "abc123")
         self.assertEqual(instance_base_commit({"base": {"sha": "def456"}}), "def456")
 

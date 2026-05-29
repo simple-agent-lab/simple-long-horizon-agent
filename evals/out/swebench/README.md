@@ -23,10 +23,11 @@ evals/out/swebench/
 
 ```bash
 # Quick smoke run on a single instance
-bash runs/run_swebench_container.sh django__django-12113
+bash runs/run_swebench_container.sh sympy__sympy-23824
 
-# Batch run (future)
-bash runs/run_swebench_container.sh --dataset swebench_lite --split test
+# Batch runs
+bash runs/run_swebench_verified.sh --all --parallel 4
+bash runs/run_swebench_pro.sh --all --parallel 4
 ```
 
 ## Evaluating Predictions

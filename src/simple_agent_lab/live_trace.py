@@ -75,7 +75,9 @@ def write_canonical_trace(
 
     if record is None:
         if state is None or trace_meta is None:
-            raise ValueError("write_canonical_trace needs state and trace_meta when record is omitted")
+            raise ValueError(
+                "write_canonical_trace needs state and trace_meta when record is omitted"
+            )
         trace = run_trace_from_state(
             state=state,
             trace_id=trace_meta.trace_id,

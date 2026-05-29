@@ -14,7 +14,7 @@ concept (no `Agent`, no routing fields, no tool dispatch).
 
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Any, Mapping, Sequence
 
 from .context_view import ContextPolicy
 from .core import Agent
@@ -39,6 +39,7 @@ def make_llm_agent(
     system_prompt: str = "",
     target: str = "all",
     context_policy: ContextPolicy | None = None,
+    request_extra: Mapping[str, Any] | None = None,
 ) -> Agent:
     """Build an `Agent` whose `generate` is backed by `provider`.
 
@@ -56,6 +57,7 @@ def make_llm_agent(
             messages=messages_to_llm_messages(visible),
             tools=[tool_to_llm_tool(tool) for tool in tools_tuple],
             system_prompt=system_prompt or role or None,
+            extra=dict(request_extra or {}),
         )
         response = llm_complete(request)
         kind = "final" if response.stop_reason == "end_turn" else "thought"
