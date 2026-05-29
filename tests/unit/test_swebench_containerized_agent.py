@@ -160,11 +160,15 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
         self.assertIn("command -v uv", command)
         self.assertIn('"$PATH_UV" --version', command)
         self.assertIn('"$UV_BIN" venv --python 3.11 /tmp/agent-venv', command)
-        self.assertNotIn("miniconda", command.lower())
         self.assertNotIn("conda create", command)
         self.assertIn("python3 -m venv /tmp/agent-venv", command)
+        self.assertIn("/opt/miniconda3/bin/python -m venv /tmp/agent-venv", command)
         self.assertIn("_IS_MUSL", command)
         self.assertIn("venv", command)
+        self.assertIn(
+            "ERROR: Agent runtime requires Python >=3.10",
+            command,
+        )
         self.assertIn(
             '"$UV_BIN" pip install --python "$AGENT_PYTHON" --no-index --find-links /agent/wheelhouse',
             command,

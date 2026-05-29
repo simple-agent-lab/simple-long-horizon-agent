@@ -282,6 +282,13 @@ def build_runner_command(
         "  fi",
         "  python3 -m venv /tmp/agent-venv",
         "  AGENT_PYTHON=/tmp/agent-venv/bin/python3",
+        "elif [ -x /opt/miniconda3/bin/python ]; then",
+        "  # Prefer Miniconda Python when present to avoid old system python fallback.",
+        "  if /opt/miniconda3/bin/python -m venv /tmp/agent-venv >/dev/null 2>&1; then",
+        "    AGENT_PYTHON=/tmp/agent-venv/bin/python",
+        "  else",
+        "    AGENT_PYTHON=/opt/miniconda3/bin/python",
+        "  fi",
         "else",
         "  # glibc fallback: use system Python when uv is unavailable",
         "  if command -v python3 >/dev/null 2>&1; then",
@@ -295,6 +302,7 @@ def build_runner_command(
         "  fi",
         "fi",
         '"$AGENT_PYTHON" --version',
+        '"$AGENT_PYTHON" -c "import sys; sys.exit(\'ERROR: Agent runtime requires Python >=3.10, found \' + sys.version.split()[0]) if sys.version_info < (3, 10) else None"',
     ]
     if install:
         if wheelhouse_mount:
