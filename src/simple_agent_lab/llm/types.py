@@ -1,7 +1,7 @@
 """Wire-format types for the unified LLM access layer.
 
 These are *provider-agnostic*. Each agent loop has its own `Message`
-with routing fields (sender, target, kind, channel); none of those reach
+with routing fields (sender, target, kind); none of those reach
 a provider. The boundary is `message_to_llm_message(...)` (see bridge.py),
 producing the types in this file.
 

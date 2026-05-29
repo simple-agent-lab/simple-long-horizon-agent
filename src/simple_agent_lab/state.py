@@ -11,7 +11,6 @@ from .messages import (
     AgentName,
     ContentInput,
     Message,
-    MessageChannel,
     MessageKind,
     Role,
     make_message,
@@ -121,7 +120,6 @@ class State:
         target: AgentName,
         content: ContentInput = "",
         role: Role | None = None,
-        channel: MessageChannel = "main",
         **data: Any,
     ) -> Message:
         resolved_role = role
@@ -138,7 +136,6 @@ class State:
             sender=sender,
             target=target,
             kind=kind,
-            channel=channel,
             **data,
         )
         self.record(message)

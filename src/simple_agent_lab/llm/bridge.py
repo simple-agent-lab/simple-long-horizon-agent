@@ -5,7 +5,7 @@ the same `tuple[ContentBlock, ...]` shape, so the bridge only:
 
   * picks the wire `role` (system / user / assistant),
   * optionally prepends a routing header
-    (`[sender -> target | kind/channel]`) so multi-agent transcripts
+    (`[sender -> target | kind]`) so multi-agent transcripts
     stay legible when sent to a single model — skipped for tool-result
     user messages since the per-block `tool_call_id` links them.
 """
@@ -116,4 +116,4 @@ def _routing_header(message: Message) -> str:
     has_meta = bool(message.sender or message.target) or message.kind != "message"
     if not has_meta:
         return ""
-    return f"[{message.sender} -> {message.target} | {message.kind}/{message.channel}]"
+    return f"[{message.sender} -> {message.target} | {message.kind}]"

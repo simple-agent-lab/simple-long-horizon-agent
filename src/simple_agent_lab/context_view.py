@@ -170,7 +170,6 @@ def estimate_message_chars(message: Message) -> int:
             message.sender,
             message.target,
             message.kind,
-            message.channel,
         )
     )
     content_chars = _content_chars(message.content)

@@ -14,7 +14,7 @@ messages. Per-block ``is_error`` lets a single bundle express partial failure
 across parallel calls.
 
 `Message` is the runtime transcript union. Routing fields (sender, target,
-kind, channel) stay on the runtime side; adapters never see them.
+kind) stay on the runtime side; adapters never see them.
 
 Projecting a runtime `Message` into the provider-facing `LLMMessage` happens
 in one step inside `simple_agent_lab.llm.bridge`.
@@ -51,11 +51,6 @@ MessageKind: TypeAlias = Literal[
     "summary",
     "context",
 ]
-
-# Side-band channel for routing related messages off the default trace.
-#   "main"  — default visible channel
-#   "debug" — internal/debug-only messages (excluded from default context view)
-MessageChannel: TypeAlias = Literal["main", "debug"]
 
 AgentName: TypeAlias = str
 
@@ -174,7 +169,6 @@ class UserMessage:
     sender: AgentName = "user"
     target: AgentName = "all"
     kind: MessageKind = "message"
-    channel: MessageChannel = "main"
     data: Sidecar = field(default_factory=dict)
 
 
@@ -185,7 +179,6 @@ class SystemMessage:
     sender: AgentName = "system"
     target: AgentName = "all"
     kind: MessageKind = "system"
-    channel: MessageChannel = "main"
     data: Sidecar = field(default_factory=dict)
 
 
@@ -196,7 +189,6 @@ class AssistantMessage:
     sender: AgentName = "assistant"
     target: AgentName = "all"
     kind: MessageKind = "message"
-    channel: MessageChannel = "main"
     usage: TokenUsage | None = None
     data: Sidecar = field(default_factory=dict)
 
@@ -222,10 +214,9 @@ def user_message(
     sender: AgentName = "user",
     target: AgentName = "all",
     kind: MessageKind = "message",
-    channel: MessageChannel = "main",
     data: Sidecar | None = None,
 ) -> UserMessage:
-    return _build_message(UserMessage, content, sender, target, kind, channel, data)
+    return _build_message(UserMessage, content, sender, target, kind, data)
 
 
 def system_message(
@@ -234,10 +225,9 @@ def system_message(
     sender: AgentName = "system",
     target: AgentName = "all",
     kind: MessageKind = "system",
-    channel: MessageChannel = "main",
     data: Sidecar | None = None,
 ) -> SystemMessage:
-    return _build_message(SystemMessage, content, sender, target, kind, channel, data)
+    return _build_message(SystemMessage, content, sender, target, kind, data)
 
 
 def assistant_message(
@@ -246,12 +236,11 @@ def assistant_message(
     sender: AgentName = "assistant",
     target: AgentName = "all",
     kind: MessageKind = "message",
-    channel: MessageChannel = "main",
     usage: TokenUsage | None = None,
     data: Sidecar | None = None,
 ) -> AssistantMessage:
     return _build_message(
-        AssistantMessage, content, sender, target, kind, channel, data, usage=usage
+        AssistantMessage, content, sender, target, kind, data, usage=usage
     )
 
 
@@ -264,7 +253,6 @@ def _build_message(
     sender: AgentName,
     target: AgentName,
     kind: MessageKind,
-    channel: MessageChannel,
     data: Sidecar | None,
     **extra: Any,
 ) -> _MessageT:
@@ -280,7 +268,6 @@ def _build_message(
         sender=sender,
         target=target,
         kind=kind,
-        channel=channel,
         data=dict(data or {}),
         **extra,
     )
@@ -297,7 +284,6 @@ def tool_result_message(
     sender: AgentName | None = None,
     is_error: bool = False,
     kind: MessageKind = TOOL_RESULT_KIND,
-    channel: MessageChannel = "main",
     data: Sidecar | None = None,
 ) -> UserMessage:
     """Build a UserMessage wrapping a single ToolResultBlock.
@@ -316,7 +302,6 @@ def tool_result_message(
         sender=sender if sender is not None else TOOL_RESULT_SENDER,
         target=target,
         kind=kind,
-        channel=channel,
         data=dict(data or {}),
     )
     validate_message(message)
@@ -329,7 +314,6 @@ def tool_results_message(
     target: AgentName,
     sender: AgentName = TOOL_RESULT_SENDER,
     kind: MessageKind = TOOL_RESULT_KIND,
-    channel: MessageChannel = "main",
     data: Sidecar | None = None,
 ) -> UserMessage:
     """Bundle N tool results from one assistant turn into a single message.
@@ -345,7 +329,6 @@ def tool_results_message(
         sender=sender,
         target=target,
         kind=kind,
-        channel=channel,
         data=dict(data or {}),
     )
     validate_message(message)
@@ -499,7 +482,6 @@ def make_message(
     sender: AgentName = "",
     target: AgentName = "",
     kind: MessageKind = "message",
-    channel: MessageChannel = "main",
     **data: Any,
 ) -> Message:
     """Construct the right role-specific Message variant."""
@@ -509,7 +491,6 @@ def make_message(
             sender=sender or "user",
             target=target or "all",
             kind=kind,
-            channel=channel,
             data=data,
         )
     if role == "system":
@@ -518,7 +499,6 @@ def make_message(
             sender=sender or "system",
             target=target or "all",
             kind=kind,
-            channel=channel,
             data=data,
         )
     if role == "assistant":
@@ -527,7 +507,6 @@ def make_message(
             sender=sender or "assistant",
             target=target or "all",
             kind=kind,
-            channel=channel,
             data=data,
         )
     raise ValueError(f"Unknown message role: {role!r}")

@@ -312,7 +312,6 @@ class CoreTest(unittest.TestCase):
             "EventKind",
             "ImageBlock",
             "Message",
-            "MessageChannel",
             "MessageContent",
             "MessageEvent",
             "MessageKind",
@@ -380,9 +379,9 @@ class CoreTest(unittest.TestCase):
         state.send("message", "planner", "planner", "planner note")
         state.send("message", "planner", "all", "broadcast")
         state.send("summary", "runtime", "writer", "old summary")
-        state.send("message", "planner", "writer", "debug note", channel="debug")
+        state.send("message", "planner", "writer", "debug note")
 
-        # Routing fields (sender/target/channel) never filter the view; only
+        # Routing fields (sender/target) never filter the view; only
         # `skip_kinds` does. Skipping "summary" hides exactly that one message.
         policy = ContextPolicy(skip_kinds=("summary",))
         view = build_context_view(

@@ -120,7 +120,6 @@ def _emit_turn(state: State, turn_index: int, agent: str, *, turn_delay: float) 
         sender=agent,
         target=agent,
         kind="thought",
-        channel="main",
         content=(
             TextBlock(text=random.choice(TEXT_SAMPLES)),
             ToolCallBlock(
@@ -158,7 +157,6 @@ def _emit_turn(state: State, turn_index: int, agent: str, *, turn_delay: float) 
         sender="tool",
         target=agent,
         kind="tool_result",
-        channel="main",
     )
     state.record(tool_result)
     state.record_event(TurnEndEvent(agent=agent, terminated=False))
@@ -249,7 +247,6 @@ def main() -> None:
                 sender=args.agent,
                 target="user",
                 kind="final",
-                channel="main",
                 content=(
                     TextBlock(
                         text=(
