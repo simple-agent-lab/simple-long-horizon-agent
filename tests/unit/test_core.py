@@ -377,12 +377,17 @@ class CoreTest(unittest.TestCase):
     def test_context_view_uses_single_agent_transcript(self) -> None:
         state = State("route test")
         state.send("task", "user", "writer", "visible task")
-        state.send("note", "planner", "planner", "planner note")
-        state.send("note", "planner", "all", "broadcast")
-        state.send("trace", "runtime", "writer", "internal trace")
-        state.send("note", "planner", "writer", "debug note", channel="debug")
+        state.send("message", "planner", "planner", "planner note")
+        state.send("message", "planner", "all", "broadcast")
+        state.send("summary", "runtime", "writer", "old summary")
+        state.send("message", "planner", "writer", "debug note", channel="debug")
 
-        view = build_context_view("writer", state.active_context_messages())
+        # Routing fields (sender/target/channel) never filter the view; only
+        # `skip_kinds` does. Skipping "summary" hides exactly that one message.
+        policy = ContextPolicy(skip_kinds=("summary",))
+        view = build_context_view(
+            "writer", state.active_context_messages(), policy=policy
+        )
 
         self.assertEqual(
             [message_text(message) for message in view.messages],
@@ -403,8 +408,8 @@ class CoreTest(unittest.TestCase):
 
         state = State("project context view")
         state.send("task", "user", "writer", state.task)
-        state.send("note", "user", "writer", "first note")
-        state.send("note", "user", "writer", "second note")
+        state.send("message", "user", "writer", "first note")
+        state.send("message", "user", "writer", "second note")
         for _ in run(
             Agent("writer", writer, role="Write."),
             state,
@@ -446,8 +451,8 @@ class CoreTest(unittest.TestCase):
 
         state = State("compress context")
         state.send("task", "user", "writer", state.task)
-        state.send("note", "user", "writer", "old " + ("x" * 120))
-        state.send("note", "user", "writer", "recent note")
+        state.send("message", "user", "writer", "old " + ("x" * 120))
+        state.send("message", "user", "writer", "recent note")
         compression_policy = ContextPolicy(
             strategies=(
                 simple_agent_lab.SummarizeStrategy(

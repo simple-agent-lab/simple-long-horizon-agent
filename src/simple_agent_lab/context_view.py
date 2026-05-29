@@ -80,12 +80,15 @@ class CompressionStrategy(Protocol):
 class ContextPolicy:
     """Visibility filter + compression strategy list for one agent.
 
-    `skip_kinds` are never shown to the model. `strategies` is evaluated
-    in order before each model request; each strategy may return a
-    `CompressionDecision` that the runtime applies to state.
+    `skip_kinds` are never shown to the model. It defaults to empty (every
+    runtime `kind` is model-visible); set it per agent to hide kinds that
+    your own extension code records but should not project to the LLM.
+    `strategies` is evaluated in order before each model request; each
+    strategy may return a `CompressionDecision` that the runtime applies
+    to state.
     """
 
-    skip_kinds: tuple[MessageKind, ...] = ("notification", "trace")
+    skip_kinds: tuple[MessageKind, ...] = ()
     strategies: tuple[CompressionStrategy, ...] = field(default_factory=tuple)
 
     def is_visible(self, message: Message) -> bool:

@@ -39,12 +39,8 @@ Role: TypeAlias = Literal["system", "user", "assistant"]
 #   "thought" — assistant intermediate output (still working)
 #   "final"   — agent's terminal message; the runtime loop stops on this
 #   "tool_result" — return value of a tool execution
-#   "note"    — out-of-band annotation injected onto the transcript
 #   "summary" — context compression summary
 #   "context" — extra context injected by task_tool delegation
-#   "trace"   — runtime trace entry
-#   "notification" — out-of-band entry that runtime adapters skip when
-#                    projecting to the LLM (reserved for extension code)
 MessageKind: TypeAlias = Literal[
     "message",
     "system",
@@ -52,11 +48,8 @@ MessageKind: TypeAlias = Literal[
     "thought",
     "final",
     "tool_result",
-    "note",
     "summary",
     "context",
-    "trace",
-    "notification",
 ]
 
 # Side-band channel for routing related messages off the default trace.

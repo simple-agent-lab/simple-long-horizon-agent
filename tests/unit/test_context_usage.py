@@ -57,7 +57,7 @@ class ContextUsageTest(unittest.TestCase):
         for event in run(agent, state, max_turns=2):
             if isinstance(event, TurnEndEvent) and trailing is None:
                 trailing = state.send(
-                    "note",
+                    "message",
                     "user",
                     "writer",
                     "This note arrived after the first model response.",
