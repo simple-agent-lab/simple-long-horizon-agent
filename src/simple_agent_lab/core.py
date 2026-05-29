@@ -2,7 +2,7 @@
 
 The core model is small::
 
-    Agent + Message + State + context_view() + run()
+    Agent + Message + State + build_context_view() + run()
 
 `run()` drives one agent as a generator: each turn, it builds a context view
 of the visible messages, calls `agent.generate(...)`, records request/response
@@ -136,13 +136,6 @@ def run(
         # Match make_llm_agent / provider wire shape (no routing headers).
         llm_payload = messages_to_llm_messages(visible, with_header=False)
 
-        # `state.data` is the open experiment bag (dict[str, Any]); pin
-        # the runtime-side projection of `candidate_id` to its real type
-        # so the typed event/state APIs are reached with a real `str | None`.
-        raw_candidate = state.data.get("candidate_id")
-        candidate_id: str | None = (
-            str(raw_candidate) if raw_candidate is not None else None
-        )
         yield state.record_event(
             ModelRequestEvent(
                 agent=name,
@@ -158,7 +151,6 @@ def run(
                     for tool in tool_by_name.values()
                 ],
                 llm_payload=llm_payload,
-                candidate_id=candidate_id,
             )
         )
 
@@ -170,7 +162,6 @@ def run(
                 output_kind=output.kind,
                 target=output.target,
                 tool_call_count=len(output_tool_calls),
-                candidate_id=candidate_id,
             )
         )
 

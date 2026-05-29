@@ -70,7 +70,7 @@ the system.
 The canonical runtime direction is:
 
 ```text
-Agent + Message + State + context_view() + run()
+Agent + Message + State + build_context_view() + run()
 ```
 
 Do not treat historical architecture options as live runtime copies. Use them

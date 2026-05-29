@@ -1,7 +1,7 @@
 """Trace utilities for runtime transcripts.
 
 `core.py` owns the inspectable runtime: `Agent + Message + State +
-context_view() + run()`. This module owns downstream trace consumers:
+build_context_view() + run()`. This module owns downstream trace consumers:
 human-readable trace printing and OpenAI Chat fine-tuning JSONL export.
 
 Each OpenAI training export line has the form::
@@ -70,23 +70,19 @@ def print_trace(state: State, *, raw: bool = False) -> None:
                     if raw_payload:
                         _print_raw(raw_payload)
         elif isinstance(event, ModelRequestEvent):
-            candidate = event.candidate_id
-            suffix = f" candidate={candidate}" if candidate is not None else ""
             print(
                 f"{event.index:02d} {t:<10} {kind:<21} "
                 f"agent={event.agent} "
                 f"visible={event.visible_count} "
-                f"llm_messages={event.llm_message_count}{suffix}"
+                f"llm_messages={event.llm_message_count}"
             )
         elif isinstance(event, ModelResponseEvent):
-            candidate = event.candidate_id
-            suffix = f" candidate={candidate}" if candidate is not None else ""
             print(
                 f"{event.index:02d} {t:<10} {kind:<21} "
                 f"agent={event.agent} "
                 f"kind={event.output_kind} "
                 f"target={event.target} "
-                f"tool_calls={event.tool_call_count}{suffix}"
+                f"tool_calls={event.tool_call_count}"
             )
         elif isinstance(event, ContextCompressionEvent):
             print(

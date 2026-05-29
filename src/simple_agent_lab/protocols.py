@@ -94,7 +94,6 @@ class ModelRequestEvent(_BaseEvent):
     context_view: dict[str, Any]
     tools: list[dict[str, Any]]
     llm_payload: list[Any]
-    candidate_id: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -106,7 +105,6 @@ class ModelResponseEvent(_BaseEvent):
     output_kind: MessageKind
     target: AgentName
     tool_call_count: int
-    candidate_id: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
