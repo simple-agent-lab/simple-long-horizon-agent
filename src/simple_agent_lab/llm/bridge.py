@@ -48,13 +48,13 @@ def messages_to_llm_messages(
     messages: Sequence[Message],
     *,
     with_header: bool = False,
-    skip_kinds: set[str] | None = None,
+    model_invisible_kinds: set[str] | None = None,
 ) -> list[LLMMessage]:
-    skipped = skip_kinds if skip_kinds is not None else set()
+    invisible = model_invisible_kinds if model_invisible_kinds is not None else set()
     return [
         message_to_llm_message(message, with_header=with_header)
         for message in messages
-        if message.kind not in skipped
+        if message.kind not in invisible
     ]
 
 

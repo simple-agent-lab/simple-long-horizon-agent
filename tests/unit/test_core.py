@@ -382,8 +382,9 @@ class CoreTest(unittest.TestCase):
         state.send("message", "planner", "writer", "debug note")
 
         # Routing fields (sender/target) never filter the view; only
-        # `skip_kinds` does. Skipping "summary" hides exactly that one message.
-        policy = ContextPolicy(skip_kinds=("summary",))
+        # `model_invisible_kinds` does. Skipping "summary" hides exactly
+        # that one message.
+        policy = ContextPolicy(model_invisible_kinds=("summary",))
         view = build_context_view(
             "writer", state.active_context_messages(), policy=policy
         )

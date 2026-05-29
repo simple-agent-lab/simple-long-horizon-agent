@@ -111,7 +111,7 @@ def openai_training_record(
     tools: Sequence[Tool | AgentTool] = (),
     system_prompt: str | None = None,
     include_reasoning_content: bool = True,
-    skip_kinds: set[str] | None = None,
+    model_invisible_kinds: set[str] | None = None,
 ) -> dict[str, Any]:
     """Build an OpenAI Chat fine-tuning record from a runtime `State`.
 
@@ -127,7 +127,9 @@ def openai_training_record(
     `thinking` blocks are serialized as a `reasoning_content` sibling
     field on each assistant turn (DeepSeek / mimo style).
     """
-    llm_messages = messages_to_llm_messages(state.messages, skip_kinds=skip_kinds)
+    llm_messages = messages_to_llm_messages(
+        state.messages, model_invisible_kinds=model_invisible_kinds
+    )
     record: dict[str, Any] = {
         "messages": to_openai_chat_messages(
             llm_messages,
@@ -149,7 +151,7 @@ def append_openai_training_record(
     tools: Sequence[Tool | AgentTool] = (),
     system_prompt: str | None = None,
     include_reasoning_content: bool = True,
-    skip_kinds: set[str] | None = None,
+    model_invisible_kinds: set[str] | None = None,
 ) -> Path:
     """Build a record and append it to `path` as a JSONL line.
 
@@ -162,7 +164,7 @@ def append_openai_training_record(
         tools=tools,
         system_prompt=system_prompt,
         include_reasoning_content=include_reasoning_content,
-        skip_kinds=skip_kinds,
+        model_invisible_kinds=model_invisible_kinds,
     )
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
