@@ -815,6 +815,32 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
             response = complete(req)
         self.assertEqual(response.stop_reason, "max_tokens")
 
+    def test_passes_extra_headers_to_responses_create(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(
+            _responses_response(text_blocks=["ok"]), captured, kind="responses"
+        )
+        req = LLMRequest(
+            provider=OPENAI_RESPONSES_PROVIDER,
+            messages=[LLMMessage(role="user", content="hi")],
+            extra={
+                "extra_headers": {
+                    "extra": '{"session_id":"s"}',
+                    "X-TT-logid": "l",
+                }
+            },
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            complete(req)
+
+        self.assertEqual(
+            captured["extra_headers"],
+            {"extra": '{"session_id":"s"}', "X-TT-logid": "l"},
+        )
+
 
 # ---------------------------------------------------------------------------
 # Reasoning continuity across multi-turn tool use

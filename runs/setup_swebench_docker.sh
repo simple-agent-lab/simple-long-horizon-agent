@@ -6,7 +6,7 @@
 #   bash runs/setup_swebench_docker.sh <instance-id>
 #
 # Example:
-#   bash runs/setup_swebench_docker.sh django__django-12113
+#   bash runs/setup_swebench_docker.sh sympy__sympy-23824
 #
 # This script is idempotent: it skips steps that are already done.
 set -euo pipefail
@@ -17,13 +17,15 @@ ROOT="$PWD"
 source runs/_python.sh
 
 INSTANCE_ID="${1:?Usage: $0 <instance-id>}"
-INSTANCE_JSONL="evals/out/instance_${INSTANCE_ID}.jsonl"
+DATASET="princeton-nlp/SWE-bench_Verified"
+SPLIT="test"
+INSTANCE_JSONL="evals/out/swebench/instance_${INSTANCE_ID}.jsonl"
 
 # ──────────────────────────────────────────────────────────────────────
 # Step 1: Python dependencies
 # ──────────────────────────────────────────────────────────────────────
 echo "==> [1/5] Checking Python dependencies..."
-"${PYTHON[@]}" -c "import docker; import swebench" 2>/dev/null \
+"${PYTHON[@]}" -c "import datasets; import docker; import swebench" 2>/dev/null \
   || { echo "  Installing SWE-bench extra..."; uv sync --extra swebench; }
 
 # ──────────────────────────────────────────────────────────────────────
@@ -69,30 +71,26 @@ fi
 # Step 3: Instance data
 # ──────────────────────────────────────────────────────────────────────
 echo "==> [3/5] Checking instance data..."
-mkdir -p evals/out
+mkdir -p "$(dirname "$INSTANCE_JSONL")"
 
 if [ -f "$INSTANCE_JSONL" ]; then
   echo "  Found $INSTANCE_JSONL"
 else
-  echo "  Fetching $INSTANCE_ID from HuggingFace..."
-  "${PYTHON[@]}" - "$INSTANCE_ID" "$INSTANCE_JSONL" <<'PY'
-import json, sys, urllib.request
+  echo "  Fetching $INSTANCE_ID from $DATASET..."
+  DATASET="$DATASET" SPLIT="$SPLIT" "${PYTHON[@]}" - "$INSTANCE_ID" "$INSTANCE_JSONL" <<'PY'
+import json, os, sys
+from pathlib import Path
+from datasets import load_dataset
 
-instance_id, out_path = sys.argv[1], sys.argv[2]
-url = (
-    "https://datasets-server.huggingface.co/rows"
-    "?dataset=princeton-nlp/SWE-bench_Lite&config=default&split=test"
-    "&offset=0&length=300"
-)
-data = json.loads(urllib.request.urlopen(url).read())
-for row in data.get("rows", []):
-    r = row.get("row", {})
-    if r.get("instance_id") == instance_id:
-        with open(out_path, "w") as f:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+instance_id, out_path = sys.argv[1], Path(sys.argv[2])
+dataset = os.environ["DATASET"]
+split = os.environ["SPLIT"]
+for row in load_dataset(dataset, split=split):
+    if row.get("instance_id") == instance_id:
+        out_path.write_text(json.dumps(dict(row), ensure_ascii=False) + "\n", encoding="utf-8")
         print(f"  Saved {instance_id} to {out_path}")
         sys.exit(0)
-print(f"Error: {instance_id} not found in SWE-bench_Lite (first 300 rows).", file=sys.stderr)
+print(f"Error: {instance_id} not found in {dataset} {split}.", file=sys.stderr)
 print("Download the full instance manually. See evals/swebench/README.md.", file=sys.stderr)
 sys.exit(1)
 PY
@@ -175,20 +173,20 @@ PY
 # Step 5: Prepare wheelhouse
 # ──────────────────────────────────────────────────────────────────────
 echo "==> [5/5] Preparing wheelhouse..."
-WHEELHOUSE="evals/out/wheelhouse/cp311-manylinux"
+WHEELHOUSE="evals/out/swebench/wheelhouse/cp311-manylinux"
 
 if [ -d "$WHEELHOUSE" ] && [ -n "$(ls -A "$WHEELHOUSE" 2>/dev/null)" ]; then
   echo "  Wheelhouse already populated; refreshing project wheel."
   "${PYTHON[@]}" - <<'PY'
 from pathlib import Path
 from evals.swebench.containerized_agent import prepare_project_wheel
-prepare_project_wheel(Path("evals/out/wheelhouse/cp311-manylinux"))
+prepare_project_wheel(Path("evals/out/swebench/wheelhouse/cp311-manylinux"))
 PY
 else
   "${PYTHON[@]}" - <<'PY'
 from pathlib import Path
 from evals.swebench.containerized_agent import prepare_wheelhouse
-prepare_wheelhouse(Path("evals/out/wheelhouse/cp311-manylinux"))
+prepare_wheelhouse(Path("evals/out/swebench/wheelhouse/cp311-manylinux"))
 PY
 fi
 

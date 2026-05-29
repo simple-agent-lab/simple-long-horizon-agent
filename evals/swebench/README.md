@@ -22,11 +22,11 @@ The adapter keeps the existing Simple Agent Lab split:
 One-time setup and a single-instance run from scratch:
 
 ```bash
-# 1. Install Python deps (Docker SDK + SWE-bench)
+# 1. Install Python deps (datasets + Docker SDK + SWE-bench)
 uv sync --extra swebench
 
 # 2. Set up Docker (see "Docker Setup" below for details)
-bash runs/setup_swebench_docker.sh
+bash runs/setup_swebench_docker.sh sympy__sympy-23824
 
 # 3. Configure .env with your model provider
 cat > .env <<'EOF'
@@ -37,7 +37,7 @@ API_KIND=openai-chat
 EOF
 
 # 4. Fetch an instance, build images, and run the agent
-bash runs/run_swebench_container.sh django__django-12113
+bash runs/run_swebench_container.sh sympy__sympy-23824
 ```
 
 ## Docker Setup
@@ -104,28 +104,31 @@ Fetch a single instance using the HuggingFace datasets API:
 ```bash
 uv run python - <<'PY'
 import json
+from pathlib import Path
 from datasets import load_dataset
-ds = load_dataset("princeton-nlp/SWE-bench_Lite", split="test")
-row = ds.filter(lambda x: x["instance_id"] == "django__django-12113")[0]
-with open("evals/out/instance_django-12113.jsonl", "w") as f:
-    f.write(json.dumps(dict(row), ensure_ascii=False) + "\n")
-print("Saved instance to evals/out/instance_django-12113.jsonl")
+ds = load_dataset("princeton-nlp/SWE-bench_Verified", split="test")
+row = ds.filter(lambda x: x["instance_id"] == "sympy__sympy-23824")[0]
+out = Path("evals/out/swebench/instance_sympy__sympy-23824.jsonl")
+out.parent.mkdir(parents=True, exist_ok=True)
+out.write_text(json.dumps(dict(row), ensure_ascii=False) + "\n", encoding="utf-8")
+print("Saved instance to evals/out/swebench/instance_sympy__sympy-23824.jsonl")
 PY
 ```
 
 Or use the REST API without installing `datasets`:
 
 ```bash
-curl -s 'https://datasets-server.huggingface.co/rows?dataset=princeton-nlp/SWE-bench_Lite&config=default&split=test&offset=0&length=300' \
+mkdir -p evals/out/swebench
+curl -s 'https://datasets-server.huggingface.co/rows?dataset=princeton-nlp/SWE-bench_Verified&config=default&split=test&offset=0&length=500' \
   | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
 for row in data.get('rows', []):
     r = row.get('row', {})
-    if r.get('instance_id') == 'django__django-12113':
+    if r.get('instance_id') == 'sympy__sympy-23824':
         print(json.dumps(r, ensure_ascii=False))
         break
-" > evals/out/instance_django-12113.jsonl
+" > evals/out/swebench/instance_sympy__sympy-23824.jsonl
 ```
 
 ## Building Docker Images
@@ -145,7 +148,7 @@ On x86_64 Linux, the standard build works:
 uv run python - <<'PY'
 import docker, json
 from swebench.harness.docker_build import build_instance_images
-with open("evals/out/instance_django-12113.jsonl") as f:
+with open("evals/out/swebench/instance_sympy__sympy-23824.jsonl") as f:
     instance = json.loads(f.readline())
 client = docker.from_env()
 build_instance_images(client=client, dataset=[instance], tag="latest", env_image_tag="latest")
@@ -160,8 +163,8 @@ After building, tag the instance image for the `swebench` namespace that
 `containerized_agent.py` expects:
 
 ```bash
-docker tag sweb.eval.x86_64.django__django-12113:latest \
-  "swebench/sweb.eval.x86_64.django_$(echo django__django-12113 | md5sum | head -c4)_django-12113:latest"
+docker tag sweb.eval.x86_64.sympy__sympy-23824:latest \
+  "swebench/sweb.eval.x86_64.sympy_$(echo sympy__sympy-23824 | md5sum | head -c4)_sympy-23824:latest"
 ```
 
 The convenience scripts handle this automatically.
@@ -203,7 +206,7 @@ Prepare provider wheels once on the host:
 uv run python - <<'PY'
 from pathlib import Path
 from evals.swebench.containerized_agent import prepare_wheelhouse
-prepare_wheelhouse(Path("evals/out/wheelhouse/cp311-manylinux"))
+prepare_wheelhouse(Path("evals/out/swebench/wheelhouse/cp311-manylinux"))
 PY
 ```
 
@@ -214,10 +217,19 @@ If you see an import error for a symbol that exists in `src/simple_agent_lab/`,
 rerun the container command; the launcher should rebuild the project wheel
 before starting Docker.
 
+The core runtime and normal CI do not require Docker or SWE-bench. To run the
+containerized SWE-bench adapters, install the optional SWE-bench dependencies in
+your local environment and make sure Docker is running:
+
+```bash
+uv sync --extra swebench
+docker info
+```
+
 Use `.env` for provider settings:
 
 ```bash
-OPENAI_MODEL=gpt-test-1
+OPENAI_MODEL=...
 OPENAI_AUTH_TOKEN=...
 OPENAI_BASE_URL=https://api.openai.com/v1
 API_KIND=openai-chat
@@ -227,13 +239,36 @@ API_KIND=openai-chat
 `openai-chat`; set it to `openai-responses` to use the OpenAI Responses API.
 The launcher also passes `NO_PROXY` and `no_proxy` through when they exist.
 
-Run one containerized agent:
+The recommended entry points are the run scripts. With no instance argument,
+each script runs a small default instance. Passing one instance id runs that
+instance. Passing `--all` runs the full dataset split; use `--parallel N` to
+limit concurrent Docker/model runs:
+
+```bash
+bash runs/run_swebench_verified.sh
+bash runs/run_swebench_verified.sh sympy__sympy-23824
+bash runs/run_swebench_verified.sh --all --parallel 4
+
+bash runs/run_swebench_pro.sh
+bash runs/run_swebench_pro.sh instance_navidrome__navidrome-8e640bb8580affb7e0ea6225c0bbe240186b6b08
+bash runs/run_swebench_pro.sh --all --parallel 4
+```
+
+The scripts keep each suite under its own flat output root. SWE-bench Verified
+uses `evals/out/swebench/`; SWE-bench Pro uses the sibling
+`evals/out/swebench_pro/`. Each root has `instance_<id>.jsonl` caches,
+`wheelhouse/` provider wheels, and `<run-id>/<instance-id>/` per-instance run
+outputs. When instance records are not cached, the scripts fetch HuggingFace
+rows with the `datasets` package from `uv sync --extra swebench`.
+
+The lower-level launcher is still useful when you already have a prepared
+instance JSONL and want full control over arguments:
 
 ```bash
 uv run python evals/swebench/containerized_agent.py \
-  --instance-json evals/out/instance_django-12113.jsonl \
-  --instance-id django__django-12113 \
-  --dataset-name princeton-nlp/SWE-bench_Lite \
+  --instance-json evals/out/swebench/instance_sympy__sympy-23824.jsonl \
+  --instance-id sympy__sympy-23824 \
+  --dataset-name princeton-nlp/SWE-bench_Verified \
   --split test \
   --model-name simple-agent-lab-local \
   --provider openai \
@@ -248,11 +283,11 @@ uv run python evals/swebench/containerized_agent.py \
 Or use the convenience script:
 
 ```bash
-bash runs/run_swebench_container.sh django__django-12113
+bash runs/run_swebench_container.sh sympy__sympy-23824
 ```
 
 Outputs land under
-`evals/out/swebench_container_runs/<run-id>/<instance-id>/out/`:
+`evals/out/swebench/<run-id>/<instance-id>/out/`:
 
 - `trajectory.jsonl`: full agent trajectory (messages, events, model turns).
 - `prediction.jsonl`: SWE-bench prediction record with `model_patch`.
@@ -279,23 +314,51 @@ bash runs/run_swebench_gold_smoke.sh
 Then evaluate local predictions:
 
 ```bash
-uv run python evals/swebench/evaluate_predictions.py \
+bash runs/eval_swebench.sh \
   --run-official \
   --predictions evals/out/swebench_predictions.jsonl \
-  --instance-ids sympy__sympy-20590
+  --instance-ids sympy__sympy-23824
+```
+
+For SWE-bench Pro predictions, pass `--pro` and either run the official Pro
+harness or normalize an existing Pro result file:
+
+```bash
+bash runs/eval_swebench.sh --pro \
+  --predictions evals/out/swebench_pro/swebench_pro_predictions.jsonl \
+  --results-json evals/out/swebench_pro_eval/eval_results.json
+```
+
+Official SWE-bench Pro evaluation additionally requires a local checkout of
+`scaleapi/SWE-bench_Pro-os`. The current default expects it at
+`/tmp/SWE-bench_Pro-os`:
+
+```bash
+git clone https://github.com/scaleapi/SWE-bench_Pro-os.git /tmp/SWE-bench_Pro-os
+```
+
+If your checkout is elsewhere, pass both Pro harness paths explicitly:
+
+```bash
+bash runs/eval_swebench.sh --pro --run-official \
+  --predictions evals/out/swebench_pro/swebench_pro_predictions.jsonl \
+  --instances evals/out/swebench_pro/instance_all-test.jsonl \
+  --pro-eval-script /path/to/SWE-bench_Pro-os/swe_bench_pro_eval.py \
+  --scripts-dir /path/to/SWE-bench_Pro-os/run_scripts
 ```
 
 Official prediction rows must contain:
 
 ```json
-{"instance_id": "sympy__sympy-20590", "model_name_or_path": "simple-agent-lab", "model_patch": "diff --git ..."}
+{"instance_id": "sympy__sympy-23824", "model_name_or_path": "simple-agent-lab", "model_patch": "diff --git ..."}
 ```
 
 Official harness outputs are intentionally run from
-`evals/out/swebench_official/<run-id>/` so summary JSON, harness logs, and report
-files stay under the ignored eval output tree instead of the repo root. When
-calling `evaluate_predictions.py --run-official`, the default report directory
-is `<official-output-dir>/<run-id>/reports`; override `--official-output-dir`
+`evals/out/swebench_official/<run-id>/` so summary JSON, harness logs, and
+report files stay under the ignored eval output tree instead of the repo root.
+When calling `evaluate_predictions.py --run-official`, the default report
+directory is `<official-output-dir>/<run-id>/reports`; override
+`--official-output-dir`
 only when you want a different local artifact root.
 
 Do not pass SWE-bench gold `patch` or `test_patch` fields into the model-visible

@@ -30,8 +30,10 @@ MAX_TURNS="${2:-75}"
 RUN_ID="${3:-swebench-$(date +%Y%m%d-%H%M%S)}"
 AGENT_FLAVOR="${4:-${AGENT_FLAVOR:-bash}}"
 
-INSTANCE_JSONL="evals/out/instance_${INSTANCE_ID}.jsonl"
-WHEELHOUSE="evals/out/wheelhouse/cp311-manylinux"
+INSTANCE_JSONL="evals/out/swebench/instance_${INSTANCE_ID}.jsonl"
+DATASET="princeton-nlp/SWE-bench_Verified"
+WHEELHOUSE="evals/out/swebench/wheelhouse/cp311-manylinux"
+CONTAINER_RUN_ROOT="evals/out/swebench"
 
 # --- Resolve DOCKER_HOST when callers haven't set one ---
 # The Python `docker` SDK defaults to /var/run/docker.sock, which is absent on
@@ -59,9 +61,7 @@ fi
 if [ ! -f "$INSTANCE_JSONL" ]; then
   echo "Instance file not found: $INSTANCE_JSONL" >&2
   echo "Fetch it first. Example:" >&2
-  echo "  curl -s 'https://datasets-server.huggingface.co/rows?dataset=princeton-nlp/SWE-bench_Lite&config=default&split=test&offset=0&length=300' \\" >&2
-  echo "    | python3 -c \"import json,sys; [print(json.dumps(r['row'])) for r in json.load(sys.stdin)['rows'] if r['row']['instance_id']=='$INSTANCE_ID']\" \\" >&2
-  echo "    > $INSTANCE_JSONL" >&2
+  echo "  bash runs/setup_swebench_docker.sh $INSTANCE_ID" >&2
   exit 1
 fi
 
@@ -79,7 +79,7 @@ if [ ! -d "$WHEELHOUSE" ] || [ -z "$(ls -A "$WHEELHOUSE" 2>/dev/null)" ]; then
   "${PYTHON[@]}" - <<'PY'
 from pathlib import Path
 from evals.swebench.containerized_agent import prepare_wheelhouse
-prepare_wheelhouse(Path("evals/out/wheelhouse/cp311-manylinux"))
+prepare_wheelhouse(Path("evals/out/swebench/wheelhouse/cp311-manylinux"))
 PY
 fi
 
@@ -105,7 +105,7 @@ echo ""
 "${PYTHON[@]}" evals/swebench/containerized_agent.py \
   --instance-json "$INSTANCE_JSONL" \
   --instance-id "$INSTANCE_ID" \
-  --dataset-name princeton-nlp/SWE-bench_Lite \
+  --dataset-name "$DATASET" \
   --split test \
   --model-name simple-agent-lab-containerized \
   --provider openai \
@@ -113,6 +113,7 @@ echo ""
   --max-turns "$MAX_TURNS" \
   --agent-flavor "$AGENT_FLAVOR" \
   --run-id "$RUN_ID" \
+  --run-root "$CONTAINER_RUN_ROOT" \
   --network-mode host \
   $NAMESPACE_ARG \
   --force

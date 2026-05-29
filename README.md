@@ -39,6 +39,10 @@ The same checks (`ruff format --check .`, docs lint, `ty check src`, and the
 unittest suite on Python 3.10 through 3.13) run on every push and pull request
 via [GitHub Actions](.github/workflows/ci.yml).
 
+Optional benchmark suites have their own setup notes under
+[evals](evals/README.md) so the root setup stays focused on normal
+development.
+
 ## Current Status
 
 The canonical runtime lives in `src/simple_agent_lab/core.py`. Earlier

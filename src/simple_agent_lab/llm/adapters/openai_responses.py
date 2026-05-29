@@ -29,6 +29,7 @@ Provider config:
 Pass-through request options via `LLMRequest.extra`:
 
     extra["reasoning"]    : dict          (e.g. {"effort": "low"})
+    extra["extra_headers"]: dict          (request headers)
     extra["metadata"]     : dict
     extra["store"]        : bool
     extra["user"]         : str
@@ -105,6 +106,7 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         kwargs["timeout"] = req.timeout_seconds
     for key in (
         "reasoning",
+        "extra_headers",
         "metadata",
         "store",
         "user",

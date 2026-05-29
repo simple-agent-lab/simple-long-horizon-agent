@@ -7,6 +7,7 @@ the bash tool already attached. Callers drive it with `agent.run(task)`.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, Mapping
 
 from simple_agent_lab.core import Agent
 from simple_agent_lab.llm import Provider as LLMProvider
@@ -32,6 +33,7 @@ def make_bash_agent(
     name: str = BASH_AGENT_DEFAULT_NAME,
     role: str = BASH_AGENT_DEFAULT_ROLE,
     system_prompt: str = BASH_AGENT_SYSTEM_PROMPT,
+    request_extra: Mapping[str, Any] | None = None,
 ) -> Agent:
     """Build a bash-using `Agent` with the bash tool already bound.
 
@@ -45,4 +47,5 @@ def make_bash_agent(
         tools=[make_bash_tool(cwd=cwd)],
         system_prompt=system_prompt,
         target="user",
+        request_extra=request_extra,
     )

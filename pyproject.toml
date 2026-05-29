@@ -31,6 +31,7 @@ dependencies = [
 
 [project.optional-dependencies]
 swebench = [
+    "datasets>=2.0.0",
     "docker>=7.0.0",
     "swebench>=3.0.0",
 ]

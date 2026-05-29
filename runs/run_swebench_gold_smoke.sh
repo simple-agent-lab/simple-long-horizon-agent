@@ -35,10 +35,10 @@ mkdir -p "$OFFICIAL_OUTPUT_DIR"
 (
   cd "$OFFICIAL_OUTPUT_DIR"
   "${PYTHON[@]}" -m swebench.harness.run_evaluation \
-    --dataset_name princeton-nlp/SWE-bench_Lite \
+    --dataset_name princeton-nlp/SWE-bench_Verified \
     --split test \
     --max_workers 1 \
-    --instance_ids sympy__sympy-20590 \
+    --instance_ids sympy__sympy-23824 \
     --predictions_path gold \
     --run_id "$RUN_ID" \
     --report_dir "$OFFICIAL_OUTPUT_DIR/reports"

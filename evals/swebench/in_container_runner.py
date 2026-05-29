@@ -14,7 +14,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from simple_agent_lab.agents.bash import make_bash_agent
 from simple_agent_lab.agents.bash_task import (
@@ -23,11 +23,14 @@ from simple_agent_lab.agents.bash_task import (
 )
 from simple_agent_lab.core import Agent
 from simple_agent_lab.llm import Provider as LLMProvider
+from simple_agent_lab.protocols import Event, MessageEvent, ModelRequestEvent
 from simple_agent_lab.state import State
 from simple_agent_lab.trajectory import (
     LiveTraceSession,
+    ModelTurn,
     RunTrace,
     default_stderr_flush_error,
+    json_safe,
     run_trace_from_state,
     trace_record,
     write_canonical_trace,
@@ -51,13 +54,17 @@ except ModuleNotFoundError:  # copied beside this file inside the container
 
 DEFAULT_DATASET = "princeton-nlp/SWE-bench_Verified"
 DEFAULT_SPLIT = "test"
+DEFAULT_RESPONSES_MAX_OUTPUT_TOKENS = 32768
 OPENAI_MODEL_ENV = "OPENAI_MODEL"
 OPENAI_AUTH_ENV = "OPENAI_AUTH_TOKEN"
 OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
+OPENAI_SESSION_ID_ENV = "OPENAI_SESSION_ID"
+OPENAI_LOG_ID_ENV = "OPENAI_LOG_ID"
 API_KIND_ENV = "API_KIND"
 API_KIND_CHOICES = ("openai-chat", "openai-responses")
 AGENT_FLAVOR_CHOICES = ("bash", "bash_task")
 DEFAULT_AGENT_FLAVOR = "bash"
+SWE_BENCH_PRO_DATASET_MARKER = "swe-bench_pro"
 
 AGENT_NAME = "swebench_agent"
 AGENT_ROLE = (
@@ -105,12 +112,14 @@ def load_instance(path: str | Path, instance_id: str | None) -> dict[str, Any]:
 def task_from_instance(instance: dict[str, Any], *, workdir: str) -> str:
     """Build the model-visible task for the in-container agent."""
 
-    problem = str(
+    problem = _optional_context(
         instance.get("problem_statement")
         or instance.get("problem")
         or instance.get("description")
         or ""
     )
+    requirements = _optional_context(instance.get("requirements"))
+    interface = _optional_context(instance.get("interface"))
     lines = [
         "Solve this SWE-bench instance.",
         "",
@@ -145,6 +154,10 @@ def task_from_instance(instance: dict[str, Any], *, workdir: str) -> str:
         "## Problem statement",
         problem,
     ]
+    if requirements:
+        lines.extend(["", "requirements:", requirements])
+    if interface:
+        lines.extend(["", "interface:", interface])
     return "\n".join(lines)
 
 
@@ -152,13 +165,15 @@ def run_agent(
     *,
     instance: dict[str, Any],
     provider: LLMProvider,
+    request_extra: Mapping[str, Any] | None = None,
     workdir: Path,
     max_turns: int,
     agent_flavor: str = DEFAULT_AGENT_FLAVOR,
+    dataset_name: str = DEFAULT_DATASET,
     incremental_trace_path: str | Path | None = None,
     incremental_trace_meta_fn: Callable[[State], dict[str, Any]] | None = None,
     incremental_trace_id: str | None = None,
-    incremental_trace_producer: str = "suite:swebench",
+    incremental_trace_producer: str | None = None,
     incremental_flush_interval_s: float = INCREMENTAL_TRACE_FLUSH_INTERVAL_S,
 ) -> State:
     """Run the configured agent flavor inside the local container filesystem.
@@ -177,18 +192,21 @@ def run_agent(
     """
 
     language = instance_language(instance)
+    instance_id = str(instance["instance_id"])
+    suite = suite_for_instance(dataset_name=dataset_name, instance_id=instance_id)
     baseline_commit = prepare_baseline_commit(workdir, language=language)
     task = task_from_instance(instance, workdir=str(workdir))
     agent = build_swebench_agent(
         flavor=agent_flavor,
         provider=provider,
         cwd=workdir,
+        request_extra=request_extra,
     )
     agent.generate = with_llm_retry(agent.generate)
     state, events = agent.run(task, max_turns=max_turns)
     state.data.update(
         {
-            "suite": "swebench",
+            "suite": suite,
             "instance": instance,
             "workspace": str(workdir),
         }
@@ -205,7 +223,7 @@ def run_agent(
             incremental_trace_path,
             state,
             trace_id=trace_id,
-            producer=incremental_trace_producer,
+            producer=incremental_trace_producer or f"suite:{suite}",
             meta_fn=meta_fn,
             flush_interval_s=incremental_flush_interval_s,
             on_error=default_stderr_flush_error,
@@ -228,13 +246,15 @@ def build_swebench_agent(
     flavor: str,
     provider: LLMProvider,
     cwd: Path,
+    request_extra: Mapping[str, Any] | None = None,
 ) -> Agent:
     """Build the SWE-bench agent for ``flavor`` with shared name/role/prompt.
 
     The ``bash_task`` flavor reuses ``AGENT_SYSTEM_PROMPT`` and only
     appends a small addendum describing the ``task`` tool, so behavior
     is comparable between flavors (only the parent's tool surface and
-    one addendum paragraph differ).
+    one addendum paragraph differ). ``request_extra`` (eval-only header
+    extras) is forwarded so every flavor's model calls carry it.
     """
 
     if flavor == "bash":
@@ -244,6 +264,7 @@ def build_swebench_agent(
             name=AGENT_NAME,
             role=AGENT_ROLE,
             system_prompt=AGENT_SYSTEM_PROMPT,
+            request_extra=request_extra,
         )
     if flavor == "bash_task":
         return make_bash_task_agent(
@@ -254,6 +275,7 @@ def build_swebench_agent(
             system_prompt=(
                 AGENT_SYSTEM_PROMPT + "\n\n" + BASH_TASK_EXPLORER_ADDENDUM
             ),
+            request_extra=request_extra,
         )
     raise SystemExit(
         f"Unsupported agent flavor {flavor!r}; expected one of: "
@@ -290,8 +312,44 @@ def build_openai_provider_from_env(api_kind: str = "openai-chat") -> LLMProvider
         model=model,
         base_url=os.environ.get(OPENAI_BASE_URL_ENV) or None,
         api_key_env=OPENAI_AUTH_ENV,
+        default_max_tokens=(
+            DEFAULT_RESPONSES_MAX_OUTPUT_TOKENS
+            if api_kind == "openai-responses"
+            else None
+        ),
         default_temperature=AGENT_DEFAULT_TEMPERATURE,
     )
+
+
+def build_openai_request_extra_from_env(
+    *,
+    env: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Build request extras needed by eval-only OpenAI-compatible endpoints."""
+
+    source = env if env is not None else os.environ
+    session_id = source.get(OPENAI_SESSION_ID_ENV, "").strip()
+    log_id = source.get(OPENAI_LOG_ID_ENV, "").strip()
+    if not session_id and not log_id:
+        return {}
+    missing = [
+        name
+        for name, value in (
+            (OPENAI_SESSION_ID_ENV, session_id),
+            (OPENAI_LOG_ID_ENV, log_id),
+        )
+        if not value
+    ]
+    if missing:
+        raise SystemExit(
+            "Missing required env vars for OpenAI extra headers: " + ", ".join(missing)
+        )
+    return {
+        "extra_headers": {
+            "extra": json.dumps({"session_id": session_id}, separators=(",", ":")),
+            "X-TT-logid": log_id,
+        }
+    }
 
 
 def with_llm_retry(
@@ -367,12 +425,37 @@ def git_diff(
     return extract_git_diff(repo_dir, language=language, commit=commit)
 
 
-def prediction_record(instance_id: str, model_name: str, patch: str) -> dict[str, str]:
+def prediction_record(
+    instance_id: str,
+    model_name: str,
+    patch: str,
+    *,
+    dataset_name: str = DEFAULT_DATASET,
+) -> dict[str, str]:
+    if is_swebench_pro(dataset_name=dataset_name, instance_id=instance_id):
+        return {
+            "instance_id": instance_id,
+            "prefix": model_name,
+            "patch": patch,
+        }
     return {
         "instance_id": instance_id,
         "model_name_or_path": model_name,
         "model_patch": patch,
     }
+
+
+def is_swebench_pro(*, dataset_name: str = "", instance_id: str = "") -> bool:
+    dataset = dataset_name.casefold()
+    return SWE_BENCH_PRO_DATASET_MARKER in dataset or instance_id.startswith(
+        "instance_"
+    )
+
+
+def suite_for_instance(*, dataset_name: str, instance_id: str) -> str:
+    if is_swebench_pro(dataset_name=dataset_name, instance_id=instance_id):
+        return "swebench_pro"
+    return "swebench"
 
 
 def trace_from_state(
@@ -386,12 +469,13 @@ def trace_from_state(
 ) -> RunTrace:
     instance_id = str(instance["instance_id"])
     trace_id = f"swebench.{instance_id}"
+    suite = suite_for_instance(dataset_name=dataset_name, instance_id=instance_id)
     return run_trace_from_state(
         state=state,
         trace_id=trace_id,
-        producer="suite:swebench",
+        producer=f"suite:{suite}",
         meta={
-            "suite": "swebench",
+            "suite": suite,
             "dataset_name": dataset_name,
             "split": split,
             "instance_id": instance_id,
@@ -401,6 +485,53 @@ def trace_from_state(
             "workspace": state.data.get("workspace"),
         },
     )
+
+
+def model_turns_from_events(trace_id: str, events: list[Event]) -> list[ModelTurn]:
+    turns: list[ModelTurn] = []
+    pending: dict[str, Any] | None = None
+    model_call_index = 0
+
+    for event in events:
+        if isinstance(event, ModelRequestEvent):
+            model_call_index += 1
+            pending = {
+                "agent": str(event.agent or ""),
+                "input_messages": event.llm_payload,
+                "tools": event.tools,
+                "request_event_index": event.index,
+                "meta": {
+                    "visible_count": event.visible_count,
+                    "model_message_count": event.llm_message_count,
+                },
+            }
+            continue
+
+        if not isinstance(event, MessageEvent) or pending is None:
+            continue
+        message = event.message
+        if message.role != "assistant":
+            continue
+        agent = pending["agent"] or message.sender
+        if message.sender != agent:
+            continue
+        turns.append(
+            ModelTurn(
+                step_id=f"{trace_id}.model{model_call_index}",
+                agent=agent,
+                input_messages=json_safe(pending["input_messages"]),
+                output_message=json_safe(message),
+                tools=json_safe(pending["tools"]),
+                meta={
+                    **pending["meta"],
+                    "request_event_index": pending["request_event_index"],
+                    "message_event_index": event.index,
+                },
+            )
+        )
+        pending = None
+
+    return turns
 
 
 def main() -> None:
@@ -442,10 +573,11 @@ def main() -> None:
     )
     instance = load_instance(args.instance_json, args.instance_id)
     instance_id = str(instance["instance_id"])
+    suite = suite_for_instance(dataset_name=args.dataset_name, instance_id=instance_id)
 
     def live_meta_fn(state: State) -> dict[str, Any]:
         return {
-            "suite": "swebench",
+            "suite": suite,
             "dataset_name": args.dataset_name,
             "split": args.split,
             "instance_id": instance_id,
@@ -459,12 +591,17 @@ def main() -> None:
     state = run_agent(
         instance=instance,
         provider=provider,
+        request_extra=(
+            build_openai_request_extra_from_env() if args.provider == "openai" else {}
+        ),
         workdir=Path(args.workdir),
         max_turns=args.max_turns,
         agent_flavor=args.agent_flavor,
+        dataset_name=args.dataset_name,
         incremental_trace_path=args.traces,
         incremental_trace_meta_fn=live_meta_fn,
         incremental_trace_id=f"swebench.{instance_id}",
+        incremental_trace_producer=f"suite:{suite}",
     )
     state.data["agent_flavor"] = args.agent_flavor
     patch = str(state.data.get("model_patch") or "")
@@ -476,7 +613,12 @@ def main() -> None:
         model_name=args.model_name,
         patch_source="containerized-diff",
     )
-    prediction = prediction_record(str(instance["instance_id"]), args.model_name, patch)
+    prediction = prediction_record(
+        str(instance["instance_id"]),
+        args.model_name,
+        patch,
+        dataset_name=args.dataset_name,
+    )
     write_canonical_trace(args.traces, record=trace_record(trace))
     write_jsonl(args.predictions, [prediction])
     print(f"wrote 1 SWE-bench trajectory to {args.traces}")
@@ -514,6 +656,22 @@ def _records_from_json(parsed: Any, path: Path) -> list[dict[str, Any]]:
             return [dict(item) for item in instances]
         return [dict(parsed)]
     raise SystemExit(f"Expected JSON object, JSON list, or JSONL records in {path}")
+
+
+def _optional_context(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if not text or text.casefold() in {"none", "null", "nan"}:
+        return ""
+    if text.startswith('"') and text.endswith('"'):
+        try:
+            decoded = json.loads(text)
+        except json.JSONDecodeError:
+            return text
+        if isinstance(decoded, str):
+            return decoded.strip()
+    return text
 
 
 if __name__ == "__main__":
