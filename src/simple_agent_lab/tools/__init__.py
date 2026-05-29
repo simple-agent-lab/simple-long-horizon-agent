@@ -72,10 +72,8 @@ ToolExecuteFn = Callable[
 class Tool:
     """Provider-facing tool definition. Pure data, safe to serialize.
 
-    Use this directly for a *declaration-only* tool -- one the model can
-    see and call but that carries no local execute function (e.g. when you
-    only need the wire shape for serialization). Attach an `AgentTool`
-    (below) to an agent when the runtime must actually run the tool.
+    A bare `Tool` is a declaration with no local execute; use `AgentTool`
+    when the runtime must actually run it.
     """
 
     name: str
@@ -85,14 +83,11 @@ class Tool:
 
 @dataclass(frozen=True)
 class AgentTool(Tool):
-    """A tool definition plus its local execute function.
+    """A `Tool` the runtime can run: a declaration plus a required `execute`.
 
-    `execute` is required: an `AgentTool` is exactly a `Tool` the runtime
-    can run, so there is no such thing as one without it (a declaration
-    with no local execution is a plain `Tool`). It runs with the canonical
-    `ToolExecuteFn` signature (see above). `execution_mode="sequential"`
-    forces all calls in a tool-call batch to run one at a time;
-    `"parallel"` allows the runtime to dispatch them concurrently.
+    `execute` uses the canonical `ToolExecuteFn` signature (above).
+    `execution_mode="sequential"` runs a batch's calls one at a time;
+    `"parallel"` lets the runtime dispatch them concurrently.
     `timeout_seconds` (when set) bounds a single call.
     """
 

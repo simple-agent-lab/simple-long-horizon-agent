@@ -59,12 +59,7 @@ def messages_to_llm_messages(
 
 
 def tool_to_llm_tool(tool: Tool) -> LLMTool:
-    """Project a shared Tool value to the LLM layer's wire tool definition.
-
-    Typed against the `Tool` base so it accepts both a declaration-only
-    `Tool` and an executable `AgentTool` (a subclass); only the shared
-    wire fields are read.
-    """
+    """Project a shared Tool (or AgentTool subclass) to the wire tool def."""
     return LLMTool(
         name=tool.name,
         description=tool.description,

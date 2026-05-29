@@ -19,9 +19,8 @@ from simple_agent_lab.messages import ImageBlock, ToolResultBlock
 from simple_agent_lab.trace import append_openai_training_record, openai_training_record
 
 
-# Declaration-only tool: this suite only serializes the wire shape
-# (name/description/parameters); it never dispatches, so a plain `Tool`
-# (no execute) is the right type rather than an `AgentTool`.
+# Declaration-only: this suite serializes the wire shape and never
+# dispatches, so a plain `Tool` (no execute) is the right type.
 _BASH_TOOL = Tool(
     name="bash",
     description="Run a bash command.",
