@@ -7,6 +7,7 @@ import simple_agent_lab
 from simple_agent_lab import (
     Agent,
     AgentEndEvent,
+    CompressionDecision,
     ContextCompressionEvent,
     ContextPolicy,
     EventKind,
@@ -17,10 +18,10 @@ from simple_agent_lab import (
     ToolCallBlock,
     assistant_message,
     build_context_view,
+    make_message,
     message_text,
     run,
     tool_result_message,
-    tool_results_of,
 )
 from simple_agent_lab.tools import (
     AbortFlag,
@@ -301,14 +302,14 @@ class CoreTest(unittest.TestCase):
             "AgentStartEvent",
             "AgentTool",
             "AssistantMessage",
+            "CompressionDecision",
+            "CompressionStrategy",
             "ContentBlock",
             "ContextCompressionEvent",
             "ContextPolicy",
-            "ContextStats",
             "ContextView",
             "Event",
             "EventKind",
-            "GenerateFn",
             "ImageBlock",
             "Message",
             "MessageChannel",
@@ -320,10 +321,9 @@ class CoreTest(unittest.TestCase):
             "ModelTurn",
             "Role",
             "RunTrace",
-            "RuntimeEvent",
             "Span",
             "State",
-            "StateSnapshot",
+            "SummarizeStrategy",
             "SystemMessage",
             "TextBlock",
             "ThinkingBlock",
@@ -337,14 +337,13 @@ class CoreTest(unittest.TestCase):
             "ToolResult",
             "ToolResultBlock",
             "ToolUpdateFn",
+            "ToolCompactStrategy",
             "TurnEndEvent",
             "TurnStartEvent",
             "UserMessage",
             "append_openai_training_record",
             "assistant_message",
             "build_context_view",
-            "clip_message",
-            "dispatch_tool_calls",
             "estimate_context_tokens",
             "estimate_message_chars",
             "estimate_message_tokens",
@@ -354,7 +353,6 @@ class CoreTest(unittest.TestCase):
             "make_message",
             "message_text",
             "model_turns_from_events",
-            "message_tool_calls",
             "openai_training_record",
             "print_trace",
             "run",
@@ -364,8 +362,6 @@ class CoreTest(unittest.TestCase):
             "task_tool",
             "text_of",
             "text_result",
-            "thinking_blocks_of",
-            "tool_calls_of",
             "tool_result_message",
             "tool_result_text",
             "tool_results_message",
@@ -395,67 +391,6 @@ class CoreTest(unittest.TestCase):
         self.assertEqual(view.stats.total_messages, 5)
         self.assertEqual(view.stats.visible_messages, 4)
 
-    def test_context_view_budget_keeps_pinned_task_and_recent_tail(self) -> None:
-        state = State("budget test")
-        state.send("task", "user", "writer", "pinned task")
-        state.send("note", "user", "writer", "old " + ("x" * 120))
-        state.send("note", "user", "writer", "recent answer")
-
-        view = build_context_view(
-            "writer",
-            state.active_context_messages(),
-            policy=ContextPolicy(max_chars=80, reserve_recent=1),
-        )
-
-        self.assertEqual(
-            [message_text(message) for message in view.messages],
-            ["pinned task", "recent answer"],
-        )
-        self.assertEqual(view.stats.dropped_messages, 1)
-        self.assertIn("budget dropped 1 message(s)", view.notes)
-
-    def test_context_view_keeps_tool_call_and_result_together(self) -> None:
-        state = State("tool pair")
-        state.send("task", "user", "coordinator", "use tool")
-        state.send("note", "user", "coordinator", "old " + ("x" * 120))
-        state.record(
-            assistant_message(
-                [
-                    TextBlock("asking tool"),
-                    ToolCallBlock("call_1", "echo", {"text": "ok"}),
-                ],
-                sender="coordinator",
-                target="user",
-                kind="thought",
-            )
-        )
-        state.record(
-            tool_result_message(
-                "tool ok",
-                tool_call_id="call_1",
-                tool_name="echo",
-                target="coordinator",
-            )
-        )
-
-        view = build_context_view(
-            "coordinator",
-            state.active_context_messages(),
-            policy=ContextPolicy(max_chars=120, reserve_recent=1),
-        )
-
-        self.assertEqual(
-            [message.kind for message in view.messages],
-            [
-                "task",
-                "thought",
-                "tool_result",
-            ],
-        )
-        last_results = tool_results_of(view.messages[-1].content)
-        self.assertEqual(len(last_results), 1)
-        self.assertEqual(last_results[0].tool_call_id, "call_1")
-
     def test_run_records_context_view_summary(self) -> None:
         def writer(visible: list[Message]) -> Message:
             del visible
@@ -466,16 +401,12 @@ class CoreTest(unittest.TestCase):
                 kind="final",
             )
 
-        state = State("summarize context")
+        state = State("project context view")
         state.send("task", "user", "writer", state.task)
-        state.send("note", "user", "writer", "old " + ("x" * 120))
+        state.send("note", "user", "writer", "first note")
+        state.send("note", "user", "writer", "second note")
         for _ in run(
-            Agent(
-                "writer",
-                writer,
-                role="Write.",
-                context_policy=ContextPolicy(max_chars=80, reserve_recent=0),
-            ),
+            Agent("writer", writer, role="Write."),
             state,
         ):
             pass
@@ -487,8 +418,8 @@ class CoreTest(unittest.TestCase):
         )
         context = request.context_view
         self.assertEqual(context["agent"], "writer")
-        self.assertEqual(context["dropped_messages"], 1)
         self.assertGreater(context["estimated_tokens"], 0)
+        self.assertEqual(context["visible_messages"], context["total_messages"])
 
     def test_run_compresses_context_before_model_request(self) -> None:
         captured: dict[str, Any] = {}
@@ -518,9 +449,13 @@ class CoreTest(unittest.TestCase):
         state.send("note", "user", "writer", "old " + ("x" * 120))
         state.send("note", "user", "writer", "recent note")
         compression_policy = ContextPolicy(
-            compress_at_tokens=1,
-            compress_keep_recent=1,
-            compressor=Agent("compressor", compressor),
+            strategies=(
+                simple_agent_lab.SummarizeStrategy(
+                    compressor=Agent("compressor", compressor),
+                    threshold_tokens=1,
+                    keep_recent=1,
+                ),
+            ),
         )
 
         for _ in run(
@@ -562,6 +497,224 @@ class CoreTest(unittest.TestCase):
             rebuilt.active_context_message_indices,
             state.snapshot.active_context_message_indices,
         )
+
+    def test_tool_compact_folds_old_tool_exchanges(self) -> None:
+        # ToolCompactStrategy is the no-LLM first stage: when the context
+        # exceeds `threshold_tokens`, every tool exchange except the most
+        # recent `keep_recent_exchanges` is replaced by one short marker
+        # listing the tool name and a result preview.
+        def writer(visible: list[Message]) -> Message:
+            del visible
+            return assistant_message(
+                "done", sender="writer", target="user", kind="final"
+            )
+
+        state = State("tool compact")
+        state.send("task", "user", "writer", state.task)
+        for index, payload in enumerate(
+            ("alpha result", "beta result", "gamma result")
+        ):
+            state.record(
+                assistant_message(
+                    [
+                        TextBlock(f"call-{index}"),
+                        ToolCallBlock(f"c{index}", "echo", {"i": index}),
+                    ],
+                    sender="writer",
+                    target="user",
+                    kind="thought",
+                )
+            )
+            state.record(
+                tool_result_message(
+                    payload,
+                    tool_call_id=f"c{index}",
+                    tool_name="echo",
+                    target="writer",
+                )
+            )
+
+        policy = ContextPolicy(
+            strategies=(
+                simple_agent_lab.ToolCompactStrategy(
+                    threshold_tokens=1,
+                    keep_recent_exchanges=1,
+                ),
+            ),
+        )
+        for _ in run(
+            Agent("writer", writer, context_policy=policy),
+            state,
+            max_turns=1,
+        ):
+            pass
+
+        compression = next(
+            event
+            for event in state.events
+            if isinstance(event, ContextCompressionEvent)
+        )
+        # Compacted the first two exchanges (assistant + tool_result each = 4 msgs).
+        self.assertEqual(len(compression.compressed_message_indices), 4)
+        replacement = state.messages[compression.summary_message_index]
+        self.assertEqual(replacement.kind, "summary")
+        replacement_text = message_text(replacement)
+        self.assertIn("Compacted 2 older tool exchange(s)", replacement_text)
+        self.assertIn("alpha result", replacement_text)
+        self.assertIn("beta result", replacement_text)
+        # The most recent exchange stays verbatim — its messages survive
+        # in active and the summary sits between the old block and the
+        # kept tail.
+        self.assertNotIn("gamma result", replacement_text)
+        post_summary_indices = compression.active_message_indices[
+            compression.active_message_indices.index(compression.summary_message_index)
+            + 1 :
+        ]
+        recent_texts = [
+            message_text(state.messages[index]) for index in post_summary_indices
+        ]
+        self.assertTrue(any("gamma result" in text for text in recent_texts))
+
+    def test_default_tiered_policy_runs_compact_then_summarize(self) -> None:
+        # The two default strategies compose into a tiered policy:
+        # ToolCompactStrategy folds older tool exchanges cheaply, then
+        # SummarizeStrategy runs an LLM pass if the context is still over
+        # budget. Both compression events should fire in order.
+        summarizer_calls: list[int] = []
+
+        def writer(visible: list[Message]) -> Message:
+            del visible
+            return assistant_message(
+                "done", sender="writer", target="user", kind="final"
+            )
+
+        def fake_summarizer(visible: list[Message]) -> Message:
+            summarizer_calls.append(len(visible))
+            return assistant_message(
+                "llm summary text",
+                sender="compressor",
+                target="runtime",
+                kind="final",
+            )
+
+        state = State("tiered policy")
+        state.send("task", "user", "writer", state.task)
+        for index, payload in enumerate(("alpha", "beta", "gamma")):
+            state.record(
+                assistant_message(
+                    [
+                        TextBlock(f"call-{index}"),
+                        ToolCallBlock(f"c{index}", "echo", {"i": index}),
+                    ],
+                    sender="writer",
+                    target="user",
+                    kind="thought",
+                )
+            )
+            state.record(
+                tool_result_message(
+                    payload,
+                    tool_call_id=f"c{index}",
+                    tool_name="echo",
+                    target="writer",
+                )
+            )
+
+        policy = ContextPolicy(
+            strategies=(
+                simple_agent_lab.ToolCompactStrategy(
+                    threshold_tokens=1,
+                    keep_recent_exchanges=1,
+                ),
+                simple_agent_lab.SummarizeStrategy(
+                    compressor=Agent("compressor", fake_summarizer),
+                    threshold_tokens=1,
+                    keep_recent=0,
+                ),
+            ),
+        )
+
+        for _ in run(
+            Agent("writer", writer, context_policy=policy),
+            state,
+            max_turns=1,
+        ):
+            pass
+
+        compressions = [
+            event
+            for event in state.events
+            if isinstance(event, ContextCompressionEvent)
+        ]
+        self.assertEqual(len(compressions), 2)
+        self.assertEqual(len(summarizer_calls), 1)
+        compact_replacement = state.messages[compressions[0].summary_message_index]
+        self.assertIn("Compacted", message_text(compact_replacement))
+        llm_replacement = state.messages[compressions[1].summary_message_index]
+        self.assertEqual(message_text(llm_replacement), "llm summary text")
+
+    def test_framework_auto_fixes_split_tool_pair(self) -> None:
+        # If a strategy puts only one side of a tool_call/tool_result pair
+        # in `compress_indices`, the framework un-compresses that side so
+        # the model never sees an orphan. This frees strategy authors
+        # from re-implementing tool-pair bookkeeping in every strategy.
+        state = State("tool pair fixup")
+        state.send("task", "user", "writer", state.task)
+        call_msg = assistant_message(
+            [
+                TextBlock("calling"),
+                ToolCallBlock("call_x", "echo", {"text": "hi"}),
+            ],
+            sender="writer",
+            target="user",
+            kind="thought",
+        )
+        state.record(call_msg)
+        result_msg = tool_result_message(
+            "ok",
+            tool_call_id="call_x",
+            tool_name="echo",
+            target="writer",
+        )
+        state.record(result_msg)
+
+        call_index = state.messages.index(call_msg)
+        captured: dict[str, Any] = {}
+
+        class CompressOnlyCall:
+            def __call__(self, active, agent_name):
+                captured["saw_active_count"] = len(active)
+                return CompressionDecision(
+                    compress_indices=(call_index,),
+                    replacement=make_message(
+                        "system",
+                        "[call gone]",
+                        sender="runtime",
+                        target=agent_name,
+                        kind="summary",
+                    ),
+                )
+
+        def writer(visible: list[Message]) -> Message:
+            return assistant_message(
+                f"saw {len(visible)} msgs",
+                sender="writer",
+                target="user",
+                kind="final",
+            )
+
+        policy = ContextPolicy(strategies=(CompressOnlyCall(),))
+        for _ in run(Agent("writer", writer, context_policy=policy), state):
+            pass
+
+        # No compression event recorded: the only compress index was
+        # orphan-fixed away, leaving compress_set empty.
+        compressions = [
+            event
+            for event in state.events
+            if isinstance(event, ContextCompressionEvent)
+        ]
+        self.assertEqual(compressions, [])
 
 
 if __name__ == "__main__":

@@ -13,9 +13,7 @@ from simple_agent_lab import (
     TextBlock,
     ToolCallBlock,
     assistant_message,
-    text_result,
     tool_results_message,
-    user_message,
 )
 from simple_agent_lab.messages import ImageBlock, ToolResultBlock
 from simple_agent_lab.trace import append_openai_training_record, openai_training_record

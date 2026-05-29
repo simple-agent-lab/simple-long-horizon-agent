@@ -5,11 +5,17 @@ OpenAI-compatible endpoints (Ollama, vLLM, OpenRouter, LM Studio, ...)
 when `Provider.base_url` is set.
 
 Reasoning content is treated as a first-class block. On the way in, the
-adapter reads `message.reasoning_content` (DeepSeek / mimo style) and
-surfaces it as a `ThinkingBlock` ahead of the text and tool_call blocks
-on `LLMResponse.content`. On the way out, prior assistant thinking
-blocks are replayed via the same `reasoning_content` field on the
-outbound assistant dict (gated by `Provider.replay_reasoning`).
+adapter reads the first available reasoning field on the SDK message
+(`reasoning_content`, OpenAI / DeepSeek-direct style; or `reasoning`,
+what some DeepSeek-via-gateway deployments emit) and surfaces it as a
+`ThinkingBlock` ahead of the text and tool_call blocks on
+`LLMResponse.content`. The wire field name is remembered on
+`ThinkingBlock.source_field` for trace debugging. On the way out, prior
+assistant thinking is always replayed under the canonical
+`reasoning_content` field, regardless of which key brought it in --
+strict gateways (e.g. deepseek-via-zenmux) emit `reasoning` but still
+require us to echo back the canonical name. Gated by
+`Provider.replay_reasoning`.
 
 Provider config:
 
@@ -54,7 +60,6 @@ from ...messages import (
     TextBlock,
     ThinkingBlock,
     ToolCallBlock,
-    ToolResultBlock,
     encode_image_data_url,
     text_of,
 )
@@ -128,7 +133,7 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
     choice = sdk_response.choices[0]
     message = choice.message
 
-    reasoning_text = _extract_reasoning(message)
+    reasoning_text, reasoning_field = _extract_reasoning(message)
     text = getattr(message, "content", None) or ""
     tool_calls: list[ToolCallBlock] = []
     for tool_call in getattr(message, "tool_calls", None) or []:
@@ -147,7 +152,7 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
 
     blocks: list[ContentBlock] = []
     if reasoning_text:
-        blocks.append(ThinkingBlock(text=reasoning_text))
+        blocks.append(ThinkingBlock(text=reasoning_text, source_field=reasoning_field))
     if text:
         blocks.append(TextBlock(text=text))
     blocks.extend(tool_calls)
@@ -187,15 +192,32 @@ def _api_key(req: LLMRequest) -> str | None:
     return api_key
 
 
-def _extract_reasoning(message: Any) -> str:
-    """Read reasoning_content from the SDK message object.
+DEFAULT_REASONING_FIELD = "reasoning_content"
+# Field names we recognize for inbound reasoning, in priority order.
+# `reasoning_content` is what OpenAI / DeepSeek-direct emit; `reasoning`
+# is what some DeepSeek-via-gateway deployments emit (and then require
+# us to echo back symmetrically).
+_REASONING_FIELDS: tuple[str, ...] = ("reasoning_content", "reasoning")
 
-    Not part of OpenAI's official Chat schema, so pydantic v2 SDK
-    responses expose it through `__getattr__` (extra="allow"); plain
-    attribute access also covers the SimpleNamespace stubs used in tests.
+
+def _extract_reasoning(message: Any) -> tuple[str, str | None]:
+    """Read the model's reasoning from the SDK message object.
+
+    Returns ``(text, source_field)`` where ``source_field`` is the wire
+    field name the value was read from (so the next outbound turn can
+    replay it under the same key) or ``None`` when no reasoning was
+    present.
+
+    Neither field is part of OpenAI's official Chat schema, so pydantic
+    v2 SDK responses expose them through ``__getattr__`` (extra="allow");
+    plain attribute access also covers the SimpleNamespace stubs used in
+    tests.
     """
-    value = getattr(message, "reasoning_content", None)
-    return value if isinstance(value, str) else ""
+    for field_name in _REASONING_FIELDS:
+        value = getattr(message, field_name, None)
+        if isinstance(value, str) and value:
+            return value, field_name
+    return "", None
 
 
 def to_openai_chat_messages(
@@ -272,7 +294,7 @@ def to_openai_chat_messages(
             if include_reasoning_content:
                 reasoning = _reasoning_text(message)
                 if reasoning:
-                    entry["reasoning_content"] = reasoning
+                    entry[DEFAULT_REASONING_FIELD] = reasoning
             out.append(entry)
     return out
 

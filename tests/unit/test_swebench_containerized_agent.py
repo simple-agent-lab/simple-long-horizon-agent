@@ -658,7 +658,10 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
             self.assertTrue(paths.root.is_absolute())
             self.assertEqual(
                 paths.root,
-                Path(tmp) / "relative-runs" / "container-run" / "sympy__sympy-23824",
+                Path(tmp).resolve()
+                / "relative-runs"
+                / "container-run"
+                / "sympy__sympy-23824",
             )
 
     def test_run_containerized_agent_uses_absolute_host_mounts(self) -> None:
@@ -736,6 +739,7 @@ class SwebenchContainerizedAgentTest(unittest.TestCase):
                     api_kind=None,
                     dotenv=".env",
                     max_turns=1,
+                    agent_flavor="bash",
                     run_id="container-run",
                     run_root="relative-runs",
                     run_mount="/agent/run",

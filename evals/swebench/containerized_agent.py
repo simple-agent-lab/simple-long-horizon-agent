@@ -57,6 +57,8 @@ OPENAI_SESSION_ID_ENV = "OPENAI_SESSION_ID"
 OPENAI_LOG_ID_ENV = "OPENAI_LOG_ID"
 API_KIND_ENV = "API_KIND"
 API_KIND_CHOICES = ("openai-chat", "openai-responses")
+AGENT_FLAVOR_CHOICES = ("bash", "bash_task")
+DEFAULT_AGENT_FLAVOR = "bash"
 OPENAI_PASSTHROUGH_ENVS = (
     OPENAI_MODEL_ENV,
     OPENAI_AUTH_ENV,
@@ -239,6 +241,7 @@ def build_runner_command(
     install: bool = True,
     wheelhouse_mount: str | None = None,
     runner_path: str = DEFAULT_RUNNER_PATH,
+    agent_flavor: str = DEFAULT_AGENT_FLAVOR,
 ) -> str:
     """Build the shell command that runs as the container's main process.
 
@@ -337,6 +340,8 @@ def build_runner_command(
         + shlex.quote(workdir)
         + " --max-turns "
         + shlex.quote(str(max_turns))
+        + " --agent-flavor "
+        + shlex.quote(agent_flavor)
         + " --traces "
         + shlex.quote(f"{run_mount}/out/trajectory.jsonl")
         + " --predictions "
@@ -425,6 +430,7 @@ def run_containerized_agent(args: argparse.Namespace) -> RunPaths:
         install=not args.skip_install,
         wheelhouse_mount=args.wheelhouse_mount if wheelhouse is not None else None,
         runner_path=args.container_runner_path,
+        agent_flavor=args.agent_flavor,
     )
     volumes = {
         str(paths.root): {"bind": args.run_mount, "mode": "rw"},
@@ -509,6 +515,16 @@ def main() -> None:
     )
     parser.add_argument("--dotenv", default=str(ROOT / ".env"))
     parser.add_argument("--max-turns", type=int, default=75)
+    parser.add_argument(
+        "--agent-flavor",
+        choices=AGENT_FLAVOR_CHOICES,
+        default=DEFAULT_AGENT_FLAVOR,
+        help=(
+            "Agent preset: 'bash' (parent has only the bash tool, current "
+            "baseline) or 'bash_task' (parent has bash + task with an "
+            "explorer sub-agent for context-isolating heavy reads)."
+        ),
+    )
     parser.add_argument("--run-id", default="containerized-agent")
     parser.add_argument("--run-root", default=str(DEFAULT_RUN_ROOT))
     parser.add_argument("--run-mount", default=DEFAULT_RUN_MOUNT)

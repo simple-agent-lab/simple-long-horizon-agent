@@ -2,7 +2,7 @@
 
 Any agent that runs inside Docker can expose the same incremental
 ``trajectory.jsonl`` the host trace viewer already polls. The reusable API lives
-in ``simple_agent_lab.live_trace``.
+in ``simple_agent_lab.trajectory``.
 
 ## Host layout
 
@@ -37,21 +37,21 @@ Pick a trace file under the mount so writes are visible on the host:
 export LIVE_TRACE_PATH=/agent/run/out/trajectory.jsonl
 ```
 
-``LIVE_TRACE_PATH`` is defined as ``simple_agent_lab.live_trace.LIVE_TRACE_PATH_ENV``.
+``LIVE_TRACE_PATH`` is defined as ``simple_agent_lab.trajectory.LIVE_TRACE_PATH_ENV``.
 
 ## In-container runner
 
 1. Build ``State`` (or call ``agent.run`` to obtain ``state`` + ``events``).
-2. Wrap event consumption with :class:`~simple_agent_lab.live_trace.LiveTraceSession`
-   or call :func:`~simple_agent_lab.live_trace.run_agent_with_live_trace`.
+2. Wrap event consumption with :class:`~simple_agent_lab.trajectory.LiveTraceSession`
+   or call :func:`~simple_agent_lab.trajectory.run_agent_with_live_trace`.
 3. After post-run enrichment (patches, labels), write the canonical final record
-   with :func:`~simple_agent_lab.live_trace.write_canonical_trace` or let the
+   with :func:`~simple_agent_lab.trajectory.write_canonical_trace` or let the
    helper do it when no post-run work is needed.
 
 Minimal pattern when the agent loop is already set up:
 
 ```python
-from simple_agent_lab.live_trace import LiveTraceSession, TraceMeta, write_canonical_trace
+from simple_agent_lab.trajectory import LiveTraceSession, TraceMeta, write_canonical_trace
 
 state, events = agent.run(task, max_turns=75)
 meta = TraceMeta(trace_id="my.run.001", producer="suite:example", meta_fn=lambda: {"in_progress": True})
@@ -64,7 +64,7 @@ write_canonical_trace("/agent/run/out/trajectory.jsonl", state=state, trace_meta
 One-liner when nothing runs after the event loop:
 
 ```python
-from simple_agent_lab.live_trace import TraceMeta, run_agent_with_live_trace
+from simple_agent_lab.trajectory import TraceMeta, run_agent_with_live_trace
 
 state, events = run_agent_with_live_trace(
     agent,
@@ -87,8 +87,8 @@ Or open a single file URL (see ``scripts/run_live_trace_demo.py``).
 
 ## Related code
 
-- ``src/simple_agent_lab/live_trace.py`` — session + helpers
-- ``src/simple_agent_lab/trajectory.py`` — ``IncrementalTraceWriter``, atomic JSONL
+- ``src/simple_agent_lab/trajectory/live.py`` — ``LiveTraceSession``, ``IncrementalTraceWriter``, and final-record helpers
+- ``src/simple_agent_lab/trajectory/jsonl.py`` — atomic JSONL read/write
 - ``evals/swebench/in_container_runner.py`` — SWE-bench reference wiring
 - ``evals/swebench/containerized_agent.py`` — mount and ``--traces`` defaults
 - ``scripts/run_live_trace_demo.py`` — local demo without Docker

@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal, TypeAlias, TypeVar
 
 
 Role: TypeAlias = Literal["system", "user", "assistant"]
@@ -84,9 +84,22 @@ class ImageBlock:
 
 @dataclass(frozen=True)
 class ThinkingBlock:
+    """A model's chain-of-thought / reasoning step.
+
+    ``source_field`` is an adapter-side memo of which top-level wire
+    field carried this reasoning on the *response* path (e.g. OpenAI
+    Chat's ``"reasoning_content"`` vs. some DeepSeek-via-gateway
+    deployments' ``"reasoning"``). It is recorded for trace debugging
+    only: outbound replay always uses the adapter's canonical field
+    (``reasoning_content`` for OpenAI Chat), regardless of which key
+    brought the reasoning in. Leave ``None`` when there is nothing to
+    record.
+    """
+
     text: str = ""
     signature: str | None = None
     redacted: bool = False
+    source_field: str | None = None
 
     kind: Literal["thinking"] = field(default="thinking", init=False)
 
@@ -219,14 +232,7 @@ def user_message(
     channel: MessageChannel = "main",
     data: Sidecar | None = None,
 ) -> UserMessage:
-    return UserMessage(
-        content=normalize_content(content),
-        sender=sender,
-        target=target,
-        kind=kind,
-        channel=channel,
-        data=dict(data or {}),
-    )
+    return _build_message(UserMessage, content, sender, target, kind, channel, data)
 
 
 def system_message(
@@ -238,14 +244,7 @@ def system_message(
     channel: MessageChannel = "main",
     data: Sidecar | None = None,
 ) -> SystemMessage:
-    return SystemMessage(
-        content=normalize_content(content),
-        sender=sender,
-        target=target,
-        kind=kind,
-        channel=channel,
-        data=dict(data or {}),
-    )
+    return _build_message(SystemMessage, content, sender, target, kind, channel, data)
 
 
 def assistant_message(
@@ -258,14 +257,39 @@ def assistant_message(
     usage: TokenUsage | None = None,
     data: Sidecar | None = None,
 ) -> AssistantMessage:
-    message = AssistantMessage(
+    return _build_message(
+        AssistantMessage, content, sender, target, kind, channel, data, usage=usage
+    )
+
+
+_MessageT = TypeVar("_MessageT", UserMessage, SystemMessage, AssistantMessage)
+
+
+def _build_message(
+    cls: type[_MessageT],
+    content: ContentInput,
+    sender: AgentName,
+    target: AgentName,
+    kind: MessageKind,
+    channel: MessageChannel,
+    data: Sidecar | None,
+    **extra: Any,
+) -> _MessageT:
+    """Shared constructor body for the three role-specific helpers.
+
+    Normalizes `content`, copies `data` (so callers can't mutate the
+    message's sidecar later), threads any role-specific kwargs through
+    `extra` (currently only `usage` for assistants), and runs
+    `validate_message` so block placement is checked uniformly.
+    """
+    message = cls(
         content=normalize_content(content),
         sender=sender,
         target=target,
         kind=kind,
         channel=channel,
-        usage=usage,
         data=dict(data or {}),
+        **extra,
     )
     validate_message(message)
     return message

@@ -5,8 +5,8 @@ This is the single loading map for future agents. Read this file after
 
 Sources:
 
-- Current code snapshot: working tree inspected on 2026-05-27.
-- Recent first-parent history: `bf026ac`, `ddff527`, `312d5a9`, `5a90e1f`.
+- Current code snapshot: the working tree at the first-parent commits below.
+- Recent first-parent history: `c9c979b`, `882db33`, `4904e9c`, `c52d57d`.
 - Primary anchors: `README.md`, `CONTEXT.md`, `docs/agent-native/`,
   `docs/decisions/`, `runs/README.md`, `tests/README.md`,
   `evals/README.md`, `src/simple_agent_lab/`, and
@@ -47,10 +47,18 @@ The current source-of-truth layers are:
 - `src/simple_agent_lab/messages.py`: runtime and provider-neutral message
   protocol.
 - `src/simple_agent_lab/context_view.py`: model-visible context projection.
+- `src/simple_agent_lab/compression.py`: context-compression strategies applied
+  before each model request (visibility shaping lives behind `ContextPolicy`).
 - `src/simple_agent_lab/tools/`: shared tool/result values plus concrete tool
-  implementations such as bash.
+  implementations such as bash and the sub-agent `task` tool.
+- `src/simple_agent_lab/agents/`: preset agents built on the core layers
+  (`bash/` single bash-use agent, `bash_task/` parent that delegates to a bash
+  worker via the `task` tool).
 - `src/simple_agent_lab/llm/`: provider-agnostic model access layer.
-- `src/simple_agent_lab/trajectory.py`: runtime-neutral trace records.
+- `src/simple_agent_lab/trajectory/`: runtime-neutral trace records split by
+  concern — `spans.py`/`training.py` (pure event→span/turn transforms),
+  `run_trace.py` (record schema), `jsonl.py` (atomic JSONL IO), and `live.py`
+  (the incremental live-trace session/writer edge).
 - `evals/swebench/`: optional benchmark adapter, outside the core runtime.
 
 ## Core Mental Model
@@ -104,9 +112,10 @@ Stop and collect more evidence before changing behavior when:
 | Message protocol or provider conversion | `CONTEXT.md`, ADR 0006, ADR 0012, ADR 0014, `src/simple_agent_lab/messages.py`, `src/simple_agent_lab/llm/README.md` | Runtime-vs-model message boundary and vocabulary. |
 | Context visibility or budgeting | ADR 0010, `src/simple_agent_lab/context_view.py`, `tests/unit/test_core.py`, `tests/unit/test_token_usage.py` | Projection behavior and token-estimate constraints. |
 | Tool execution or bash demo | `src/simple_agent_lab/tools/`, `src/simple_agent_lab/agents/bash/` (preset agent), `tests/unit/test_bash_agent.py` | Tool result semantics and deterministic demo checks. |
+| Multi-agent delegation (`task` tool) | `src/simple_agent_lab/tools/task.py`, `src/simple_agent_lab/agents/bash_task/` (parent + explorer worker), `tests/unit/test_bash_task_agent.py`, `src/simple_agent_lab/core.py` docstring | Sub-agent delegation shape: a parent picks one worker via `subagent_type` and gets its final message back as the tool result. |
 | Trace printing or OpenAI Chat JSONL export | ADR 0013, ADR 0015, `src/simple_agent_lab/trace.py`, `tests/unit/test_openai_training.py` | Trace rendering and provider-shaped transcript export. |
-| Trajectories, spans, or training data | ADR 0008, ADR 0011, ADR 0015, `src/simple_agent_lab/trajectory.py`, `evals/README.md`, `evals/swebench/README.md` | Three-layer trace: Event → Span → Training. |
-| Docker incremental trace / host viewer | `docs/agent-native/docker-live-trace.md`, `src/simple_agent_lab/live_trace.py`, `scripts/run_live_trace_demo.py` | Bind-mount contract and reusable live export API. |
+| Trajectories, spans, or training data | ADR 0008, ADR 0011, ADR 0015, `src/simple_agent_lab/trajectory/` (`spans.py`, `training.py`, `run_trace.py`), `evals/README.md`, `evals/swebench/README.md` | Three-layer trace: Event → Span → Training. |
+| Docker incremental trace / host viewer | `docs/agent-native/docker-live-trace.md`, `src/simple_agent_lab/trajectory/live.py` (`LiveTraceSession`), `scripts/run_live_trace_demo.py` | Bind-mount contract and reusable live export API. |
 | External architecture borrowing | `docs/reference-architectures/README.md` (local notes workspace, gitignored) plus your own reference note | Capture rationale locally; record durable commitments in an ADR. |
 | Agent-native doc maintenance | This loading map, `docs/agent-native/operating-rules.md` | Canonical routing and stop conditions. |
 

@@ -20,11 +20,12 @@ check. Add `--extra swebench` only when working on the SWE-bench adapter.
 
 ## The quality gate
 
-Four checks must pass before a change ships. They're cheap; run them often.
+Five checks must pass before a change ships. They're cheap; run them often.
 
 | Check | Command | Scope |
 | --- | --- | --- |
 | Format | `uv run ruff format --check .` | Python code in the repo |
+| Lint | `uv run ruff check .` | Python code in the repo |
 | Docs lint | `uv run python scripts/lint_docs.py` | Local Markdown links and backticked path references |
 | Type check | `uv run ty check src` | Every module under `src/` |
 | Unit tests | `uv run python -m unittest discover -s tests/unit` | Every unit test under `tests/unit/` |
@@ -49,11 +50,12 @@ The script:
 1. Verifies `uv` is installed (fails fast if not).
 2. Runs `uv sync --group dev` so the dev tools are present.
 3. Runs `uv run ruff format --check .`.
-4. Runs `uv run python scripts/lint_docs.py`.
-5. Runs `uv run ty check src`.
-6. Runs `uv run python -m unittest discover -s tests/unit`.
-7. Runs `bash runs/run_bash_agent_demo.sh` so the public teaching demo stays runnable.
-8. Prints `All CI checks passed.` only if every step exited `0`.
+4. Runs `uv run ruff check .`.
+5. Runs `uv run python scripts/lint_docs.py`.
+6. Runs `uv run ty check src`.
+7. Runs `uv run python -m unittest discover -s tests/unit`.
+8. Runs `bash runs/run_bash_agent_demo.sh` so the public teaching demo stays runnable.
+9. Prints `All CI checks passed.` only if every step exited `0`.
 
 If you want the same checks individually (e.g. while iterating on one of
 them), run the commands from the table above directly. `run_ci.sh` is the
@@ -72,8 +74,10 @@ Three job groups run in parallel:
   don't depend on the runtime Python version, so a single job is enough.
 - **`docs lint`** — local Markdown link and backticked path-reference checks,
   on Python 3.13 only.
-- **`ruff format / check`** — the formatter check, on Python 3.13 only. Run
-  `uv run ruff format .` locally when this fails.
+- **`ruff format / check`** — the formatter check (`ruff format --check .`)
+  plus the linter (`ruff check .`), on Python 3.13 only. Run
+  `uv run ruff format .` (and `uv run ruff check --fix .`) locally when this
+  fails.
 
 A pull request is mergeable only when all three jobs pass. There is no
 auto-merge or required-reviewer config in this repo yet; the gate is

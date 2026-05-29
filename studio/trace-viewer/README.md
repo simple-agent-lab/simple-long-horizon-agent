@@ -80,7 +80,8 @@ loader accepts:
 
 Each record only needs `events`; `spans` and `model_turns` are
 re-derived in the browser using the same logic as
-`src/simple_agent_lab/trajectory.py`.
+`src/simple_agent_lab/trajectory/spans.py` and
+`src/simple_agent_lab/trajectory/training.py`.
 
 ## Layout
 

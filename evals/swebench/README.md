@@ -8,8 +8,8 @@ The adapter keeps the existing Simple Agent Lab split:
   Simple Agent Lab runner inside it.
 - `in_container_runner.py` records what happened and writes the official
   SWE-bench prediction JSONL shape from inside the container. Incremental
-  traces for the host viewer use `simple_agent_lab.live_trace` — see
-  `docs/agent-native/docker-live-trace.md`.
+  traces for the host viewer use the live-trace helpers in
+  `simple_agent_lab.trajectory` — see `docs/agent-native/docker-live-trace.md`.
 - `patch_extract.py` collects the final `model_patch` while filtering generated
   files.
 - `evaluate_predictions.py` runs or normalizes the official SWE-bench harness

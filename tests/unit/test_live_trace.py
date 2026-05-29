@@ -5,13 +5,15 @@ import time
 import unittest
 from pathlib import Path
 
-from simple_agent_lab.live_trace import (
+from simple_agent_lab.protocols import AgentEndEvent, AgentStartEvent
+from simple_agent_lab.state import State
+from simple_agent_lab.trajectory import (
     LiveTraceSession,
     TraceMeta,
+    read_jsonl,
     write_canonical_trace,
+    write_jsonl_atomic,
 )
-from simple_agent_lab.state import State
-from simple_agent_lab.trajectory import read_jsonl, write_jsonl_atomic
 
 
 class LiveTraceTest(unittest.TestCase):
@@ -34,9 +36,9 @@ class LiveTraceTest(unittest.TestCase):
                 flush_interval_s=0.05,
                 final_flush_on_exit=False,
             ):
-                state.agent_start()
+                state.record_event(AgentStartEvent())
                 time.sleep(0.15)
-                state.agent_end(reason="final")
+                state.record_event(AgentEndEvent(reason="final"))
 
             self.assertTrue(path.is_file())
             live_records = read_jsonl(path)
@@ -67,8 +69,8 @@ class LiveTraceTest(unittest.TestCase):
                 flush_interval_s=10.0,
                 final_flush_on_exit=True,
             ):
-                state.agent_start()
-                state.agent_end(reason="final")
+                state.record_event(AgentStartEvent())
+                state.record_event(AgentEndEvent(reason="final"))
 
             records = read_jsonl(path)
             self.assertEqual(len(records), 1)

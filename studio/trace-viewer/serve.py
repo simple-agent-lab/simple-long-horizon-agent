@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
+import re
 import sys
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -49,8 +50,6 @@ GZIPPABLE_PREFIXES = (
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
 DEFAULT_SCAN_DIR = PROJECT_ROOT / "evals" / "out"
-
-import re
 
 MAX_PEEK_BYTES = 96 * 1024
 TRAJECTORY_SCHEMA_PREFIX = "simple-agent-lab.trajectory"
@@ -260,6 +259,11 @@ def list_traces(scan_dir: Path, project_root: Path) -> list[dict]:
         # Group label: stay above the file's own directory so users see
         # "<run-name>/<instance-id>" rather than ten flat files all under "out/"
         group_label = str(group_rel) if str(group_rel) != "." else "(root)"
+        run_id = _derive_run_id(path, scan_dir)
+        # SWE-bench trajectories don't repeat instance_id inside the first
+        # record, so fall back to the directory name when the peek missed it.
+        if not instance_id and run_id is not None:
+            instance_id = path.parents[1].name
 
         results.append(
             {
@@ -278,6 +282,7 @@ def list_traces(scan_dir: Path, project_root: Path) -> list[dict]:
                 "instance_id": instance_id,
                 "record_count": record_count,
                 "group": group_label,
+                "run_id": run_id,
                 "peek_error": peek_error,
             }
         )
@@ -290,6 +295,34 @@ def _safe_relative(path: Path, base: Path) -> Path:
         return path.relative_to(base)
     except ValueError:
         return path
+
+
+# Trajectories produced by the containerized SWE-bench runner land at
+# ``<scan>/<...>/<run_id>/<instance_id>/out/{trajectory,trace}.jsonl`` (see
+# ``evals/swebench/containerized_agent.prepare_run_directory``). Extract
+# ``run_id`` from that shape so the viewer can aggregate the per-instance
+# files back into a single experiment row.
+_RUN_ARTIFACT_NAMES = {"trajectory.jsonl", "trace.jsonl"}
+
+
+def _derive_run_id(path: Path, scan_dir: Path) -> str | None:
+    """Return the run_id for a trajectory file, or None if the path doesn't fit."""
+    if path.name not in _RUN_ARTIFACT_NAMES:
+        return None
+    parents = path.parents
+    # Need ``out/<instance_id>/<run_id>/`` above the file.
+    if len(parents) < 3:
+        return None
+    if parents[0].name != "out":
+        return None
+    run_dir = parents[2]
+    try:
+        run_dir.relative_to(scan_dir)
+    except ValueError:
+        return None
+    if run_dir == scan_dir:
+        return None
+    return run_dir.name
 
 
 def _safe_head_text(path: Path) -> str:

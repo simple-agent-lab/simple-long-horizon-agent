@@ -1,17 +1,20 @@
 """Typed runtime events shared across the agent loop and tool dispatch.
 
-Every event is a frozen dataclass with explicitly named fields. Each one
-carries a stable `kind: EventKind` discriminator so callers can pattern-match
-with `isinstance` (preferred) or filter on `event.kind`. Serializers should
-go through `trajectory.event_record` (or `dataclasses.asdict`) rather than
-poking individual fields.
+Every event is a frozen, keyword-only dataclass with explicitly named
+fields. Each one carries a stable `kind: EventKind` discriminator stored
+as a real `Literal[...]` field with `init=False`, so callers can pattern
+match with `isinstance` (preferred) or filter on `event.kind`, and so
+`dataclasses.asdict` (and any JSON path that goes through it) keeps the
+discriminator intact. Construction omits `index` and `elapsed` (they
+default to placeholder values); `State.record_event` stamps the real
+values when the event is appended.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Protocol, TypeAlias
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
 from .messages import AgentName, Message, MessageKind
 
@@ -36,159 +39,126 @@ class EventKind(str, Enum):
         return self.value
 
 
-class RuntimeEvent(Protocol):
-    """Structural shape of every runtime event.
-
-    Every concrete event has an integer `index` and a `kind` discriminator.
-    Callers that need a specific event's fields should narrow with
-    `isinstance(event, ConcreteEvent)`; the typed fields are the source
-    of truth.
-    """
-
-    index: int
-
-    @property
-    def kind(self) -> EventKind: ...
-
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class _BaseEvent:
-    index: int
-    elapsed: float
+    # Placeholders; `State.record_event` stamps the real values on append.
+    index: int = -1
+    elapsed: float = 0.0
 
 
-@dataclass(frozen=True)
-class MessageEvent:
-    index: int
-    elapsed: float
+@dataclass(frozen=True, kw_only=True)
+class MessageEvent(_BaseEvent):
+    kind: Literal[EventKind.MESSAGE] = field(default=EventKind.MESSAGE, init=False)
     message: Message
 
-    @property
-    def kind(self) -> EventKind:
-        return EventKind.MESSAGE
 
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class AgentStartEvent(_BaseEvent):
-    @property
-    def kind(self) -> EventKind:
-        return EventKind.AGENT_START
+    kind: Literal[EventKind.AGENT_START] = field(
+        default=EventKind.AGENT_START, init=False
+    )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class AgentEndEvent(_BaseEvent):
+    kind: Literal[EventKind.AGENT_END] = field(default=EventKind.AGENT_END, init=False)
     reason: str
 
-    @property
-    def kind(self) -> EventKind:
-        return EventKind.AGENT_END
 
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class TurnStartEvent(_BaseEvent):
+    kind: Literal[EventKind.TURN_START] = field(
+        default=EventKind.TURN_START, init=False
+    )
     agent: AgentName
 
-    @property
-    def kind(self) -> EventKind:
-        return EventKind.TURN_START
 
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class TurnEndEvent(_BaseEvent):
+    kind: Literal[EventKind.TURN_END] = field(default=EventKind.TURN_END, init=False)
     agent: AgentName
     terminated: bool = False
 
-    @property
-    def kind(self) -> EventKind:
-        return EventKind.TURN_END
 
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ModelRequestEvent(_BaseEvent):
+    kind: Literal[EventKind.MODEL_REQUEST] = field(
+        default=EventKind.MODEL_REQUEST, init=False
+    )
     agent: AgentName
     visible_count: int
     llm_message_count: int
     # JSON-shaped trace records. Callers read by known keys; `Any` is
     # deliberate — these dicts are heterogeneous trace data, not typed
     # records, and static narrowing on every read would just be noise.
-    visible: list[dict[str, Any]]
     context_view: dict[str, Any]
     tools: list[dict[str, Any]]
     llm_payload: list[Any]
     candidate_id: str | None = None
 
-    @property
-    def kind(self) -> EventKind:
-        return EventKind.MODEL_REQUEST
 
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ModelResponseEvent(_BaseEvent):
+    kind: Literal[EventKind.MODEL_RESPONSE] = field(
+        default=EventKind.MODEL_RESPONSE, init=False
+    )
     agent: AgentName
     output_kind: MessageKind
     target: AgentName
     tool_call_count: int
     candidate_id: str | None = None
 
-    @property
-    def kind(self) -> EventKind:
-        return EventKind.MODEL_RESPONSE
 
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ContextCompressionEvent(_BaseEvent):
+    """One compression pass.
+
+    `active_message_indices` is the new active view (preserved messages +
+    summary + recent), in chronological order. `compressed_message_indices`
+    lists the messages that were folded into `summary_message_index`. The
+    trace viewer can derive "preserved" / "recent" from the order of
+    `active_message_indices` relative to `summary_message_index`.
+    """
+
+    kind: Literal[EventKind.CONTEXT_COMPRESSION] = field(
+        default=EventKind.CONTEXT_COMPRESSION, init=False
+    )
     agent: AgentName
     summary_message_index: int
     compressed_message_indices: list[int]
-    preserved_message_indices: list[int]
-    recent_message_indices: list[int]
+    active_message_indices: list[int]
     before_tokens: int
     after_tokens: int
 
-    @property
-    def kind(self) -> EventKind:
-        return EventKind.CONTEXT_COMPRESSION
 
-    @property
-    def active_message_indices(self) -> list[int]:
-        return [
-            *self.preserved_message_indices,
-            self.summary_message_index,
-            *self.recent_message_indices,
-        ]
-
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ToolExecutionStartEvent(_BaseEvent):
+    kind: Literal[EventKind.TOOL_EXECUTION_START] = field(
+        default=EventKind.TOOL_EXECUTION_START, init=False
+    )
     tool_call_id: str
     tool_name: str
 
-    @property
-    def kind(self) -> EventKind:
-        return EventKind.TOOL_EXECUTION_START
 
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ToolExecutionUpdateEvent(_BaseEvent):
+    kind: Literal[EventKind.TOOL_EXECUTION_UPDATE] = field(
+        default=EventKind.TOOL_EXECUTION_UPDATE, init=False
+    )
     tool_call_id: str
     tool_name: str
     partial: ToolResult
 
-    @property
-    def kind(self) -> EventKind:
-        return EventKind.TOOL_EXECUTION_UPDATE
 
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ToolExecutionEndEvent(_BaseEvent):
+    kind: Literal[EventKind.TOOL_EXECUTION_END] = field(
+        default=EventKind.TOOL_EXECUTION_END, init=False
+    )
     tool_call_id: str
     tool_name: str
     is_error: bool
     terminate: bool
-
-    @property
-    def kind(self) -> EventKind:
-        return EventKind.TOOL_EXECUTION_END
 
 
 Event: TypeAlias = (
@@ -204,41 +174,3 @@ Event: TypeAlias = (
     | ToolExecutionUpdateEvent
     | ToolExecutionEndEvent
 )
-
-
-class EventRecorder(Protocol):
-    """Minimal event sink needed by tool dispatch."""
-
-    def record(self, message: Message) -> MessageEvent:
-        """Record and return a message event."""
-        ...
-
-    def tool_execution_start(
-        self,
-        *,
-        tool_call_id: str,
-        tool_name: str,
-    ) -> ToolExecutionStartEvent:
-        """Record that a tool call is starting."""
-        ...
-
-    def tool_execution_update(
-        self,
-        *,
-        tool_call_id: str,
-        tool_name: str,
-        partial: "ToolResult",
-    ) -> ToolExecutionUpdateEvent:
-        """Record a partial tool update."""
-        ...
-
-    def tool_execution_end(
-        self,
-        *,
-        tool_call_id: str,
-        tool_name: str,
-        is_error: bool,
-        terminate: bool,
-    ) -> ToolExecutionEndEvent:
-        """Record that a tool call finished."""
-        ...
