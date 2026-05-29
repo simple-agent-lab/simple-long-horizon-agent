@@ -258,7 +258,7 @@ def main() -> None:
                 ),
             )
         )
-        state.record_event(AgentEndEvent(reason="final"))
+        state.record_event(AgentEndEvent(reason="done"))
 
     write_canonical_trace(
         out_path,

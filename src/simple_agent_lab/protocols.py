@@ -59,10 +59,20 @@ class AgentStartEvent(_BaseEvent):
     )
 
 
+# Why an agent's run loop stopped. Closed set so static checkers catch
+# typos and consumers can match exhaustively (same rationale as
+# `MessageKind` / `StopReason`); the loop in `core.run_agent` is the sole
+# producer.
+#   "done"           — the agent emitted a `kind="final"` message
+#   "max_turns"      — the turn budget ran out before a final message
+#   "tool_terminate" — a tool returned `ToolResult(terminate=True)`
+AgentEndReason: TypeAlias = Literal["done", "max_turns", "tool_terminate"]
+
+
 @dataclass(frozen=True, kw_only=True)
 class AgentEndEvent(_BaseEvent):
     kind: Literal[EventKind.AGENT_END] = field(default=EventKind.AGENT_END, init=False)
-    reason: str
+    reason: AgentEndReason
 
 
 @dataclass(frozen=True, kw_only=True)
