@@ -234,7 +234,7 @@ def estimate_context_tokens(
             message = messages[index]
             if isinstance(message, AssistantMessage) and _has_usage(message.usage):
                 assert message.usage is not None
-                return _usage_context_tokens(message.usage) + sum(
+                return message.usage.context_tokens + sum(
                     estimate_message_tokens(trailing)
                     for trailing in messages[index + 1 :]
                 )
@@ -256,15 +256,4 @@ def _content_chars(content: object) -> int:
 
 
 def _has_usage(usage: TokenUsage | None) -> bool:
-    if usage is None:
-        return False
-    return _usage_context_tokens(usage) > 0
-
-
-def _usage_context_tokens(usage: TokenUsage) -> int:
-    return (
-        usage.input_tokens
-        + usage.output_tokens
-        + usage.cache_read_tokens
-        + usage.cache_write_tokens
-    )
+    return usage is not None and usage.context_tokens > 0

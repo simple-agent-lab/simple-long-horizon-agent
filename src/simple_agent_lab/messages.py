@@ -150,6 +150,21 @@ class TokenUsage:
     def total_tokens(self) -> int:
         return self.input_tokens + self.output_tokens
 
+    @property
+    def context_tokens(self) -> int:
+        """All token counts that occupied this call's context window.
+
+        The single definition of "how full was this call" / "is any usage
+        reported". `0` means the provider reported nothing, so callers treat
+        the usage as unknown rather than as an authoritative all-zeros.
+        """
+        return (
+            self.input_tokens
+            + self.output_tokens
+            + self.cache_read_tokens
+            + self.cache_write_tokens
+        )
+
 
 ContentBlock: TypeAlias = (
     TextBlock | ImageBlock | ThinkingBlock | ToolCallBlock | ToolResultBlock

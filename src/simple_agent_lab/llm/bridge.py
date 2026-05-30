@@ -103,14 +103,7 @@ def llm_response_to_assistant_message(
 
 def _usage_or_none(usage: TokenUsage) -> TokenUsage | None:
     """Treat an all-zeros usage as 'unknown' rather than as authoritative."""
-    if (
-        usage.input_tokens
-        or usage.output_tokens
-        or usage.cache_read_tokens
-        or usage.cache_write_tokens
-    ):
-        return usage
-    return None
+    return usage if usage.context_tokens else None
 
 
 def _routing_header(message: Message) -> str:
