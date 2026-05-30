@@ -6,7 +6,7 @@ Two halves:
   tool-pair safety, and pinned-kind retention for `ToolCompactStrategy` and
   `SummarizeStrategy` (driven by a deterministic fake compressor). No model.
 
-- **Live** (`--live`, needs OPENAI_* env): grades the char/4 token estimate
+- **Live** (`--live`, needs OPENAI_* env): grades the char-based token estimate
   against provider-reported input tokens (the number `threshold_tokens` is
   really measured in), and grades the SummarizeStrategy prompt by how many
   planted durable facts survive a real summary.
@@ -61,7 +61,7 @@ from evals.compression.scenarios import ALL_SCENARIOS, DIALOG, Scenario  # noqa:
 DEFAULT_OUT_DIR = ROOT / "evals/out/compression"
 
 # Estimate-vs-real accepted band. `threshold_tokens` is compared against the
-# char/4 estimate, so an estimate within this factor of real tokens keeps the
+# char-based estimate, so an estimate within this factor of real tokens keeps the
 # threshold meaningful. Outside it, thresholds need a calibration multiplier.
 ESTIMATE_BAND = (0.5, 2.0)
 # Live fact-retention bar for the SummarizeStrategy prompt.
@@ -218,7 +218,7 @@ def run_live(
                     "real_over_estimate": round(ratio, 4),
                 },
                 reason=(
-                    f"char/4 estimate {estimate} vs real {real_content} content "
+                    f"char-based estimate {estimate} vs real {real_content} content "
                     f"tokens (x{ratio:.2f}); +{overhead} fixed template overhead"
                 ),
             )

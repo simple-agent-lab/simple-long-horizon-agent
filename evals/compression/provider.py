@@ -6,7 +6,7 @@ adapter uses (`OPENAI_MODEL`, `OPENAI_AUTH_TOKEN`, `OPENAI_BASE_URL`,
 
 - `make_compressor_agent` — the `Agent` SummarizeStrategy calls.
 - `count_input_tokens` — provider-reported input tokens for a message list,
-  the ground truth the char/4 estimate is validated against.
+  the ground truth the char-based estimate is validated against.
 
 Returns `None` from `build_provider_from_env` when the env is not configured
 so the runner can skip the live half cleanly instead of crashing.
@@ -90,7 +90,7 @@ def count_input_tokens(
 ) -> int:
     """Provider-reported input tokens for `messages` + a trivial instruction.
 
-    This is the ground truth the char/4 estimate is graded against. The
+    This is the ground truth the char-based estimate is graded against. The
     trailing instruction is tiny and constant, so its cost is captured by
     the empty-message baseline and can be subtracted by the caller.
 

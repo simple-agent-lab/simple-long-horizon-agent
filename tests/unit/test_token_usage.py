@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import unittest
 
 from simple_agent_lab import (
@@ -191,7 +192,7 @@ class LLMResponseToAssistantMessageTest(unittest.TestCase):
 class EstimateMessageTokensTest(unittest.TestCase):
     def test_assistant_with_output_tokens_uses_exact_count(self) -> None:
         message = assistant_message(
-            "x" * 1000,  # ~250 tokens by char/4 fallback
+            "x" * 1000,  # large char-fallback estimate
             usage=TokenUsage(input_tokens=999_999, output_tokens=42),
         )
         # The exact `output_tokens=42` wins over the 250 char-estimate.
@@ -201,37 +202,29 @@ class EstimateMessageTokensTest(unittest.TestCase):
         # output_tokens=0 means "we asked and the answer was zero" but in
         # practice, no real assistant message has zero output tokens — we
         # treat it as "unusable, fall back to estimation". This also keeps
-        # chars/4 the safety net when usage data is partial or fabricated.
+        # the char fallback the safety net when usage data is partial or fabricated.
         message = assistant_message(
             "hello",
             usage=TokenUsage(input_tokens=500, output_tokens=0),
         )
-        expected = (
-            estimate_message_chars(message) + CHARS_PER_TOKEN - 1
-        ) // CHARS_PER_TOKEN
+        expected = math.ceil(estimate_message_chars(message) / CHARS_PER_TOKEN)
         self.assertEqual(estimate_message_tokens(message), expected)
 
     def test_assistant_without_usage_falls_back_to_chars(self) -> None:
         message = assistant_message("hello world")
-        expected = (
-            estimate_message_chars(message) + CHARS_PER_TOKEN - 1
-        ) // CHARS_PER_TOKEN
+        expected = math.ceil(estimate_message_chars(message) / CHARS_PER_TOKEN)
         self.assertEqual(estimate_message_tokens(message), expected)
 
     def test_user_message_always_falls_back_even_if_long(self) -> None:
         # No provider reports per-message tokens for user inputs, so user
         # messages always go through char-estimation.
         message = user_message("x" * 100)
-        expected = (
-            estimate_message_chars(message) + CHARS_PER_TOKEN - 1
-        ) // CHARS_PER_TOKEN
+        expected = math.ceil(estimate_message_chars(message) / CHARS_PER_TOKEN)
         self.assertEqual(estimate_message_tokens(message), expected)
 
     def test_system_message_falls_back(self) -> None:
         message = system_message("be helpful")
-        expected = (
-            estimate_message_chars(message) + CHARS_PER_TOKEN - 1
-        ) // CHARS_PER_TOKEN
+        expected = math.ceil(estimate_message_chars(message) / CHARS_PER_TOKEN)
         self.assertEqual(estimate_message_tokens(message), expected)
 
     def test_tool_result_falls_back(self) -> None:
@@ -241,16 +234,38 @@ class EstimateMessageTokensTest(unittest.TestCase):
             tool_name="bash",
             target="agent",
         )
-        expected = (
-            estimate_message_chars(message) + CHARS_PER_TOKEN - 1
-        ) // CHARS_PER_TOKEN
+        expected = math.ceil(estimate_message_chars(message) / CHARS_PER_TOKEN)
         self.assertEqual(estimate_message_tokens(message), expected)
 
     def test_fallback_rounds_up_via_ceiling(self) -> None:
-        # Char/4 must round UP, not down — otherwise a 1-char message reads
-        # as 0 tokens and a budgeting caller could treat it as "free".
+        # The char fallback must round UP, not down — otherwise a 1-char
+        # message reads as 0 tokens and a budgeting caller could treat it
+        # as "free".
         message = user_message("x")
         self.assertGreaterEqual(estimate_message_tokens(message), 1)
+
+    def test_default_chars_per_token_is_the_calibrated_value(self) -> None:
+        # The default is the empirically measured neutral ratio, denser than
+        # the old 4.0 guess, so the char fallback no longer under-counts.
+        self.assertLess(CHARS_PER_TOKEN, 4)
+        message = user_message("x" * 400, target="agent")
+        chars = estimate_message_chars(message)
+        self.assertEqual(
+            estimate_message_tokens(message), math.ceil(chars / CHARS_PER_TOKEN)
+        )
+
+    def test_chars_per_token_override_is_honored(self) -> None:
+        # A caller with a model-calibrated figure can override the default on
+        # both estimators; a larger ratio yields a smaller estimate.
+        message = user_message("x" * 400, target="agent")
+        chars = estimate_message_chars(message)
+        self.assertEqual(
+            estimate_message_tokens(message, chars_per_token=8),
+            math.ceil(chars / 8),
+        )
+        dense = estimate_context_tokens([message], chars_per_token=2)
+        sparse = estimate_context_tokens([message], chars_per_token=8)
+        self.assertGreater(dense, sparse)
 
 
 class ContextStatsUsesUsageTest(unittest.TestCase):
@@ -270,10 +285,8 @@ class ContextStatsUsesUsageTest(unittest.TestCase):
 
         # The assistant contributes its exact 5 output_tokens. The user
         # message still falls back. Total tokens must be lower than what a
-        # pure chars/4 estimate would produce, since output_tokens=5 << 250.
-        char_only_estimate = (
-            view.stats.estimated_chars + CHARS_PER_TOKEN - 1
-        ) // CHARS_PER_TOKEN
+        # pure char-based estimate would produce, since output_tokens=5 is tiny.
+        char_only_estimate = math.ceil(view.stats.estimated_chars / CHARS_PER_TOKEN)
         self.assertLess(view.stats.estimated_tokens, char_only_estimate)
         self.assertEqual(view.stats.usage_known_messages, 1)
 
@@ -305,9 +318,13 @@ class ContextStatsUsesUsageTest(unittest.TestCase):
             assistant_message("hello back", sender="agent", target="user"),
         ]
         view = build_context_view("agent", messages)
-        char_only = (
-            view.stats.estimated_chars + CHARS_PER_TOKEN - 1
-        ) // CHARS_PER_TOKEN
+        # No usage anywhere -> pure char fallback, summed per message (each
+        # message rounds up independently, so this is sum-of-ceilings, not a
+        # single ceiling over the combined character count).
+        char_only = sum(
+            math.ceil(estimate_message_chars(message) / CHARS_PER_TOKEN)
+            for message in messages
+        )
         self.assertEqual(view.stats.estimated_tokens, char_only)
         self.assertEqual(view.stats.usage_known_messages, 0)
 

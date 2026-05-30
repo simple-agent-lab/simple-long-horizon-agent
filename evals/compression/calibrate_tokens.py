@@ -151,14 +151,15 @@ def print_report(points: list[CalibrationPoint], cpt: dict[str, float]) -> None:
             f"{point.chars_per_token:>11.2f}"
         )
     print("-" * 37)
-    print(f"\n{'category':<12}{'measured c/t':>14}{'vs 4.0 error':>14}")
-    print("-" * 40)
+    header = f"vs {CHARS_PER_TOKEN} error"
+    print(f"\n{'category':<12}{'measured c/t':>14}{header:>16}")
+    print("-" * 42)
     for category, value in cpt.items():
-        # Estimate error if we kept 4.0: a sample of N real tokens would be
-        # estimated as chars/4 = (N·measured)/4 tokens -> error factor.
+        # Error factor if we kept the current default: a sample of N real tokens
+        # is estimated as chars/default = N·(measured/default) tokens.
         error = (value / CHARS_PER_TOKEN) if value else 0.0
         label = "OVERALL" if category == "__overall__" else category
-        print(f"{label:<12}{value:>14.2f}{error:>13.2f}x")
+        print(f"{label:<12}{value:>14.2f}{error:>15.2f}x")
 
 
 def main(argv: Sequence[str] | None = None) -> int:

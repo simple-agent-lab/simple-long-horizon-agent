@@ -17,6 +17,7 @@ never has to know how the active view was shaped.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -32,9 +33,13 @@ from .messages import (
 )
 
 
-# Same teaching-level heuristic as the runtime token estimators: this is a
-# stable budget signal, not provider-accurate token accounting.
-CHARS_PER_TOKEN = 4
+# Default chars-per-token for the char-based fallback estimate. This is the
+# *neutral* value measured empirically across content types (prose ~5.6, code
+# ~3.9, json ~3.1, logs ~1.9 give an overall ~3.1 on mimo-v2.5-pro) — not a
+# provider-accurate count. It is a default, not a constant: callers with a
+# calibrated figure for their own model pass `chars_per_token=...` to the
+# estimators. Re-measure per provider with `evals/compression/calibrate_tokens`.
+CHARS_PER_TOKEN = 3.1
 IMAGE_CHAR_ESTIMATE = 7373
 
 
@@ -195,14 +200,19 @@ def estimate_message_chars(message: Message) -> int:
     return meta_chars + content_chars
 
 
-def estimate_message_tokens(message: Message) -> int:
+def estimate_message_tokens(
+    message: Message,
+    *,
+    chars_per_token: float = CHARS_PER_TOKEN,
+) -> int:
     """Best-effort per-message token estimate.
 
     Prefers the provider-reported `output_tokens` when an AssistantMessage
     carries one — that field is the exact tokenizer cost of this message and
     is stable across calls (so it's also the precise cost of re-sending it).
     For every other message and for assistants without usage data, falls back
-    to the char/4 heuristic.
+    to the char/`chars_per_token` heuristic; pass a model-calibrated
+    `chars_per_token` to override the default.
 
     Per-message attribution of `input_tokens` is not possible: providers only
     report that value as the SUM across all input messages of one call. So we
@@ -213,13 +223,14 @@ def estimate_message_tokens(message: Message) -> int:
         if usage is not None and usage.output_tokens > 0:
             return usage.output_tokens
     chars = estimate_message_chars(message)
-    return (chars + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN
+    return math.ceil(chars / chars_per_token)
 
 
 def estimate_context_tokens(
     messages: Sequence[Message],
     *,
     allow_usage_baseline: bool = True,
+    chars_per_token: float = CHARS_PER_TOKEN,
 ) -> int:
     """Estimate context-window size for a selected message sequence.
 
@@ -227,7 +238,8 @@ def estimate_context_tokens(
     authoritative size of everything up to that response, then estimate only
     messages added after it. Pass ``allow_usage_baseline=False`` when the
     caller knows older context has been dropped or summarized — the historical
-    usage figure would over-count text that is no longer present.
+    usage figure would over-count text that is no longer present. Pass a
+    model-calibrated ``chars_per_token`` to override the char-fallback default.
     """
     if allow_usage_baseline:
         for index in range(len(messages) - 1, -1, -1):
@@ -235,10 +247,13 @@ def estimate_context_tokens(
             if isinstance(message, AssistantMessage) and _has_usage(message.usage):
                 assert message.usage is not None
                 return message.usage.context_tokens + sum(
-                    estimate_message_tokens(trailing)
+                    estimate_message_tokens(trailing, chars_per_token=chars_per_token)
                     for trailing in messages[index + 1 :]
                 )
-    return sum(estimate_message_tokens(message) for message in messages)
+    return sum(
+        estimate_message_tokens(message, chars_per_token=chars_per_token)
+        for message in messages
+    )
 
 
 def _content_chars(content: object) -> int:

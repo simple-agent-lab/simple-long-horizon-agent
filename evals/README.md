@@ -26,7 +26,7 @@ The second suite is the context-compression validation in
 [`compression/`](compression/). It grades the two shipped strategies
 (`ToolCompactStrategy`, `SummarizeStrategy`) on effectiveness rather than
 mechanics: threshold-trigger behavior, real compression ratios, tool-pair
-and pinned-kind safety, how close the char/4 token estimate is to real
+and pinned-kind safety, how close the char-based token estimate is to real
 provider tokens (the number `threshold_tokens` is really measured in), and
 how many durable facts survive a real summary. The offline half runs in CI
 (`tests.unit.test_compression_eval`); the live half needs an OpenAI provider:
