@@ -120,6 +120,10 @@ def _init_repo(path: Path) -> Path:
     _git(path, "init")
     _git(path, "config", "user.email", "test@example.invalid")
     _git(path, "config", "user.name", "Test User")
+    # Keep the throwaway repo hermetic: never invoke the host's commit
+    # signer (some sandboxes route gpgsign through a server that rejects
+    # these temp commits and aborts `git commit`).
+    _git(path, "config", "commit.gpgsign", "false")
     return path
 
 
