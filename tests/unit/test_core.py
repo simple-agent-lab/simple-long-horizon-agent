@@ -718,6 +718,76 @@ class CoreTest(unittest.TestCase):
         self.assertLess(compression.after_tokens, 1000)
         self.assertLess(compression.after_tokens, compression.before_tokens)
 
+    def test_tiered_second_strategy_does_not_fire_on_stale_baseline(self) -> None:
+        # In a tiered policy, ToolCompact runs first and folds the old tool
+        # exchanges, bringing the real context well under SummarizeStrategy's
+        # threshold. But a kept assistant still carries a large pre-compression
+        # `context_tokens`. Summarize's gate must read the true (small) size off
+        # the append-only record and NOT fire on the stale baseline.
+        summarizer_calls: list[int] = []
+
+        def writer(visible: list[Message]) -> Message:
+            del visible
+            return assistant_message(
+                "done", sender="writer", target="user", kind="final"
+            )
+
+        def fake_summarizer(visible: list[Message]) -> Message:
+            summarizer_calls.append(len(visible))
+            return assistant_message(
+                "llm summary", sender="compressor", target="runtime", kind="final"
+            )
+
+        state = State("tiered stale baseline")
+        state.send("task", "user", "writer", state.task)
+        for index, ctx_input in enumerate((4800, 5000)):
+            state.record(
+                assistant_message(
+                    [
+                        TextBlock(f"call {index}"),
+                        ToolCallBlock(f"c{index}", "echo", {}),
+                    ],
+                    sender="writer",
+                    target="user",
+                    kind="step",
+                    usage=TokenUsage(input_tokens=ctx_input, output_tokens=200),
+                )
+            )
+            state.record(
+                tool_result_message(
+                    "short result",
+                    tool_call_id=f"c{index}",
+                    tool_name="echo",
+                    target="writer",
+                )
+            )
+
+        policy = ContextPolicy(
+            strategies=(
+                simple_agent_lab.ToolCompactStrategy(
+                    threshold_tokens=1000, keep_recent_exchanges=1
+                ),
+                simple_agent_lab.SummarizeStrategy(
+                    compressor=Agent("compressor", fake_summarizer),
+                    threshold_tokens=3000,
+                    keep_recent=0,
+                ),
+            ),
+        )
+        for _ in run(
+            Agent("writer", writer, context_policy=policy), state, max_turns=1
+        ):
+            pass
+
+        compressions = [
+            event
+            for event in state.events
+            if isinstance(event, ContextCompressionEvent)
+        ]
+        # Only ToolCompact should fire; Summarize sees the true small size.
+        self.assertEqual(len(compressions), 1)
+        self.assertEqual(summarizer_calls, [])
+
     def test_framework_auto_fixes_split_tool_pair(self) -> None:
         # If a strategy puts only one side of a tool_call/tool_result pair
         # in `compress_indices`, the framework un-compresses that side so

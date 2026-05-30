@@ -75,6 +75,41 @@ DEFAULT_PRESERVE_KINDS: tuple[MessageKind, ...] = (
 )
 
 
+def _active_context_tokens(active: list[tuple[int, Message]]) -> int:
+    """Size the active context, distrusting baselines older than the last compression.
+
+    A usage baseline (`AssistantMessage.usage.context_tokens`) is the full
+    window size *at the moment that assistant was generated*. Once a compression
+    folds older messages away, any assistant recorded before it carries a
+    baseline that still counts content no longer present — trusting it reports
+    a freshly compressed context as barely smaller than before.
+
+    We read the answer off the append-only record instead of any mutable flag:
+    the compression's `kind="summary"` message has a higher `state.messages`
+    index than every message it replaced, so a baseline is trustworthy only if
+    some usage-bearing assistant was recorded *after* the latest summary. Until
+    the next model turn produces such an assistant, fall back to the per-message
+    sum (which still uses each assistant's exact `output_tokens`). The turn
+    after compression naturally restores the baseline — its new assistant
+    outranks the summary.
+    """
+    last_summary_index = max(
+        (index for index, message in active if message.kind == "summary"),
+        default=-1,
+    )
+    fresh_baseline = any(
+        index > last_summary_index
+        and isinstance(message, AssistantMessage)
+        and message.usage is not None
+        and message.usage.context_tokens > 0
+        for index, message in active
+    )
+    return estimate_context_tokens(
+        [message for _, message in active],
+        allow_usage_baseline=fresh_baseline,
+    )
+
+
 @dataclass(frozen=True)
 class ToolCompactStrategy:
     """Fold older tool-call/tool-result pairs into one compact marker.
@@ -105,7 +140,7 @@ class ToolCompactStrategy:
         active: list[tuple[int, Message]],
         agent_name: str,
     ) -> CompressionDecision | None:
-        if estimate_context_tokens([m for _, m in active]) <= self.threshold_tokens:
+        if _active_context_tokens(active) <= self.threshold_tokens:
             return None
         exchanges = [
             exchange for exchange in _find_tool_exchanges(active) if exchange[1]
@@ -211,7 +246,7 @@ class SummarizeStrategy:
     ) -> CompressionDecision | None:
         if not active:
             return None
-        before_tokens = estimate_context_tokens([message for _, message in active])
+        before_tokens = _active_context_tokens(active)
         if before_tokens <= self.threshold_tokens:
             return None
         droppable = [item for item in active if item[1].kind not in self.preserve_kinds]
@@ -302,12 +337,13 @@ def _apply_decision(
     ]
     kept_messages = [message for index, message in active if index not in compress_set]
 
-    before_tokens = estimate_context_tokens([message for _, message in active])
-    # The post-compression set just lost messages, so any usage baseline a
-    # *kept* assistant still carries references content that is no longer
-    # present (its `context_tokens` was the full pre-compression window). Sum
-    # per-message instead — that still uses each assistant's exact
-    # `output_tokens`, only dropping the now-stale whole-window baseline.
+    # `before` uses the append-only-aware sizing (a prior summary this pass
+    # already invalidates the baseline for a tiered policy's later strategy).
+    before_tokens = _active_context_tokens(active)
+    # `after` is unconditionally post-compression: the replacement summary is
+    # the newest content and no usage-bearing assistant outranks it, so the
+    # baseline is never valid here — sum per-message (still exact per-assistant
+    # `output_tokens`, only dropping the stale whole-window baseline).
     after_tokens = estimate_context_tokens(
         kept_messages + [decision.replacement], allow_usage_baseline=False
     )
