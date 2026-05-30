@@ -2,7 +2,7 @@
 
 The core model is small::
 
-    Agent + Message + State + context_view() + run()
+    Agent + Message + State + build_context_view() + run()
 
 `run()` drives one agent as a generator: each turn, it builds a context view
 of the visible messages, calls `agent.generate(...)`, records request/response
@@ -33,6 +33,7 @@ from .context_view import (
 )
 from .llm import messages_to_llm_messages
 from .messages import (
+    AssistantMessage,
     Message,
     ToolCallBlock,
     ToolResultBlock,
@@ -136,13 +137,6 @@ def run(
         # Match make_llm_agent / provider wire shape (no routing headers).
         llm_payload = messages_to_llm_messages(visible, with_header=False)
 
-        # `state.data` is the open experiment bag (dict[str, Any]); pin
-        # the runtime-side projection of `candidate_id` to its real type
-        # so the typed event/state APIs are reached with a real `str | None`.
-        raw_candidate = state.data.get("candidate_id")
-        candidate_id: str | None = (
-            str(raw_candidate) if raw_candidate is not None else None
-        )
         yield state.record_event(
             ModelRequestEvent(
                 agent=name,
@@ -158,7 +152,6 @@ def run(
                     for tool in tool_by_name.values()
                 ],
                 llm_payload=llm_payload,
-                candidate_id=candidate_id,
             )
         )
 
@@ -170,7 +163,8 @@ def run(
                 output_kind=output.kind,
                 target=output.target,
                 tool_call_count=len(output_tool_calls),
-                candidate_id=candidate_id,
+                usage=output.usage if isinstance(output, AssistantMessage) else None,
+                model=output.model if isinstance(output, AssistantMessage) else "",
             )
         )
 
@@ -290,7 +284,7 @@ def dispatch_tool_calls(
             for tool_call in tool_calls
         ],
         target=target,
-        data={
+        sidecar={
             "details": {
                 tool_call.id: results[tool_call.id].details for tool_call in tool_calls
             },
@@ -308,16 +302,12 @@ def _execute_one(
     tool = tools.get(tool_call.name)
     if tool is None:
         return text_result(f"Tool {tool_call.name!r} not found", is_error=True)
-    execute = tool.execute
-    if execute is None:
-        return text_result(
-            f"Tool {tool_call.name!r} has no execute function",
-            is_error=True,
-        )
 
     def run_tool() -> ToolResult:
         try:
-            return execute(tool_call.id, dict(tool_call.arguments), abort, on_update)
+            return tool.execute(
+                tool_call.id, dict(tool_call.arguments), abort, on_update
+            )
         except Exception as exc:
             return text_result(f"{type(exc).__name__}: {exc}", is_error=True)
 

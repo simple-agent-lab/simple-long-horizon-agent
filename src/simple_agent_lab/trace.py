@@ -1,7 +1,7 @@
 """Trace utilities for runtime transcripts.
 
 `core.py` owns the inspectable runtime: `Agent + Message + State +
-context_view() + run()`. This module owns downstream trace consumers:
+build_context_view() + run()`. This module owns downstream trace consumers:
 human-readable trace printing and OpenAI Chat fine-tuning JSONL export.
 
 Each OpenAI training export line has the form::
@@ -54,7 +54,7 @@ def print_trace(state: State, *, raw: bool = False) -> None:
                 f"{event.index:02d} {t:<10} {kind:<21} {message.kind:<10} "
                 f"{route:<24} {message_text(message)}"
             )
-            extra = (message.data or {}).get("extra")
+            extra = (message.sidecar or {}).get("extra")
             if extra:
                 preview = ", ".join(f"{k}={v!r}" for k, v in extra.items())
                 print(f"   {'':10} {'extra':<21} {preview[:200]}")
@@ -66,27 +66,23 @@ def print_trace(state: State, *, raw: bool = False) -> None:
                     tag = "redacted_thinking" if thinking_block.redacted else "thinking"
                     print(f"   {'':10} {tag:<21} {preview}")
                 if raw:
-                    raw_payload = (message.data or {}).get("raw")
+                    raw_payload = (message.sidecar or {}).get("raw")
                     if raw_payload:
                         _print_raw(raw_payload)
         elif isinstance(event, ModelRequestEvent):
-            candidate = event.candidate_id
-            suffix = f" candidate={candidate}" if candidate is not None else ""
             print(
                 f"{event.index:02d} {t:<10} {kind:<21} "
                 f"agent={event.agent} "
                 f"visible={event.visible_count} "
-                f"llm_messages={event.llm_message_count}{suffix}"
+                f"llm_messages={event.llm_message_count}"
             )
         elif isinstance(event, ModelResponseEvent):
-            candidate = event.candidate_id
-            suffix = f" candidate={candidate}" if candidate is not None else ""
             print(
                 f"{event.index:02d} {t:<10} {kind:<21} "
                 f"agent={event.agent} "
                 f"kind={event.output_kind} "
                 f"target={event.target} "
-                f"tool_calls={event.tool_call_count}{suffix}"
+                f"tool_calls={event.tool_call_count}"
             )
         elif isinstance(event, ContextCompressionEvent):
             print(
@@ -111,7 +107,7 @@ def openai_training_record(
     tools: Sequence[Tool | AgentTool] = (),
     system_prompt: str | None = None,
     include_reasoning_content: bool = True,
-    skip_kinds: set[str] | None = None,
+    model_invisible_kinds: set[str] | None = None,
 ) -> dict[str, Any]:
     """Build an OpenAI Chat fine-tuning record from a runtime `State`.
 
@@ -127,7 +123,9 @@ def openai_training_record(
     `thinking` blocks are serialized as a `reasoning_content` sibling
     field on each assistant turn (DeepSeek / mimo style).
     """
-    llm_messages = messages_to_llm_messages(state.messages, skip_kinds=skip_kinds)
+    llm_messages = messages_to_llm_messages(
+        state.messages, model_invisible_kinds=model_invisible_kinds
+    )
     record: dict[str, Any] = {
         "messages": to_openai_chat_messages(
             llm_messages,
@@ -149,7 +147,7 @@ def append_openai_training_record(
     tools: Sequence[Tool | AgentTool] = (),
     system_prompt: str | None = None,
     include_reasoning_content: bool = True,
-    skip_kinds: set[str] | None = None,
+    model_invisible_kinds: set[str] | None = None,
 ) -> Path:
     """Build a record and append it to `path` as a JSONL line.
 
@@ -162,7 +160,7 @@ def append_openai_training_record(
         tools=tools,
         system_prompt=system_prompt,
         include_reasoning_content=include_reasoning_content,
-        skip_kinds=skip_kinds,
+        model_invisible_kinds=model_invisible_kinds,
     )
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)

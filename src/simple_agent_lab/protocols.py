@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
-from .messages import AgentName, Message, MessageKind
+from .messages import AgentName, Message, MessageKind, TokenUsage
 
 if TYPE_CHECKING:
     from .tools import ToolResult
@@ -59,10 +59,20 @@ class AgentStartEvent(_BaseEvent):
     )
 
 
+# Why an agent's run loop stopped. Closed set so static checkers catch
+# typos and consumers can match exhaustively (same rationale as
+# `MessageKind` / `StopReason`); the loop in `core.run_agent` is the sole
+# producer.
+#   "done"           — the agent emitted a `kind="final"` message
+#   "max_turns"      — the turn budget ran out before a final message
+#   "tool_terminate" — a tool returned `ToolResult(terminate=True)`
+AgentEndReason: TypeAlias = Literal["done", "max_turns", "tool_terminate"]
+
+
 @dataclass(frozen=True, kw_only=True)
 class AgentEndEvent(_BaseEvent):
     kind: Literal[EventKind.AGENT_END] = field(default=EventKind.AGENT_END, init=False)
-    reason: str
+    reason: AgentEndReason
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -94,7 +104,6 @@ class ModelRequestEvent(_BaseEvent):
     context_view: dict[str, Any]
     tools: list[dict[str, Any]]
     llm_payload: list[Any]
-    candidate_id: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -106,18 +115,23 @@ class ModelResponseEvent(_BaseEvent):
     output_kind: MessageKind
     target: AgentName
     tool_call_count: int
-    candidate_id: str | None = None
+    # Per-call cost primitives, snapshotted from the response message
+    # alongside the facts above. `usage` is None when the provider didn't
+    # report counts; `model` is "" when unknown. Carrying them here lets the
+    # span layer fold cost without walking messages or the raw blob.
+    usage: TokenUsage | None = None
+    model: str = ""
 
 
 @dataclass(frozen=True, kw_only=True)
 class ContextCompressionEvent(_BaseEvent):
     """One compression pass.
 
-    `active_message_indices` is the new active view (preserved messages +
+    `active_context_indices` is the new active context (preserved messages +
     summary + recent), in chronological order. `compressed_message_indices`
     lists the messages that were folded into `summary_message_index`. The
     trace viewer can derive "preserved" / "recent" from the order of
-    `active_message_indices` relative to `summary_message_index`.
+    `active_context_indices` relative to `summary_message_index`.
     """
 
     kind: Literal[EventKind.CONTEXT_COMPRESSION] = field(
@@ -126,7 +140,7 @@ class ContextCompressionEvent(_BaseEvent):
     agent: AgentName
     summary_message_index: int
     compressed_message_indices: list[int]
-    active_message_indices: list[int]
+    active_context_indices: list[int]
     before_tokens: int
     after_tokens: int
 

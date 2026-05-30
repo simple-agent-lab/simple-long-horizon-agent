@@ -111,7 +111,7 @@ def _emit_turn(state: State, turn_index: int, agent: str, *, turn_delay: float) 
     state.record_event(
         ModelResponseEvent(
             agent=agent,
-            output_kind="thought",
+            output_kind="step",
             target=agent,
             tool_call_count=1,
         )
@@ -119,8 +119,7 @@ def _emit_turn(state: State, turn_index: int, agent: str, *, turn_delay: float) 
     assistant_msg = AssistantMessage(
         sender=agent,
         target=agent,
-        kind="thought",
-        channel="main",
+        kind="step",
         content=(
             TextBlock(text=random.choice(TEXT_SAMPLES)),
             ToolCallBlock(
@@ -158,7 +157,6 @@ def _emit_turn(state: State, turn_index: int, agent: str, *, turn_delay: float) 
         sender="tool",
         target=agent,
         kind="tool_result",
-        channel="main",
     )
     state.record(tool_result)
     state.record_event(TurnEndEvent(agent=agent, terminated=False))
@@ -249,7 +247,6 @@ def main() -> None:
                 sender=args.agent,
                 target="user",
                 kind="final",
-                channel="main",
                 content=(
                     TextBlock(
                         text=(
@@ -261,7 +258,7 @@ def main() -> None:
                 ),
             )
         )
-        state.record_event(AgentEndEvent(reason="final"))
+        state.record_event(AgentEndEvent(reason="done"))
 
     write_canonical_trace(
         out_path,

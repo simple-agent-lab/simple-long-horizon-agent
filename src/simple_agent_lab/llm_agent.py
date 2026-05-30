@@ -60,7 +60,7 @@ def make_llm_agent(
             extra=dict(request_extra or {}),
         )
         response = llm_complete(request)
-        kind = "final" if response.stop_reason == "end_turn" else "thought"
+        kind = "final" if response.stop_reason == "end_turn" else "step"
         return llm_response_to_assistant_message(
             response,
             sender=name,

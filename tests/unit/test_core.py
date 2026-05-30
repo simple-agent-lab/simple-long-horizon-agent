@@ -84,7 +84,7 @@ class CoreTest(unittest.TestCase):
                 ],
                 sender="coordinator",
                 target="coordinator",
-                kind="thought",
+                kind="step",
             )
 
         def echo_tool(
@@ -169,7 +169,7 @@ class CoreTest(unittest.TestCase):
                 "still thinking",
                 sender="chatty",
                 target="user",
-                kind="thought",
+                kind="step",
             )
 
         state = State("ramble")
@@ -312,10 +312,10 @@ class CoreTest(unittest.TestCase):
             "EventKind",
             "ImageBlock",
             "Message",
-            "MessageChannel",
             "MessageContent",
             "MessageEvent",
             "MessageKind",
+            "MessageSidecar",
             "ModelRequestEvent",
             "ModelResponseEvent",
             "ModelTurn",
@@ -377,12 +377,18 @@ class CoreTest(unittest.TestCase):
     def test_context_view_uses_single_agent_transcript(self) -> None:
         state = State("route test")
         state.send("task", "user", "writer", "visible task")
-        state.send("note", "planner", "planner", "planner note")
-        state.send("note", "planner", "all", "broadcast")
-        state.send("trace", "runtime", "writer", "internal trace")
-        state.send("note", "planner", "writer", "debug note", channel="debug")
+        state.send("message", "planner", "planner", "planner note")
+        state.send("message", "planner", "all", "broadcast")
+        state.send("summary", "runtime", "writer", "old summary")
+        state.send("message", "planner", "writer", "debug note")
 
-        view = build_context_view("writer", state.active_context_messages())
+        # Routing fields (sender/target) never filter the view; only
+        # `model_invisible_kinds` does. Skipping "summary" hides exactly
+        # that one message.
+        policy = ContextPolicy(model_invisible_kinds=("summary",))
+        view = build_context_view(
+            "writer", state.active_context_messages(), policy=policy
+        )
 
         self.assertEqual(
             [message_text(message) for message in view.messages],
@@ -403,8 +409,8 @@ class CoreTest(unittest.TestCase):
 
         state = State("project context view")
         state.send("task", "user", "writer", state.task)
-        state.send("note", "user", "writer", "first note")
-        state.send("note", "user", "writer", "second note")
+        state.send("message", "user", "writer", "first note")
+        state.send("message", "user", "writer", "second note")
         for _ in run(
             Agent("writer", writer, role="Write."),
             state,
@@ -446,8 +452,8 @@ class CoreTest(unittest.TestCase):
 
         state = State("compress context")
         state.send("task", "user", "writer", state.task)
-        state.send("note", "user", "writer", "old " + ("x" * 120))
-        state.send("note", "user", "writer", "recent note")
+        state.send("message", "user", "writer", "old " + ("x" * 120))
+        state.send("message", "user", "writer", "recent note")
         compression_policy = ContextPolicy(
             strategies=(
                 simple_agent_lab.SummarizeStrategy(
@@ -479,8 +485,8 @@ class CoreTest(unittest.TestCase):
         )
         self.assertEqual(compression.compressed_message_indices, [1])
         self.assertEqual(
-            state.snapshot.active_context_message_indices,
-            compression.active_message_indices + [len(state.messages) - 1],
+            state.snapshot.active_context_indices,
+            compression.active_context_indices + [len(state.messages) - 1],
         )
         self.assertIn("old", captured["compressor_prompt"])
         self.assertEqual(
@@ -494,8 +500,8 @@ class CoreTest(unittest.TestCase):
         )
         rebuilt = state.rebuild_snapshot()
         self.assertEqual(
-            rebuilt.active_context_message_indices,
-            state.snapshot.active_context_message_indices,
+            rebuilt.active_context_indices,
+            state.snapshot.active_context_indices,
         )
 
     def test_tool_compact_folds_old_tool_exchanges(self) -> None:
@@ -522,7 +528,7 @@ class CoreTest(unittest.TestCase):
                     ],
                     sender="writer",
                     target="user",
-                    kind="thought",
+                    kind="step",
                 )
             )
             state.record(
@@ -566,8 +572,8 @@ class CoreTest(unittest.TestCase):
         # in active and the summary sits between the old block and the
         # kept tail.
         self.assertNotIn("gamma result", replacement_text)
-        post_summary_indices = compression.active_message_indices[
-            compression.active_message_indices.index(compression.summary_message_index)
+        post_summary_indices = compression.active_context_indices[
+            compression.active_context_indices.index(compression.summary_message_index)
             + 1 :
         ]
         recent_texts = [
@@ -608,7 +614,7 @@ class CoreTest(unittest.TestCase):
                     ],
                     sender="writer",
                     target="user",
-                    kind="thought",
+                    kind="step",
                 )
             )
             state.record(
@@ -667,7 +673,7 @@ class CoreTest(unittest.TestCase):
             ],
             sender="writer",
             target="user",
-            kind="thought",
+            kind="step",
         )
         state.record(call_msg)
         result_msg = tool_result_message(

@@ -8,7 +8,7 @@ Three-piece public surface:
 
 All sync. The agent runtime projects its own `Message` and the shared
 `simple_agent_lab.tools.Tool` values to these types at the boundary; this layer
-never sees agent-loop routing fields (sender, target, kind, channel).
+never sees agent-loop routing fields (sender, target, kind).
 
 To add a new provider, write an adapter function and register it::
 

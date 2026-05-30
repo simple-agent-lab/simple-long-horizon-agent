@@ -14,7 +14,7 @@ messages. Per-block ``is_error`` lets a single bundle express partial failure
 across parallel calls.
 
 `Message` is the runtime transcript union. Routing fields (sender, target,
-kind, channel) stay on the runtime side; adapters never see them.
+kind) stay on the runtime side; adapters never see them.
 
 Projecting a runtime `Message` into the provider-facing `LLMMessage` happens
 in one step inside `simple_agent_lab.llm.bridge`.
@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Literal, TypeAlias, TypeVar
+from typing import Any, Literal, TypeAlias, TypedDict, TypeVar, cast
 
 
 Role: TypeAlias = Literal["system", "user", "assistant"]
@@ -36,33 +36,24 @@ Role: TypeAlias = Literal["system", "user", "assistant"]
 #   "message" — generic fallback (default for user/assistant messages)
 #   "system"  — runtime/system-level instruction
 #   "task"    — initial task for an agent
-#   "thought" — assistant intermediate output (still working)
+#   "step"    — a non-terminal assistant turn; the loop continues after it
+#               (typically because it issued tool calls). Pairs with
+#               "final". Note: this is the *turn* kind, distinct from a
+#               `ThinkingBlock` (reasoning content carried inside a turn).
 #   "final"   — agent's terminal message; the runtime loop stops on this
 #   "tool_result" — return value of a tool execution
-#   "note"    — out-of-band annotation injected onto the transcript
 #   "summary" — context compression summary
 #   "context" — extra context injected by task_tool delegation
-#   "trace"   — runtime trace entry
-#   "notification" — out-of-band entry that runtime adapters skip when
-#                    projecting to the LLM (reserved for extension code)
 MessageKind: TypeAlias = Literal[
     "message",
     "system",
     "task",
-    "thought",
+    "step",
     "final",
     "tool_result",
-    "note",
     "summary",
     "context",
-    "trace",
-    "notification",
 ]
-
-# Side-band channel for routing related messages off the default trace.
-#   "main"  — default visible channel
-#   "debug" — internal/debug-only messages (excluded from default context view)
-MessageChannel: TypeAlias = Literal["main", "debug"]
 
 AgentName: TypeAlias = str
 
@@ -159,6 +150,21 @@ class TokenUsage:
     def total_tokens(self) -> int:
         return self.input_tokens + self.output_tokens
 
+    @property
+    def context_tokens(self) -> int:
+        """All token counts that occupied this call's context window.
+
+        The single definition of "how full was this call" / "is any usage
+        reported". `0` means the provider reported nothing, so callers treat
+        the usage as unknown rather than as an authoritative all-zeros.
+        """
+        return (
+            self.input_tokens
+            + self.output_tokens
+            + self.cache_read_tokens
+            + self.cache_write_tokens
+        )
+
 
 ContentBlock: TypeAlias = (
     TextBlock | ImageBlock | ThinkingBlock | ToolCallBlock | ToolResultBlock
@@ -167,7 +173,35 @@ VisibleBlock: TypeAlias = TextBlock | ImageBlock  # blocks legal inside a tool_r
 MessageContent: TypeAlias = tuple[ContentBlock, ...]
 ContentInput: TypeAlias = str | Sequence[ContentBlock]
 ToolResultContentInput: TypeAlias = str | Sequence[VisibleBlock]
-Sidecar: TypeAlias = Mapping[str, Any]
+
+
+class MessageSidecar(TypedDict, total=False):
+    """Closed set of out-of-band fields that ride alongside a message.
+
+    Not message *content* and never shown to the model -- these are
+    provider-/tooling-side attachments. A closed `TypedDict` (rather than
+    an open `dict[str, Any]`) so the known keys and their types are
+    documented in one place and static checkers catch typos. All keys are
+    optional; most messages carry an empty sidecar.
+
+    Keys:
+        extra:   per-message provider wire hints, lifted to
+                 `LLMMessage.extra` by the bridge for adapters that opt in.
+        raw:     the adapter's raw request/response snapshot, stashed on an
+                 assistant message so `print_trace(raw=True)` can show the
+                 provider-level view.
+        details: per-tool-call `ToolResult.details`, keyed by call id, on a
+                 `tool_result` message (e.g. sub-agent events).
+    """
+
+    extra: Mapping[str, Any]
+    raw: Any
+    details: Mapping[str, Any]
+
+
+def _copy_sidecar(sidecar: MessageSidecar | None) -> MessageSidecar:
+    """Defensive shallow copy so a caller can't mutate a message later."""
+    return cast("MessageSidecar", dict(sidecar)) if sidecar else {}
 
 
 TOOL_RESULT_KIND = "tool_result"
@@ -181,8 +215,7 @@ class UserMessage:
     sender: AgentName = "user"
     target: AgentName = "all"
     kind: MessageKind = "message"
-    channel: MessageChannel = "main"
-    data: Sidecar = field(default_factory=dict)
+    sidecar: MessageSidecar = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -192,8 +225,7 @@ class SystemMessage:
     sender: AgentName = "system"
     target: AgentName = "all"
     kind: MessageKind = "system"
-    channel: MessageChannel = "main"
-    data: Sidecar = field(default_factory=dict)
+    sidecar: MessageSidecar = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -203,9 +235,12 @@ class AssistantMessage:
     sender: AgentName = "assistant"
     target: AgentName = "all"
     kind: MessageKind = "message"
-    channel: MessageChannel = "main"
     usage: TokenUsage | None = None
-    data: Sidecar = field(default_factory=dict)
+    # The model that produced this message (provider-reported). Sibling to
+    # `usage`: together they are the per-call cost primitives the analysis
+    # layer reads. Empty when unknown (e.g. fabricated or fake messages).
+    model: str = ""
+    sidecar: MessageSidecar = field(default_factory=dict)
 
     @property
     def thinking(self) -> tuple[ThinkingBlock, ...]:
@@ -229,10 +264,9 @@ def user_message(
     sender: AgentName = "user",
     target: AgentName = "all",
     kind: MessageKind = "message",
-    channel: MessageChannel = "main",
-    data: Sidecar | None = None,
+    sidecar: MessageSidecar | None = None,
 ) -> UserMessage:
-    return _build_message(UserMessage, content, sender, target, kind, channel, data)
+    return _build_message(UserMessage, content, sender, target, kind, sidecar)
 
 
 def system_message(
@@ -241,10 +275,9 @@ def system_message(
     sender: AgentName = "system",
     target: AgentName = "all",
     kind: MessageKind = "system",
-    channel: MessageChannel = "main",
-    data: Sidecar | None = None,
+    sidecar: MessageSidecar | None = None,
 ) -> SystemMessage:
-    return _build_message(SystemMessage, content, sender, target, kind, channel, data)
+    return _build_message(SystemMessage, content, sender, target, kind, sidecar)
 
 
 def assistant_message(
@@ -253,12 +286,19 @@ def assistant_message(
     sender: AgentName = "assistant",
     target: AgentName = "all",
     kind: MessageKind = "message",
-    channel: MessageChannel = "main",
     usage: TokenUsage | None = None,
-    data: Sidecar | None = None,
+    model: str = "",
+    sidecar: MessageSidecar | None = None,
 ) -> AssistantMessage:
     return _build_message(
-        AssistantMessage, content, sender, target, kind, channel, data, usage=usage
+        AssistantMessage,
+        content,
+        sender,
+        target,
+        kind,
+        sidecar,
+        usage=usage,
+        model=model,
     )
 
 
@@ -271,15 +311,14 @@ def _build_message(
     sender: AgentName,
     target: AgentName,
     kind: MessageKind,
-    channel: MessageChannel,
-    data: Sidecar | None,
+    sidecar: MessageSidecar | None,
     **extra: Any,
 ) -> _MessageT:
     """Shared constructor body for the three role-specific helpers.
 
-    Normalizes `content`, copies `data` (so callers can't mutate the
+    Normalizes `content`, copies `sidecar` (so callers can't mutate the
     message's sidecar later), threads any role-specific kwargs through
-    `extra` (currently only `usage` for assistants), and runs
+    `extra` (`usage` and `model` for assistants), and runs
     `validate_message` so block placement is checked uniformly.
     """
     message = cls(
@@ -287,8 +326,7 @@ def _build_message(
         sender=sender,
         target=target,
         kind=kind,
-        channel=channel,
-        data=dict(data or {}),
+        sidecar=_copy_sidecar(sidecar),
         **extra,
     )
     validate_message(message)
@@ -304,8 +342,7 @@ def tool_result_message(
     sender: AgentName | None = None,
     is_error: bool = False,
     kind: MessageKind = TOOL_RESULT_KIND,
-    channel: MessageChannel = "main",
-    data: Sidecar | None = None,
+    sidecar: MessageSidecar | None = None,
 ) -> UserMessage:
     """Build a UserMessage wrapping a single ToolResultBlock.
 
@@ -323,8 +360,7 @@ def tool_result_message(
         sender=sender if sender is not None else TOOL_RESULT_SENDER,
         target=target,
         kind=kind,
-        channel=channel,
-        data=dict(data or {}),
+        sidecar=_copy_sidecar(sidecar),
     )
     validate_message(message)
     return message
@@ -336,8 +372,7 @@ def tool_results_message(
     target: AgentName,
     sender: AgentName = TOOL_RESULT_SENDER,
     kind: MessageKind = TOOL_RESULT_KIND,
-    channel: MessageChannel = "main",
-    data: Sidecar | None = None,
+    sidecar: MessageSidecar | None = None,
 ) -> UserMessage:
     """Bundle N tool results from one assistant turn into a single message.
 
@@ -352,8 +387,7 @@ def tool_results_message(
         sender=sender,
         target=target,
         kind=kind,
-        channel=channel,
-        data=dict(data or {}),
+        sidecar=_copy_sidecar(sidecar),
     )
     validate_message(message)
     return message
@@ -506,8 +540,7 @@ def make_message(
     sender: AgentName = "",
     target: AgentName = "",
     kind: MessageKind = "message",
-    channel: MessageChannel = "main",
-    **data: Any,
+    sidecar: MessageSidecar | None = None,
 ) -> Message:
     """Construct the right role-specific Message variant."""
     if role == "user":
@@ -516,8 +549,7 @@ def make_message(
             sender=sender or "user",
             target=target or "all",
             kind=kind,
-            channel=channel,
-            data=data,
+            sidecar=sidecar,
         )
     if role == "system":
         return system_message(
@@ -525,8 +557,7 @@ def make_message(
             sender=sender or "system",
             target=target or "all",
             kind=kind,
-            channel=channel,
-            data=data,
+            sidecar=sidecar,
         )
     if role == "assistant":
         return assistant_message(
@@ -534,7 +565,6 @@ def make_message(
             sender=sender or "assistant",
             target=target or "all",
             kind=kind,
-            channel=channel,
-            data=data,
+            sidecar=sidecar,
         )
     raise ValueError(f"Unknown message role: {role!r}")

@@ -196,7 +196,6 @@ def make_bash_tool(
             "additionalProperties": False,
         },
         execute=execute,
-        label="Run bash command",
         execution_mode=execution_mode,
         timeout_seconds=max_timeout_seconds + 1,
     )

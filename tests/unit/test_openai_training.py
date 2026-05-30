@@ -8,9 +8,9 @@ import unittest
 from pathlib import Path
 
 from simple_agent_lab import (
-    AgentTool,
     State,
     TextBlock,
+    Tool,
     ToolCallBlock,
     assistant_message,
     tool_results_message,
@@ -19,11 +19,12 @@ from simple_agent_lab.messages import ImageBlock, ToolResultBlock
 from simple_agent_lab.trace import append_openai_training_record, openai_training_record
 
 
-_BASH_TOOL = AgentTool(
+# Declaration-only: this suite serializes the wire shape and never
+# dispatches, so a plain `Tool` (no execute) is the right type.
+_BASH_TOOL = Tool(
     name="bash",
     description="Run a bash command.",
     parameters={"type": "object", "properties": {"command": {"type": "string"}}},
-    execute=None,
 )
 
 
@@ -38,7 +39,7 @@ def _state_with_bash_roundtrip() -> State:
             ],
             sender="agent",
             target="user",
-            kind="thought",
+            kind="step",
         )
     )
     state.record(
@@ -133,7 +134,7 @@ class OpenAITrainingRecordTest(unittest.TestCase):
                 [ToolCallBlock("c1", "shot", {})],
                 sender="agent",
                 target="user",
-                kind="thought",
+                kind="step",
             )
         )
         state.record(

@@ -129,7 +129,7 @@ def _make_parent_generate(*, delegated_task: str):
                 ),
                 sender="bash_task_agent",
                 target="user",
-                kind="thought",
+                kind="step",
             )
         return assistant_message(
             "delegation done",

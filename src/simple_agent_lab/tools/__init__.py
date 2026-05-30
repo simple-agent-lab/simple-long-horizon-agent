@@ -70,7 +70,11 @@ ToolExecuteFn = Callable[
 
 @dataclass(frozen=True)
 class Tool:
-    """Provider-facing tool definition. Pure data, safe to serialize."""
+    """Provider-facing tool definition. Pure data, safe to serialize.
+
+    A bare `Tool` is a declaration with no local execute; use `AgentTool`
+    when the runtime must actually run it.
+    """
 
     name: str
     description: str
@@ -79,17 +83,15 @@ class Tool:
 
 @dataclass(frozen=True)
 class AgentTool(Tool):
-    """A tool definition plus its local execute function.
+    """A `Tool` the runtime can run: a declaration plus a required `execute`.
 
-    `execute` runs the tool with the canonical `ToolExecuteFn` signature
-    (see above). `execution_mode="sequential"` forces all calls in a
-    tool-call batch to run one at a time; `"parallel"` allows the runtime
-    to dispatch them concurrently. `timeout_seconds` (when set) bounds a
-    single call.
+    `execute` uses the canonical `ToolExecuteFn` signature (above).
+    `execution_mode="sequential"` runs a batch's calls one at a time;
+    `"parallel"` lets the runtime dispatch them concurrently.
+    `timeout_seconds` (when set) bounds a single call.
     """
 
-    execute: ToolExecuteFn | None = None
-    label: str = ""
+    execute: ToolExecuteFn
     execution_mode: ToolExecutionMode = "parallel"
     timeout_seconds: float | None = None
 

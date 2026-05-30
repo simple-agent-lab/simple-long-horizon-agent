@@ -1,7 +1,7 @@
 """Wire-format types for the unified LLM access layer.
 
 These are *provider-agnostic*. Each agent loop has its own `Message`
-with routing fields (sender, target, kind, channel); none of those reach
+with routing fields (sender, target, kind); none of those reach
 a provider. The boundary is `message_to_llm_message(...)` (see bridge.py),
 producing the types in this file.
 
@@ -167,6 +167,12 @@ class LLMResponse:
     content: MessageContent = ()
     stop_reason: StopReason = "end_turn"
     usage: TokenUsage = field(default_factory=TokenUsage)
+    # The model that served this response: adapters set it from the
+    # provider's echoed `response.model` (which resolves aliases to dated
+    # snapshots). `complete()` back-fills the requested `provider.model`
+    # only if an adapter left it blank, so every drained response carries a
+    # model id for downstream cost/routing analysis.
+    model: str = ""
     raw: dict[str, Any] = field(default_factory=dict)
 
     @property

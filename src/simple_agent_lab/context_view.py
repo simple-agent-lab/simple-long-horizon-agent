@@ -2,8 +2,8 @@
 
 `State.events` keeps the full trace. A context view is the smaller, explicit
 projection an agent sees before one model step. Projection here means only
-visibility filtering: messages whose `kind` is in `skip_kinds` are dropped
-because they were never meant for the model.
+visibility filtering: messages whose `kind` is in `model_invisible_kinds`
+are dropped because they were never meant for the model.
 
 This module owns the two pieces that describe *what* should happen to a
 view: `ContextPolicy` (the per-agent config) and the compression contract
@@ -57,8 +57,9 @@ class CompressionStrategy(Protocol):
 
     Args:
         active: `(index, message)` pairs the agent currently sees, in
-            display order. Already filtered to exclude `policy.skip_kinds`,
-            so the strategy can act on every item it receives.
+            display order. Already filtered to exclude
+            `policy.model_invisible_kinds`, so the strategy can act on
+            every item it receives.
         agent_name: target for the replacement message (typically the
             agent whose context is being shrunk).
 
@@ -80,17 +81,30 @@ class CompressionStrategy(Protocol):
 class ContextPolicy:
     """Visibility filter + compression strategy list for one agent.
 
-    `skip_kinds` are never shown to the model. `strategies` is evaluated
-    in order before each model request; each strategy may return a
-    `CompressionDecision` that the runtime applies to state.
+    `model_invisible_kinds` are never shown to the model. It defaults to
+    empty (every runtime `kind` is model-visible); set it per agent to hide
+    kinds that your own extension code records but should not project to the
+    LLM. `strategies` is evaluated in order before each model request; each
+    strategy may return a `CompressionDecision` that the runtime applies
+    to state.
+
+    `model_invisible_kinds` is *visibility*, not *compression*. It decides
+    whether a kind reaches the model at all — it is not the way to keep a
+    kind out of summaries. To exempt a kind from compression (e.g. keep
+    `"system"` or `"task"` verbatim instead of folding it into a summary),
+    use a strategy's `preserve_kinds` knob (see
+    `simple_agent_lab.compression.DEFAULT_PRESERVE_KINDS`, which already
+    pins `task`/`system`/`summary`/`context`). Do not add `"system"` here
+    to protect it from compression — that would hide the system messages
+    from the model entirely.
     """
 
-    skip_kinds: tuple[MessageKind, ...] = ("notification", "trace")
+    model_invisible_kinds: tuple[MessageKind, ...] = ()
     strategies: tuple[CompressionStrategy, ...] = field(default_factory=tuple)
 
     def is_visible(self, message: Message) -> bool:
         """Whether this message survives the agent's visibility filter."""
-        return message.kind not in self.skip_kinds
+        return message.kind not in self.model_invisible_kinds
 
 
 @dataclass(frozen=True)
@@ -167,7 +181,6 @@ def estimate_message_chars(message: Message) -> int:
             message.sender,
             message.target,
             message.kind,
-            message.channel,
         )
     )
     content_chars = _content_chars(message.content)
@@ -221,7 +234,7 @@ def estimate_context_tokens(
             message = messages[index]
             if isinstance(message, AssistantMessage) and _has_usage(message.usage):
                 assert message.usage is not None
-                return _usage_context_tokens(message.usage) + sum(
+                return message.usage.context_tokens + sum(
                     estimate_message_tokens(trailing)
                     for trailing in messages[index + 1 :]
                 )
@@ -243,15 +256,4 @@ def _content_chars(content: object) -> int:
 
 
 def _has_usage(usage: TokenUsage | None) -> bool:
-    if usage is None:
-        return False
-    return _usage_context_tokens(usage) > 0
-
-
-def _usage_context_tokens(usage: TokenUsage) -> int:
-    return (
-        usage.input_tokens
-        + usage.output_tokens
-        + usage.cache_read_tokens
-        + usage.cache_write_tokens
-    )
+    return usage is not None and usage.context_tokens > 0

@@ -14,7 +14,8 @@ currently sees and returns a `CompressionDecision`:
     )
 
 That's the entire strategy author surface. The framework handles everything
-else: filtering `skip_kinds`, validating that pinned messages stay,
+else: filtering `model_invisible_kinds`, validating that pinned messages
+stay,
 auto-fixing tool_call / tool_result pair splits, computing before/after
 token totals, recording the replacement, and emitting the
 `ContextCompressionEvent` that updates the active view and the trace.
@@ -311,7 +312,7 @@ def _apply_decision(
             agent=agent.name,
             summary_message_index=summary_index,
             compressed_message_indices=sorted(compress_set),
-            active_message_indices=kept_before + [summary_index] + kept_after,
+            active_context_indices=kept_before + [summary_index] + kept_after,
             before_tokens=before_tokens,
             after_tokens=after_tokens,
         )

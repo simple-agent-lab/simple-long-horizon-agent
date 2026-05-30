@@ -38,7 +38,7 @@ class LiveTraceTest(unittest.TestCase):
             ):
                 state.record_event(AgentStartEvent())
                 time.sleep(0.15)
-                state.record_event(AgentEndEvent(reason="final"))
+                state.record_event(AgentEndEvent(reason="done"))
 
             self.assertTrue(path.is_file())
             live_records = read_jsonl(path)
@@ -70,7 +70,7 @@ class LiveTraceTest(unittest.TestCase):
                 final_flush_on_exit=True,
             ):
                 state.record_event(AgentStartEvent())
-                state.record_event(AgentEndEvent(reason="final"))
+                state.record_event(AgentEndEvent(reason="done"))
 
             records = read_jsonl(path)
             self.assertEqual(len(records), 1)

@@ -15,6 +15,7 @@ a function and call `register_adapter("your-api", fn)`.
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Callable, Iterator
 
 from .types import LLMRequest, LLMResponse, StreamEvent
@@ -65,4 +66,8 @@ def complete(req: LLMRequest) -> LLMResponse:
         raise RuntimeError(
             f"Stream for api={req.provider.api!r} ended without a 'done' event"
         )
+    if not response.model:
+        # Adapter didn't echo a served model; fall back to the requested
+        # one so every drained response carries a model id.
+        response = dataclasses.replace(response, model=req.provider.model)
     return response
