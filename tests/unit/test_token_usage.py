@@ -7,12 +7,10 @@ import unittest
 
 from simple_agent_lab import (
     AssistantMessage,
-    ContextSize,
     TokenUsage,
     assistant_message,
     build_context_view,
     effective_token_budget,
-    estimate_context_size,
     estimate_context_tokens,
     estimate_message_chars,
     estimate_message_tokens,
@@ -257,19 +255,6 @@ class EstimateMessageTokensTest(unittest.TestCase):
             estimate_message_tokens(message), math.ceil(chars / CHARS_PER_TOKEN)
         )
 
-    def test_chars_per_token_override_is_honored(self) -> None:
-        # A caller with a model-calibrated figure can override the default on
-        # both estimators; a larger ratio yields a smaller estimate.
-        message = user_message("x" * 400, target="agent")
-        chars = estimate_message_chars(message)
-        self.assertEqual(
-            estimate_message_tokens(message, chars_per_token=8),
-            math.ceil(chars / 8),
-        )
-        dense = estimate_context_tokens([message], chars_per_token=2)
-        sparse = estimate_context_tokens([message], chars_per_token=8)
-        self.assertGreater(dense, sparse)
-
 
 class ContextStatsUsesUsageTest(unittest.TestCase):
     def test_estimated_tokens_prefers_known_usage(self) -> None:
@@ -361,43 +346,6 @@ class ContextStatsUsesUsageTest(unittest.TestCase):
         view = build_context_view("agent", [message])
         self.assertIn("usage_known_messages", view.stats.as_dict())
         self.assertEqual(view.stats.as_dict()["usage_known_messages"], 1)
-
-
-class ContextSizeSplitTest(unittest.TestCase):
-    """`estimate_context_size` keeps the confirmed/estimated split visible."""
-
-    def test_baseline_is_confirmed_and_only_the_tail_is_estimated(self) -> None:
-        a = assistant_message(
-            "answer",
-            sender="agent",
-            target="user",
-            usage=TokenUsage(input_tokens=100, output_tokens=20),
-        )
-        tail = user_message("a freshly added follow-up", target="agent")
-        size = estimate_context_size([a, tail])
-
-        self.assertIsInstance(size, ContextSize)
-        self.assertEqual(size.confirmed_tokens, 120)  # provider context_tokens
-        self.assertEqual(size.estimated_tokens, estimate_message_tokens(tail))
-        self.assertEqual(size.total, estimate_context_tokens([a, tail]))
-        self.assertGreater(size.estimated_fraction, 0)
-        self.assertLess(size.estimated_fraction, 0.5)
-
-    def test_no_usage_means_everything_is_estimated(self) -> None:
-        messages = [user_message("hi", target="agent")]
-        size = estimate_context_size(messages)
-        self.assertEqual(size.confirmed_tokens, 0)
-        self.assertEqual(size.estimated_fraction, 1.0)
-
-    def test_baseline_off_treats_all_as_estimated(self) -> None:
-        a = assistant_message(
-            "answer",
-            sender="agent",
-            target="user",
-            usage=TokenUsage(input_tokens=100, output_tokens=20),
-        )
-        size = estimate_context_size([a], allow_usage_baseline=False)
-        self.assertEqual(size.confirmed_tokens, 0)
 
 
 class EffectiveTokenBudgetTest(unittest.TestCase):

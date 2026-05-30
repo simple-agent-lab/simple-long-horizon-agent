@@ -33,12 +33,14 @@ from .messages import (
 )
 
 
-# Default chars-per-token for the char-based fallback estimate. This is the
-# *neutral* value measured empirically across content types (prose ~5.6, code
-# ~3.9, json ~3.1, logs ~1.9 give an overall ~3.1 on mimo-v2.5-pro) — not a
-# provider-accurate count. It is a default, not a constant: callers with a
-# calibrated figure for their own model pass `chars_per_token=...` to the
-# estimators. Re-measure per provider with `evals/compression/calibrate_tokens`.
+# Chars-per-token for the char-based fallback estimate — the *neutral* value
+# measured empirically across content types (prose ~5.6, code ~3.9, json ~3.1,
+# logs ~1.9 give an overall ~3.1 on mimo-v2.5-pro), not a provider-accurate
+# count. One global ratio is deliberately enough: the estimate only covers the
+# small tail since the last provider usage report, and the runtime's safety
+# buffer absorbs the residual error, so per-provider calibration is not worth
+# the complexity. Re-measure with `evals/compression/calibrate_tokens` if a
+# model is wildly different.
 CHARS_PER_TOKEN = 3.1
 IMAGE_CHAR_ESTIMATE = 7373
 
@@ -208,19 +210,14 @@ def estimate_message_chars(message: Message) -> int:
     return meta_chars + content_chars
 
 
-def estimate_message_tokens(
-    message: Message,
-    *,
-    chars_per_token: float = CHARS_PER_TOKEN,
-) -> int:
+def estimate_message_tokens(message: Message) -> int:
     """Best-effort per-message token estimate.
 
     Prefers the provider-reported `output_tokens` when an AssistantMessage
     carries one — that field is the exact tokenizer cost of this message and
     is stable across calls (so it's also the precise cost of re-sending it).
     For every other message and for assistants without usage data, falls back
-    to the char/`chars_per_token` heuristic; pass a model-calibrated
-    `chars_per_token` to override the default.
+    to the char/`CHARS_PER_TOKEN` heuristic.
 
     Per-message attribution of `input_tokens` is not possible: providers only
     report that value as the SUM across all input messages of one call. So we
@@ -231,92 +228,34 @@ def estimate_message_tokens(
         if usage is not None and usage.output_tokens > 0:
             return usage.output_tokens
     chars = estimate_message_chars(message)
-    return math.ceil(chars / chars_per_token)
+    return math.ceil(chars / CHARS_PER_TOKEN)
 
 
 def estimate_context_tokens(
     messages: Sequence[Message],
     *,
     allow_usage_baseline: bool = True,
-    chars_per_token: float = CHARS_PER_TOKEN,
 ) -> int:
     """Estimate context-window size for a selected message sequence.
 
-    Convenience total over :func:`estimate_context_size` — see that function
-    for how the provider-confirmed baseline and the estimated tail combine.
-    """
-    return estimate_context_size(
-        messages,
-        allow_usage_baseline=allow_usage_baseline,
-        chars_per_token=chars_per_token,
-    ).total
-
-
-@dataclass(frozen=True)
-class ContextSize:
-    """A context-size estimate split into provider-confirmed and estimated parts.
-
-    `confirmed_tokens` come from the latest provider usage baseline — ground
-    truth for everything up to that response. `estimated_tokens` are the
-    char-based fallback for the messages added since (the tail the provider has
-    not counted yet), which is approximate.
-
-    The split is kept visible on purpose: the estimate is a stand-in, not a
-    measurement, so the runtime should lean on it as little as possible. Seeing
-    `estimated_tokens` (and `estimated_fraction`) tells a caller how much of the
-    size signal currently rests on the approximation, which is exactly what the
-    safety buffer in `effective_token_budget` has to cover.
-    """
-
-    confirmed_tokens: int
-    estimated_tokens: int
-
-    @property
-    def total(self) -> int:
-        return self.confirmed_tokens + self.estimated_tokens
-
-    @property
-    def estimated_fraction(self) -> float:
-        """Share of the total that is the (approximate) char estimate."""
-        return self.estimated_tokens / self.total if self.total else 0.0
-
-
-def estimate_context_size(
-    messages: Sequence[Message],
-    *,
-    allow_usage_baseline: bool = True,
-    chars_per_token: float = CHARS_PER_TOKEN,
-) -> ContextSize:
-    """Size a message sequence, separating confirmed tokens from estimated ones.
-
     When possible, take the latest provider-reported assistant usage as the
-    authoritative (confirmed) size of everything up to that response, and
-    estimate only the messages added after it — keeping the inaccurate char
-    estimate confined to the smallest possible tail. Pass
-    ``allow_usage_baseline=False`` when older context has been dropped or
-    summarized (the historical usage figure would over-count text that is no
-    longer present); then nothing is confirmed and the whole sequence is
-    estimated. Pass a model-calibrated ``chars_per_token`` to override the
-    char-fallback default.
+    authoritative size of everything up to that response, and estimate only the
+    messages added after it — keeping the inaccurate char estimate confined to
+    the smallest possible tail (the runtime's safety buffer covers that bit).
+    Pass ``allow_usage_baseline=False`` when older context has been dropped or
+    summarized — the historical usage figure would over-count text that is no
+    longer present, so the whole sequence is estimated instead.
     """
     if allow_usage_baseline:
         for index in range(len(messages) - 1, -1, -1):
             message = messages[index]
             if isinstance(message, AssistantMessage) and _has_usage(message.usage):
                 assert message.usage is not None
-                estimated = sum(
-                    estimate_message_tokens(trailing, chars_per_token=chars_per_token)
+                return message.usage.context_tokens + sum(
+                    estimate_message_tokens(trailing)
                     for trailing in messages[index + 1 :]
                 )
-                return ContextSize(
-                    confirmed_tokens=message.usage.context_tokens,
-                    estimated_tokens=estimated,
-                )
-    estimated = sum(
-        estimate_message_tokens(message, chars_per_token=chars_per_token)
-        for message in messages
-    )
-    return ContextSize(confirmed_tokens=0, estimated_tokens=estimated)
+    return sum(estimate_message_tokens(message) for message in messages)
 
 
 def effective_token_budget(
