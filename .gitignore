@@ -29,6 +29,9 @@ evals/out/swebench/*
 !evals/out/swebench_pro/
 evals/out/swebench_pro/*
 !evals/out/swebench_pro/README.md
+!evals/out/compression/
+evals/out/compression/*
+!evals/out/compression/README.md
 logs/
 
 # Local reference-architecture research notes — kept off the public repo.
