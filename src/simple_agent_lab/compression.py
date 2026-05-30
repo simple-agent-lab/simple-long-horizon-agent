@@ -312,7 +312,7 @@ def _apply_decision(
             agent=agent.name,
             summary_message_index=summary_index,
             compressed_message_indices=sorted(compress_set),
-            active_message_indices=kept_before + [summary_index] + kept_after,
+            active_context_indices=kept_before + [summary_index] + kept_after,
             before_tokens=before_tokens,
             after_tokens=after_tokens,
         )

@@ -127,11 +127,11 @@ class ModelResponseEvent(_BaseEvent):
 class ContextCompressionEvent(_BaseEvent):
     """One compression pass.
 
-    `active_message_indices` is the new active view (preserved messages +
+    `active_context_indices` is the new active context (preserved messages +
     summary + recent), in chronological order. `compressed_message_indices`
     lists the messages that were folded into `summary_message_index`. The
     trace viewer can derive "preserved" / "recent" from the order of
-    `active_message_indices` relative to `summary_message_index`.
+    `active_context_indices` relative to `summary_message_index`.
     """
 
     kind: Literal[EventKind.CONTEXT_COMPRESSION] = field(
@@ -140,7 +140,7 @@ class ContextCompressionEvent(_BaseEvent):
     agent: AgentName
     summary_message_index: int
     compressed_message_indices: list[int]
-    active_message_indices: list[int]
+    active_context_indices: list[int]
     before_tokens: int
     after_tokens: int
 

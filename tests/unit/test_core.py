@@ -485,8 +485,8 @@ class CoreTest(unittest.TestCase):
         )
         self.assertEqual(compression.compressed_message_indices, [1])
         self.assertEqual(
-            state.snapshot.active_context_message_indices,
-            compression.active_message_indices + [len(state.messages) - 1],
+            state.snapshot.active_context_indices,
+            compression.active_context_indices + [len(state.messages) - 1],
         )
         self.assertIn("old", captured["compressor_prompt"])
         self.assertEqual(
@@ -500,8 +500,8 @@ class CoreTest(unittest.TestCase):
         )
         rebuilt = state.rebuild_snapshot()
         self.assertEqual(
-            rebuilt.active_context_message_indices,
-            state.snapshot.active_context_message_indices,
+            rebuilt.active_context_indices,
+            state.snapshot.active_context_indices,
         )
 
     def test_tool_compact_folds_old_tool_exchanges(self) -> None:
@@ -572,8 +572,8 @@ class CoreTest(unittest.TestCase):
         # in active and the summary sits between the old block and the
         # kept tail.
         self.assertNotIn("gamma result", replacement_text)
-        post_summary_indices = compression.active_message_indices[
-            compression.active_message_indices.index(compression.summary_message_index)
+        post_summary_indices = compression.active_context_indices[
+            compression.active_context_indices.index(compression.summary_message_index)
             + 1 :
         ]
         recent_texts = [
