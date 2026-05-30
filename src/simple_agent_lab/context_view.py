@@ -42,6 +42,14 @@ from .messages import (
 CHARS_PER_TOKEN = 3.1
 IMAGE_CHAR_ESTIMATE = 7373
 
+# Default reserves for the effective context budget (mirrors opencode's
+# OUTPUT_TOKEN_MAX / COMPACTION_BUFFER). They assume a large window — tune per
+# model. The safety buffer matters because the size signal partly rests on the
+# char estimate, which is approximate; the buffer is the slack that keeps that
+# error from overflowing the real window.
+DEFAULT_OUTPUT_RESERVE = 32000
+DEFAULT_SAFETY_BUFFER = 20000
+
 
 @dataclass(frozen=True)
 class CompressionDecision:
@@ -234,26 +242,102 @@ def estimate_context_tokens(
 ) -> int:
     """Estimate context-window size for a selected message sequence.
 
-    When possible, use the latest provider-reported assistant usage as the
-    authoritative size of everything up to that response, then estimate only
-    messages added after it. Pass ``allow_usage_baseline=False`` when the
-    caller knows older context has been dropped or summarized — the historical
-    usage figure would over-count text that is no longer present. Pass a
-    model-calibrated ``chars_per_token`` to override the char-fallback default.
+    Convenience total over :func:`estimate_context_size` — see that function
+    for how the provider-confirmed baseline and the estimated tail combine.
+    """
+    return estimate_context_size(
+        messages,
+        allow_usage_baseline=allow_usage_baseline,
+        chars_per_token=chars_per_token,
+    ).total
+
+
+@dataclass(frozen=True)
+class ContextSize:
+    """A context-size estimate split into provider-confirmed and estimated parts.
+
+    `confirmed_tokens` come from the latest provider usage baseline — ground
+    truth for everything up to that response. `estimated_tokens` are the
+    char-based fallback for the messages added since (the tail the provider has
+    not counted yet), which is approximate.
+
+    The split is kept visible on purpose: the estimate is a stand-in, not a
+    measurement, so the runtime should lean on it as little as possible. Seeing
+    `estimated_tokens` (and `estimated_fraction`) tells a caller how much of the
+    size signal currently rests on the approximation, which is exactly what the
+    safety buffer in `effective_token_budget` has to cover.
+    """
+
+    confirmed_tokens: int
+    estimated_tokens: int
+
+    @property
+    def total(self) -> int:
+        return self.confirmed_tokens + self.estimated_tokens
+
+    @property
+    def estimated_fraction(self) -> float:
+        """Share of the total that is the (approximate) char estimate."""
+        return self.estimated_tokens / self.total if self.total else 0.0
+
+
+def estimate_context_size(
+    messages: Sequence[Message],
+    *,
+    allow_usage_baseline: bool = True,
+    chars_per_token: float = CHARS_PER_TOKEN,
+) -> ContextSize:
+    """Size a message sequence, separating confirmed tokens from estimated ones.
+
+    When possible, take the latest provider-reported assistant usage as the
+    authoritative (confirmed) size of everything up to that response, and
+    estimate only the messages added after it — keeping the inaccurate char
+    estimate confined to the smallest possible tail. Pass
+    ``allow_usage_baseline=False`` when older context has been dropped or
+    summarized (the historical usage figure would over-count text that is no
+    longer present); then nothing is confirmed and the whole sequence is
+    estimated. Pass a model-calibrated ``chars_per_token`` to override the
+    char-fallback default.
     """
     if allow_usage_baseline:
         for index in range(len(messages) - 1, -1, -1):
             message = messages[index]
             if isinstance(message, AssistantMessage) and _has_usage(message.usage):
                 assert message.usage is not None
-                return message.usage.context_tokens + sum(
+                estimated = sum(
                     estimate_message_tokens(trailing, chars_per_token=chars_per_token)
                     for trailing in messages[index + 1 :]
                 )
-    return sum(
+                return ContextSize(
+                    confirmed_tokens=message.usage.context_tokens,
+                    estimated_tokens=estimated,
+                )
+    estimated = sum(
         estimate_message_tokens(message, chars_per_token=chars_per_token)
         for message in messages
     )
+    return ContextSize(confirmed_tokens=0, estimated_tokens=estimated)
+
+
+def effective_token_budget(
+    context_window: int,
+    *,
+    output_reserve: int = DEFAULT_OUTPUT_RESERVE,
+    safety_buffer: int = DEFAULT_SAFETY_BUFFER,
+) -> int:
+    """Usable input budget = window − reserved output − safety buffer.
+
+    Compression should trigger against this, not the raw `context_window`.
+    Two reasons to hold tokens back:
+
+    - `output_reserve`: the model still needs room to generate its reply, so
+      that much of the window is never available for input.
+    - `safety_buffer`: part of the size signal is the char estimate, which is
+      approximate. The buffer is the slack that keeps that estimate's error
+      (and any not-yet-reported trailing message) from overflowing the real
+      window. The less the size is provider-confirmed, the larger it should be.
+    """
+    return max(0, context_window - output_reserve - safety_buffer)
 
 
 def _content_chars(content: object) -> int:

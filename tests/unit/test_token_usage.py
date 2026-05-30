@@ -7,9 +7,12 @@ import unittest
 
 from simple_agent_lab import (
     AssistantMessage,
+    ContextSize,
     TokenUsage,
     assistant_message,
     build_context_view,
+    effective_token_budget,
+    estimate_context_size,
     estimate_context_tokens,
     estimate_message_chars,
     estimate_message_tokens,
@@ -358,6 +361,64 @@ class ContextStatsUsesUsageTest(unittest.TestCase):
         view = build_context_view("agent", [message])
         self.assertIn("usage_known_messages", view.stats.as_dict())
         self.assertEqual(view.stats.as_dict()["usage_known_messages"], 1)
+
+
+class ContextSizeSplitTest(unittest.TestCase):
+    """`estimate_context_size` keeps the confirmed/estimated split visible."""
+
+    def test_baseline_is_confirmed_and_only_the_tail_is_estimated(self) -> None:
+        a = assistant_message(
+            "answer",
+            sender="agent",
+            target="user",
+            usage=TokenUsage(input_tokens=100, output_tokens=20),
+        )
+        tail = user_message("a freshly added follow-up", target="agent")
+        size = estimate_context_size([a, tail])
+
+        self.assertIsInstance(size, ContextSize)
+        self.assertEqual(size.confirmed_tokens, 120)  # provider context_tokens
+        self.assertEqual(size.estimated_tokens, estimate_message_tokens(tail))
+        self.assertEqual(size.total, estimate_context_tokens([a, tail]))
+        self.assertGreater(size.estimated_fraction, 0)
+        self.assertLess(size.estimated_fraction, 0.5)
+
+    def test_no_usage_means_everything_is_estimated(self) -> None:
+        messages = [user_message("hi", target="agent")]
+        size = estimate_context_size(messages)
+        self.assertEqual(size.confirmed_tokens, 0)
+        self.assertEqual(size.estimated_fraction, 1.0)
+
+    def test_baseline_off_treats_all_as_estimated(self) -> None:
+        a = assistant_message(
+            "answer",
+            sender="agent",
+            target="user",
+            usage=TokenUsage(input_tokens=100, output_tokens=20),
+        )
+        size = estimate_context_size([a], allow_usage_baseline=False)
+        self.assertEqual(size.confirmed_tokens, 0)
+
+
+class EffectiveTokenBudgetTest(unittest.TestCase):
+    def test_reserves_output_and_buffer_from_the_window(self) -> None:
+        self.assertEqual(
+            effective_token_budget(
+                200_000, output_reserve=32_000, safety_buffer=20_000
+            ),
+            148_000,
+        )
+
+    def test_floors_at_zero_for_small_windows(self) -> None:
+        self.assertEqual(
+            effective_token_budget(8_000, output_reserve=32_000, safety_buffer=20_000),
+            0,
+        )
+
+    def test_larger_buffer_yields_smaller_budget(self) -> None:
+        loose = effective_token_budget(100_000, safety_buffer=10_000)
+        tight = effective_token_budget(100_000, safety_buffer=40_000)
+        self.assertGreater(loose, tight)
 
 
 class EndToEndUsagePropagationTest(unittest.TestCase):
