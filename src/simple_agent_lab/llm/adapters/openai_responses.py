@@ -168,6 +168,9 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         content=tuple(blocks),
         stop_reason=stop_reason,
         usage=usage,
+        # The served model the API resolved to (e.g. an alias -> dated
+        # snapshot); complete() only back-fills the requested model.
+        model=getattr(sdk_response, "model", "") or "",
         raw={"request": capture_request(kwargs), "response": sdk_dump(sdk_response)},
     )
     yield StreamEvent(kind="done", payload={"response": response})

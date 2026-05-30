@@ -63,6 +63,10 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
     response = LLMResponse(
         content=tuple(blocks),
         stop_reason="tool_use" if tool_calls else "end_turn",
+        # Echo the requested model like a real provider would, so the fake
+        # exercises the same served-model path instead of relying on
+        # complete()'s fallback.
+        model=req.provider.model,
         usage=usage,
     )
     yield StreamEvent(kind="done", payload={"response": response})
