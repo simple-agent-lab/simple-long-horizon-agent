@@ -23,6 +23,7 @@ Use [0000-template.md](0000-template.md) for new records. Number accepted decisi
 - [ADR 0014: Tool Results Are Content Blocks, Not a Separate Message Role](0014-tool-result-as-content-block.md)
 - [ADR 0015: Three-Layer Trace Architecture — Event, Span, Training](0015-three-layer-trace-event-span-training.md)
 - [ADR 0016: Eval Output Directory Convention](0016-eval-output-directory-convention.md)
+- [ADR 0017: Context-Size Accounting — Provider Usage, Confined Estimation, a Safety Buffer](0017-context-size-accounting.md)
 
 ## Withdrawn
 
