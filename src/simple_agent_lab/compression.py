@@ -303,7 +303,14 @@ def _apply_decision(
     kept_messages = [message for index, message in active if index not in compress_set]
 
     before_tokens = estimate_context_tokens([message for _, message in active])
-    after_tokens = estimate_context_tokens(kept_messages + [decision.replacement])
+    # The post-compression set just lost messages, so any usage baseline a
+    # *kept* assistant still carries references content that is no longer
+    # present (its `context_tokens` was the full pre-compression window). Sum
+    # per-message instead — that still uses each assistant's exact
+    # `output_tokens`, only dropping the now-stale whole-window baseline.
+    after_tokens = estimate_context_tokens(
+        kept_messages + [decision.replacement], allow_usage_baseline=False
+    )
 
     summary_event = state.record(decision.replacement)
     summary_index = len(state.messages) - 1
