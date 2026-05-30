@@ -47,8 +47,9 @@ class _OpenSpan:
     The in-flight counterpart to the frozen `Span`: a typed accumulator
     (not an untyped dict) so the start/end handlers below read `.kind` /
     `.parent_id` instead of stringly keys. `parent_id` is fixed at push
-    time for every kind; fields a given kind doesn't use stay at their
-    defaults.
+    time for every kind; fields a given kind doesn't use (e.g. `input`,
+    set only by model_call) stay at their defaults. The closed `Span`'s
+    `output` is built from the end event, so it has no open-span field.
     """
 
     id: str
@@ -56,7 +57,6 @@ class _OpenSpan:
     start: float
     parent_id: str | None = None
     input: Any | None = None
-    output: Any | None = None
     attributes: dict[str, Any] = field(default_factory=dict)
 
 
@@ -81,14 +81,11 @@ def spans_from_events(
         return f"{trace_id}.{kind}{counters[kind]}"
 
     def _parent_id(*, skip_kinds: set[str] | None = None) -> str | None:
-        if not stack:
-            return None
-        if skip_kinds:
-            for i in range(len(stack) - 1, -1, -1):
-                if stack[i].kind not in skip_kinds:
-                    return stack[i].id
-            return None
-        return stack[-1].id
+        skip = skip_kinds or set()
+        for i in range(len(stack) - 1, -1, -1):
+            if stack[i].kind not in skip:
+                return stack[i].id
+        return None
 
     for event in events_list:
         if isinstance(event, AgentStartEvent):
@@ -111,8 +108,6 @@ def spans_from_events(
                         kind="agent_run",
                         start=open_span.start,
                         end=event.elapsed,
-                        input=open_span.input,
-                        output=open_span.output,
                         attributes={"reason": event.reason},
                     )
                 )
@@ -165,12 +160,6 @@ def spans_from_events(
         elif isinstance(event, ModelResponseEvent):
             if stack and stack[-1].kind == "model_call":
                 open_span = stack.pop()
-                # Cost primitives: model is always recorded (may be ""),
-                # usage only when the provider reported it, so a cost fold
-                # reads both off `model_call` span attributes.
-                attributes = {**open_span.attributes, "model": event.model}
-                if event.usage is not None:
-                    attributes["usage"] = event.usage
                 spans.append(
                     Span(
                         id=open_span.id,
@@ -179,12 +168,22 @@ def spans_from_events(
                         start=open_span.start,
                         end=event.elapsed,
                         input=json_safe(open_span.input),
-                        output={
-                            "kind": event.output_kind,
-                            "target": event.target,
-                            "tool_call_count": event.tool_call_count,
-                        },
-                        attributes=attributes,
+                        # Response facts -- including the cost primitives
+                        # (model + usage) -- live together in `output`;
+                        # request-side metadata stays in `attributes`. Both
+                        # cost fields are always present (usage may be None)
+                        # and json_safe'd here like `input`, so an in-memory
+                        # span never holds a raw dataclass under an output key.
+                        output=json_safe(
+                            {
+                                "kind": event.output_kind,
+                                "target": event.target,
+                                "tool_call_count": event.tool_call_count,
+                                "model": event.model,
+                                "usage": event.usage,
+                            }
+                        ),
+                        attributes=open_span.attributes,
                     )
                 )
 
