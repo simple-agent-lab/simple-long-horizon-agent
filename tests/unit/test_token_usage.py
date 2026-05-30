@@ -59,6 +59,43 @@ class TokenUsageDataclassTest(unittest.TestCase):
         self.assertEqual(hash(usage), hash(TokenUsage(input_tokens=1, output_tokens=2)))
 
 
+class FromInclusiveInputTest(unittest.TestCase):
+    """`from_inclusive_input` converts subset-cache reporting to additive.
+
+    This is the one place the "cache is a subset of the input total" shape
+    (OpenAI) becomes the project's "cache is additive to input_tokens" shape,
+    so every OpenAI-family adapter shares it instead of re-deriving it.
+    """
+
+    def test_subtracts_cached_so_context_tokens_is_true_window(self) -> None:
+        usage = TokenUsage.from_inclusive_input(
+            total_input=2007, output=90, cached_read=1984
+        )
+        self.assertEqual(usage.input_tokens, 23)
+        self.assertEqual(usage.cache_read_tokens, 1984)
+        # 23 + 90 + 1984 — the real window, not the double-counted 4081.
+        self.assertEqual(usage.context_tokens, 2097)
+
+    def test_subtracts_both_cache_read_and_write(self) -> None:
+        usage = TokenUsage.from_inclusive_input(
+            total_input=100, output=10, cached_read=30, cache_write=20
+        )
+        self.assertEqual(usage.input_tokens, 50)  # 100 - 30 - 20
+        self.assertEqual(usage.context_tokens, 110)  # back to total_input + output
+
+    def test_no_cache_leaves_input_untouched(self) -> None:
+        usage = TokenUsage.from_inclusive_input(total_input=42, output=7)
+        self.assertEqual(usage.input_tokens, 42)
+        self.assertEqual(usage.cache_read_tokens, 0)
+
+    def test_floors_at_zero_if_cache_exceeds_total(self) -> None:
+        # Defensive: a malformed provider reading must never yield negatives.
+        usage = TokenUsage.from_inclusive_input(
+            total_input=10, output=1, cached_read=99
+        )
+        self.assertEqual(usage.input_tokens, 0)
+
+
 class AssistantMessageUsageTest(unittest.TestCase):
     def test_default_usage_is_none(self) -> None:
         message = assistant_message("hi")

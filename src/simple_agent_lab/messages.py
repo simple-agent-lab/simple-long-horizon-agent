@@ -155,6 +155,32 @@ class TokenUsage:
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
 
+    @classmethod
+    def from_inclusive_input(
+        cls,
+        *,
+        total_input: int,
+        output: int,
+        cached_read: int = 0,
+        cache_write: int = 0,
+    ) -> "TokenUsage":
+        """Normalize a provider that reports input *inclusive* of cache.
+
+        OpenAI-style providers report one input total (`prompt_tokens` /
+        `input_tokens`) that already contains the cached tokens as a subset.
+        This subtracts the cache back out so the result fits the project
+        convention — `input_tokens` is non-cached, cache counts are additive —
+        keeping `context_tokens` from double-counting the cache. Providers that
+        already report cache as separate additive buckets (Anthropic) should
+        construct `TokenUsage(...)` directly instead.
+        """
+        return cls(
+            input_tokens=max(0, total_input - cached_read - cache_write),
+            output_tokens=output,
+            cache_read_tokens=cached_read,
+            cache_write_tokens=cache_write,
+        )
+
     @property
     def total_tokens(self) -> int:
         # Input + output only: cache is tracked separately because it prices
