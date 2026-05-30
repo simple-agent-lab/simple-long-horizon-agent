@@ -92,7 +92,11 @@ def count_input_tokens(
 
     This is the ground truth the char/4 estimate is graded against. The
     trailing instruction is tiny and constant, so its cost is captured by
-    `BASELINE_PROBE` and can be subtracted by the caller.
+    the empty-message baseline and can be subtracted by the caller.
+
+    Returns the full input window — non-cached `input_tokens` plus the cached
+    portions — so a cache hit doesn't understate the real prompt size (under
+    our convention cache counts are additive to `input_tokens`).
     """
     llm_messages = list(messages_to_llm_messages(messages))
     llm_messages.append(LLMMessage(role="user", content="Reply with: ok"))
@@ -101,8 +105,8 @@ def count_input_tokens(
         messages=llm_messages,
         extra=dict(request_extra or {}),
     )
-    response = complete(request)
-    return response.usage.input_tokens
+    usage = complete(request).usage
+    return usage.input_tokens + usage.cache_read_tokens + usage.cache_write_tokens
 
 
 # A near-empty probe whose input-token count approximates the provider's fixed

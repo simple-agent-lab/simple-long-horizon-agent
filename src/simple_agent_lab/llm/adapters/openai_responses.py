@@ -365,8 +365,12 @@ def _responses_usage(usage: Any) -> TokenUsage:
     details = getattr(usage, "input_tokens_details", None)
     if details is not None:
         cached = int(getattr(details, "cached_tokens", 0) or 0)
+    # Responses' `input_tokens` already includes `cached_tokens` (a subset
+    # breakdown). Subtract it so cache_read stays additive under our
+    # convention and `context_tokens` doesn't double-count the cache.
+    total_input = int(getattr(usage, "input_tokens", 0) or 0)
     return TokenUsage(
-        input_tokens=int(getattr(usage, "input_tokens", 0) or 0),
+        input_tokens=max(0, total_input - cached),
         output_tokens=int(getattr(usage, "output_tokens", 0) or 0),
         cache_read_tokens=cached,
     )
