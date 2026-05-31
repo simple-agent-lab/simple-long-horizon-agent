@@ -27,6 +27,7 @@ from .backends import (
     LocalProcessBackend,
     RemoteDockerBackend,
 )
+from .batch import reconcile_dataset, submit_dataset
 from .bootstrap import bootstrap_script
 from .protocols import (
     INSTANCE_KEY,
@@ -39,6 +40,7 @@ from .protocols import (
     ContainerPlan,
     ContainerTask,
     RunArtifacts,
+    RunHandle,
     RunOutcome,
     RunSpec,
     Suite,
@@ -79,6 +81,7 @@ __all__ = [
     "LocalProcessBackend",
     "RemoteDockerBackend",
     "RunArtifacts",
+    "RunHandle",
     "RunOutcome",
     "RunPaths",
     "RunSpec",
@@ -89,8 +92,10 @@ __all__ = [
     "container_name",
     "container_store_from_env",
     "prepare_run_directory",
+    "reconcile_dataset",
     "run_dataset",
     "run_suite_instance",
+    "submit_dataset",
 ]
 
 # `in_container` (the generic runner) pulls in the agent runtime; import it

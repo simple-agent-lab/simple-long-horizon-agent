@@ -195,6 +195,26 @@ class RunOutcome:
     logs: str = ""
 
 
+@dataclass(frozen=True)
+class RunHandle:
+    """A serializable reference to a submitted run, for host-reentrant polling.
+
+    Detached container runs keep going after the submitting host process exits,
+    so a long batch can be submitted, the host can leave, and a *new* host
+    process can re-attach by reloading these handles from the store and polling.
+    The handle carries only plain data (no live objects), so it round-trips
+    through JSON in the `ArtifactStore`.
+
+    `ref` is the backend-specific locator (e.g. a container name); `extra` holds
+    any other reconnection data a backend needs (e.g. a remote daemon URL).
+    """
+
+    backend_kind: str
+    ref: str
+    run_dir: str
+    extra: Mapping[str, Any] = field(default_factory=dict)
+
+
 @runtime_checkable
 class ContainerBackend(Protocol):
     """Where a run executes. The backend owns the full lifecycle.
@@ -204,6 +224,15 @@ class ContainerBackend(Protocol):
     ships the spec to another machine. All consume the same `RunSpec` and the
     same bound `ArtifactStore`, so swapping the backend — not the code — is what
     moves a suite from local development to multi-machine deployment.
+
+    `run` is the blocking lifecycle (create → wait → collect → remove) used by
+    `run_suite_instance` / `run_dataset`. Backends whose work outlives the host
+    process (detached containers) may *also* implement the optional `submit` /
+    `poll` pair, enabling host-reentrant batches (`submit_dataset` /
+    `reconcile_dataset`): `submit` starts the run and returns a serializable
+    `RunHandle` without waiting; `poll` reports a `RunOutcome` once it finishes
+    (or `None` while still running). Backends that cannot outlive the host
+    (`LocalProcessBackend`) implement only `run`.
     """
 
     def run(
@@ -213,6 +242,10 @@ class ContainerBackend(Protocol):
         store: ArtifactStore,
         binding: ContainerBinding,
     ) -> RunOutcome: ...
+
+    # Optional (duck-typed; not all backends provide these):
+    #   def submit(self, spec, *, store, binding) -> RunHandle: ...
+    #   def poll(self, handle: RunHandle) -> RunOutcome | None: ...
 
 
 @runtime_checkable

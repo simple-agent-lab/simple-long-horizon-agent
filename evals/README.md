@@ -193,9 +193,50 @@ concurrent runs never collide and the viewer aggregates them into one batch.
 with a nonzero exit code is a result, not an error. Fan-out maps to backends:
 Docker / remote backends give each run its own container, so `concurrency > 1`
 is safe; a single `LocalProcessBackend(workspace=...)` shares one workspace, so
-keep it sequential. This is the same worker-pool shape distributed frameworks
-(slime, ROLL) use for rollout/reward workers — minus the RL-training machinery
-(GPU placement, weight sync) that eval does not need.
+keep it sequential (or pass a workspace factory,
+`workspace=lambda spec: base / spec.instance_id`, to fan out in-process safely).
+This is the same worker-pool shape distributed frameworks (slime, ROLL) use for
+rollout/reward workers — minus the RL-training machinery (GPU placement, weight
+sync) that eval does not need.
+
+### Long runs: submit now, reconcile later (host can leave)
+
+`run_dataset` blocks until every instance finishes — fine for short or local
+runs, but an agent can take minutes per instance, and you may not want to hold
+the host process open for hours. With a backend whose work outlives the host (a
+detached container — `LocalDockerBackend`), split it in two:
+
+```python
+from simple_agent_lab.evals import (
+    submit_dataset, reconcile_dataset, LocalDockerBackend, LocalDirStore,
+)
+
+# 1. submit — start every container, write a manifest, return immediately
+submit_dataset(
+    suite=MySuite(), instances=dataset,
+    backend=LocalDockerBackend(), store=LocalDirStore(run_root),
+    run_root=run_root, run_id="batch-1",
+    provider="openai", provider_env={...},
+)
+# ... the host may now exit / disconnect; the containers keep running ...
+
+# 2. reconcile — a *fresh* process polls the batch to completion
+report = reconcile_dataset(
+    suite=MySuite(), backend=LocalDockerBackend(), store=LocalDirStore(run_root),
+    run_root=run_root, run_id="batch-1", poll_interval_s=10,
+)
+report.summary()
+```
+
+How re-entry works: `submit_dataset` writes a manifest of serializable
+`RunHandle`s to `<run_id>/batch.json` in the store, and each container writes its
+own `result.json` as it finishes. `reconcile_dataset` reloads that manifest from
+the store (not from memory), polls each handle, and shapes `prediction.jsonl`
+from each `result.json` — so it produces the same artifacts as a blocking run and
+can be run from a different machine/process than the one that submitted. This is
+the eval-side of the "submit + poll" lifecycle distributed frameworks use; only
+detaching backends provide `submit`/`poll` (`LocalProcessBackend` cannot outlive
+the host and is run-only).
 
 ### Live trace + the trace viewer
 

@@ -317,6 +317,91 @@ class RunDatasetTest(unittest.TestCase):
         self.assertEqual(attempts["bad"], 3)
 
 
+class SubmitReconcileTest(unittest.TestCase):
+    """Host-reentrant batch: submit, drop all memory, reconcile from disk only."""
+
+    def test_submit_then_reconcile_from_fresh_process(self) -> None:
+        from simple_agent_lab.evals import reconcile_dataset, submit_dataset
+
+        instances = [{"instance_id": f"i-{n}", "problem": "p"} for n in range(4)]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+
+            # --- "first process": submit, then throw the backend/store away ---
+            submit_dataset(
+                suite=_DemoSuite(),
+                instances=instances,
+                backend=FakeBackend(on_run=_simulate("42")),
+                store=LocalDirStore(root),
+                run_root=root,
+                run_id="batch",
+                model_name="m",
+                provider="fake",
+            )
+            # The manifest is on disk; nothing else carried over.
+            self.assertTrue((root / "batch" / "batch.json").exists())
+
+            # --- "fresh process": new backend + new store, recover from disk ---
+            seen: list[str] = []
+            report = reconcile_dataset(
+                suite=_DemoSuite(),
+                backend=FakeBackend(),  # no on_run, no memory of the submit
+                store=LocalDirStore(root),
+                run_root=root,
+                run_id="batch",
+                poll_interval_s=0,
+                on_result=lambda r: seen.append(r.instance_id),
+            )
+
+            self.assertEqual(report.summary(), {"total": 4, "ok": 4, "failed": 0})
+            self.assertEqual(len(seen), 4)
+            # Predictions were shaped from each run's result.json during reconcile.
+            for r in report.results:
+                prediction = json.loads(r.artifacts.prediction_path.read_text())
+                self.assertEqual(prediction["answer"], "42")
+                self.assertEqual(prediction["model_name_or_path"], "m")
+
+    def test_reconcile_waits_on_pending_runs(self) -> None:
+        from simple_agent_lab.evals import reconcile_dataset, submit_dataset
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            submit_dataset(
+                suite=_DemoSuite(),
+                instances=[{"instance_id": "slow"}],
+                backend=FakeBackend(on_run=_simulate("ok")),
+                store=LocalDirStore(root),
+                run_root=root,
+                run_id="b",
+                provider="fake",
+            )
+            # poll() returns None twice before reporting done — exercises the loop.
+            report = reconcile_dataset(
+                suite=_DemoSuite(),
+                backend=FakeBackend(pending_polls=2),
+                store=LocalDirStore(root),
+                run_root=root,
+                run_id="b",
+                poll_interval_s=0,
+            )
+        self.assertEqual(report.summary(), {"total": 1, "ok": 1, "failed": 0})
+
+    def test_submit_requires_detaching_backend(self) -> None:
+        from simple_agent_lab.evals import LocalProcessBackend, submit_dataset
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            with self.assertRaises(TypeError):
+                submit_dataset(
+                    suite=_DemoSuite(),
+                    instances=[{"instance_id": "x"}],
+                    backend=LocalProcessBackend(),  # run-only, cannot outlive host
+                    store=LocalDirStore(root),
+                    run_root=root,
+                    run_id="b",
+                )
+
+
 class _FakeRemoteContainer:
     """Stand-in for a docker-py container: tar in (put), local FS, tar out (get)."""
 

@@ -188,6 +188,37 @@ in the image, and the wheel reachable (PyPI or wheelhouse) — documented with t
 full deployment checklist in
 [`docs/agent-native/multi-machine-deployment.md`](../agent-native/multi-machine-deployment.md).
 
+## Decision: concurrency and host-reentrant batches
+
+Two orchestration entry points sit above `run_suite_instance`, both keeping the
+"controller is a function, not a system" stance (no Ray / asyncio / queue):
+
+1. **`run_dataset` (blocking, concurrent).** Calls `run_suite_instance` once per
+   instance on a stdlib `ThreadPoolExecutor`. This is the throughput lever — a
+   slow dataset is parallelized by raising `concurrency` — and the suite /
+   backend / store protocols are unchanged; the host loop *is* the controller.
+   Threads (not async) because `run_suite_instance` is blocking (a Docker `wait`
+   or an in-process agent loop) and the project is synchronous.
+
+2. **`submit_dataset` + `reconcile_dataset` (host-reentrant).** Long runs (an
+   agent can take minutes per instance) should not pin the host for hours.
+   Detached containers already outlive the submitting process, so the backend
+   lifecycle is split into an optional `submit(spec) -> RunHandle` /
+   `poll(handle) -> RunOutcome | None` pair (the blocking `run` remains and is
+   what `run_dataset` uses). `submit_dataset` starts every container and persists
+   a manifest of serializable `RunHandle`s to `<run_id>/batch.json` in the store;
+   `reconcile_dataset` reloads that manifest **from the store, not memory**, so a
+   different process — even on a different machine — can poll the batch to
+   completion and shape predictions from each `result.json`. The store remaining
+   the single source of truth is what makes re-entry work.
+
+`submit`/`poll` are optional: only detaching backends (`LocalDockerBackend`,
+later `RemoteDockerBackend`) implement them; `LocalProcessBackend` is run-only
+because in-process work cannot outlive the host. This also yields the second,
+free benefit of submit/poll — reconciliation is one polling loop over a batch of
+handles rather than one OS thread blocked per run, so it scales to far more
+concurrent runs than the thread pool.
+
 ## Future direction: Kubernetes
 
 k8s is compatible without changing `run_dataset`, the suites, or the stores: it
