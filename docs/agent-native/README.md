@@ -116,6 +116,8 @@ Stop and collect more evidence before changing behavior when:
 | Trace printing or OpenAI Chat JSONL export | ADR 0013, ADR 0015, `src/simple_agent_lab/trace.py`, `tests/unit/test_openai_training.py` | Trace rendering and provider-shaped transcript export. |
 | Trajectories, spans, or training data | ADR 0008, ADR 0011, ADR 0015, `src/simple_agent_lab/trajectory/` (`spans.py`, `training.py`, `run_trace.py`), `evals/README.md`, `evals/swebench/README.md` | Three-layer trace: Event → Span → Training. |
 | Docker incremental trace / host viewer | `docs/agent-native/docker-live-trace.md`, `src/simple_agent_lab/trajectory/live.py` (`LiveTraceSession`), `scripts/run_live_trace_demo.py` | Bind-mount contract and reusable live export API. |
+| Containerized eval framework / suites | ADR 0017, `evals/README.md`, `src/simple_agent_lab/evals/` | Suite x ContainerBackend x ArtifactStore seams; `run_suite_instance` / `run_dataset` entry points. |
+| Multi-machine eval deployment / workers / k8s | `docs/agent-native/multi-machine-deployment.md`, ADR 0017 | Worker setup, image distribution, online/offline, store-by-topology; runtime injection. |
 | External architecture borrowing | `docs/reference-architectures/README.md` (local notes workspace, gitignored) plus your own reference note | Capture rationale locally; record durable commitments in an ADR. |
 | Agent-native doc maintenance | This loading map, `docs/agent-native/operating-rules.md` | Canonical routing and stop conditions. |
 

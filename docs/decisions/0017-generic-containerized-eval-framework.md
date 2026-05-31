@@ -168,6 +168,55 @@ a documented stub until a concrete cloud target lands.
   The new path is import-clean and unit-tested; the production run scripts keep
   calling the existing launcher until the follow-up PR flips them.
 
+## Decision: runtime injection, not modified images
+
+The agent code is **not built into the eval image**. The container's main process
+is `python -m simple_agent_lab.evals.in_container`, and the bootstrap script
+`pip install`s `simple-agent-lab` into an isolated `/tmp/agent-venv` at startup —
+never touching the image's own environment that the benchmark under test depends
+on. The agent sees `/testbed` exactly as the upstream image ships it.
+
+Rationale: agent code iterates fast; benchmark images are large and stable.
+Baking the agent into ~500 per-instance images would force a rebuild of all of
+them on every agent change, and would fork upstream images into private modified
+ones. Runtime injection decouples the two and lets multi-machine runs use
+upstream images unchanged. The cost is one `pip install` per container start,
+removed offline by a mounted wheelhouse (`--no-index --find-links`).
+
+This adds two container-side requirements for deployment — a Python interpreter
+in the image, and the wheel reachable (PyPI or wheelhouse) — documented with the
+full deployment checklist in
+[`docs/agent-native/multi-machine-deployment.md`](../agent-native/multi-machine-deployment.md).
+
+## Future direction: Kubernetes
+
+k8s is compatible without changing `run_dataset`, the suites, or the stores: it
+is **one more `ContainerBackend`**. A `K8sBackend.run(spec, store, binding)`
+translates `spec` into a Job manifest (`image=spec.plan.image`,
+`command=build_command(spec)`, env from `spec.provider_env` + `binding.env`),
+submits it, waits, and returns a `RunOutcome`. Everything above the backend seam
+is untouched.
+
+k8s does shift three of today's Docker defaults, each landing inside an existing
+seam rather than forcing an architecture change:
+
+1. **Artifact movement → store-push, not host-pull.** `put_archive`/`get_archive`
+   against a specific container is a docker-ism; pods are scheduled to arbitrary
+   nodes and may be evicted. So k8s pairs with `S3Store` (or an in-cluster HTTP
+   store) where the pod pushes artifacts out — exactly what the `ArtifactStore`
+   seam exists to swap. `S3Store` is already a stub.
+2. **Registry becomes mandatory** (pods schedule anywhere), where for plain
+   Docker it was an optimization.
+3. **Lifecycle leans to submit/poll.** A simple `K8sBackend` can watch-until-done
+   inside `run()` (unchanged contract, works, but does not exploit cluster
+   elasticity); a richer async `submit()/poll()` form would let the host go
+   offline between submit and result-fetch. Start with the former.
+
+No work is needed now; the only forward-looking commitment is keeping
+Docker-specific types out of the `ContainerBackend` protocol (today `run` takes a
+plain-data `RunSpec`, an `ArtifactStore`, and a plain-data `ContainerBinding` —
+all consumable by k8s).
+
 ## Alternatives Considered
 
 - **Keep extending the `is_pro` branches.** Rejected — the branch count grows
