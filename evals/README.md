@@ -144,6 +144,45 @@ The only real difference is the workspace: a container gets it from the image
 (`plan.workdir`); in-process you pass a local directory. Light suites and judges
 run in-process directly; heavy suites (SWE-bench) still need their image.
 
+### Live trace + the trace viewer
+
+The default runtimes — `LocalProcessBackend` or `LocalDockerBackend`, with
+`LocalDirStore` — are compatible with the Observatory trace viewer
+(`studio/trace-viewer`) and its live tail with no extra wiring, because the
+framework preserves the viewer's three on-disk expectations (ADR 0016):
+
+- **Layout** `<run_root>/<run_id>/<instance_id>/out/trajectory.jsonl` — the
+  viewer parses `run_id` / `instance_id` from exactly this shape.
+- **Filename** `trajectory.jsonl` (the `out/trajectory.jsonl` artifact key).
+- **Schema** `simple-agent-lab.trajectory.v3`, written by
+  `simple_agent_lab.trajectory.trace_record(...)`.
+
+Live updates work because the in-container runner re-`put`s the trajectory key
+on a cadence and `LocalDirStore` writes it atomically (`os.replace`), so a
+polling viewer never reads a torn file; `meta.in_progress` flips to `false` on
+the final write.
+
+To watch a run live, point `run_root` under `evals/out/` (the viewer's default
+scan dir) and start the viewer:
+
+```bash
+# run with run_root=Path("evals/out/mysuite"), then:
+bash runs/run_trace_viewer.sh            # scans evals/out/
+# or target a specific tree:
+bash runs/run_trace_viewer.sh --dir evals/out/mysuite
+```
+
+The demo and tests use a throwaway `tempfile` dir to avoid leaving artifacts; use
+`evals/out/<suite>/` when you actually want the viewer to see the run.
+
+**Caveat — non-local stores.** The viewer scans a *local* directory, so it tails
+runs only when artifacts land on the local filesystem: `LocalDirStore` (bind
+mount) and `LocalProcessBackend` write straight to `evals/out/`, so live tail
+works. With `HostHttpStore` / `S3Store` (remote daemon) the bytes live elsewhere;
+point the viewer at wherever the host store persists them, or inspect after
+`collect_outputs` brings them back. Local single-machine development — the common
+path — is fully live.
+
 ### Composing runs (agent-as-judge, panels) without a pipeline engine
 
 Because every run reads/writes through one `ArtifactStore`, a run is a node and
