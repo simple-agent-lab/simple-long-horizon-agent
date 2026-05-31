@@ -48,9 +48,22 @@ supplies only what is genuinely suite-specific. Everything else is provided by
 the framework and is parameterized over **two orthogonal seams**, each a
 `Protocol`:
 
-1. **`ContainerBackend`** — *where compute runs*. `LocalDockerBackend` (today's
-   docker-py behavior) ships first; `RemoteDockerBackend` / Kubernetes / managed
-   runners can be added later without touching suites or the runner.
+1. **`ContainerBackend`** — *where a run executes*. It receives a structured
+   `RunSpec` + the bound `ArtifactStore` and owns the whole lifecycle, so the
+   same call runs anywhere by swapping the backend:
+   - `LocalProcessBackend` — runs the agent loop in the current process, no
+     Docker. This is the local-development path: the *exact* suite container
+     half a container would run, but with a debugger and instant iteration.
+   - `LocalDockerBackend` — turns the `RunSpec` into a container command (the
+     in-wheel generic runner) and runs it on the local / `DOCKER_HOST` daemon.
+   - `RemoteDockerBackend` / Kubernetes / managed runners — later, unchanged
+     suites. Swapping the backend (not the code) is what moves a suite from
+     local development to multi-machine deployment.
+
+   The execution *environment* is the deliberate difference, not the code: a
+   container gets its workspace + toolchain from the image (`plan.workdir`);
+   in-process you supply a local workspace. Light suites and judges run
+   in-process directly; heavy suites (SWE-bench) still need their image.
 2. **`ArtifactStore`** — *where bytes live*. One keyed store carries inputs,
    the result, and the live trajectory, in both directions. There is
    deliberately **no separate transport or trace sink**: staging inputs,

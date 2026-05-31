@@ -170,13 +170,16 @@ def with_llm_retry(
 # --------------------------------------------------------------------------- #
 # Provider from env (generic OpenAI-compatible + fake)
 # --------------------------------------------------------------------------- #
-def provider_from_env(*, kind: str, api_kind: str = "openai-chat") -> Provider:
+def provider_from_env(
+    *, kind: str, api_kind: str = "openai-chat", env: Mapping[str, str] | None = None
+) -> Provider:
+    source = env if env is not None else os.environ
     if kind == "fake":
         return Provider(id="fake", api="fake", model="fake-model")
     if api_kind not in API_KIND_CHOICES:
         raise SystemExit(f"Unsupported API_KIND {api_kind!r}: {API_KIND_CHOICES}")
-    model = os.environ.get(OPENAI_MODEL_ENV, "").strip()
-    token = os.environ.get(OPENAI_AUTH_ENV, "").strip()
+    model = source.get(OPENAI_MODEL_ENV, "").strip()
+    token = source.get(OPENAI_AUTH_ENV, "").strip()
     missing = [
         n for n, v in ((OPENAI_MODEL_ENV, model), (OPENAI_AUTH_ENV, token)) if not v
     ]
@@ -186,7 +189,7 @@ def provider_from_env(*, kind: str, api_kind: str = "openai-chat") -> Provider:
         id=api_kind,
         api=cast(ApiKind, api_kind),
         model=model,
-        base_url=os.environ.get(OPENAI_BASE_URL_ENV) or None,
+        base_url=source.get(OPENAI_BASE_URL_ENV) or None,
         api_key_env=OPENAI_AUTH_ENV,
         default_max_tokens=(
             DEFAULT_RESPONSES_MAX_OUTPUT_TOKENS

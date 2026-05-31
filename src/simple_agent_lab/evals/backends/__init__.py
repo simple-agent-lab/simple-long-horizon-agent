@@ -1,14 +1,17 @@
-"""Container backends: where eval containers run.
+"""Container backends: where a run executes.
 
-`LocalDockerBackend` wraps docker-py (today's behavior). `FakeBackend` runs no
-container at all — it drives the lifecycle in-memory so the framework, suites,
-and transports can be unit-tested without Docker, mirroring the LLM layer's
-``fake`` adapter.
+- `LocalProcessBackend` — in-process, no Docker (local development).
+- `LocalDockerBackend` — a container on the local/DOCKER_HOST daemon.
+- `FakeBackend` — in-memory, for testing orchestration without an agent.
+
+All consume the same `RunSpec` + bound `ArtifactStore`, so swapping the backend
+moves a suite from local dev to multi-machine deployment with no code change.
 """
 
 from __future__ import annotations
 
-from .fake import FakeBackend
 from .docker_local import LocalDockerBackend
+from .fake import FakeBackend
+from .local_process import LocalProcessBackend
 
-__all__ = ["FakeBackend", "LocalDockerBackend"]
+__all__ = ["FakeBackend", "LocalDockerBackend", "LocalProcessBackend"]

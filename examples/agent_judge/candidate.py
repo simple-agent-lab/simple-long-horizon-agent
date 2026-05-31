@@ -13,7 +13,25 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from simple_agent_lab.evals.protocols import AgentSpec
+from simple_agent_lab.evals.protocols import AgentSpec, ContainerPlan
+
+
+class CandidateSuite:
+    """Host half — trivial, since in-process runs ignore image/workdir here."""
+
+    name = "candidate"
+    container_module = "examples.agent_judge.candidate"
+
+    def container_plan(self, instance: Mapping[str, Any]) -> ContainerPlan:
+        return ContainerPlan(image="(in-process)", workdir="(in-process)")
+
+    def sanitize_instance(self, instance: Mapping[str, Any]) -> dict[str, Any]:
+        return dict(instance)
+
+    def prediction_record(
+        self, instance: Mapping[str, Any], *, model_name: str, result: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        return {"instance_id": str(instance["instance_id"]), **result}
 
 
 def agent_spec() -> AgentSpec:

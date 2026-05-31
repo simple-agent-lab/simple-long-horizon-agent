@@ -20,9 +20,28 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from simple_agent_lab.evals.protocols import AgentSpec
+from simple_agent_lab.evals.protocols import AgentSpec, ContainerPlan
 
 VERDICT_FILE = "_judge_verdict.json"
+
+
+class JudgeSuite:
+    """Host half for the judge run. Passes the candidate context straight through."""
+
+    name = "judge"
+    container_module = "examples.agent_judge.judge"
+
+    def container_plan(self, instance: Mapping[str, Any]) -> ContainerPlan:
+        return ContainerPlan(image="(in-process)", workdir="(in-process)")
+
+    def sanitize_instance(self, instance: Mapping[str, Any]) -> dict[str, Any]:
+        # Keep candidate_result / candidate_steps — the judge needs them.
+        return dict(instance)
+
+    def prediction_record(
+        self, instance: Mapping[str, Any], *, model_name: str, result: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        return {"instance_id": str(instance["instance_id"]), **result}
 
 
 def agent_spec() -> AgentSpec:

@@ -60,23 +60,36 @@ genuinely suite-specific:
    `src/simple_agent_lab/evals/suites/<suite>/` (importing only stdlib + the
    installed runtime), so the in-container runner imports it with zero copying.
 
-Then drive one instance — the framework builds the container command itself:
+Then drive one instance. The same call runs locally or across machines — swap
+the backend, not the code:
 
 ```python
 from simple_agent_lab.evals import (
-    run_suite_instance, LocalDockerBackend, LocalDirStore,
+    run_suite_instance, LocalProcessBackend, LocalDockerBackend, LocalDirStore,
 )
+
+backend = LocalProcessBackend(workspace=ws)  # local dev: in-process, no Docker
+# backend = LocalDockerBackend()             # one machine, containerized
+# backend = RemoteDockerBackend(host="...")  # multi-machine (future)
 
 run_suite_instance(
     suite=MySuite(),
     instance=instance,
-    backend=LocalDockerBackend(),        # cloud later: a remote/k8s backend
+    backend=backend,
     store=LocalDirStore(run_root),       # remote daemon: HostHttpStore (no S3) / S3Store
     run_root=Path("evals/out/mysuite"),
     run_id="run-1",
     provider_env={"OPENAI_MODEL": "...", "OPENAI_AUTH_TOKEN": "..."},
 )
 ```
+
+`LocalProcessBackend` runs the *exact* suite container half a container would
+run, just in this process — fast iteration and a debugger during development —
+then deploy containerized by swapping the backend. The execution environment is
+the only real difference: a container's workspace + toolchain come from the
+image; in-process you pass a local `workspace`. See
+`examples/agent_judge/demo.py` for a candidate → agent-judge pipeline built this
+way (plain Python over the shared store, no pipeline abstraction).
 
 Inputs, the result, and the live trajectory all flow through the one `store`:
 the host writes `input/instance.json`, the container writes `out/result.json`

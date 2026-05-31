@@ -1,21 +1,21 @@
-"""Agent-as-judge demo on the *current* framework — no new abstraction.
+"""Agent-as-judge demo on the *current* framework — same code, swappable backend.
 
 A "pipeline" here is just plain Python over the shared `ArtifactStore`:
 
     candidate run  --put-->  ArtifactStore  --get-->  judge run
 
-Both runs are ordinary agent runs through the generic in-container runner
-(`run_in_container`). This demo calls it in-process (no Docker, fake provider) so
-it runs anywhere; under Docker you would wrap each call in
-`run_suite_instance(suite=..., backend=LocalDockerBackend(), store=...)` and the
-suite's container half (these `candidate` / `judge` modules) would run inside the
-image unchanged.
+Both are ordinary `run_suite_instance(...)` calls. This demo uses
+`LocalProcessBackend` (in-process, no Docker, fake provider) so it runs anywhere
+and iterates fast. To run the *same* suites containerized — locally or across
+machines — swap one argument:
+
+    backend = LocalProcessBackend(workspace=ws)   # local development
+    backend = LocalDockerBackend()                # one machine, in a container
+    backend = RemoteDockerBackend(host="...")     # multi-machine (future)
+
+Nothing else changes: the candidate/judge container halves run identically.
 
 Run (from the repo root):  uv run python -m examples.agent_judge.demo
-
-Running as a module (`-m`) puts the repo root on ``sys.path`` so the dotted
-container-module paths resolve, and ``uv run`` provides the installed
-``simple_agent_lab`` — so no ``sys.path`` juggling is needed.
 """
 
 from __future__ import annotations
@@ -24,29 +24,15 @@ import json
 import tempfile
 from pathlib import Path
 
-from simple_agent_lab.evals import INSTANCE_KEY, TRACE_KEY, LocalDirStore
-from simple_agent_lab.evals.in_container import run_in_container
-from simple_agent_lab.llm import Provider
-
-FAKE = Provider(id="fake", api="fake", model="fake-model")
-
-
-def _run(*, module: str, instance: dict, store, workdir: Path, suite: str) -> dict:
-    """One agent run: seed the instance, drive the loop, return the product."""
-
-    store.put(INSTANCE_KEY, (json.dumps(instance) + "\n").encode("utf-8"))
-    result, _state = run_in_container(
-        instance=instance,
-        container_module=module,
-        provider=FAKE,
-        workdir=workdir,
-        max_turns=4,
-        store=store,
-        trace_id=f"{suite}.{instance['instance_id']}",
-        producer=f"suite:{suite}",
-        suite_name=suite,
-    )
-    return result
+from examples.agent_judge.candidate import CandidateSuite
+from examples.agent_judge.judge import JudgeSuite
+from simple_agent_lab.evals import (
+    RESULT_KEY,
+    TRACE_KEY,
+    LocalDirStore,
+    LocalProcessBackend,
+    run_suite_instance,
+)
 
 
 def main() -> None:
@@ -60,16 +46,23 @@ def main() -> None:
         (workspace / "app.py").write_text("print('hi')\n", encoding="utf-8")
         (workspace / "README.md").write_text("# demo\n", encoding="utf-8")
 
+        # In-process backend: runs the agent loop here, no Docker. The workspace
+        # stands in for what a container image would provide.
+        backend = LocalProcessBackend(workspace=workspace)
+
         # ---- 1. candidate run -------------------------------------------------
         task = {"instance_id": "demo-1", "problem": "Summarize the workspace."}
-        cand_store = store.bind(root / "cand")
-        candidate = _run(
-            module="examples.agent_judge.candidate",
+        cand = run_suite_instance(
+            suite=CandidateSuite(),
             instance=task,
-            store=cand_store,
-            workdir=workspace,
-            suite="candidate",
+            backend=backend,
+            store=store,
+            run_root=root,
+            run_id="cand",
+            provider="fake",
         )
+        cand_store = store.bind(cand.run_dir)
+        candidate = json.loads(cand_store.get(RESULT_KEY).decode("utf-8"))
         cand_trace = json.loads(cand_store.get(TRACE_KEY).decode("utf-8"))
 
         # ---- 2. host glue (the "pipeline"): candidate artifacts -> judge input
@@ -81,22 +74,23 @@ def main() -> None:
         }
 
         # ---- 3. judge run (agent-as-judge over the same workspace) ------------
-        judge_store = store.bind(root / "judge")
-        judged = _run(
-            module="examples.agent_judge.judge",
+        judged_run = run_suite_instance(
+            suite=JudgeSuite(),
             instance=judge_instance,
-            store=judge_store,
-            workdir=workspace,
-            suite="judge",
+            backend=backend,
+            store=store,
+            run_root=root,
+            run_id="judge",
+            provider="fake",
+        )
+        judged = json.loads(
+            store.bind(judged_run.run_dir).get(RESULT_KEY).decode("utf-8")
         )
 
         print("candidate result :", json.dumps(candidate, ensure_ascii=False))
         print(
             "judgment :", json.dumps(judged["judgment"], ensure_ascii=False, indent=2)
         )
-        # Both runs' artifacts (result.json + trajectory.jsonl) sit under the one
-        # store, keyed by run — ready for a third step (aggregation, a panel of
-        # judges, training-example export) with no extra framework.
         print("\nstore tree:")
         for p in sorted(root.rglob("*.json*")):
             print("  ", p.relative_to(root))

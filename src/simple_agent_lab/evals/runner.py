@@ -1,17 +1,20 @@
-"""Generic orchestration for one containerized eval instance.
+"""Generic orchestration for one eval instance.
 
 `run_suite_instance(...)` wires a `Suite` + `ContainerBackend` + `ArtifactStore`
-together and drives the lifecycle. It has no `if pro:` branches and makes no
-Docker calls of its own — those live in the suite (as data via `ContainerPlan`)
-and the backend respectively. Swapping local Docker for a cloud backend, or a
-bind mount for an HTTP/object store, changes the arguments here, not the body.
+together: it resolves the launch plan, seeds the instance into the store, hands a
+`RunSpec` to the backend, and shapes the prediction from the result. It has no
+`if pro:` branches and makes no Docker calls of its own — the suite supplies the
+plan as data, and the backend owns the run.
 
-The framework builds the container command itself (bootstrap + the generic
-in-container runner invoked as ``python -m simple_agent_lab.evals.in_container``),
-so callers never hand-assemble argv or copy a runner in. The in-container CLI
-contract stays internal.
+The *same* call runs locally or across machines by swapping the backend:
+`LocalProcessBackend` (in-process, no Docker — local dev) /
+`LocalDockerBackend` (one machine) / a remote backend (multi-machine). The
+suite's container half runs identically either way, because every backend reads
+the instance and writes the result/trajectory through the one bound store.
 
-The run-directory convention (ADR 0016) is preserved: one
+`build_command` is the in-container CLI contract (bootstrap + `python -m
+simple_agent_lab.evals.in_container`); only container backends use it. The
+run-directory convention (ADR 0016) is preserved: one
 ``<run_root>/<run_id>/<instance_id>/`` tree with ``input/instance.json`` and
 ``out/{trajectory,prediction}.jsonl``.
 """
@@ -31,8 +34,8 @@ from .protocols import (
     TRACE_KEY,
     ArtifactStore,
     ContainerBackend,
-    ContainerPlan,
     RunArtifacts,
+    RunSpec,
     Suite,
 )
 
@@ -77,41 +80,37 @@ def container_name(suite_name: str, instance_id: str, run_id: str) -> str:
     return f"{_safe_part(suite_name)}.{_safe_part(instance_id)}.{_safe_part(run_id)}"
 
 
-def build_command(
-    *,
-    suite: Suite,
-    plan: ContainerPlan,
-    instance_id: str,
-    max_turns: int,
-    provider: str,
-    api_kind: str,
-    install: bool,
-    wheelhouse_mount: str | None,
-) -> tuple[str, ...]:
-    """The container's main process: bootstrap + the generic in-container runner."""
+def build_command(spec: RunSpec) -> tuple[str, ...]:
+    """The container's main process: bootstrap + the generic in-container runner.
+
+    Only container backends call this; `LocalProcessBackend` runs in-process and
+    never builds a command.
+    """
 
     runner_argv = (
         "-m",
         GENERIC_RUNNER_MODULE,
         "--container-module",
-        suite.container_module,
+        spec.container_module,
         "--suite-name",
-        suite.name,
+        spec.suite_name,
         "--instance-id",
-        instance_id,
+        spec.instance_id,
         "--workdir",
-        plan.workdir,
+        spec.plan.workdir,
         "--max-turns",
-        str(max_turns),
+        str(spec.max_turns),
         "--provider",
-        provider,
+        spec.provider,
         "--api-kind",
-        api_kind,
+        spec.api_kind,
     )
     script = bootstrap_script(
-        runner_argv=runner_argv, install=install, wheelhouse_mount=wheelhouse_mount
+        runner_argv=runner_argv,
+        install=spec.install,
+        wheelhouse_mount=spec.wheelhouse_mount,
     )
-    return tuple(plan.shell) + (script,)
+    return tuple(spec.plan.shell) + (script,)
 
 
 def run_suite_instance(
@@ -129,18 +128,16 @@ def run_suite_instance(
     provider_env: Mapping[str, str] | None = None,
     install: bool = True,
     wheelhouse_mount: str | None = None,
-    command_override: tuple[str, ...] | None = None,
     name: str | None = None,
-    keep_container: bool = False,
 ) -> RunArtifacts:
     """Run one instance and return where its artifacts landed.
 
     The sanitized instance is written through `store` under ``input/``; the
-    container reads it, runs the agent, and writes ``out/result.json`` +
-    ``out/trajectory.jsonl`` back through the same store. After the run the
-    scorer-facing ``out/prediction.jsonl`` is shaped from the result via
-    `suite.prediction_record`, so prediction formatting stays host-side with the
-    rest of the suite config.
+    backend runs the suite's container half (reading that instance, writing
+    ``out/result.json`` + ``out/trajectory.jsonl`` through the same store). After
+    the run the scorer-facing ``out/prediction.jsonl`` is shaped from the result
+    via `suite.prediction_record`, so prediction formatting stays host-side with
+    the rest of the suite config.
     """
 
     instance_id = str(instance["instance_id"])
@@ -161,34 +158,21 @@ def run_suite_instance(
     )
     binding = bound.container_binding()
 
-    command = command_override or build_command(
-        suite=suite,
-        plan=plan,
+    spec = RunSpec(
+        suite_name=suite.name,
+        container_module=suite.container_module,
         instance_id=instance_id,
+        plan=plan,
         max_turns=max_turns,
         provider=provider,
         api_kind=api_kind,
+        provider_env=dict(provider_env or {}),
         install=install,
         wheelhouse_mount=wheelhouse_mount,
+        run_name=name or container_name(suite.name, instance_id, run_id),
     )
-    env = {**dict(provider_env or {}), **binding.env}
-
-    handle = backend.create(
-        name=name or container_name(suite.name, instance_id, run_id),
-        plan=plan,
-        command=command,
-        env=env,
-        mounts=binding.mounts,
-        add_hosts=binding.add_hosts,
-    )
-    try:
-        handle.start()
-        status_code = handle.wait()
-        logs = handle.logs()
-        bound.collect_outputs()
-    finally:
-        if not keep_container:
-            handle.remove()
+    outcome = backend.run(spec, store=bound, binding=binding)
+    bound.collect_outputs()
 
     _shape_prediction(
         suite=suite,
@@ -203,8 +187,8 @@ def run_suite_instance(
         run_dir=paths.root,
         trajectory_path=paths.trajectory_jsonl,
         prediction_path=paths.prediction_jsonl,
-        status_code=status_code,
-        logs=logs,
+        status_code=outcome.status_code,
+        logs=outcome.logs,
     )
 
 

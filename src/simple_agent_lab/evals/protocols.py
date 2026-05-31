@@ -163,35 +163,56 @@ class ContainerTask(Protocol):
         ...
 
 
-@runtime_checkable
-class ContainerHandle(Protocol):
-    """One created-but-not-removed container, abstracted over the backend."""
+@dataclass(frozen=True)
+class RunSpec:
+    """Structured, backend-agnostic description of one run.
 
-    def start(self) -> None: ...
+    The same spec drives every backend: `LocalDockerBackend` turns it into a
+    container command, `LocalProcessBackend` runs it in the current process, a
+    remote backend ships it elsewhere. The backend reads the instance and writes
+    the result/trajectory through the bound `ArtifactStore` it is handed, so the
+    suite's container half runs identically in or out of a container.
+    """
 
-    def wait(self) -> int:
-        """Block until the main process exits; return its status code."""
-        ...
+    suite_name: str
+    container_module: str
+    instance_id: str
+    plan: ContainerPlan
+    max_turns: int
+    provider: str  # "openai" | "fake"
+    api_kind: str
+    provider_env: Mapping[str, str] = field(default_factory=dict)
+    install: bool = True
+    wheelhouse_mount: str | None = None
+    run_name: str = ""
 
-    def logs(self) -> str: ...
 
-    def remove(self) -> None: ...
+@dataclass(frozen=True)
+class RunOutcome:
+    """What a backend reports back after one run."""
+
+    status_code: int
+    logs: str = ""
 
 
 @runtime_checkable
 class ContainerBackend(Protocol):
-    """Where containers run. `LocalDockerBackend` is the only implementation today."""
+    """Where a run executes. The backend owns the full lifecycle.
 
-    def create(
+    `LocalDockerBackend` launches a container; `LocalProcessBackend` runs the
+    agent loop in the current process (local dev, no Docker); a remote backend
+    ships the spec to another machine. All consume the same `RunSpec` and the
+    same bound `ArtifactStore`, so swapping the backend — not the code — is what
+    moves a suite from local development to multi-machine deployment.
+    """
+
+    def run(
         self,
+        spec: RunSpec,
         *,
-        name: str,
-        plan: ContainerPlan,
-        command: tuple[str, ...],
-        env: Mapping[str, str],
-        mounts: Mapping[str, Mapping[str, str]],
-        add_hosts: Mapping[str, str] | None = None,
-    ) -> ContainerHandle: ...
+        store: ArtifactStore,
+        binding: ContainerBinding,
+    ) -> RunOutcome: ...
 
 
 @runtime_checkable
