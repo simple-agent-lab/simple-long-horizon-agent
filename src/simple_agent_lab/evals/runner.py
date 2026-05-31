@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from .protocols import (
+    RESULT_FILE,
     ArtifactTransport,
     ContainerBackend,
     RunArtifacts,
@@ -83,6 +84,25 @@ def container_name(suite_name: str, instance_id: str, run_id: str) -> str:
     return f"{_safe_part(suite_name)}.{_safe_part(instance_id)}.{_safe_part(run_id)}"
 
 
+def _shape_prediction(
+    *,
+    suite: Suite,
+    instance: Mapping[str, Any],
+    model_name: str,
+    paths: RunPaths,
+) -> None:
+    """Write ``prediction.jsonl`` from the container's ``result.json``, if present."""
+
+    result_path = paths.output_dir / RESULT_FILE
+    if not result_path.exists():
+        return
+    result = json.loads(result_path.read_text(encoding="utf-8") or "{}")
+    prediction = suite.prediction_record(instance, model_name=model_name, result=result)
+    paths.prediction_jsonl.write_text(
+        json.dumps(prediction, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+
+
 def run_suite_instance(
     *,
     suite: Suite,
@@ -92,6 +112,7 @@ def run_suite_instance(
     command: tuple[str, ...],
     run_root: Path,
     run_id: str,
+    model_name: str = "simple-agent-lab",
     env: Mapping[str, str] | None = None,
     extra_inputs: tuple[StagedFile, ...] = (),
     name: str | None = None,
@@ -104,6 +125,11 @@ def run_suite_instance(
     are out-of-tree files the transport must place in the container (the runner
     module, support files, an optional uv binary); the run directory itself
     reaches the container via the transport's mounts.
+
+    After the run, if the container wrote ``out/result.json`` (the generic
+    in-container runner does), the scorer-facing ``out/prediction.jsonl`` is
+    shaped from it via `suite.prediction_record`, so prediction formatting
+    stays on the host with the rest of the suite config.
     """
 
     instance_id = str(instance["instance_id"])
@@ -128,6 +154,10 @@ def run_suite_instance(
     finally:
         if not keep_container:
             handle.remove()
+
+    _shape_prediction(
+        suite=suite, instance=instance, model_name=model_name, paths=paths
+    )
 
     return RunArtifacts(
         instance_id=instance_id,

@@ -26,6 +26,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
+# The container half writes its raw `extract_result` product here, under the
+# run's ``out/``; the host shapes ``prediction.jsonl`` from it. One filename
+# so backends/transports and the in-container runner agree without coupling.
+RESULT_FILE = "result.json"
+
 
 @dataclass(frozen=True)
 class ContainerPlan:
@@ -78,7 +83,8 @@ class Suite(Protocol):
     `container_module` is the dotted import path of the suite's container half
     (a module exposing `build_task(instance, *, workdir)` and
     `extract_result(workspace, instance)`); the generic in-container runner
-    imports it so the agent loop, retry, and trace push stay suite-agnostic.
+    (`simple_agent_lab.evals.in_container`) imports it so the agent loop,
+    retry, and trace push stay suite-agnostic.
     """
 
     name: str
@@ -98,6 +104,40 @@ class Suite(Protocol):
         result: Mapping[str, Any],
     ) -> dict[str, Any]:
         """Shape the suite's scorer-facing prediction row from `extract_result`."""
+        ...
+
+
+@dataclass(frozen=True)
+class AgentSpec:
+    """How the in-container runner should build the agent for a suite.
+
+    A container module may expose ``agent_spec()`` returning this; otherwise
+    the runner uses the defaults (a plain bash agent with no system prompt).
+    Only the prompt/role/flavor are suite-specific — the loop, retry, and
+    trace push are generic.
+    """
+
+    name: str = "agent"
+    role: str = ""
+    system_prompt: str = ""
+    flavor: str = "bash"  # "bash" | "bash_task"
+
+
+@runtime_checkable
+class ContainerTask(Protocol):
+    """The container half a suite module supplies (runs inside the image).
+
+    Referenced by `Suite.container_module` and imported by the generic
+    in-container runner. ``agent_spec`` is optional; ``build_task`` and
+    ``extract_result`` are the two functions a new suite must write.
+    """
+
+    def build_task(self, instance: Mapping[str, Any], *, workdir: str) -> str: ...
+
+    def extract_result(
+        self, workspace: Any, instance: Mapping[str, Any]
+    ) -> Mapping[str, Any]:
+        """Return the run's raw product (e.g. ``{"model_patch": diff}``)."""
         ...
 
 

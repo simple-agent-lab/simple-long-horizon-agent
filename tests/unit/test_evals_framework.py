@@ -62,19 +62,14 @@ class EvalFrameworkSmokeTest(unittest.TestCase):
             out_dir = run_root / "run-x" / "demo-1" / "out"
 
             def fake_container(handle: FakeContainerHandle) -> None:
-                # Stand in for the in-container runner writing through the bind
-                # mount, including a live trace push via the file sink.
+                # Stand in for the generic in-container runner: push a live
+                # trace record via the file sink and write the raw result. The
+                # host (run_suite_instance) shapes prediction.jsonl from it.
                 sink = FileTraceSink(out_dir / "trajectory.jsonl")
                 sink.emit({"schema": "v3", "trace_id": "demo.demo-1"})
                 sink.close()
-                (out_dir / "prediction.jsonl").write_text(
-                    json.dumps(
-                        suite.prediction_record(
-                            instance, model_name="m", result={"answer": "42"}
-                        )
-                    )
-                    + "\n",
-                    encoding="utf-8",
+                (out_dir / "result.json").write_text(
+                    json.dumps({"answer": "42"}) + "\n", encoding="utf-8"
                 )
 
             backend = FakeBackend(on_start=fake_container, log_text="ok\n")
@@ -91,6 +86,7 @@ class EvalFrameworkSmokeTest(unittest.TestCase):
                 command=command,
                 run_root=run_root,
                 run_id="run-x",
+                model_name="m",
                 env={"OPENAI_MODEL": "m"},
                 extra_inputs=(
                     StagedFile(data=b"print()", container_path="/agent/run_demo.py"),
@@ -114,10 +110,12 @@ class EvalFrameworkSmokeTest(unittest.TestCase):
             self.assertNotIn("gold", written)
             self.assertEqual(written["problem"], "p")
 
-            # Outputs landed where RunArtifacts says.
+            # Live trace landed, and the host shaped prediction.jsonl from the
+            # container's result.json via suite.prediction_record.
             self.assertTrue(artifacts.trajectory_path.exists())
             prediction = json.loads(artifacts.prediction_path.read_text())
             self.assertEqual(prediction["answer"], "42")
+            self.assertEqual(prediction["model_name_or_path"], "m")
 
     def test_bootstrap_script_is_suite_agnostic(self) -> None:
         script = bootstrap_script(
@@ -146,6 +144,74 @@ class SwebenchSuiteDriverTest(unittest.TestCase):
         self.assertEqual(plan.shell, ("/bin/sh", "-lc"))
         self.assertEqual(plan.entrypoint, "")
         self.assertIn("sweap-images", plan.image)
+
+
+class GenericInContainerRunnerTest(unittest.TestCase):
+    """The ideal state: a suite is driven by the generic runner, no Docker.
+
+    Uses the fake LLM provider and a hermetic temp git repo so the SWE-bench
+    container half (`build_task` + `prepare` + `extract_result`) runs through
+    `run_in_container` exactly as it would inside the image.
+    """
+
+    def test_swebench_container_half_through_generic_runner(self) -> None:
+        import subprocess
+
+        from simple_agent_lab.evals import FileTraceSink
+        from simple_agent_lab.evals.in_container import run_in_container
+        from simple_agent_lab.llm import Provider
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "testbed"
+            repo.mkdir()
+
+            def git(*args: str) -> None:
+                subprocess.run(
+                    ["git", *args], cwd=repo, check=True, capture_output=True
+                )
+
+            git("init")
+            git("config", "user.email", "t@example.invalid")
+            git("config", "user.name", "T")
+            git("config", "commit.gpgsign", "false")
+            (repo / "app.py").write_text("x = 1\n", encoding="utf-8")
+            git("add", "-A")
+            git("commit", "-m", "base")
+            base = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+                encoding="utf-8",
+            ).stdout.strip()
+
+            instance = {
+                "instance_id": "demo__repo-1",
+                "base_commit": base,
+                "problem_statement": "Make it better.",
+                "language": "python",
+            }
+            traces = Path(tmp) / "trajectory.jsonl"
+            result, state = run_in_container(
+                instance=instance,
+                container_module="evals.swebench.container",
+                provider=Provider(id="fake", api="fake", model="fake-model"),
+                workdir=repo,
+                max_turns=3,
+                trace_sink=FileTraceSink(traces),
+                trace_id="swebench.demo__repo-1",
+                producer="suite:swebench",
+                suite_name="swebench",
+            )
+
+            # The suite's extract_result product came back, the loop ran, and
+            # the trace was pushed to the sink — all via the generic runner.
+            self.assertIn("model_patch", result)
+            self.assertEqual(state.data["result"], result)
+            self.assertTrue(traces.exists())
+            record = json.loads(traces.read_text())
+            self.assertEqual(record["meta"]["suite"], "swebench")
+            self.assertFalse(record["meta"]["in_progress"])
 
 
 if __name__ == "__main__":

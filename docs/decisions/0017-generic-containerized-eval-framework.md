@@ -84,18 +84,30 @@ container) while keeping the agent loop generic.
 
 ### Scope of this change
 
-This ADR lands the **design plus a skeleton**: the protocols, the
-`LocalDockerBackend`, `BindMountTransport`, `FileTraceSink`, an in-memory
-`FakeBackend` for tests/teaching, and `run_suite_instance`. SWE-bench is
-expressed against the new `Suite` protocol (`evals/swebench/suite.py`) as the
-driver case, **delegating to the existing, battle-tested helpers** so behavior
-is unchanged and `evaluate_predictions.py` (scoring) is untouched.
+This ADR lands the framework end to end as the **integration contract**:
 
-The full cutover — deleting the `is_swebench_pro` branches from
-`containerized_agent.py`, moving the bootstrap shell wholesale, and pushing live
-trace from the in-container runner through a `TraceSink` — is the **next** step,
-guarded by the existing SWE-bench unit-smoke tests plus a new fake-backend
-end-to-end test.
+- the protocols, `LocalDockerBackend`, `BindMountTransport`, `FileTraceSink`,
+  an in-memory `FakeBackend`, and `run_suite_instance` (host side);
+- the **generic in-container runner** (`simple_agent_lab.evals.in_container`):
+  it imports a suite's `container_module`, builds the agent, drives the loop
+  with retry, pushes the trajectory to a `TraceSink`, and writes the raw
+  `extract_result` product to ``result.json``; the host shapes
+  ``prediction.jsonl`` from it via `prediction_record`.
+
+SWE-bench is the reference suite: `evals/swebench/suite.py` (host half) plus
+`evals/swebench/container.py` (the two functions + optional `prepare` /
+`agent_spec`). A new fake-backend test composes the seams without Docker, and a
+second test drives the SWE-bench container half through the generic runner with
+the fake provider on a hermetic git repo — so the "one Suite + two functions"
+shape is exercised, not just asserted.
+
+What remains is **retiring the legacy launcher**: pointing the production run
+scripts at `run_suite_instance` + the generic runner and deleting the
+`is_swebench_pro` branches from `containerized_agent.py` / `in_container_runner.py`
+(today the container half re-uses their task text and patch helpers as the
+single source of truth). `evaluate_predictions.py` (scoring) stays untouched.
+`CopyOutTransport` and `HttpTraceSink` remain documented stubs until a concrete
+cloud backend lands.
 
 ## Consequences
 

@@ -7,9 +7,10 @@ This is the *host half*: it maps SWE-bench Verified and SWE-bench Pro onto one
 helpers in `containerized_agent` so behavior is unchanged and this skeleton can
 land without touching the production launcher or `evaluate_predictions.py`.
 
-The *container half* (``build_task`` / ``extract_result``) is referenced by
-`container_module` and continues to live in `in_container_runner`; the cutover
-that points a generic in-container runner at it is the next step.
+The *container half* (``build_task`` / ``prepare`` / ``extract_result``) lives
+in `container.py` and is driven by the generic in-container runner
+(`simple_agent_lab.evals.in_container`); this suite is the reference for the
+"one Suite + two functions" integration shape (ADR 0017).
 """
 
 from __future__ import annotations
@@ -27,8 +28,9 @@ class SwebenchSuite:
     """`Suite` for the SWE-bench family (Verified + Pro)."""
 
     name = "swebench"
-    # Container half: build_task(instance, *, workdir) + extract_result(...).
-    container_module = "evals.swebench.in_container_runner"
+    # Container half: build_task / prepare / extract_result (see container.py),
+    # driven by the generic runner `simple_agent_lab.evals.in_container`.
+    container_module = "evals.swebench.container"
 
     def __init__(
         self,

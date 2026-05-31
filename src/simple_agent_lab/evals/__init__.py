@@ -20,10 +20,13 @@ from __future__ import annotations
 from .backends import FakeBackend, LocalDockerBackend
 from .bootstrap import bootstrap_script
 from .protocols import (
+    RESULT_FILE,
+    AgentSpec,
     ArtifactTransport,
     ContainerBackend,
     ContainerHandle,
     ContainerPlan,
+    ContainerTask,
     RunArtifacts,
     RunRequest,
     StagedFile,
@@ -35,11 +38,14 @@ from .trace_sink import FileTraceSink, HttpTraceSink
 from .transport import BindMountTransport, CopyOutTransport
 
 __all__ = [
+    "RESULT_FILE",
+    "AgentSpec",
     "ArtifactTransport",
     "BindMountTransport",
     "ContainerBackend",
     "ContainerHandle",
     "ContainerPlan",
+    "ContainerTask",
     "CopyOutTransport",
     "FakeBackend",
     "FileTraceSink",
@@ -56,3 +62,7 @@ __all__ = [
     "prepare_run_directory",
     "run_suite_instance",
 ]
+
+# `in_container` (the generic runner) pulls in the agent runtime; import it
+# lazily via ``simple_agent_lab.evals.in_container`` so host-only callers
+# (backends, transports, run_suite_instance) stay lightweight.

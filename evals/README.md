@@ -52,6 +52,11 @@ genuinely suite-specific:
 
 2. A **container half** — a module exposing `build_task(instance, *, workdir)`
    and `extract_result(workspace, instance)` (the "product", e.g. a `git diff`).
+   Optional: `prepare(workspace, instance)` for pre-run setup (its return value
+   is threaded back into `extract_result` as `context`) and `agent_spec()` for
+   the prompt/role and bash-vs-bash_task flavor. The generic in-container runner
+   (`simple_agent_lab.evals.in_container`) imports this module and owns the
+   agent loop, retry, and trace push — so a suite never re-implements them.
 
 Then drive one instance:
 
@@ -71,9 +76,14 @@ run_suite_instance(
 )
 ```
 
+The container writes its raw product to ``out/result.json``; the host shapes
+``out/prediction.jsonl`` from it via `prediction_record`, so prediction
+formatting stays on the host with the rest of the suite config.
+
 The same suite runs against a cloud daemon by swapping the `backend` /
 `transport` / trace `TraceSink` — the seams are `Protocol`s, so the suite and
-the runner do not change. `evals/swebench/suite.py` is the reference `Suite`;
+the runner do not change. `evals/swebench/{suite.py,container.py}` is the
+reference: `suite.py` is the host half, `container.py` is the two functions.
 `FakeBackend` runs the whole flow without Docker for tests. Still follow the
 output-directory checklist in [`out/README.md`](out/README.md).
 
