@@ -15,18 +15,50 @@ still need their image; light suites and judges run in-process directly.
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 from ..protocols import ArtifactStore, ContainerBinding, RunOutcome, RunSpec
 
 
 class LocalProcessBackend:
-    """Execute a `RunSpec` in this process by calling the generic runner directly."""
+    """Execute a `RunSpec` in this process by calling the generic runner directly.
 
-    def __init__(self, *, workspace: str | Path | None = None) -> None:
-        # The agent's workspace. In a container this comes from the image; in
-        # process the caller provides it (default: a throwaway temp dir).
-        self.workspace = Path(workspace) if workspace is not None else None
+    Concurrency note: a single fixed `workspace` is shared by every run, so it is
+    only safe with `concurrency=1`. To fan out in-process safely, pass either
+    nothing (each run gets its own throwaway temp dir) or a *factory*
+    ``workspace=lambda spec: base / spec.instance_id`` that hands each run its own
+    directory. The factory form is also how you give each run pre-seeded content
+    without runs colliding.
+    """
+
+    def __init__(
+        self,
+        *,
+        workspace: str | Path | Callable[[RunSpec], Path] | None = None,
+    ) -> None:
+        # In a container the workspace comes from the image; in process the caller
+        # provides it. Split into two attributes so the resolve path is a clean
+        # callable-vs-fixed branch:
+        #   factory  -> per-run dir derived from the spec (concurrency-safe)
+        #   fixed    -> one shared dir (concurrency=1 only)
+        #   neither  -> a per-run temp dir (concurrency-safe)
+        self._workspace_fixed: Path | None = None
+        self._workspace_factory: Callable[[RunSpec], Path] | None = None
+        if isinstance(workspace, (str, Path)):
+            self._workspace_fixed = Path(workspace)
+        elif workspace is not None:
+            self._workspace_factory = workspace
+
+    def _resolve_workspace(self, spec: RunSpec) -> Path:
+        if self._workspace_factory is not None:
+            workdir = Path(self._workspace_factory(spec))
+        elif self._workspace_fixed is not None:
+            workdir = self._workspace_fixed
+        else:
+            workdir = Path(tempfile.mkdtemp(prefix="sal-workspace-"))
+        workdir.mkdir(parents=True, exist_ok=True)
+        return workdir
 
     def run(
         self,
@@ -54,7 +86,7 @@ class LocalProcessBackend:
         provider = provider_from_env(
             kind=spec.provider, api_kind=spec.api_kind, env=spec.provider_env
         )
-        workdir = self.workspace or Path(tempfile.mkdtemp(prefix="sal-workspace-"))
+        workdir = self._resolve_workspace(spec)
         request_extra = (
             request_extra_from_env(env=spec.provider_env)
             if spec.provider == "openai"

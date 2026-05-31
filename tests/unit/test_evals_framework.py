@@ -216,6 +216,41 @@ class LocalProcessBackendTest(unittest.TestCase):
             prediction = json.loads(artifacts.prediction_path.read_text())
             self.assertIn("model_patch", prediction)
 
+    def test_workspace_factory_isolates_concurrent_runs(self) -> None:
+        """A workspace factory gives each run its own dir, so concurrency is safe."""
+        from simple_agent_lab.evals import run_dataset
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ws_base = Path(tmp) / "ws"
+            root = Path(tmp) / "runs"
+            instances = [
+                {
+                    "instance_id": f"i-{n}",
+                    "problem_statement": "p",
+                    "language": "python",
+                }
+                for n in range(5)
+            ]
+            # Each run gets ws_base/<instance_id>; no two runs share a workspace.
+            backend = LocalProcessBackend(
+                workspace=lambda spec: ws_base / spec.instance_id
+            )
+            report = run_dataset(
+                suite=_SwebenchLikeSuite(),
+                instances=instances,
+                backend=backend,
+                store=LocalDirStore(root),
+                run_root=root,
+                run_id="batch",
+                concurrency=4,
+                provider="fake",
+                max_turns=2,
+            )
+            self.assertEqual(report.summary(), {"total": 5, "ok": 5, "failed": 0})
+            # Each run materialized its own workspace dir.
+            for n in range(5):
+                self.assertTrue((ws_base / f"i-{n}").is_dir())
+
 
 class RunDatasetTest(unittest.TestCase):
     """The minimal controller: run many instances over a pool, aggregate outcomes."""

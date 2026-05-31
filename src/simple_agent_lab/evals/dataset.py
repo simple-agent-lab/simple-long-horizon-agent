@@ -125,10 +125,12 @@ def run_dataset(
 
     Per-instance artifacts land under the usual
     ``<run_root>/<run_id>/<instance_id>/`` tree, so concurrent runs never collide
-    and the `ArtifactStore` is the shared result bus. Caveat: a single
-    `LocalProcessBackend(workspace=...)` shares one workspace, so do not run it
-    with `concurrency > 1`; Docker backends each get their own container and are
-    safe to fan out.
+    and the `ArtifactStore` is the shared result bus. Concurrency safety depends
+    on the backend's *workspace*: Docker/remote backends give each run its own
+    container, so any `concurrency` is safe; a `LocalProcessBackend` with a
+    *fixed* `workspace` shares it (keep `concurrency=1`), but a workspace factory
+    (`LocalProcessBackend(workspace=lambda spec: base / spec.instance_id)`) gives
+    each run its own dir and is safe to fan out.
     """
 
     items = list(instances)
