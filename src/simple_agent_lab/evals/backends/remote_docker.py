@@ -33,8 +33,8 @@ from ..protocols import (
     RunOutcome,
     RunSpec,
 )
-from ..runner import build_command
 from ._archive import pack_file_to_root, read_stream, unpack_members
+from .docker_local import _create_kwargs
 
 # Where the worker container keeps its run dir. No host path is shared, so this
 # is purely in-container; the host moves bytes in/out by tar over the daemon API.
@@ -111,30 +111,23 @@ class RemoteDockerBackend:
             if self.base_url
             else docker.from_env()
         )
+        # The worker writes to a container-internal localdir; no bind mount.
         env = {
             **dict(spec.provider_env),
             "SAL_STORE": "localdir",
             "SAL_STORE_ROOT": RUN_MOUNT,
         }
-        create_kwargs: dict[str, Any] = {
-            "image": spec.plan.image,
-            "name": spec.run_name,
-            "user": self.user,
-            "detach": True,
-            "command": list(build_command(spec)),
-            "environment": env,
-            "cap_add": list(spec.plan.cap_add),
-        }
-        if spec.plan.entrypoint is not None:
-            create_kwargs["entrypoint"] = spec.plan.entrypoint
-        if spec.plan.platform:
-            create_kwargs["platform"] = spec.plan.platform
-        if spec.plan.network_mode:
-            create_kwargs["network_mode"] = spec.plan.network_mode
+        create_kwargs = _create_kwargs(
+            spec, ContainerBinding(), user=self.user, environment=env
+        )
 
         container = client.containers.create(**create_kwargs)
         stop = threading.Event()
         poller: threading.Thread | None = None
+        # Bind before the try so the finally / return never references an unbound
+        # name if push_inputs / start / wait / logs raises.
+        status = 1
+        logs = ""
         try:
             push_inputs(container, store)
             container.start()
@@ -147,10 +140,9 @@ class RemoteDockerBackend:
             stop.set()
             if poller is not None:
                 poller.join(timeout=self.live_poll_interval_s + 5)
-            pulled = pull_outputs(container, store)
+            pull_outputs(container, store)  # pull whatever landed, even on failure
             if not self.keep_container:
                 container.remove(force=True)
-        del pulled
         return RunOutcome(status_code=status, logs=logs)
 
     def _start_live_poller(

@@ -157,9 +157,20 @@ class ContainerTask(Protocol):
     def build_task(self, instance: Mapping[str, Any], *, workdir: str) -> str: ...
 
     def extract_result(
-        self, workspace: Any, instance: Mapping[str, Any]
+        self,
+        workspace: Any,
+        instance: Mapping[str, Any],
+        *,
+        context: Mapping[str, Any] | None = None,
     ) -> Mapping[str, Any]:
-        """Return the run's raw product (e.g. ``{"model_patch": diff}``)."""
+        """Return the run's raw product (e.g. ``{"model_patch": diff}``).
+
+        Accept ``context`` (keyword) to receive whatever an optional
+        ``prepare(workspace, instance)`` returned — e.g. a baseline commit. The
+        in-container runner only passes ``context`` when the signature declares
+        it, but declaring it is what lets pre-run setup reach extraction; omit it
+        and a `prepare` step's output is silently dropped.
+        """
         ...
 
 

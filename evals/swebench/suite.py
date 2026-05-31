@@ -77,7 +77,27 @@ class SwebenchSuite:
             entrypoint=entrypoint,
             platform=self.platform or None,
             network_mode=self.network_mode or None,
+            cap_add=self._cap_add(record),
         )
+
+    def _cap_add(self, record: dict[str, Any]) -> tuple[str, ...]:
+        """Capabilities the SWE-bench test spec requests (e.g. SYS_PTRACE).
+
+        Legacy `run_containerized_agent` passed these from the instance's test
+        spec ``run_args``; Pro images carry none. Without this the container
+        starts under-privileged and capability-dependent test steps fail.
+        """
+
+        if ca.is_swebench_pro_instance(record, dataset_name=self.dataset_name):
+            return ()
+        spec = ca._make_swebench_test_spec(
+            record,
+            namespace=self.namespace,
+            instance_image_tag=self.instance_image_tag,
+            env_image_tag=self.env_image_tag,
+        )
+        run_args = spec.docker_specs.get("run_args", {}) or {}
+        return tuple(run_args.get("cap_add", []) or [])
 
     def sanitize_instance(self, instance: Mapping[str, Any]) -> dict[str, Any]:
         return ca.sanitized_instance(dict(instance))

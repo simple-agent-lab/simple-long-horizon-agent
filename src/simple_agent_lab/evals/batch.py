@@ -30,7 +30,9 @@ from .dataset import DatasetReport, InstanceResult
 from .protocols import (
     INSTANCE_KEY,
     RESULT_KEY,
+    TRACE_KEY,
     ArtifactStore,
+    RunArtifacts,
     RunHandle,
     RunOutcome,
     RunSpec,
@@ -238,8 +240,6 @@ def _finish(
     instances_by_id: Mapping[str, Mapping[str, Any]] | None,
     status_code: int,
 ) -> InstanceResult:
-    from .runner import RunPaths
-
     run_dir = Path(handle.run_dir)
     bound = store.bind(run_dir)
     instance: Mapping[str, Any]
@@ -248,35 +248,24 @@ def _finish(
     else:
         instance = json.loads(bound.get(INSTANCE_KEY).decode("utf-8"))
 
-    out_dir = run_dir / "out"
-    paths = RunPaths(
-        root=run_dir,
-        input_dir=run_dir / "input",
-        output_dir=out_dir,
-        instance_json=run_dir / "input" / "instance.json",
-        trajectory_jsonl=out_dir / "trajectory.jsonl",
-        prediction_jsonl=out_dir / "prediction.jsonl",
-    )
+    # Artifact paths follow the same keys as the blocking path (ADR 0016), so
+    # they track TRACE_KEY/RESULT_KEY rather than re-hardcoding the layout.
+    trajectory_path = run_dir / TRACE_KEY
+    prediction_path = run_dir / "out" / "prediction.jsonl"
     _shape_prediction(
         suite=suite,
         instance=instance,
         model_name=str(handle.extra.get("model_name") or "simple-agent-lab"),
         store=bound,
-        prediction_path=paths.prediction_jsonl,
+        prediction_path=prediction_path,
     )
-    has_result = True
-    try:
-        bound.get(RESULT_KEY)
-    except (FileNotFoundError, OSError):
-        has_result = False
-
-    from .protocols import RunArtifacts
+    has_result = _has_result(store, handle.run_dir)
 
     artifacts = RunArtifacts(
         instance_id=instance_id,
         run_dir=run_dir,
-        trajectory_path=paths.trajectory_jsonl,
-        prediction_path=paths.prediction_jsonl,
+        trajectory_path=trajectory_path,
+        prediction_path=prediction_path,
         status_code=status_code,
         logs="",
     )

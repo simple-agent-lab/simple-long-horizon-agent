@@ -567,6 +567,58 @@ class SwebenchSuiteDriverTest(unittest.TestCase):
         self.assertEqual(plan.shell, ("/bin/sh", "-lc"))
         self.assertEqual(plan.entrypoint, "")
         self.assertIn("sweap-images", plan.image)
+        # Pro images carry no test-spec caps (Verified ones come from the spec,
+        # which needs the swebench harness installed — not asserted here).
+        self.assertEqual(plan.cap_add, ())
+
+
+class SafePartTest(unittest.TestCase):
+    def test_distinct_ids_never_collide_after_sanitization(self) -> None:
+        from simple_agent_lab.evals.runner import _safe_part
+
+        # Plain ids (alnum / _.-) are unchanged — SWE-bench ids stay readable.
+        self.assertEqual(_safe_part("sympy__sympy-23824"), "sympy__sympy-23824")
+        # Ids differing only in replaced chars must not map to the same dir/name.
+        self.assertNotEqual(_safe_part("org/repo#1"), _safe_part("org_repo_1"))
+        self.assertNotEqual(_safe_part("a:b"), _safe_part("a_b"))
+        # Deterministic: same raw id → same safe part.
+        self.assertEqual(_safe_part("a:b"), _safe_part("a:b"))
+
+
+class CreateKwargsTest(unittest.TestCase):
+    def test_shared_create_kwargs_carries_plan_fields(self) -> None:
+        from simple_agent_lab.evals.backends.docker_local import _create_kwargs
+
+        spec = RunSpec(
+            suite_name="s",
+            container_module="m",
+            instance_id="i",
+            plan=ContainerPlan(
+                image="img", workdir="/w", cap_add=("SYS_PTRACE",), entrypoint=""
+            ),
+            max_turns=3,
+            provider="fake",
+            api_kind="openai-chat",
+            run_name="run-1",
+        )
+        from simple_agent_lab.evals import ContainerBinding
+
+        binding = ContainerBinding(
+            mounts={"/host": {"bind": "/agent/run", "mode": "rw"}},
+            env={"SAL_STORE": "localdir"},
+        )
+        kwargs = _create_kwargs(spec, binding, user="root", environment={"X": "1"})
+        self.assertEqual(kwargs["image"], "img")
+        self.assertEqual(kwargs["name"], "run-1")
+        self.assertEqual(kwargs["cap_add"], ["SYS_PTRACE"])  # plan cap_add plumbed
+        self.assertEqual(
+            kwargs["volumes"], {"/host": {"bind": "/agent/run", "mode": "rw"}}
+        )
+        self.assertEqual(kwargs["environment"], {"X": "1"})
+        self.assertEqual(
+            kwargs["entrypoint"], ""
+        )  # "" included (clears image ENTRYPOINT)
+        self.assertNotIn("platform", kwargs)  # omitted when unset
 
 
 if __name__ == "__main__":

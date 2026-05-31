@@ -21,6 +21,7 @@ run-directory convention (ADR 0016) is preserved: one
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -55,7 +56,19 @@ class RunPaths:
 
 
 def _safe_part(value: str) -> str:
-    return "".join(c if c.isalnum() or c in "_.-" else "_" for c in value)
+    """Filesystem/Docker-safe form of an id, collision-free across distinct ids.
+
+    Plain ids (alnum / ``_.-``) are returned unchanged. When sanitization would
+    replace a character, a short hash of the *raw* value is appended so two ids
+    that differ only in replaced characters (``a:b`` vs ``a_b``) map to distinct
+    run dirs and container names instead of silently sharing one.
+    """
+
+    safe = "".join(c if c.isalnum() or c in "_.-" else "_" for c in value)
+    if safe != value:
+        digest = hashlib.sha1(value.encode("utf-8")).hexdigest()[:8]
+        safe = f"{safe}-{digest}"
+    return safe
 
 
 def prepare_run_directory(*, run_root: Path, run_id: str, instance_id: str) -> RunPaths:
