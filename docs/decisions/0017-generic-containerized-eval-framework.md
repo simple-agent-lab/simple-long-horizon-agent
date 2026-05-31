@@ -252,6 +252,26 @@ Docker-specific types out of the `ContainerBackend` protocol (today `run` takes 
 plain-data `RunSpec`, an `ArtifactStore`, and a plain-data `ContainerBinding` —
 all consumable by k8s).
 
+## Future option: split a benchmark family into per-variant suites
+
+SWE-bench Verified and Pro are served today by one `SwebenchSuite` that selects
+per-variant launch shape and prediction format by `is_swebench_pro_instance(...)`
+(delegated to the legacy `containerized_agent` helpers). Because `Suite` is a
+protocol, a family's variants *may* instead be **separate branch-free suite
+classes** — `SwebenchVerifiedSuite` / `SwebenchProSuite`, each owning its own
+`container_plan` and `prediction_record` with no `is_pro` flag, optionally
+sharing the container half (`container_module`) and only diverging it if a
+variant's task text ever needs to. Selecting the variant becomes choosing the
+class, which is more in line with "variant is a type, not a runtime branch."
+
+This is **optional, not required** — the single-suite-with-data-branches form is
+fine and there is no need to split unless the variants diverge enough that the
+shared suite is more branching than sharing. The natural moment *if* it is done
+is the legacy-launcher cutover: once `SwebenchSuite` stops delegating to the
+`is_pro` helpers and owns its plan directly, splitting it in two is a clean
+follow-on rather than a duplicate of code that is about to be deleted. Until
+then, keep the one suite.
+
 ## Alternatives Considered
 
 - **Keep extending the `is_pro` branches.** Rejected — the branch count grows
