@@ -55,6 +55,9 @@ The current source-of-truth layers are:
   (`bash/` single bash-use agent, `bash_task/` parent that delegates to a bash
   worker via the `task` tool).
 - `src/simple_agent_lab/llm/`: provider-agnostic model access layer.
+- `src/simple_agent_lab/mcp/`: optional Model Context Protocol integration —
+  connect to MCP servers and wrap their tools (including multimodal results)
+  as `AgentTool`s, behind the `mcp` extra. See ADR 0018.
 - `src/simple_agent_lab/trajectory/`: runtime-neutral trace records split by
   concern — `spans.py`/`training.py` (pure event→span/turn transforms),
   `run_trace.py` (record schema), `jsonl.py` (atomic JSONL IO), and `live.py`
@@ -113,6 +116,7 @@ Stop and collect more evidence before changing behavior when:
 | Context visibility or budgeting | ADR 0010, `src/simple_agent_lab/context_view.py`, `tests/unit/test_core.py`, `tests/unit/test_token_usage.py` | Projection behavior and token-estimate constraints. |
 | Tool execution or bash demo | `src/simple_agent_lab/tools/`, `src/simple_agent_lab/agents/bash/` (preset agent), `tests/unit/test_bash_agent.py` | Tool result semantics and deterministic demo checks. |
 | Multi-agent delegation (`task` tool) | `src/simple_agent_lab/tools/task.py`, `src/simple_agent_lab/agents/bash_task/` (parent + explorer worker), `tests/unit/test_bash_task_agent.py`, `src/simple_agent_lab/core.py` docstring | Sub-agent delegation shape: a parent picks one worker via `subagent_type` and gets its final message back as the tool result. |
+| MCP tools (incl. multimodal) | ADR 0018, `src/simple_agent_lab/mcp/README.md`, `tests/unit/test_mcp.py`, `scripts/run_mcp_agent_demo.py` | MCP servers wrapped as `AgentTool`s at the tool boundary; image results map straight to `ImageBlock`. Optional `mcp` extra. |
 | Trace printing or OpenAI Chat JSONL export | ADR 0013, ADR 0015, `src/simple_agent_lab/trace.py`, `tests/unit/test_openai_training.py` | Trace rendering and provider-shaped transcript export. |
 | Trajectories, spans, or training data | ADR 0008, ADR 0011, ADR 0015, `src/simple_agent_lab/trajectory/` (`spans.py`, `training.py`, `run_trace.py`), `evals/README.md`, `evals/swebench/README.md` | Three-layer trace: Event → Span → Training. |
 | Docker incremental trace / host viewer | `docs/agent-native/docker-live-trace.md`, `src/simple_agent_lab/trajectory/live.py` (`LiveTraceSession`), `scripts/run_live_trace_demo.py` | Bind-mount contract and reusable live export API. |
