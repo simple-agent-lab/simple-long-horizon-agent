@@ -37,53 +37,57 @@ Record types:
 
 The generic framework lives in `simple_agent_lab.evals` (ADR 0017). It supplies
 the container lifecycle, the Python/uv bootstrap, the run-directory convention,
-and artifact transport, so a new Docker benchmark only implements what is
+and the one artifact seam, so a new Docker benchmark only implements what is
 genuinely suite-specific:
 
-1. A **host half** — a `Suite` (3 methods + 2 attributes):
+1. A **host half** — a `Suite` (3 methods + 2 attributes), under
+   `evals/<suite>/suite.py`:
 
    - `container_plan(instance)` -> `ContainerPlan` (image, workdir, shell,
      entrypoint as *data* — no `if`-branching in the runner).
    - `sanitize_instance(instance)` — drop gold/private fields before the agent
      sees the record.
    - `prediction_record(instance, *, model_name, result)` — shape the
-     scorer-facing row.
+     scorer-facing row from the container's result.
    - `name` and `container_module` (dotted path to the container half).
 
 2. A **container half** — a module exposing `build_task(instance, *, workdir)`
    and `extract_result(workspace, instance)` (the "product", e.g. a `git diff`).
    Optional: `prepare(workspace, instance)` for pre-run setup (its return value
-   is threaded back into `extract_result` as `context`) and `agent_spec()` for
-   the prompt/role and bash-vs-bash_task flavor. The generic in-container runner
-   (`simple_agent_lab.evals.in_container`) imports this module and owns the
-   agent loop, retry, and trace push — so a suite never re-implements them.
+   is threaded back into `extract_result` as `context`), `agent_spec()` for the
+   prompt/role and bash-vs-bash_task flavor, or `build_agent(...)` for full
+   control. It **ships in the wheel** under
+   `src/simple_agent_lab/evals/suites/<suite>/` (importing only stdlib + the
+   installed runtime), so the in-container runner imports it with zero copying.
 
-Then drive one instance:
+Then drive one instance — the framework builds the container command itself:
 
 ```python
 from simple_agent_lab.evals import (
-    run_suite_instance, LocalDockerBackend, BindMountTransport, bootstrap_script,
+    run_suite_instance, LocalDockerBackend, LocalDirStore,
 )
 
 run_suite_instance(
     suite=MySuite(),
     instance=instance,
     backend=LocalDockerBackend(),        # cloud later: a remote/k8s backend
-    transport=BindMountTransport(),      # cloud later: CopyOutTransport
-    command=("bash", "-lc", bootstrap_script(runner_argv=(...,))),
+    store=LocalDirStore(run_root),       # remote daemon: HostHttpStore (no S3) / S3Store
     run_root=Path("evals/out/mysuite"),
     run_id="run-1",
+    provider_env={"OPENAI_MODEL": "...", "OPENAI_AUTH_TOKEN": "..."},
 )
 ```
 
-The container writes its raw product to ``out/result.json``; the host shapes
-``out/prediction.jsonl`` from it via `prediction_record`, so prediction
-formatting stays on the host with the rest of the suite config.
+Inputs, the result, and the live trajectory all flow through the one `store`:
+the host writes `input/instance.json`, the container writes `out/result.json`
+and re-`put`s `out/trajectory.jsonl` on a cadence (the live trace), and the host
+shapes `out/prediction.jsonl` from the result via `prediction_record`.
 
-The same suite runs against a cloud daemon by swapping the `backend` /
-`transport` / trace `TraceSink` — the seams are `Protocol`s, so the suite and
-the runner do not change. `evals/swebench/{suite.py,container.py}` is the
-reference: `suite.py` is the host half, `container.py` is the two functions.
+The same suite runs against a remote daemon by swapping `backend` / `store` —
+both are `Protocol`s, so the suite and runner do not change. `HostHttpStore`
+needs **no third-party middleware** (the host runs a stdlib HTTP server).
+Reference: `evals/swebench/suite.py` (host half) +
+`simple_agent_lab.evals.suites.swebench.container` (the two functions).
 `FakeBackend` runs the whole flow without Docker for tests. Still follow the
 output-directory checklist in [`out/README.md`](out/README.md).
 

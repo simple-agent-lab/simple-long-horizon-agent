@@ -1,18 +1,20 @@
 """Generic in-container runner (ADR 0017).
 
-This module is what runs *inside* the eval container. It imports the suite's
-container half by dotted path (`Suite.container_module`), builds the agent,
-drives the loop with rate-limit retry, pushes the trajectory to a `TraceSink`,
-then calls the suite's `extract_result` and writes the raw product to
-``result.json``. The host (`run_suite_instance`) shapes the scorer-facing
-``prediction.jsonl`` from that product via `Suite.prediction_record`.
+This module is what runs *inside* the eval container, invoked as
+``python -m simple_agent_lab.evals.in_container`` (it ships in the wheel, so
+nothing is copied in). It imports the suite's container half by dotted path
+(`Suite.container_module`), builds the agent, drives the loop with rate-limit
+retry, and reads/writes everything through one `ArtifactStore`:
 
-Everything here is suite-agnostic: a new benchmark supplies only
-``build_task`` / ``extract_result`` (and an optional ``agent_spec``) in its
-container module. Nothing about SWE-bench, datasets, or patches lives here.
+- reads the sanitized instance from ``input/instance.json``,
+- re-writes ``out/trajectory.jsonl`` on a cadence (the live trace push),
+- writes the raw `extract_result` product to ``out/result.json``.
 
-The agent runtime comes from the installed ``simple-agent-lab`` wheel, so this
-runner stays small and the same code path works for every suite.
+The host (`run_suite_instance`) shapes ``prediction.jsonl`` from the result.
+Everything here is suite-agnostic: a new benchmark supplies only ``build_task``
+/ ``extract_result`` (and optional ``prepare`` / ``agent_spec`` / ``build_agent``)
+in its container module. Nothing about SWE-bench, datasets, or patches lives
+here.
 """
 
 from __future__ import annotations
@@ -34,11 +36,10 @@ from ..core import Agent
 from ..llm import ApiKind, Provider
 from ..state import State
 from ..trajectory import run_trace_from_state, trace_record
-from .protocols import RESULT_FILE, AgentSpec, TraceSink
-from .trace_sink import FileTraceSink, HttpTraceSink
+from .protocols import RESULT_KEY, TRACE_KEY, AgentSpec, ArtifactStore
+from .stores import container_store_from_env
 
 __all__ = [
-    "RESULT_FILE",
     "build_agent",
     "main",
     "provider_from_env",
@@ -61,11 +62,10 @@ OPENAI_LOG_ID_ENV = "OPENAI_LOG_ID"
 API_KIND_ENV = "API_KIND"
 API_KIND_CHOICES = ("openai-chat", "openai-responses")
 DEFAULT_RESPONSES_MAX_OUTPUT_TOKENS = 32768
-TRACE_PUSH_URL_ENV = "TRACE_PUSH_URL"
 
 
 # --------------------------------------------------------------------------- #
-# Agent construction (the only suite-tunable part, via AgentSpec)
+# Agent construction (suite-tunable via agent_spec or a full build_agent hook)
 # --------------------------------------------------------------------------- #
 def build_agent(
     *,
@@ -99,9 +99,23 @@ def build_agent(
     )
 
 
-def _agent_spec(module: Any) -> AgentSpec:
+def _resolve_agent(
+    module: Any,
+    *,
+    provider: Provider,
+    cwd: Path,
+    request_extra: Mapping[str, Any] | None,
+) -> Agent:
+    """A container module may supply `build_agent` for full control, else `agent_spec`."""
+
+    custom = getattr(module, "build_agent", None)
+    if callable(custom):
+        return custom(provider=provider, cwd=cwd, request_extra=request_extra)
     factory = getattr(module, "agent_spec", None)
-    return factory() if callable(factory) else AgentSpec()
+    spec = factory() if callable(factory) else AgentSpec()
+    return build_agent(
+        spec=spec, provider=provider, cwd=cwd, request_extra=request_extra
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -197,15 +211,6 @@ def request_extra_from_env(*, env: Mapping[str, str] | None = None) -> dict[str,
     }
 
 
-def trace_sink_from_env(traces_path: str | Path) -> TraceSink:
-    """A file sink locally; an HTTP push sink when TRACE_PUSH_URL is set (cloud)."""
-
-    url = os.environ.get(TRACE_PUSH_URL_ENV, "").strip()
-    if url:
-        return HttpTraceSink(url)
-    return FileTraceSink(traces_path)
-
-
 # --------------------------------------------------------------------------- #
 # The generic run
 # --------------------------------------------------------------------------- #
@@ -216,7 +221,7 @@ def run_in_container(
     provider: Provider,
     workdir: Path,
     max_turns: int,
-    trace_sink: TraceSink,
+    store: ArtifactStore,
     trace_id: str,
     producer: str,
     suite_name: str,
@@ -225,33 +230,30 @@ def run_in_container(
 ) -> tuple[dict[str, Any], State]:
     """Drive one instance: build task → run agent → extract result.
 
-    Returns the raw `extract_result` product and the finished `State`. Pushes
-    incremental trajectory records to `trace_sink` during the run and a final
-    record once the result is known.
+    Reads nothing from `store` (the caller passes the loaded `instance`); writes
+    the live trajectory to ``out/trajectory.jsonl`` on a cadence and the raw
+    `extract_result` product to ``out/result.json``. Returns both.
     """
 
     module = importlib.import_module(container_module)
-    spec = _agent_spec(module)
 
     # Optional pre-run setup (checkout, snapshot a baseline, install ignore
-    # rules). Its returned dict is threaded into extract_result as `context`
-    # for suites whose result depends on pre-run state.
+    # rules). Its returned dict is threaded into extract_result as `context`.
     context: dict[str, Any] = {}
     prepare = getattr(module, "prepare", None)
     if callable(prepare):
         context = dict(prepare(workdir, instance) or {})
 
     task = module.build_task(instance, workdir=str(workdir))
-
-    agent = build_agent(
-        spec=spec, provider=provider, cwd=workdir, request_extra=request_extra
+    agent = _resolve_agent(
+        module, provider=provider, cwd=workdir, request_extra=request_extra
     )
     agent.generate = with_llm_retry(agent.generate)
     state, events = agent.run(task, max_turns=max_turns)
 
     instance_id = str(instance.get("instance_id", "?"))
 
-    def record(*, in_progress: bool) -> dict[str, Any]:
+    def trace_bytes(*, in_progress: bool) -> bytes:
         trace = run_trace_from_state(
             state=state,
             trace_id=trace_id,
@@ -263,13 +265,15 @@ def run_in_container(
                 "result_keys": sorted(state.data.get("result", {})),
             },
         )
-        return trace_record(trace)
+        return (json.dumps(trace_record(trace), ensure_ascii=False) + "\n").encode(
+            "utf-8"
+        )
 
     last = 0.0
     for _ in events:
         now = time.monotonic()
         if now - last >= flush_interval_s:
-            trace_sink.emit(record(in_progress=True))
+            store.put(TRACE_KEY, trace_bytes(in_progress=True))
             last = now
 
     extract = module.extract_result
@@ -280,17 +284,18 @@ def run_in_container(
     )
     result = dict(extract(workdir, instance, **extract_kwargs))
     state.data["result"] = result
-    trace_sink.emit(record(in_progress=False))
-    trace_sink.close()
+    store.put(
+        RESULT_KEY, (json.dumps(result, ensure_ascii=False) + "\n").encode("utf-8")
+    )
+    store.put(TRACE_KEY, trace_bytes(in_progress=False))
     return result, state
 
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Generic in-container eval runner.")
-    parser.add_argument("--instance-json", required=True)
-    parser.add_argument("--instance-id", required=True)
     parser.add_argument("--container-module", required=True)
     parser.add_argument("--suite-name", default="suite")
+    parser.add_argument("--instance-id", required=True)
     parser.add_argument("--workdir", default="/testbed")
     parser.add_argument("--max-turns", type=int, default=75)
     parser.add_argument("--provider", choices=["fake", "openai"], default="openai")
@@ -299,48 +304,26 @@ def main(argv: list[str] | None = None) -> None:
         choices=API_KIND_CHOICES,
         default=os.environ.get(API_KIND_ENV, "openai-chat"),
     )
-    parser.add_argument("--traces", required=True)
-    parser.add_argument("--results", required=True)
     args = parser.parse_args(argv)
 
-    instance = _load_instance(Path(args.instance_json), args.instance_id)
+    from .protocols import INSTANCE_KEY
+
+    store = container_store_from_env()
+    instance = json.loads(store.get(INSTANCE_KEY).decode("utf-8"))
     provider = provider_from_env(kind=args.provider, api_kind=args.api_kind)
-    trace_id = f"{args.suite_name}.{args.instance_id}"
-    result, _state = run_in_container(
+    run_in_container(
         instance=instance,
         container_module=args.container_module,
         provider=provider,
         workdir=Path(args.workdir),
         max_turns=args.max_turns,
-        trace_sink=trace_sink_from_env(args.traces),
-        trace_id=trace_id,
+        store=store,
+        trace_id=f"{args.suite_name}.{args.instance_id}",
         producer=f"suite:{args.suite_name}",
         suite_name=args.suite_name,
-        request_extra=(request_extra_from_env() if args.provider == "openai" else {}),
+        request_extra=request_extra_from_env() if args.provider == "openai" else {},
     )
-    Path(args.results).write_text(
-        json.dumps(result, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
-    print(f"wrote result to {args.results} and trajectory to {args.traces}")
-
-
-def _load_instance(path: Path, instance_id: str | None) -> dict[str, Any]:
-    raw = path.read_text(encoding="utf-8").strip()
-    records: list[dict[str, Any]] = []
-    if raw.startswith("{"):
-        records = [json.loads(raw)]
-    elif raw.startswith("["):
-        records = list(json.loads(raw))
-    else:
-        records = [json.loads(line) for line in raw.splitlines() if line.strip()]
-    if not records:
-        raise SystemExit(f"No instance records in {path}")
-    if instance_id is None:
-        return dict(records[0])
-    for record in records:
-        if str(record.get("instance_id")) == instance_id:
-            return dict(record)
-    raise SystemExit(f"Instance {instance_id!r} not found in {path}")
+    print(f"wrote result + trajectory for {args.instance_id} via artifact store")
 
 
 if __name__ == "__main__":

@@ -45,26 +45,34 @@ registered/injected implementation, not a class hierarchy).
 
 A benchmark suite becomes a thin implementation of the `Suite` protocol that
 supplies only what is genuinely suite-specific. Everything else is provided by
-the framework and is parameterized over three seams, each a `Protocol`:
+the framework and is parameterized over **two orthogonal seams**, each a
+`Protocol`:
 
-1. **`ContainerBackend`** — where compute runs. `LocalDockerBackend` (today's
+1. **`ContainerBackend`** — *where compute runs*. `LocalDockerBackend` (today's
    docker-py behavior) ships first; `RemoteDockerBackend` / Kubernetes / managed
    runners can be added later without touching suites or the runner.
-2. **`ArtifactTransport`** — how inputs reach the container and outputs come
-   back. `BindMountTransport` (shared filesystem, today's behavior) ships first.
-   `CopyOutTransport` (`put_archive` in, `get_archive` out — no shared filesystem
-   required) is defined as a documented stub and is the path to cloud backends.
-   `ObjectStoreTransport` (container uploads to S3/GCS) is noted as a future
-   third implementation.
-3. **`TraceSink`** — how live trace events leave the container. Live trace moves
-   from "host tails a bind-mounted file" to **"container pushes records to a
-   sink."** `FileTraceSink` (writes the same single-record `trajectory.jsonl`,
-   behavior-preserving under a bind mount) ships first; `HttpTraceSink` /
-   queue-based sinks are the cloud path and are defined as stubs.
+2. **`ArtifactStore`** — *where bytes live*. One keyed store carries inputs,
+   the result, and the live trajectory, in both directions. There is
+   deliberately **no separate transport or trace sink**: staging inputs,
+   collecting outputs, and pushing the live trace are all just `put`/`get`, and
+   the live trajectory is simply an artifact key re-`put` on a cadence. Three
+   backends span the spectrum:
+   - `LocalDirStore` — bind mount, single machine, zero moving parts.
+   - `HostHttpStore` — the host runs a stdlib `http.server` over the run
+     directory; the container reads/writes over HTTP. This is "bind mount over
+     the network": it works across a **remote daemon with no third-party
+     middleware**, which keeps the teaching path runnable out of the box.
+   - `S3Store` — object store for fully decoupled runs (documented stub).
+
+   "Container pushes its live trace" is preserved: it is just `put` of the
+   trajectory key (a file write under `LocalDirStore`, an HTTP POST under
+   `HostHttpStore`).
 
 The generic orchestration is one function, `run_suite_instance(...)`, that wires
-a `Suite` + `ContainerBackend` + `ArtifactTransport` + `TraceSink` together. It
-contains no `if pro:` branches and no Docker calls of its own.
+a `Suite` + `ContainerBackend` + `ArtifactStore` together, **builds the container
+command itself** (bootstrap + `python -m simple_agent_lab.evals.in_container`, in
+the wheel — nothing is copied in), and contains no `if pro:` branches and no
+Docker calls of its own.
 
 ### Suite split: host half and container half
 
@@ -73,68 +81,92 @@ A containerized eval is fundamentally two programs. The split is made explicit:
 - **Host half** (`Suite`, runs where the orchestrator runs): resolve the image
   and launch shape (`container_plan`), drop gold/private fields
   (`sanitize_instance`), and shape the prediction record (`prediction_record`).
+  Lives next to the suite's adapter under `evals/<suite>/`, where heavy host-only
+  deps (docker, the official harness) stay out of the core package.
 - **Container half** (referenced by `Suite.container_module`, runs inside the
-  image): build the model-visible task from the instance, and **extract the
-  result** — the "product" of the run (for SWE-bench, the `git diff`). The
-  generic in-container runner owns the agent loop, retry, and trace push; the
-  suite module only supplies `build_task(...)` and `extract_result(...)`.
+  image): `build_task` + `extract_result` (plus optional `prepare` /
+  `agent_spec` / `build_agent`). It **ships in the wheel** under
+  `simple_agent_lab.evals.suites.<suite>/`, so the in-container runner imports it
+  with zero file copying and never drifts from the installed runtime. It must
+  import only the standard library and the installed wheel. The dependency-
+  isolation reason suites live under `evals/` applies to the heavy *host* half,
+  not this light container half.
 
-This keeps result extraction next to the workspace it inspects (inside the
-container) while keeping the agent loop generic.
+The generic in-container runner owns the agent loop, retry, and trace push; it
+writes the raw `extract_result` product to `out/result.json` via the store, and
+the host shapes `out/prediction.jsonl` from it — so prediction formatting stays
+host-side and works unchanged under any store backend.
 
 ### Scope of this change
 
 This ADR lands the framework end to end as the **integration contract**:
 
-- the protocols, `LocalDockerBackend`, `BindMountTransport`, `FileTraceSink`,
-  an in-memory `FakeBackend`, and `run_suite_instance` (host side);
+- the protocols, `LocalDockerBackend`, `LocalDirStore`, `HostHttpStore`, an
+  in-memory `FakeBackend`, and `run_suite_instance` (host side);
 - the **generic in-container runner** (`simple_agent_lab.evals.in_container`):
   it imports a suite's `container_module`, builds the agent, drives the loop
-  with retry, pushes the trajectory to a `TraceSink`, and writes the raw
-  `extract_result` product to ``result.json``; the host shapes
-  ``prediction.jsonl`` from it via `prediction_record`.
+  with retry, re-`put`s the trajectory to the store on a cadence, and writes the
+  raw `extract_result` product to `out/result.json`; the host shapes
+  `out/prediction.jsonl` from it via `prediction_record`.
 
-SWE-bench is the reference suite: `evals/swebench/suite.py` (host half) plus
-`evals/swebench/container.py` (the two functions + optional `prepare` /
-`agent_spec`). A new fake-backend test composes the seams without Docker, and a
-second test drives the SWE-bench container half through the generic runner with
-the fake provider on a hermetic git repo — so the "one Suite + two functions"
-shape is exercised, not just asserted.
+SWE-bench is the reference suite: `evals/swebench/suite.py` (host half) plus the
+in-wheel `simple_agent_lab.evals.suites.swebench.container` (the two functions +
+optional `prepare` / `agent_spec`). Tests, all Docker-free: the demo suite runs
+through `run_suite_instance` against `FakeBackend` over **both** `LocalDirStore`
+and `HostHttpStore` (the latter over real loopback HTTP, proving the
+batteries-included store), and the SWE-bench container half runs through the
+generic runner with the fake provider on a hermetic git repo — so the "one Suite
++ two functions" shape is exercised, not just asserted.
 
 What remains is **retiring the legacy launcher**: pointing the production run
 scripts at `run_suite_instance` + the generic runner and deleting the
-`is_swebench_pro` branches from `containerized_agent.py` / `in_container_runner.py`
-(today the container half re-uses their task text and patch helpers as the
-single source of truth). `evaluate_predictions.py` (scoring) stays untouched.
-`CopyOutTransport` and `HttpTraceSink` remain documented stubs until a concrete
-cloud backend lands.
+`is_swebench_pro` branches from `containerized_agent.py` / `in_container_runner.py`.
+The patch helpers are already the single source of truth in the wheel
+(`evals/swebench/patch_extract.py` is now a re-export shim); the SWE-bench task
+text is briefly duplicated in the container half until the legacy runner is
+deleted. `evaluate_predictions.py` (scoring) stays untouched. `S3Store` remains
+a documented stub until a concrete cloud target lands.
 
 ## Consequences
 
 - A new Docker benchmark is "implement `Suite` + a container module," not "copy
   `containerized_agent.py` and edit the branches."
-- The cloud story has explicit seams: switching to a remote daemon is choosing
-  `RemoteDockerBackend` + `CopyOutTransport` + a non-file `TraceSink`, with the
-  suite and runner unchanged.
+- The cloud story has explicit seams along two orthogonal axes: a remote daemon
+  is `RemoteDockerBackend` + (`HostHttpStore` for no-middleware, or `S3Store`
+  for a fully decoupled host), with the suite and runner unchanged.
 - ADR 0011's "adapter, not framework" guidance is **superseded** for the
   containerized case. Its core principles survive: the runtime core still knows
   nothing about Docker, datasets, or gold patches; raw trajectories remain
   reusable when scoring rules change; scoring stays a separate path.
+- The core package now ships suite *container halves* (light, stdlib-only) under
+  `src/simple_agent_lab/evals/suites/`. Heavy host halves stay under `evals/`. A
+  suite therefore spans two trees; the host `suite.py` remains the readable
+  entry point.
 - Short-term cost: two ways to launch SWE-bench coexist until the cutover lands.
-  The skeleton is import-clean and unit-tested, but the production run scripts
-  keep calling the existing launcher until the follow-up PR flips them.
+  The new path is import-clean and unit-tested; the production run scripts keep
+  calling the existing launcher until the follow-up PR flips them.
 
 ## Alternatives Considered
 
 - **Keep extending the `is_pro` branches.** Rejected — the branch count grows
-  per suite and the cloud transport change would have to thread through every
+  per suite and the cloud storage change would have to thread through every
   branch.
 - **One `EvalSuite` base class with overridable methods.** Rejected — conflicts
   with the project's "config is data, behavior is module-level functions /
   injected implementations" taste (see `llm.Provider`).
-- **Make the transport always copy-out (drop bind mount).** Rejected for now —
-  bind mount gives zero-copy artifacts and the lowest-latency live trace locally;
-  it stays the default while `CopyOutTransport` is the opt-in for remote daemons.
+- **Keep `ArtifactTransport` + `TraceSink` as separate seams.** Rejected — they
+  answer the same question ("how do bytes move host↔container") on one axis;
+  collapsing them into one `ArtifactStore` removes a whole concept and makes the
+  storage backend (`LocalDir` / `HostHttp` / `S3`) a single implementation point
+  instead of two.
+- **Make every store copy bytes (drop bind mount).** Rejected — `LocalDirStore`
+  bind mount gives zero-copy artifacts and the lowest-latency live trace
+  locally; it stays the default while `HostHttpStore` is the no-middleware
+  opt-in for remote daemons.
+- **Ship suite container halves only under `evals/` and copy them in.** Rejected
+  — copying the import closure reintroduces version skew with the installed
+  wheel; the light container half is safe to ship, and the `container_module`
+  string still allows out-of-tree modules later.
 - **Abstract the cloud backend now.** Deferred — only the seam (`ContainerBackend`
-  / `ArtifactTransport` protocols) is defined now; the remote implementation
+  / `ArtifactStore` protocols) is defined now; the remote implementation
   waits for a concrete cloud target, per "learn before abstracting."

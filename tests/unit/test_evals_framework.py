@@ -1,34 +1,40 @@
 """Unit-smoke for the generic containerized eval framework (ADR 0017).
 
-Runs `run_suite_instance` end-to-end against the in-memory `FakeBackend` +
-`BindMountTransport` — no Docker — to prove the Suite / Backend / Transport
-seams compose, and checks the SWE-bench `Suite` driver maps a Pro instance onto
-a `ContainerPlan` as data (no `is_pro` branch in the runner).
+No Docker. Exercises the two seams (`ContainerBackend`, `ArtifactStore`) with
+the in-memory `FakeBackend`, the `LocalDirStore` (bind-mount) and the
+batteries-included `HostHttpStore` over real loopback HTTP, and drives the
+SWE-bench container half through the generic runner with the fake provider.
 """
 
 from __future__ import annotations
 
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Any, Mapping
 
 from simple_agent_lab.evals import (
-    BindMountTransport,
+    INSTANCE_KEY,
+    RESULT_KEY,
+    TRACE_KEY,
     ContainerPlan,
     FakeBackend,
-    FileTraceSink,
-    StagedFile,
+    HostHttpStore,
+    HttpArtifactClient,
+    LocalDirStore,
     Suite,
     bootstrap_script,
     run_suite_instance,
 )
 from simple_agent_lab.evals.backends.fake import FakeContainerHandle
 
+SWEBENCH_CONTAINER = "simple_agent_lab.evals.suites.swebench.container"
+
 
 class _DemoSuite:
-    """Minimal suite: the entire author-facing surface for a new benchmark."""
+    """Minimal suite: the entire host-side surface for a new benchmark."""
 
     name = "demo"
     container_module = "demo.container"
@@ -49,83 +55,139 @@ class _DemoSuite:
         }
 
 
+def _fake_container_writing_result(answer: str):
+    """An on_start that reconstructs the container-side store and writes outputs.
+
+    The fake "container" runs in this host process, so for a bind-mounted
+    `LocalDirStore` it follows the mount back to the host source (the container
+    path ``/agent/run`` only exists inside a real container). The HTTP store
+    needs no remap — it reaches the host server over loopback.
+    """
+
+    def on_start(handle: FakeContainerHandle) -> None:
+        from simple_agent_lab.evals.stores import container_store_from_env
+
+        if handle.env.get("SAL_STORE") == "localdir":
+            mount = handle.env["SAL_STORE_ROOT"]
+            host_root = next(
+                k for k, v in handle.mounts.items() if v.get("bind") == mount
+            )
+            store = LocalDirStore(host_root)
+        else:
+            store = container_store_from_env(handle.env)
+        instance = json.loads(store.get(INSTANCE_KEY).decode("utf-8"))
+        store.put(
+            TRACE_KEY,
+            (json.dumps({"trace_id": instance["instance_id"]}) + "\n").encode(),
+        )
+        store.put(RESULT_KEY, (json.dumps({"answer": answer}) + "\n").encode())
+
+    return on_start
+
+
 class EvalFrameworkSmokeTest(unittest.TestCase):
     def test_demo_suite_satisfies_protocol(self) -> None:
         self.assertIsInstance(_DemoSuite(), Suite)
 
-    def test_run_suite_instance_end_to_end(self) -> None:
+    def test_run_suite_instance_local_dir_store(self) -> None:
         suite = _DemoSuite()
         instance = {"instance_id": "demo-1", "problem": "p", "gold": "SECRET"}
 
         with tempfile.TemporaryDirectory() as tmp:
             run_root = Path(tmp).resolve()
-            out_dir = run_root / "run-x" / "demo-1" / "out"
-
-            def fake_container(handle: FakeContainerHandle) -> None:
-                # Stand in for the generic in-container runner: push a live
-                # trace record via the file sink and write the raw result. The
-                # host (run_suite_instance) shapes prediction.jsonl from it.
-                sink = FileTraceSink(out_dir / "trajectory.jsonl")
-                sink.emit({"schema": "v3", "trace_id": "demo.demo-1"})
-                sink.close()
-                (out_dir / "result.json").write_text(
-                    json.dumps({"answer": "42"}) + "\n", encoding="utf-8"
-                )
-
-            backend = FakeBackend(on_start=fake_container, log_text="ok\n")
-            command = (
-                "bash",
-                "-lc",
-                bootstrap_script(runner_argv=("/agent/run_demo.py", "--x")),
+            backend = FakeBackend(
+                on_start=_fake_container_writing_result("42"), log_text="ok\n"
             )
             artifacts = run_suite_instance(
                 suite=suite,
                 instance=instance,
                 backend=backend,
-                transport=BindMountTransport(),
-                command=command,
+                store=LocalDirStore(run_root),
                 run_root=run_root,
                 run_id="run-x",
                 model_name="m",
-                env={"OPENAI_MODEL": "m"},
-                extra_inputs=(
-                    StagedFile(data=b"print()", container_path="/agent/run_demo.py"),
-                ),
+                provider_env={"OPENAI_MODEL": "m"},
             )
 
-            # Lifecycle ran and the container was cleaned up.
             handle = backend.created[0]
             self.assertTrue(handle.started)
             self.assertTrue(handle.removed)
             self.assertEqual(artifacts.status_code, 0)
-            self.assertEqual(artifacts.logs, "ok\n")
 
-            # Transport staged the out-of-tree input file.
-            self.assertEqual(handle.staged[0].container_path, "/agent/run_demo.py")
+            # The framework built the command itself (python -m the generic runner).
+            self.assertIn("simple_agent_lab.evals.in_container", handle.command[-1])
 
-            # Sanitized instance.json dropped the gold field.
+            # Sanitized instance.json was written through the store (gold dropped).
             written = json.loads(
                 (artifacts.run_dir / "input" / "instance.json").read_text()
             )
             self.assertNotIn("gold", written)
-            self.assertEqual(written["problem"], "p")
 
-            # Live trace landed, and the host shaped prediction.jsonl from the
-            # container's result.json via suite.prediction_record.
+            # Live trace + result landed; host shaped prediction.jsonl from result.
             self.assertTrue(artifacts.trajectory_path.exists())
             prediction = json.loads(artifacts.prediction_path.read_text())
             self.assertEqual(prediction["answer"], "42")
             self.assertEqual(prediction["model_name_or_path"], "m")
 
+    def test_run_suite_instance_host_http_store(self) -> None:
+        """The batteries-included store works over real loopback HTTP, no Docker."""
+
+        suite = _DemoSuite()
+        instance = {"instance_id": "demo-2", "problem": "p"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            run_root = Path(tmp).resolve()
+            backend = FakeBackend(on_start=_fake_container_writing_result("99"))
+            # container_host=127.0.0.1 so the in-process fake container can reach it.
+            with HostHttpStore(run_root, container_host="127.0.0.1") as store:
+                artifacts = run_suite_instance(
+                    suite=suite,
+                    instance=instance,
+                    backend=backend,
+                    store=store,
+                    run_root=run_root,
+                    run_id="run-http",
+                )
+                # The container got an HTTP store binding, not a bind mount.
+                self.assertEqual(backend.created[0].env["SAL_STORE"], "http")
+                prediction = json.loads(artifacts.prediction_path.read_text())
+                self.assertEqual(prediction["answer"], "99")
+
     def test_bootstrap_script_is_suite_agnostic(self) -> None:
         script = bootstrap_script(
-            runner_argv=("/agent/runner.py", "--instance-id", "x y"),
+            runner_argv=("-m", "simple_agent_lab.evals.in_container", "--x", "a b"),
             wheelhouse_mount="/agent/wheelhouse",
         )
         self.assertIn("AGENT_PYTHON", script)
         self.assertIn("--no-index --find-links /agent/wheelhouse", script)
-        # The runner argv is quoted so a value with a space stays one arg.
-        self.assertIn("'x y'", script)
+        self.assertIn("'a b'", script)  # spaced arg stays one token
+
+
+class HostHttpStoreTest(unittest.TestCase):
+    def test_http_client_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp).resolve()
+            with HostHttpStore(base, container_host="127.0.0.1") as store:
+                bound = store.bind(base / "run-1" / "inst-1")
+                binding = bound.container_binding()
+                client = HttpArtifactClient(
+                    binding.env["SAL_STORE_URL"], binding.env["SAL_STORE_TOKEN"]
+                )
+                client.put("out/result.json", b'{"ok": true}')
+                # Host reads the same bytes off disk; client reads them over HTTP.
+                self.assertEqual(bound.get("out/result.json"), b'{"ok": true}')
+                self.assertEqual(client.get("out/result.json"), b'{"ok": true}')
+                self.assertFalse(client.exists("out/missing.json"))
+
+    def test_bad_token_is_rejected(self) -> None:
+        import urllib.error
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with HostHttpStore(Path(tmp), container_host="127.0.0.1") as store:
+                url = store.bind(Path(tmp)).container_binding().env["SAL_STORE_URL"]
+                client = HttpArtifactClient(url, "wrong-token")
+                with self.assertRaises(urllib.error.HTTPError):
+                    client.put("x", b"y")
 
 
 class SwebenchSuiteDriverTest(unittest.TestCase):
@@ -134,6 +196,7 @@ class SwebenchSuiteDriverTest(unittest.TestCase):
 
         suite = SwebenchSuite(dataset_name="SWE-bench_Pro")
         self.assertIsInstance(suite, Suite)
+        self.assertEqual(suite.container_module, SWEBENCH_CONTAINER)
         instance = {
             "instance_id": "instance_acme__widget-abc123",
             "repo": "acme/widget",
@@ -147,17 +210,9 @@ class SwebenchSuiteDriverTest(unittest.TestCase):
 
 
 class GenericInContainerRunnerTest(unittest.TestCase):
-    """The ideal state: a suite is driven by the generic runner, no Docker.
-
-    Uses the fake LLM provider and a hermetic temp git repo so the SWE-bench
-    container half (`build_task` + `prepare` + `extract_result`) runs through
-    `run_in_container` exactly as it would inside the image.
-    """
+    """Ideal state: the SWE-bench container half driven by the generic runner."""
 
     def test_swebench_container_half_through_generic_runner(self) -> None:
-        import subprocess
-
-        from simple_agent_lab.evals import FileTraceSink
         from simple_agent_lab.evals.in_container import run_in_container
         from simple_agent_lab.llm import Provider
 
@@ -191,25 +246,25 @@ class GenericInContainerRunnerTest(unittest.TestCase):
                 "problem_statement": "Make it better.",
                 "language": "python",
             }
-            traces = Path(tmp) / "trajectory.jsonl"
+            store = LocalDirStore(Path(tmp)).bind(Path(tmp))
             result, state = run_in_container(
                 instance=instance,
-                container_module="evals.swebench.container",
+                container_module=SWEBENCH_CONTAINER,
                 provider=Provider(id="fake", api="fake", model="fake-model"),
                 workdir=repo,
                 max_turns=3,
-                trace_sink=FileTraceSink(traces),
+                store=store,
                 trace_id="swebench.demo__repo-1",
                 producer="suite:swebench",
                 suite_name="swebench",
             )
 
-            # The suite's extract_result product came back, the loop ran, and
-            # the trace was pushed to the sink — all via the generic runner.
+            # extract_result product returned, loop ran, result + trace persisted.
             self.assertIn("model_patch", result)
             self.assertEqual(state.data["result"], result)
-            self.assertTrue(traces.exists())
-            record = json.loads(traces.read_text())
+            persisted = json.loads(store.get(RESULT_KEY).decode("utf-8"))
+            self.assertEqual(persisted, result)
+            record = json.loads(store.get(TRACE_KEY).decode("utf-8"))
             self.assertEqual(record["meta"]["suite"], "swebench")
             self.assertFalse(record["meta"]["in_progress"])
 

@@ -1,12 +1,12 @@
 """In-memory backend for tests and teaching — runs no real container.
 
 Mirrors the LLM layer's ``fake`` adapter: it exercises the full
-create → put_file → start → wait → logs → remove lifecycle so the framework,
-a `Suite`, and a transport can be tested end-to-end without Docker.
+create → start → wait → logs → remove lifecycle so the framework, a `Suite`,
+and a store can be tested end-to-end without Docker.
 
 The "container body" is a caller-supplied callback (`on_start`) that receives
-the created handle and may write outputs (e.g. the bind-mounted ``out/``
-files), simulating what the in-container runner would produce.
+the created handle and may write outputs through whatever store the run uses,
+simulating what the in-container runner would produce.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Callable
 
-from ..protocols import ContainerPlan, StagedFile
+from ..protocols import ContainerPlan
 
 OnStart = Callable[["FakeContainerHandle"], None]
 
@@ -27,22 +27,21 @@ class FakeContainerHandle:
         *,
         name: str,
         env: Mapping[str, str],
+        mounts: Mapping[str, Mapping[str, str]],
+        command: tuple[str, ...],
         on_start: OnStart | None,
         status_code: int,
         log_text: str,
     ) -> None:
         self.name = name
         self.env = dict(env)
-        self.staged: list[StagedFile] = []
+        self.mounts = {k: dict(v) for k, v in mounts.items()}
+        self.command = command
         self.started = False
         self.removed = False
         self._on_start = on_start
         self._status_code = status_code
         self._log_text = log_text
-        self._archives: dict[str, bytes] = {}
-
-    def put_file(self, file: StagedFile) -> None:
-        self.staged.append(file)
 
     def start(self) -> None:
         self.started = True
@@ -54,13 +53,6 @@ class FakeContainerHandle:
 
     def logs(self) -> str:
         return self._log_text
-
-    def get_archive(self, container_path: str) -> bytes:
-        return self._archives.get(container_path, b"")
-
-    def stage_archive(self, container_path: str, data: bytes) -> None:
-        """Test helper: pretend `container_path` holds `data` for get_archive."""
-        self._archives[container_path] = data
 
     def remove(self) -> None:
         self.removed = True
@@ -89,11 +81,14 @@ class FakeBackend:
         command: tuple[str, ...],
         env: Mapping[str, str],
         mounts: Mapping[str, Mapping[str, str]],
+        add_hosts: Mapping[str, str] | None = None,
     ) -> FakeContainerHandle:
-        del plan, command, mounts
+        del plan, add_hosts
         handle = FakeContainerHandle(
             name=name,
             env=env,
+            mounts=mounts,
+            command=command,
             on_start=self._on_start,
             status_code=self._status_code,
             log_text=self._log_text,

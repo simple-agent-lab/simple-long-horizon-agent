@@ -4,13 +4,14 @@ This is the *host half*: it maps SWE-bench Verified and SWE-bench Pro onto one
 `Suite` whose `container_plan` carries the per-suite differences as **data**
 (image, workdir, shell, entrypoint) instead of the runner branching on
 ``is_swebench_pro_instance(...)``. It delegates to the existing, battle-tested
-helpers in `containerized_agent` so behavior is unchanged and this skeleton can
-land without touching the production launcher or `evaluate_predictions.py`.
+image/launch helpers in `containerized_agent` so behavior is unchanged and
+`evaluate_predictions.py` (scoring) is untouched.
 
-The *container half* (``build_task`` / ``prepare`` / ``extract_result``) lives
-in `container.py` and is driven by the generic in-container runner
-(`simple_agent_lab.evals.in_container`); this suite is the reference for the
-"one Suite + two functions" integration shape (ADR 0017).
+The *container half* (``build_task`` / ``prepare`` / ``extract_result``) ships
+in the wheel at ``simple_agent_lab.evals.suites.swebench.container`` and is
+driven by the generic in-container runner — so the container needs no copied
+files. This suite is the reference for the "one Suite + two functions"
+integration shape (ADR 0017).
 """
 
 from __future__ import annotations
@@ -28,9 +29,9 @@ class SwebenchSuite:
     """`Suite` for the SWE-bench family (Verified + Pro)."""
 
     name = "swebench"
-    # Container half: build_task / prepare / extract_result (see container.py),
-    # driven by the generic runner `simple_agent_lab.evals.in_container`.
-    container_module = "evals.swebench.container"
+    # Container half ships in the wheel; the generic runner imports it by
+    # dotted path with zero file copying.
+    container_module = "simple_agent_lab.evals.suites.swebench.container"
 
     def __init__(
         self,

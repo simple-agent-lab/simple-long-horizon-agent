@@ -4,14 +4,20 @@ The shapes here mirror `llm.provider`'s taste: configuration is *data*
 (frozen dataclasses, JSON-friendly), and capability is a `Protocol` that a
 small concrete implementation satisfies — no class hierarchy to subclass.
 
-Three seams keep the runner portable from a local Docker daemon to a cloud
-backend without touching suites or `run_suite_instance`:
+Two orthogonal seams keep the runner portable from a local Docker daemon to a
+cloud backend without touching suites or `run_suite_instance`:
 
-- `ContainerBackend` — *where* compute runs (local docker-py today).
-- `ArtifactTransport` — *how* inputs reach the container and outputs return
-  (bind mount today; copy-out for remote daemons).
-- `TraceSink` — *how* live trace records leave the container (file today;
-  HTTP/queue for cloud).
+- `ContainerBackend` — *where* compute runs (local docker-py today; remote /
+  k8s later).
+- `ArtifactStore` — *where bytes live*: one keyed store that carries inputs,
+  the result, and the live trajectory, in both directions. `LocalDirStore`
+  (bind mount) and `HostHttpStore` (a batteries-included stdlib server, no
+  third-party middleware) ship today; `S3Store` is the production stub.
+
+There is deliberately no separate "transport" or "trace sink": staging inputs,
+collecting outputs, and pushing the live trace are all just `put`/`get` on the
+one `ArtifactStore`. The live trajectory is simply an artifact key that gets
+re-`put` on a cadence.
 
 A `Suite` supplies only the suite-specific bits. Its *host half* (image and
 launch shape, instance sanitization, prediction shape) lives behind this
@@ -26,10 +32,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-# The container half writes its raw `extract_result` product here, under the
-# run's ``out/``; the host shapes ``prediction.jsonl`` from it. One filename
-# so backends/transports and the in-container runner agree without coupling.
-RESULT_FILE = "result.json"
+# Fixed artifact keys the framework and the in-container runner agree on. Keys
+# are relative to one instance's run directory, so a store bound to that dir
+# (or a bind mount of it) resolves them identically on host and container.
+INSTANCE_KEY = "input/instance.json"  # host puts, container gets
+RESULT_KEY = "out/result.json"  # container puts (raw extract_result), host gets
+TRACE_KEY = "out/trajectory.jsonl"  # container re-puts on a cadence = live trace
 
 
 @dataclass(frozen=True)
@@ -56,6 +64,23 @@ class ContainerPlan:
 
 
 @dataclass(frozen=True)
+class ContainerBinding:
+    """What a store needs the backend to apply so the container sees its keys.
+
+    `mounts` are docker-style bind mounts (used by `LocalDirStore`); `env` are
+    environment variables the in-container runner reads to reconstruct the
+    container-side store (used by `HostHttpStore` / `S3Store`). A store returns
+    one or the other (or both); the backend applies whatever is present.
+    `add_hosts` maps hostnames to IPs (e.g. ``host-gateway``) so a container can
+    reach a host-run store on Linux.
+    """
+
+    mounts: dict[str, dict[str, str]] = field(default_factory=dict)
+    env: dict[str, str] = field(default_factory=dict)
+    add_hosts: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class RunArtifacts:
     """What one instance run produced. Pure data; safe to log."""
 
@@ -68,12 +93,20 @@ class RunArtifacts:
 
 
 @dataclass(frozen=True)
-class StagedFile:
-    """One file the transport must make readable inside the container."""
+class AgentSpec:
+    """How the in-container runner should build the agent for a suite.
 
-    data: bytes
-    container_path: str
-    mode: int = 0o644
+    A container module may expose ``agent_spec()`` returning this; otherwise the
+    runner uses the defaults (a plain bash agent with no system prompt). A suite
+    that needs full control can instead expose ``build_agent(...)`` directly, so
+    the framework never enumerates every agent shape. Only the prompt/role/flavor
+    are suite-specific — the loop, retry, and trace push are generic.
+    """
+
+    name: str = "agent"
+    role: str = ""
+    system_prompt: str = ""
+    flavor: str = "bash"  # "bash" | "bash_task"
 
 
 @runtime_checkable
@@ -82,9 +115,12 @@ class Suite(Protocol):
 
     `container_module` is the dotted import path of the suite's container half
     (a module exposing `build_task(instance, *, workdir)` and
-    `extract_result(workspace, instance)`); the generic in-container runner
-    (`simple_agent_lab.evals.in_container`) imports it so the agent loop,
-    retry, and trace push stay suite-agnostic.
+    `extract_result(workspace, instance)`, plus optional `prepare` /
+    `agent_spec` / `build_agent`). The generic in-container runner
+    (`simple_agent_lab.evals.in_container`) imports it so the agent loop, retry,
+    and trace push stay suite-agnostic. The module must import only the standard
+    library and the installed ``simple-agent-lab`` wheel, since it runs inside
+    the image.
     """
 
     name: str
@@ -107,29 +143,15 @@ class Suite(Protocol):
         ...
 
 
-@dataclass(frozen=True)
-class AgentSpec:
-    """How the in-container runner should build the agent for a suite.
-
-    A container module may expose ``agent_spec()`` returning this; otherwise
-    the runner uses the defaults (a plain bash agent with no system prompt).
-    Only the prompt/role/flavor are suite-specific — the loop, retry, and
-    trace push are generic.
-    """
-
-    name: str = "agent"
-    role: str = ""
-    system_prompt: str = ""
-    flavor: str = "bash"  # "bash" | "bash_task"
-
-
 @runtime_checkable
 class ContainerTask(Protocol):
     """The container half a suite module supplies (runs inside the image).
 
-    Referenced by `Suite.container_module` and imported by the generic
-    in-container runner. ``agent_spec`` is optional; ``build_task`` and
-    ``extract_result`` are the two functions a new suite must write.
+    Documentation of the duck-typed surface the in-container runner imports by
+    `Suite.container_module`. ``build_task`` and ``extract_result`` are the two
+    functions a new suite must write; ``prepare`` (pre-run setup, threaded into
+    ``extract_result`` as ``context``), ``agent_spec``, and ``build_agent`` are
+    optional.
     """
 
     def build_task(self, instance: Mapping[str, Any], *, workdir: str) -> str: ...
@@ -145,10 +167,6 @@ class ContainerTask(Protocol):
 class ContainerHandle(Protocol):
     """One created-but-not-removed container, abstracted over the backend."""
 
-    def put_file(self, file: StagedFile) -> None:
-        """Place one file inside the container before it starts."""
-        ...
-
     def start(self) -> None: ...
 
     def wait(self) -> int:
@@ -156,10 +174,6 @@ class ContainerHandle(Protocol):
         ...
 
     def logs(self) -> str: ...
-
-    def get_archive(self, container_path: str) -> bytes:
-        """Return a tar stream of `container_path` (used by copy-out transport)."""
-        ...
 
     def remove(self) -> None: ...
 
@@ -176,69 +190,33 @@ class ContainerBackend(Protocol):
         command: tuple[str, ...],
         env: Mapping[str, str],
         mounts: Mapping[str, Mapping[str, str]],
+        add_hosts: Mapping[str, str] | None = None,
     ) -> ContainerHandle: ...
 
 
 @runtime_checkable
-class ArtifactTransport(Protocol):
-    """How inputs reach the container and outputs come back.
+class ArtifactStore(Protocol):
+    """One keyed byte store shared between host and container, both directions.
 
-    `BindMountTransport` returns bind mounts and relies on the shared
-    filesystem; `CopyOutTransport` returns no mounts and instead copies inputs
-    in / outputs out over the backend's archive API, so it works against a
-    remote daemon.
+    Subsumes input staging, output collection, and live-trace push. `bind`
+    returns a view rooted at one instance's run directory so a single host-side
+    store (e.g. one `HostHttpStore` server) can serve many instances. The
+    container reconstructs its own store from `container_binding().env`; it never
+    calls `bind`.
     """
 
-    def mounts(self, run_dir: Path) -> dict[str, dict[str, str]]:
-        """Bind mounts to request at create time (empty for copy-out)."""
+    def bind(self, run_dir: Path) -> ArtifactStore:
+        """Return a per-instance view rooted at `run_dir`."""
         ...
 
-    def stage_inputs(
-        self,
-        handle: ContainerHandle,
-        *,
-        run_dir: Path,
-        files: tuple[StagedFile, ...],
-    ) -> None:
-        """Make `files` and the run dir's `input/` readable in the container."""
+    def get(self, key: str) -> bytes: ...
+
+    def put(self, key: str, data: bytes) -> None: ...
+
+    def container_binding(self) -> ContainerBinding:
+        """Mounts/env the backend must apply so the container resolves keys."""
         ...
 
-    def collect_outputs(self, handle: ContainerHandle, *, run_dir: Path) -> None:
-        """Ensure `run_dir/out/` holds the trajectory + prediction after the run."""
+    def collect_outputs(self) -> None:
+        """Host-side: ensure outputs are on local disk (no-op for shared-FS stores)."""
         ...
-
-
-@runtime_checkable
-class TraceSink(Protocol):
-    """Where live trace records go. The container half pushes to this.
-
-    `FileTraceSink` writes the canonical single-record `trajectory.jsonl`
-    (behavior-preserving under a bind mount). Cloud sinks (`HttpTraceSink`,
-    queues) accept the same records without a shared filesystem.
-    """
-
-    def emit(self, record: Mapping[str, Any]) -> None: ...
-
-    def close(self) -> None: ...
-
-
-# A frozen, JSON-friendly view of the env passed into the container. Kept as a
-# named alias so suites and backends agree on the shape without importing each
-# other.
-ContainerEnv = Mapping[str, str]
-
-
-@dataclass(frozen=True)
-class RunRequest:
-    """Everything `run_suite_instance` needs for one instance, suite-resolved.
-
-    The runner builds this from a `Suite` + the loaded instance; backends and
-    transports consume it without knowing which suite produced it.
-    """
-
-    suite_name: str
-    instance_id: str
-    plan: ContainerPlan
-    command: tuple[str, ...]
-    env: ContainerEnv = field(default_factory=dict)
-    extra_inputs: tuple[StagedFile, ...] = ()
