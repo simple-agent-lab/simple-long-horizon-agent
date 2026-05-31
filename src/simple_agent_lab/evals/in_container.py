@@ -28,6 +28,7 @@ import sys
 import time
 from collections.abc import Mapping
 from pathlib import Path
+from types import ModuleType
 from typing import Any, Callable, cast
 
 from ..agents.bash import make_bash_agent
@@ -36,7 +37,7 @@ from ..core import Agent
 from ..llm import ApiKind, Provider
 from ..state import State
 from ..trajectory import run_trace_from_state, trace_record
-from .protocols import RESULT_KEY, TRACE_KEY, AgentSpec, ArtifactStore
+from .protocols import RESULT_KEY, TRACE_KEY, AgentSpec, ArtifactStore, ContainerTask
 from .stores import container_store_from_env
 
 __all__ = [
@@ -100,13 +101,18 @@ def build_agent(
 
 
 def _resolve_agent(
-    module: Any,
+    module: ModuleType,
     *,
     provider: Provider,
     cwd: Path,
     request_extra: Mapping[str, Any] | None,
 ) -> Agent:
-    """A container module may supply `build_agent` for full control, else `agent_spec`."""
+    """A container module may supply `build_agent` for full control, else `agent_spec`.
+
+    Both are *optional* members, so they're probed with `getattr(..., None)`;
+    `module` is the honest `ModuleType` rather than the required-surface
+    `ContainerTask` (which `run_in_container` casts to for the required calls).
+    """
 
     custom = getattr(module, "build_agent", None)
     if callable(custom):
@@ -239,6 +245,11 @@ def run_in_container(
     """
 
     module = importlib.import_module(container_module)
+    # The import is a dynamic boundary: `module` is a ModuleType the checker
+    # can't introspect. Cast to the required-surface protocol so the build_task
+    # / extract_result calls below are type-checked (a typo or wrong arg is
+    # caught); optional members stay dynamic via getattr on the raw module.
+    tasks = cast(ContainerTask, module)
 
     # Optional pre-run setup (checkout, snapshot a baseline, install ignore
     # rules). Its returned dict is threaded into extract_result as `context`.
@@ -247,7 +258,7 @@ def run_in_container(
     if callable(prepare):
         context = dict(prepare(workdir, instance) or {})
 
-    task = module.build_task(instance, workdir=str(workdir))
+    task = tasks.build_task(instance, workdir=str(workdir))
     agent = _resolve_agent(
         module, provider=provider, cwd=workdir, request_extra=request_extra
     )
@@ -279,7 +290,7 @@ def run_in_container(
             store.put(TRACE_KEY, trace_bytes(in_progress=True))
             last = now
 
-    extract = module.extract_result
+    extract = tasks.extract_result
     extract_kwargs = (
         {"context": context}
         if "context" in inspect.signature(extract).parameters
