@@ -68,9 +68,9 @@ from simple_agent_lab.evals import (
     run_suite_instance, LocalProcessBackend, LocalDockerBackend, LocalDirStore,
 )
 
-backend = LocalProcessBackend(workspace=ws)  # local dev: in-process, no Docker
-# backend = LocalDockerBackend()             # one machine, containerized
-# backend = RemoteDockerBackend(host="...")  # multi-machine (future)
+backend = LocalProcessBackend(workspace=ws)        # local dev: in-process, no Docker
+# backend = LocalDockerBackend()                   # one machine, containerized
+# backend = RemoteDockerBackend(base_url="tcp://worker:2375")  # remote daemon
 
 run_suite_instance(
     suite=MySuite(),
@@ -113,10 +113,26 @@ else:
 | --- | --- | --- |
 | **Backend** (*where it runs*) | `LocalProcessBackend` | local dev: in-process, no Docker, debuggable |
 | | `LocalDockerBackend` | one machine, in a container |
-| | `RemoteDockerBackend` *(future)* | multi-machine, remote daemon |
+| | `RemoteDockerBackend` | remote daemon; **host-pull**, so the worker needs no reverse reachability |
 | **Store** (*where bytes live*) | `LocalDirStore` | single machine (bind mount, zero-copy) |
-| | `HostHttpStore` | remote daemon, **no third-party middleware** |
+| | `HostHttpStore` | remote daemon **when the worker can reach the host** (worker-push, no middleware) |
 | | `S3Store` *(stub)* | host may go offline between submit and fetch |
+
+**Matching backend to your network reality.** Multi-machine runs differ by which
+way connections can be opened:
+
+- **Worker can reach the host** (same LAN, host has an ingress): `HostHttpStore`
+  — the worker pushes artifacts to a host-run stdlib HTTP server, no middleware.
+- **Only the host can reach the worker** (worker behind NAT; host drives it via
+  `DOCKER_HOST` / SSH — the common case): `RemoteDockerBackend`. The worker
+  writes only to its own filesystem; the host moves bytes in/out with
+  `put_archive` / `get_archive` over the *same outbound* host→worker connection
+  it already uses to run the container. The worker needs **no** inbound
+  reachability. Live trace is host-pull: pass `live_poll_interval_s=2` to have
+  the host pull `out/trajectory.jsonl` on a cadence into local `evals/out/` for
+  the viewer.
+- **Neither can reach the other / host may go offline**: `S3Store` (stub) — both
+  sides talk only to the bucket.
 
 The fast inner loop while writing a suite is `LocalProcessBackend` + a fake
 provider — it runs the *exact* container half, no image build:

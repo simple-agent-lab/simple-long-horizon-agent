@@ -56,9 +56,15 @@ the framework and is parameterized over **two orthogonal seams**, each a
      half a container would run, but with a debugger and instant iteration.
    - `LocalDockerBackend` — turns the `RunSpec` into a container command (the
      in-wheel generic runner) and runs it on the local / `DOCKER_HOST` daemon.
-   - `RemoteDockerBackend` / Kubernetes / managed runners — later, unchanged
-     suites. Swapping the backend (not the code) is what moves a suite from
-     local development to multi-machine deployment.
+   - `RemoteDockerBackend` — a remote daemon with **host-pull** artifact
+     movement: the worker writes only to its own filesystem and the host moves
+     bytes in/out with `put_archive` / `get_archive` over the same outbound
+     host→worker connection. This fits the common topology where the host can
+     reach the worker but the worker (behind NAT) cannot reach back — the case
+     `HostHttpStore` (worker-push) does *not* cover.
+   - Kubernetes / managed runners — later, unchanged suites. Swapping the
+     backend (not the code) is what moves a suite from local development to
+     multi-machine deployment.
 
    The execution *environment* is the deliberate difference, not the code: a
    container gets its workspace + toolchain from the image (`plan.workdir`);
@@ -144,9 +150,12 @@ a documented stub until a concrete cloud target lands.
 
 - A new Docker benchmark is "implement `Suite` + a container module," not "copy
   `containerized_agent.py` and edit the branches."
-- The cloud story has explicit seams along two orthogonal axes: a remote daemon
-  is `RemoteDockerBackend` + (`HostHttpStore` for no-middleware, or `S3Store`
-  for a fully decoupled host), with the suite and runner unchanged.
+- The cloud story has explicit seams along two orthogonal axes, chosen by which
+  way connections open: worker→host reachable → `HostHttpStore` (worker-push, no
+  middleware); only host→worker reachable (NAT, the common case) →
+  `RemoteDockerBackend` (host-pull, worker needs no inbound reachability);
+  neither / host may go offline → `S3Store`. The suite and runner are unchanged
+  across all three.
 - ADR 0011's "adapter, not framework" guidance is **superseded** for the
   containerized case. Its core principles survive: the runtime core still knows
   nothing about Docker, datasets, or gold patches; raw trajectories remain

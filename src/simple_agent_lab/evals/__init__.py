@@ -21,7 +21,12 @@ and ``evals/README.md`` for the "add a suite" steps.
 
 from __future__ import annotations
 
-from .backends import FakeBackend, LocalDockerBackend, LocalProcessBackend
+from .backends import (
+    FakeBackend,
+    LocalDockerBackend,
+    LocalProcessBackend,
+    RemoteDockerBackend,
+)
 from .bootstrap import bootstrap_script
 from .protocols import (
     INSTANCE_KEY,
@@ -69,6 +74,7 @@ __all__ = [
     "LocalDirStore",
     "LocalDockerBackend",
     "LocalProcessBackend",
+    "RemoteDockerBackend",
     "RunArtifacts",
     "RunOutcome",
     "RunPaths",

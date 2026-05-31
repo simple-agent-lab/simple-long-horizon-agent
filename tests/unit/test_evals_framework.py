@@ -217,6 +217,78 @@ class LocalProcessBackendTest(unittest.TestCase):
             self.assertIn("model_patch", prediction)
 
 
+class _FakeRemoteContainer:
+    """Stand-in for a docker-py container: tar in (put), local FS, tar out (get)."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root  # the container's filesystem rooted here
+
+    def put_archive(self, dest: str, tar_bytes: bytes) -> bool:
+        import tarfile
+        from io import BytesIO
+
+        with tarfile.open(fileobj=BytesIO(tar_bytes), mode="r") as tar:
+            tar.extractall(self.root / dest.lstrip("/"))
+        return True
+
+    def get_archive(self, path: str):
+        import io
+        import tarfile
+
+        src = self.root / path.lstrip("/")
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w") as tar:
+            # docker names members relative to the requested path's parent, e.g.
+            # get_archive(".../out") -> "out/<file>".
+            tar.add(src, arcname=src.name)
+        return [buffer.getvalue()], {}
+
+
+class RemoteDockerHostPullTest(unittest.TestCase):
+    """Host-pull copy logic without a daemon: push instance in, pull out/ back."""
+
+    def test_push_inputs_then_pull_outputs(self) -> None:
+        from simple_agent_lab.evals.backends._archive import (
+            pack_file_to_root,
+            unpack_members,
+        )
+        from simple_agent_lab.evals.backends.remote_docker import (
+            RUN_MOUNT,
+            pull_outputs,
+            push_inputs,
+        )
+
+        # pure-archive round trip
+        tar = pack_file_to_root("/agent/run/input/instance.json", b'{"x":1}')
+        self.assertEqual(
+            unpack_members(tar)["agent/run/input/instance.json"], b'{"x":1}'
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            host_root = Path(tmp) / "host"
+            container_fs = Path(tmp) / "worker"
+            container_fs.mkdir()
+            store = LocalDirStore(host_root).bind(host_root / "run" / "inst")
+            store.put(INSTANCE_KEY, b'{"instance_id":"inst"}')
+
+            container = _FakeRemoteContainer(container_fs)
+            # 1. host pushes the instance into the worker container
+            push_inputs(container, store)
+            staged = container_fs / RUN_MOUNT.lstrip("/") / INSTANCE_KEY
+            self.assertTrue(staged.exists())
+
+            # 2. worker writes its outputs locally (simulated)
+            out = container_fs / RUN_MOUNT.lstrip("/") / "out"
+            out.mkdir(parents=True)
+            (out / "result.json").write_text('{"model_patch":"diff"}')
+            (out / "trajectory.jsonl").write_text('{"meta":{"in_progress":false}}\n')
+
+            # 3. host pulls out/ back into its store (host-initiated, no reverse conn)
+            pulled = pull_outputs(container, store)
+            self.assertEqual(set(pulled), {RESULT_KEY, TRACE_KEY})
+            self.assertEqual(json.loads(store.get(RESULT_KEY))["model_patch"], "diff")
+
+
 class SwebenchSuiteDriverTest(unittest.TestCase):
     def test_pro_instance_plan_is_data(self) -> None:
         from evals.swebench.suite import SwebenchSuite
