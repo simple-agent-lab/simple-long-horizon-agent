@@ -17,6 +17,7 @@ never has to know how the active view was shaped.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -32,10 +33,23 @@ from .messages import (
 )
 
 
-# Same teaching-level heuristic as the runtime token estimators: this is a
-# stable budget signal, not provider-accurate token accounting.
-CHARS_PER_TOKEN = 4
+# Chars-per-token for the char-based fallback estimate — a rounded neutral
+# default, not a provider-accurate count. The real ratio varies by content type
+# (denser for prose, sparser for code / json / logs), so one constant can't be
+# exact; this is a deliberate middle value below the old 4 guess. One global
+# ratio is enough because the estimate only covers the small tail since the last
+# provider usage report, and the runtime's safety buffer absorbs the residual
+# (see ADR 0017).
+CHARS_PER_TOKEN = 3.5
 IMAGE_CHAR_ESTIMATE = 7373
+
+# Default reserves for the effective context budget (mirrors opencode's
+# OUTPUT_TOKEN_MAX / COMPACTION_BUFFER). They assume a large window — tune per
+# model. The safety buffer matters because the size signal partly rests on the
+# char estimate, which is approximate; the buffer is the slack that keeps that
+# error from overflowing the real window.
+DEFAULT_OUTPUT_RESERVE = 32000
+DEFAULT_SAFETY_BUFFER = 20000
 
 
 @dataclass(frozen=True)
@@ -202,7 +216,7 @@ def estimate_message_tokens(message: Message) -> int:
     carries one — that field is the exact tokenizer cost of this message and
     is stable across calls (so it's also the precise cost of re-sending it).
     For every other message and for assistants without usage data, falls back
-    to the char/4 heuristic.
+    to the char/`CHARS_PER_TOKEN` heuristic.
 
     Per-message attribution of `input_tokens` is not possible: providers only
     report that value as the SUM across all input messages of one call. So we
@@ -213,7 +227,7 @@ def estimate_message_tokens(message: Message) -> int:
         if usage is not None and usage.output_tokens > 0:
             return usage.output_tokens
     chars = estimate_message_chars(message)
-    return (chars + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN
+    return math.ceil(chars / CHARS_PER_TOKEN)
 
 
 def estimate_context_tokens(
@@ -223,11 +237,13 @@ def estimate_context_tokens(
 ) -> int:
     """Estimate context-window size for a selected message sequence.
 
-    When possible, use the latest provider-reported assistant usage as the
-    authoritative size of everything up to that response, then estimate only
-    messages added after it. Pass ``allow_usage_baseline=False`` when the
-    caller knows older context has been dropped or summarized — the historical
-    usage figure would over-count text that is no longer present.
+    When possible, take the latest provider-reported assistant usage as the
+    authoritative size of everything up to that response, and estimate only the
+    messages added after it — keeping the inaccurate char estimate confined to
+    the smallest possible tail (the runtime's safety buffer covers that bit).
+    Pass ``allow_usage_baseline=False`` when older context has been dropped or
+    summarized — the historical usage figure would over-count text that is no
+    longer present, so the whole sequence is estimated instead.
     """
     if allow_usage_baseline:
         for index in range(len(messages) - 1, -1, -1):
@@ -239,6 +255,27 @@ def estimate_context_tokens(
                     for trailing in messages[index + 1 :]
                 )
     return sum(estimate_message_tokens(message) for message in messages)
+
+
+def effective_token_budget(
+    context_window: int,
+    *,
+    output_reserve: int = DEFAULT_OUTPUT_RESERVE,
+    safety_buffer: int = DEFAULT_SAFETY_BUFFER,
+) -> int:
+    """Usable input budget = window − reserved output − safety buffer.
+
+    Compression should trigger against this, not the raw `context_window`.
+    Two reasons to hold tokens back:
+
+    - `output_reserve`: the model still needs room to generate its reply, so
+      that much of the window is never available for input.
+    - `safety_buffer`: part of the size signal is the char estimate, which is
+      approximate. The buffer is the slack that keeps that estimate's error
+      (and any not-yet-reported trailing message) from overflowing the real
+      window. The less the size is provider-confirmed, the larger it should be.
+    """
+    return max(0, context_window - output_reserve - safety_buffer)
 
 
 def _content_chars(content: object) -> int:

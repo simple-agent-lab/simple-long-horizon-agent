@@ -359,10 +359,12 @@ def _openai_chat_usage(usage: Any) -> TokenUsage:
     details = getattr(usage, "prompt_tokens_details", None)
     if details is not None:
         cached = int(getattr(details, "cached_tokens", 0) or 0)
-    return TokenUsage(
-        input_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
-        output_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
-        cache_read_tokens=cached,
+    # `prompt_tokens` already includes `cached_tokens` as a subset; normalize
+    # to the project's additive-cache convention so context_tokens is correct.
+    return TokenUsage.from_inclusive_input(
+        total_input=int(getattr(usage, "prompt_tokens", 0) or 0),
+        output=int(getattr(usage, "completion_tokens", 0) or 0),
+        cached_read=cached,
     )
 
 
