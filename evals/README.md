@@ -104,6 +104,55 @@ Reference: `evals/swebench/suite.py` (host half) +
 `FakeBackend` runs the whole flow without Docker for tests. Still follow the
 output-directory checklist in [`out/README.md`](out/README.md).
 
+### Local development → deployment (swap the backend)
+
+A run has two orthogonal axes; you pick one value on each and change nothing
+else:
+
+| Axis | Option | When |
+| --- | --- | --- |
+| **Backend** (*where it runs*) | `LocalProcessBackend` | local dev: in-process, no Docker, debuggable |
+| | `LocalDockerBackend` | one machine, in a container |
+| | `RemoteDockerBackend` *(future)* | multi-machine, remote daemon |
+| **Store** (*where bytes live*) | `LocalDirStore` | single machine (bind mount, zero-copy) |
+| | `HostHttpStore` | remote daemon, **no third-party middleware** |
+| | `S3Store` *(stub)* | host may go offline between submit and fetch |
+
+The fast inner loop while writing a suite is `LocalProcessBackend` + a fake
+provider — it runs the *exact* container half, no image build:
+
+```python
+from simple_agent_lab.evals import (
+    run_suite_instance, LocalProcessBackend, LocalDirStore,
+)
+
+art = run_suite_instance(
+    suite=MySuite(),
+    instance={"instance_id": "dev-1", ...},
+    backend=LocalProcessBackend(workspace=my_local_workspace),
+    store=LocalDirStore(run_root),
+    run_root=run_root,
+    run_id="dev",
+    provider="fake",          # deterministic; no network. Use "openai" for a real model.
+)
+# art.run_dir / out/{result.json, trajectory.jsonl, prediction.jsonl}
+```
+
+Then deploy by changing one argument — `backend=LocalDockerBackend()` (and, for
+a remote daemon, `store=HostHttpStore(run_root)`). The suite code does not move.
+The only real difference is the workspace: a container gets it from the image
+(`plan.workdir`); in-process you pass a local directory. Light suites and judges
+run in-process directly; heavy suites (SWE-bench) still need their image.
+
+### Composing runs (agent-as-judge, panels) without a pipeline engine
+
+Because every run reads/writes through one `ArtifactStore`, a run is a node and
+the store is the bus — so a multi-stage flow is just plain Python: run a
+candidate, read its `result.json` / `trajectory.jsonl` from the store, feed them
+as the instance of a second (judge) run. No pipeline abstraction. See
+`examples/agent_judge/demo.py` for a candidate → agent-judge example that runs
+two real agent loops in-process (`uv run python -m examples.agent_judge.demo`).
+
 Evals should help answer:
 
 - Does the agent follow the expected loop?

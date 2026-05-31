@@ -95,8 +95,12 @@ remotely) are spelled out in
 
 Training-data and eval architecture notes also live under
 [docs/decisions](docs/decisions/README.md). The original design-version
-pipeline has been retired alongside `examples/design_versions/`; a replacement
-targeting the canonical runtime is not yet wired up.
+pipeline has been retired alongside `examples/design_versions/`. The current
+eval architecture is the generic containerized framework in
+`src/simple_agent_lab/evals/` ([ADR 0017](docs/decisions/0017-generic-containerized-eval-framework.md)):
+a suite is one host-side `Suite` plus a container half of two functions, run
+through `run_suite_instance` over swappable `ContainerBackend` (in-process /
+local Docker / remote) and `ArtifactStore` (local dir / host HTTP / S3) seams.
 
 ## Non-Goals
 
@@ -111,8 +115,9 @@ targeting the canonical runtime is not yet wired up.
 - [docs/agent-native](docs/agent-native/README.md): the single future-agent loading map, plus project intent, code style, development workflow, source-of-truth routing, and unresolved owner questions.
 - [docs/decisions](docs/decisions/README.md): architecture decision records.
 - [docs/glossary.md](docs/glossary.md): shared vocabulary.
-- [src/simple_agent_lab](src/simple_agent_lab/core.py): the installable package - `core.py` (canonical tiny run loop), `trace.py` (trace printing and OpenAI Chat JSONL export), `context_view.py` (model-visible context projection), `compression.py` (context-compression strategies run before each model request), `messages.py` (shared message protocol), `tools/` (shared tool values plus concrete tools like bash and the sub-agent `task` tool), `trajectory/` (runtime-neutral trace records split into span/training transforms, record schema, JSONL IO, and the live-trace edge), `llm/` (shared LLM access layer and message bridge), and `agents/` (preset agents built on the core layers: `bash/` and the multi-agent `bash_task/`).
-- [evals](evals/README.md): future behavior checks and comparisons.
+- [src/simple_agent_lab](src/simple_agent_lab/core.py): the installable package - `core.py` (canonical tiny run loop), `trace.py` (trace printing and OpenAI Chat JSONL export), `context_view.py` (model-visible context projection), `compression.py` (context-compression strategies run before each model request), `messages.py` (shared message protocol), `tools/` (shared tool values plus concrete tools like bash and the sub-agent `task` tool), `trajectory/` (runtime-neutral trace records split into span/training transforms, record schema, JSONL IO, and the live-trace edge), `llm/` (shared LLM access layer and message bridge), `agents/` (preset agents built on the core layers: `bash/` and the multi-agent `bash_task/`), and `evals/` (the generic containerized eval framework - two seams `ContainerBackend` x `ArtifactStore`, the `run_suite_instance` entry point, and in-wheel suite container halves under `src/simple_agent_lab/evals/suites/`; see [ADR 0017](docs/decisions/0017-generic-containerized-eval-framework.md)).
+- [evals](evals/README.md): suite adapters (host halves) and the "add a suite" guide; the framework itself ships in the package above.
+- [examples/agent_judge](examples/agent_judge/README.md): agent-as-judge worked example - candidate + judge runs composed over the shared artifact store, runnable with no Docker.
 - [tests](tests/README.md): future test strategy.
 - [runs](runs/README.md): small reproducible commands for examples and future experiments.
 
