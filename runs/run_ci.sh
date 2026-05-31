@@ -33,4 +33,7 @@ uv run python -m unittest discover -s tests/unit
 printf '\n=== run bash agent demo ===\n'
 bash runs/run_bash_agent_demo.sh
 
+printf '\n=== trace viewer page smoke ===\n'
+bash runs/run_trace_viewer_smoke.sh
+
 printf '\nAll CI checks passed.\n'

@@ -57,6 +57,22 @@ jobs:
       - name: Run docs lint
         run: uv run python scripts/lint_docs.py
 
+  trace-viewer-smoke:
+    name: trace viewer / smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v1
+        id: setup-chrome
+      - name: Run trace viewer page smoke
+        env:
+          CHROME_BIN: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: bash runs/run_trace_viewer_smoke.sh
+
   format:
     name: ruff format / check
     runs-on: ubuntu-latest

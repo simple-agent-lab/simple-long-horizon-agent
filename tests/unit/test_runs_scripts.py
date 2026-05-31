@@ -29,6 +29,7 @@ class RunsScriptsTest(unittest.TestCase):
             ROOT / "runs/run_swebench_gold_smoke.sh",
             ROOT / "runs/run_swebench_verified.sh",
             ROOT / "runs/run_swebench_pro.sh",
+            ROOT / "runs/run_trace_viewer_smoke.sh",
         ]
 
         for script in scripts:
