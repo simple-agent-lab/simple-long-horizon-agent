@@ -33,6 +33,50 @@ Record types:
 - `eval_result`: pass/fail score and compact metrics, written by evals
 - `training_example`: model-visible input plus assistant output, written by export scripts
 
+## Adding a Containerized Suite
+
+The generic framework lives in `simple_agent_lab.evals` (ADR 0017). It supplies
+the container lifecycle, the Python/uv bootstrap, the run-directory convention,
+and artifact transport, so a new Docker benchmark only implements what is
+genuinely suite-specific:
+
+1. A **host half** — a `Suite` (3 methods + 2 attributes):
+
+   - `container_plan(instance)` -> `ContainerPlan` (image, workdir, shell,
+     entrypoint as *data* — no `if`-branching in the runner).
+   - `sanitize_instance(instance)` — drop gold/private fields before the agent
+     sees the record.
+   - `prediction_record(instance, *, model_name, result)` — shape the
+     scorer-facing row.
+   - `name` and `container_module` (dotted path to the container half).
+
+2. A **container half** — a module exposing `build_task(instance, *, workdir)`
+   and `extract_result(workspace, instance)` (the "product", e.g. a `git diff`).
+
+Then drive one instance:
+
+```python
+from simple_agent_lab.evals import (
+    run_suite_instance, LocalDockerBackend, BindMountTransport, bootstrap_script,
+)
+
+run_suite_instance(
+    suite=MySuite(),
+    instance=instance,
+    backend=LocalDockerBackend(),        # cloud later: a remote/k8s backend
+    transport=BindMountTransport(),      # cloud later: CopyOutTransport
+    command=("bash", "-lc", bootstrap_script(runner_argv=(...,))),
+    run_root=Path("evals/out/mysuite"),
+    run_id="run-1",
+)
+```
+
+The same suite runs against a cloud daemon by swapping the `backend` /
+`transport` / trace `TraceSink` — the seams are `Protocol`s, so the suite and
+the runner do not change. `evals/swebench/suite.py` is the reference `Suite`;
+`FakeBackend` runs the whole flow without Docker for tests. Still follow the
+output-directory checklist in [`out/README.md`](out/README.md).
+
 Evals should help answer:
 
 - Does the agent follow the expected loop?

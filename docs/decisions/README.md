@@ -17,12 +17,16 @@ Use [0000-template.md](0000-template.md) for new records. Number accepted decisi
 - [ADR 0008: Separate Trajectory, Evaluation, and Training Data Records](0008-collect-training-trajectories-across-design-versions.md)
 - [ADR 0009: Promote Balanced Runtime To Src Core](0009-promote-balanced-runtime-to-src-core.md)
 - [ADR 0010: Make Context View An Explicit Projection](0010-make-context-view-an-explicit-projection.md)
-- [ADR 0011: Keep Benchmark Suites As Eval Adapters](0011-keep-benchmark-suites-as-eval-adapters.md)
+- [ADR 0011: Keep Benchmark Suites As Eval Adapters](0011-keep-benchmark-suites-as-eval-adapters.md) — superseded for the containerized case by ADR 0017
 - [ADR 0012: Unify the Message Protocol on Content Blocks](0012-unify-message-protocol-on-content-blocks.md) — tool-result fragment superseded by ADR 0014
 - [ADR 0013: Provider-Namespaced `extra` Channel and Two-Layer Trace](0013-extra-channel-and-two-layer-trace.md)
 - [ADR 0014: Tool Results Are Content Blocks, Not a Separate Message Role](0014-tool-result-as-content-block.md)
 - [ADR 0015: Three-Layer Trace Architecture — Event, Span, Training](0015-three-layer-trace-event-span-training.md)
 - [ADR 0016: Eval Output Directory Convention](0016-eval-output-directory-convention.md)
+
+## Proposed
+
+- [ADR 0017: Generic Containerized Eval Framework](0017-generic-containerized-eval-framework.md) — supersedes ADR 0011 for containerized suites
 
 ## Withdrawn
 
