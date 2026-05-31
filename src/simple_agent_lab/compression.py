@@ -93,17 +93,21 @@ def _active_context_tokens(active: list[tuple[int, Message]]) -> int:
     after compression naturally restores the baseline — its new assistant
     outranks the summary.
     """
-    last_summary_index = max(
-        (index for index, message in active if message.kind == "summary"),
-        default=-1,
-    )
-    fresh_baseline = any(
-        index > last_summary_index
-        and isinstance(message, AssistantMessage)
-        and message.usage is not None
-        and message.usage.context_tokens > 0
-        for index, message in active
-    )
+    # One pass: track the newest summary and the newest usage-bearing
+    # assistant. The baseline is fresh iff that assistant outranks the summary
+    # (was recorded after the last compression).
+    last_summary = -1
+    last_usage_assistant = -1
+    for index, message in active:
+        if message.kind == "summary":
+            last_summary = max(last_summary, index)
+        elif (
+            isinstance(message, AssistantMessage)
+            and message.usage is not None
+            and message.usage.context_tokens > 0
+        ):
+            last_usage_assistant = max(last_usage_assistant, index)
+    fresh_baseline = last_usage_assistant > last_summary
     return estimate_context_tokens(
         [message for _, message in active],
         allow_usage_baseline=fresh_baseline,

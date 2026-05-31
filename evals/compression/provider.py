@@ -109,11 +109,6 @@ def count_input_tokens(
     return usage.input_tokens + usage.cache_read_tokens + usage.cache_write_tokens
 
 
-# A near-empty probe whose input-token count approximates the provider's fixed
-# per-call template overhead (system scaffolding, tool framing, etc.).
-BASELINE_PROBE: list[Message] = []
-
-
 def judge_fact_recall(
     provider: Provider,
     summary_text: str,
@@ -150,9 +145,18 @@ def judge_fact_recall(
         extra=dict(request_extra or {}),
     )
     answer = complete(request).text.lower()
+    # Parse `id: yes|no` lines, matching the id against the *label* side and
+    # the verdict against the *value* side. Matching the whole line instead
+    # would let "yes" anywhere (or one id being a substring of another) cause
+    # false hits.
+    verdicts: list[tuple[str, str]] = []
+    for line in answer.splitlines():
+        label, sep, verdict = line.partition(":")
+        if sep:
+            verdicts.append((label, verdict))
     hits = {
         fact_id: any(
-            fact_id.lower() in line and "yes" in line for line in answer.splitlines()
+            fact_id.lower() in label and "yes" in verdict for label, verdict in verdicts
         )
         for fact_id, _ in facts
     }

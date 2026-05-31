@@ -118,7 +118,12 @@ def _strategy_for(scenario: Scenario, threshold: int):
 def run_offline(scenarios: Sequence[Scenario]) -> list[EvalResult]:
     results: list[EvalResult] = []
     for scenario in scenarios:
-        full = estimate_context_tokens(scenario.build().active_context_messages())
+        # Build once: measure `full` and snapshot the pre-compression messages
+        # here, then reuse this same state for the compression-pass check below
+        # (`threshold_trigger_curve` builds its own fresh states per threshold).
+        before = scenario.build()
+        before_msgs = before.active_context_messages()
+        full = estimate_context_tokens(before_msgs)
         thresholds = _adaptive_thresholds(full)
 
         # 1. Threshold trigger curve — monotonic with a crossover.
@@ -149,9 +154,8 @@ def run_offline(scenarios: Sequence[Scenario]) -> list[EvalResult]:
             )
         )
 
-        # 2. Compression effectiveness + safety at a sub-threshold trigger.
-        before = scenario.build()
-        before_msgs = before.active_context_messages()
+        # 2. Compression effectiveness + safety at a sub-threshold trigger,
+        #    reusing the `before` state built above.
         outcome = run_compression(before, _strategy_for(scenario, max(1, full // 2)))
         intact = tool_pairs_intact(outcome.active_messages)
         pinned = pinned_kinds_present(
