@@ -20,10 +20,10 @@ The runtime has two sources for that number, with very different quality:
   messages the provider has already counted, and lagging: it describes the
   window *as of the last model response*.
 - **A char-based heuristic** (`CHARS_PER_TOKEN`) — available for any message,
-  but approximate. Calibration against a real tokenizer
-  (`evals/compression/calibrate_tokens.py`) measured the true ratio varying
-  ~3x by content type (prose ~5.6, code ~3.9, json ~3.1, logs ~1.9), so a
-  single char/token constant is structurally unable to be accurate.
+  but approximate. A one-off calibration against a real tokenizer measured the
+  true ratio varying ~3x by content type (prose ~5.6, code ~3.9, json ~3.1,
+  logs ~1.9), so a single char/token constant is structurally unable to be
+  accurate.
 
 Two concrete bugs forced the issue. (1) `TokenUsage.context_tokens` summed
 `input + output + cache_read + cache_write`, which double-counts on providers

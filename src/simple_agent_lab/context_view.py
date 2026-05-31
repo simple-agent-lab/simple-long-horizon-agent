@@ -39,8 +39,7 @@ from .messages import (
 # count. One global ratio is deliberately enough: the estimate only covers the
 # small tail since the last provider usage report, and the runtime's safety
 # buffer absorbs the residual error, so per-provider calibration is not worth
-# the complexity. Re-measure with `evals/compression/calibrate_tokens` if a
-# model is wildly different.
+# the complexity (see ADR 0017).
 CHARS_PER_TOKEN = 3.1
 IMAGE_CHAR_ESTIMATE = 7373
 
