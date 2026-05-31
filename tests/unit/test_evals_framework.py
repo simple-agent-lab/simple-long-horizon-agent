@@ -401,6 +401,82 @@ class SubmitReconcileTest(unittest.TestCase):
                     run_id="b",
                 )
 
+    def test_mid_submit_crash_leaves_recoverable_manifest(self) -> None:
+        """A crash partway through submit still records every started container."""
+        from simple_agent_lab.evals import reconcile_dataset, submit_dataset
+        from simple_agent_lab.evals.batch import BATCH_KEY, _batch_store
+
+        class _CrashAtThird(FakeBackend):
+            def __init__(self) -> None:
+                super().__init__(on_run=_simulate("ok"))
+                self.n = 0
+
+            def submit(self, spec, *, store, binding):  # type: ignore[no-untyped-def]
+                self.n += 1
+                if self.n == 3:
+                    raise RuntimeError("host died mid-submit")
+                return super().submit(spec, store=store, binding=binding)
+
+        instances = [{"instance_id": f"i-{n}"} for n in range(5)]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            store = LocalDirStore(root)
+            with self.assertRaises(RuntimeError):
+                submit_dataset(
+                    suite=_DemoSuite(),
+                    instances=instances,
+                    backend=_CrashAtThird(),
+                    store=store,
+                    run_root=root,
+                    run_id="b",
+                    provider="fake",
+                )
+            # The 2 containers started before the crash are in the manifest.
+            manifest = json.loads(
+                _batch_store(store, root, "b").get(BATCH_KEY).decode("utf-8")
+            )
+            self.assertEqual(len(manifest), 2)
+
+            # A fresh process can reconcile the partial batch — no orphans.
+            report = reconcile_dataset(
+                suite=_DemoSuite(),
+                backend=FakeBackend(),
+                store=LocalDirStore(root),
+                run_root=root,
+                run_id="b",
+                poll_interval_s=0,
+            )
+            self.assertEqual(report.summary(), {"total": 2, "ok": 2, "failed": 0})
+
+    def test_reconcile_uses_result_when_poll_never_reports_done(self) -> None:
+        """poll() that never returns done still completes if result.json exists."""
+        from simple_agent_lab.evals import reconcile_dataset, submit_dataset
+
+        class _NeverDone(FakeBackend):
+            def poll(self, handle):  # type: ignore[no-untyped-def]
+                return None  # daemon never reports completion (e.g. already gone)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            submit_dataset(
+                suite=_DemoSuite(),
+                instances=[{"instance_id": "x"}],
+                backend=FakeBackend(on_run=_simulate("ok")),  # writes result.json
+                store=LocalDirStore(root),
+                run_root=root,
+                run_id="b",
+                provider="fake",
+            )
+            report = reconcile_dataset(
+                suite=_DemoSuite(),
+                backend=_NeverDone(),
+                store=LocalDirStore(root),
+                run_root=root,
+                run_id="b",
+                poll_interval_s=0,
+            )
+        self.assertEqual(report.summary(), {"total": 1, "ok": 1, "failed": 0})
+
 
 class _FakeRemoteContainer:
     """Stand-in for a docker-py container: tar in (put), local FS, tar out (get)."""

@@ -229,14 +229,17 @@ report.summary()
 ```
 
 How re-entry works: `submit_dataset` writes a manifest of serializable
-`RunHandle`s to `<run_id>/batch.json` in the store, and each container writes its
-own `result.json` as it finishes. `reconcile_dataset` reloads that manifest from
-the store (not from memory), polls each handle, and shapes `prediction.jsonl`
-from each `result.json` — so it produces the same artifacts as a blocking run and
-can be run from a different machine/process than the one that submitted. This is
-the eval-side of the "submit + poll" lifecycle distributed frameworks use; only
-detaching backends provide `submit`/`poll` (`LocalProcessBackend` cannot outlive
-the host and is run-only).
+`RunHandle`s to `<run_id>/batch.json` in the store — **re-persisted after each
+container starts**, so a crash mid-submit still records every already-started
+container (no orphans) — and each container writes its own `result.json` as it
+finishes. `reconcile_dataset` reloads that manifest from the store (not from
+memory), polls each handle, and shapes `prediction.jsonl` from each
+`result.json`. It tolerates a daemon that no longer reports a container (already
+collected, or polled by another process): a `result.json` on disk is taken as
+the terminal truth, so reconcile never deadlocks and is safe to run repeatedly /
+from a different machine. This is the eval-side of the "submit + poll" lifecycle
+distributed frameworks use; only detaching backends provide `submit`/`poll`
+(`LocalProcessBackend` cannot outlive the host and is run-only).
 
 ### Live trace + the trace viewer
 

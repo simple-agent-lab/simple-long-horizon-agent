@@ -32,6 +32,7 @@ from .protocols import (
     RESULT_KEY,
     ArtifactStore,
     RunHandle,
+    RunOutcome,
     RunSpec,
     Suite,
 )
@@ -40,6 +41,22 @@ from .runner import _shape_prediction, container_name, prepare_run_directory
 # Batch manifest lives at the batch root (run_root/<run_id>), above per-instance
 # dirs, so one reload finds every handle.
 BATCH_KEY = "batch.json"
+
+
+def _write_manifest(batch_store: ArtifactStore, manifest: list[dict[str, Any]]) -> None:
+    """Atomically (re)write the whole manifest. Small + atomic, so crash-safe."""
+
+    batch_store.put(
+        BATCH_KEY, (json.dumps(manifest, ensure_ascii=False) + "\n").encode("utf-8")
+    )
+
+
+def _has_result(store: ArtifactStore, run_dir: str) -> bool:
+    try:
+        store.bind(Path(run_dir)).get(RESULT_KEY)
+        return True
+    except (FileNotFoundError, OSError):
+        return False
 
 
 def _batch_store(store: ArtifactStore, run_root: Path, run_id: str) -> ArtifactStore:
@@ -68,8 +85,10 @@ def submit_dataset(
 
     Returns the handles; they are also written to ``<run_id>/batch.json`` so a
     later `reconcile_dataset` can recover them without this process's memory.
-    Requires a backend that implements `submit` (detached runs) — e.g.
-    `LocalDockerBackend`; `LocalProcessBackend` cannot outlive the host.
+    The manifest is re-persisted **after each container starts**, so if the host
+    dies mid-submit, every already-started container is recorded and recoverable
+    (no orphans). Requires a backend that implements `submit` (detached runs) —
+    e.g. `LocalDockerBackend`; `LocalProcessBackend` cannot outlive the host.
     """
 
     if not hasattr(backend, "submit"):
@@ -78,6 +97,7 @@ def submit_dataset(
             "detaching backend such as LocalDockerBackend."
         )
 
+    batch_store = _batch_store(store, run_root, run_id)
     handles: list[RunHandle] = []
     manifest: list[dict[str, Any]] = []
     for instance in instances:
@@ -126,10 +146,10 @@ def submit_dataset(
         )
         handles.append(handle)
         manifest.append(_handle_to_dict(handle))
+        # Persist after each start: a mid-submit crash still leaves every
+        # already-started container in the manifest, so none becomes an orphan.
+        _write_manifest(batch_store, manifest)
 
-    _batch_store(store, run_root, run_id).put(
-        BATCH_KEY, (json.dumps(manifest, ensure_ascii=False) + "\n").encode("utf-8")
-    )
     return handles
 
 
@@ -171,7 +191,14 @@ def reconcile_dataset(
         for ref, handle in list(pending.items()):
             outcome = backend.poll(handle)
             if outcome is None:
-                continue
+                # The container may be running, already collected (a prior
+                # reconcile / another process), or gone. A `result.json` on disk
+                # is the terminal truth: take it as done so we never deadlock on
+                # a container the daemon no longer reports.
+                if _has_result(store, handle.run_dir):
+                    outcome = RunOutcome(status_code=0)
+                else:
+                    continue
             instance_id = str(handle.extra.get("instance_id") or ref)
             result = _finish(
                 suite=suite,

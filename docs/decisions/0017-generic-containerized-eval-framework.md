@@ -206,11 +206,15 @@ Two orchestration entry points sit above `run_suite_instance`, both keeping the
    lifecycle is split into an optional `submit(spec) -> RunHandle` /
    `poll(handle) -> RunOutcome | None` pair (the blocking `run` remains and is
    what `run_dataset` uses). `submit_dataset` starts every container and persists
-   a manifest of serializable `RunHandle`s to `<run_id>/batch.json` in the store;
-   `reconcile_dataset` reloads that manifest **from the store, not memory**, so a
-   different process — even on a different machine — can poll the batch to
-   completion and shape predictions from each `result.json`. The store remaining
-   the single source of truth is what makes re-entry work.
+   a manifest of serializable `RunHandle`s to `<run_id>/batch.json` in the store,
+   **re-persisted after each container starts** so a mid-submit crash records
+   every already-started container (no orphans); `reconcile_dataset` reloads that
+   manifest **from the store, not memory**, so a different process — even on a
+   different machine — can poll the batch to completion and shape predictions
+   from each `result.json`. It is crash-tolerant: when the daemon no longer
+   reports a container (already collected, or polled by another process), a
+   `result.json` on disk is the terminal truth, so reconcile never deadlocks. The
+   store remaining the single source of truth is what makes re-entry work.
 
 `submit`/`poll` are optional: only detaching backends (`LocalDockerBackend`,
 later `RemoteDockerBackend`) implement them; `LocalProcessBackend` is run-only
