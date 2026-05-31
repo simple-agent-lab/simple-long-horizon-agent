@@ -11,22 +11,22 @@ it runs anywhere; under Docker you would wrap each call in
 suite's container half (these `candidate` / `judge` modules) would run inside the
 image unchanged.
 
-Run:  python examples/agent_judge/demo.py
+Run (from the repo root):  uv run python -m examples.agent_judge.demo
+
+Running as a module (`-m`) puts the repo root on ``sys.path`` so the dotted
+container-module paths resolve, and ``uv run`` provides the installed
+``simple_agent_lab`` — so no ``sys.path`` juggling is needed.
 """
 
 from __future__ import annotations
 
 import json
-import sys
 import tempfile
 from pathlib import Path
 
-_REPO = Path(__file__).resolve().parents[2]
-sys.path[:0] = [str(_REPO), str(_REPO / "src")]  # examples.* + simple_agent_lab
-
-from simple_agent_lab.evals import INSTANCE_KEY, TRACE_KEY, LocalDirStore  # noqa: E402
-from simple_agent_lab.evals.in_container import run_in_container  # noqa: E402
-from simple_agent_lab.llm import Provider  # noqa: E402
+from simple_agent_lab.evals import INSTANCE_KEY, TRACE_KEY, LocalDirStore
+from simple_agent_lab.evals.in_container import run_in_container
+from simple_agent_lab.llm import Provider
 
 FAKE = Provider(id="fake", api="fake", model="fake-model")
 
