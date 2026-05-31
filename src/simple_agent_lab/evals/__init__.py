@@ -21,7 +21,7 @@ and ``evals/README.md`` for the "add a suite" steps.
 
 from __future__ import annotations
 
-from .backends import FakeBackend, LocalDockerBackend
+from .backends import FakeBackend, LocalDockerBackend, LocalProcessBackend
 from .bootstrap import bootstrap_script
 from .protocols import (
     INSTANCE_KEY,
@@ -31,10 +31,11 @@ from .protocols import (
     ArtifactStore,
     ContainerBackend,
     ContainerBinding,
-    ContainerHandle,
     ContainerPlan,
     ContainerTask,
     RunArtifacts,
+    RunOutcome,
+    RunSpec,
     Suite,
 )
 from .runner import (
@@ -60,7 +61,6 @@ __all__ = [
     "ArtifactStore",
     "ContainerBackend",
     "ContainerBinding",
-    "ContainerHandle",
     "ContainerPlan",
     "ContainerTask",
     "FakeBackend",
@@ -68,8 +68,11 @@ __all__ = [
     "HttpArtifactClient",
     "LocalDirStore",
     "LocalDockerBackend",
+    "LocalProcessBackend",
     "RunArtifacts",
+    "RunOutcome",
     "RunPaths",
+    "RunSpec",
     "S3Store",
     "Suite",
     "bootstrap_script",
