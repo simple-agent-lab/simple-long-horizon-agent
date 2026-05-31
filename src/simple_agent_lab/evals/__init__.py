@@ -43,6 +43,7 @@ from .protocols import (
     RunSpec,
     Suite,
 )
+from .dataset import DatasetReport, InstanceResult, run_dataset
 from .runner import (
     RunPaths,
     build_command,
@@ -68,7 +69,9 @@ __all__ = [
     "ContainerBinding",
     "ContainerPlan",
     "ContainerTask",
+    "DatasetReport",
     "FakeBackend",
+    "InstanceResult",
     "HostHttpStore",
     "HttpArtifactClient",
     "LocalDirStore",
@@ -86,6 +89,7 @@ __all__ = [
     "container_name",
     "container_store_from_env",
     "prepare_run_directory",
+    "run_dataset",
     "run_suite_instance",
 ]
 

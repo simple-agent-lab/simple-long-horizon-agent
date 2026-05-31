@@ -160,6 +160,43 @@ The only real difference is the workspace: a container gets it from the image
 (`plan.workdir`); in-process you pass a local directory. Light suites and judges
 run in-process directly; heavy suites (SWE-bench) still need their image.
 
+### Running a whole dataset (`run_dataset`)
+
+`run_suite_instance` runs one instance. `run_dataset` is the minimal
+"controller" over it: it calls `run_suite_instance` once per instance on a
+stdlib `ThreadPoolExecutor` (no Ray / asyncio / queue) and aggregates the
+outcomes. The suite, backend, and store are unchanged — concurrency is just
+"call the pure function N times in a pool," with the `ArtifactStore` as the
+result bus.
+
+```python
+from simple_agent_lab.evals import run_dataset, LocalDockerBackend, LocalDirStore
+
+report = run_dataset(
+    suite=MySuite(),
+    instances=dataset,                       # any iterable of instance dicts
+    backend=LocalDockerBackend(),
+    store=LocalDirStore(run_root),
+    run_root=run_root,
+    run_id="batch-1",
+    concurrency=8,        # thread-pool size; default 1 = sequential
+    max_attempts=2,       # retry only on a *raised* exception (infra/transient)
+    on_result=lambda r: print(r.instance_id, "ok" if r.ok else r.error),
+    provider="openai", provider_env={...},   # passed through to every run
+)
+report.summary()   # {"total": N, "ok": ..., "failed": ...}
+```
+
+Each instance lands under its own `<run_root>/<run_id>/<instance_id>/` tree, so
+concurrent runs never collide and the viewer aggregates them into one batch.
+`max_attempts` retries only raised exceptions (a daemon hiccup); a completed run
+with a nonzero exit code is a result, not an error. Fan-out maps to backends:
+Docker / remote backends give each run its own container, so `concurrency > 1`
+is safe; a single `LocalProcessBackend(workspace=...)` shares one workspace, so
+keep it sequential. This is the same worker-pool shape distributed frameworks
+(slime, ROLL) use for rollout/reward workers — minus the RL-training machinery
+(GPU placement, weight sync) that eval does not need.
+
 ### Live trace + the trace viewer
 
 The default runtimes — `LocalProcessBackend` or `LocalDockerBackend`, with

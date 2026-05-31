@@ -217,6 +217,71 @@ class LocalProcessBackendTest(unittest.TestCase):
             self.assertIn("model_patch", prediction)
 
 
+class RunDatasetTest(unittest.TestCase):
+    """The minimal controller: run many instances over a pool, aggregate outcomes."""
+
+    def test_concurrent_run_with_ordering_and_callback(self) -> None:
+        from simple_agent_lab.evals import run_dataset
+
+        instances = [{"instance_id": f"i-{n}", "n": n} for n in range(6)]
+        seen: list[str] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            backend = FakeBackend(on_run=_simulate("ok"))
+            report = run_dataset(
+                suite=_DemoSuite(),
+                instances=instances,
+                backend=backend,
+                store=LocalDirStore(root),
+                run_root=root,
+                run_id="batch",
+                concurrency=4,
+                provider="fake",
+                on_result=lambda r: seen.append(r.instance_id),
+            )
+        # All ran; results follow input order regardless of completion order.
+        self.assertEqual(report.summary(), {"total": 6, "ok": 6, "failed": 0})
+        self.assertEqual(
+            [r.instance_id for r in report.results], [f"i-{n}" for n in range(6)]
+        )
+        self.assertEqual(len(seen), 6)
+        # Each instance got its own run dir under the batch.
+        self.assertEqual(len(backend.runs), 6)
+
+    def test_error_is_captured_and_retried(self) -> None:
+        from simple_agent_lab.evals import run_dataset
+
+        attempts: dict[str, int] = {}
+
+        def flaky(spec, store) -> None:
+            n = attempts.get(spec.instance_id, 0) + 1
+            attempts[spec.instance_id] = n
+            if spec.instance_id == "bad":
+                raise RuntimeError("boom")
+            _simulate("ok")(spec, store)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            backend = FakeBackend(on_run=flaky)
+            report = run_dataset(
+                suite=_DemoSuite(),
+                instances=[{"instance_id": "good"}, {"instance_id": "bad"}],
+                backend=backend,
+                store=LocalDirStore(root),
+                run_root=root,
+                run_id="batch",
+                concurrency=2,
+                max_attempts=3,
+                provider="fake",
+            )
+        self.assertEqual(report.summary(), {"total": 2, "ok": 1, "failed": 1})
+        bad = [r for r in report.results if r.instance_id == "bad"][0]
+        self.assertFalse(bad.ok)
+        self.assertIn("boom", bad.error)
+        self.assertEqual(bad.attempts, 3)  # retried up to max_attempts
+        self.assertEqual(attempts["bad"], 3)
+
+
 class _FakeRemoteContainer:
     """Stand-in for a docker-py container: tar in (put), local FS, tar out (get)."""
 
