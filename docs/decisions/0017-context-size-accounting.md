@@ -54,11 +54,12 @@ content no longer present.
    trusts a baseline only when a usage-bearing assistant was recorded after it.
    The next model turn naturally restores the baseline.
 
-4. **One global, empirically-calibrated char/token default — not per-provider.**
-   `CHARS_PER_TOKEN = 3.1` is the measured neutral overall, replacing the old
-   `4` guess. Because estimation is confined to the small tail (1), its
-   absolute error is bounded and a fixed buffer covers it, so per-provider or
-   per-content coefficients are deliberately not worth the machinery.
+4. **One global, calibration-informed char/token default — not per-provider.**
+   `CHARS_PER_TOKEN = 3.5` is a rounded neutral default (the measured overall
+   was ~3.1), replacing the old `4` guess. Because estimation is confined to the
+   small tail (1), its absolute error is bounded and a fixed buffer covers it,
+   so the exact value — and per-provider or per-content coefficients — are
+   deliberately not worth the machinery.
 
 5. **Compression triggers against an effective window, not the raw one.**
    `effective_token_budget(window) = window − output_reserve − safety_buffer`

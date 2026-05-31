@@ -33,14 +33,14 @@ from .messages import (
 )
 
 
-# Chars-per-token for the char-based fallback estimate — the *neutral* value
-# measured empirically across content types (prose ~5.6, code ~3.9, json ~3.1,
-# logs ~1.9 give an overall ~3.1 on mimo-v2.5-pro), not a provider-accurate
-# count. One global ratio is deliberately enough: the estimate only covers the
-# small tail since the last provider usage report, and the runtime's safety
-# buffer absorbs the residual error, so per-provider calibration is not worth
-# the complexity (see ADR 0017).
-CHARS_PER_TOKEN = 3.1
+# Chars-per-token for the char-based fallback estimate — a rounded neutral
+# default, not a provider-accurate count. The real ratio varies by content type
+# (denser for prose, sparser for code / json / logs), so one constant can't be
+# exact; this is a deliberate middle value below the old 4 guess. One global
+# ratio is enough because the estimate only covers the small tail since the last
+# provider usage report, and the runtime's safety buffer absorbs the residual
+# (see ADR 0017).
+CHARS_PER_TOKEN = 3.5
 IMAGE_CHAR_ESTIMATE = 7373
 
 # Default reserves for the effective context budget (mirrors opencode's

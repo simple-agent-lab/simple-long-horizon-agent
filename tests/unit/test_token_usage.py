@@ -245,9 +245,9 @@ class EstimateMessageTokensTest(unittest.TestCase):
         message = user_message("x")
         self.assertGreaterEqual(estimate_message_tokens(message), 1)
 
-    def test_default_chars_per_token_is_the_calibrated_value(self) -> None:
-        # The default is the empirically measured neutral ratio, denser than
-        # the old 4.0 guess, so the char fallback no longer under-counts.
+    def test_default_chars_per_token_is_below_the_old_guess(self) -> None:
+        # The default is a rounded neutral ratio below the old 4.0 guess, so the
+        # char fallback no longer under-counts dense content as badly.
         self.assertLess(CHARS_PER_TOKEN, 4)
         message = user_message("x" * 400, target="agent")
         chars = estimate_message_chars(message)
