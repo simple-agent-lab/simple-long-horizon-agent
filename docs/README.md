@@ -14,6 +14,10 @@ based on the task.
 
 ## Supporting
 
+- [`how-swebench-runs.md`](how-swebench-runs.md) — a plain-language walkthrough
+  of what happens end to end when you run the whole SWE-bench benchmark
+  (prepare → generate → score), with sequence diagrams. Start here for the big
+  picture before the eval ADR.
 - [`glossary.md`](glossary.md) — shared vocabulary. The repo-root
   [`CONTEXT.md`](../CONTEXT.md) holds resolved terminology boundaries
   (message protocol, provider adapter, content blocks).
