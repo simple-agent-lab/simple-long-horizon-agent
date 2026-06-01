@@ -234,6 +234,27 @@ class McpConnectionTest(unittest.TestCase):
         result = boom.execute("c3", {}, lambda: False, None)
         self.assertTrue(result.is_error)
         self.assertTrue(result.content)  # carries the server's error text
+        # A live-connection tool error is model-correctable, not terminal.
+        self.assertFalse(result.terminate)
+
+    def test_dead_connection_error_signals_terminate(self) -> None:
+        # A tool bound to a connection that has since closed must report a
+        # terminal error (retrying MCP tools on a dead connection is futile)
+        # rather than an ordinary, retryable tool error.
+        echo = next(t for t in self.conn.agent_tools() if t.name == "demo_echo")
+        self.conn.close()
+        self.assertFalse(self.conn.is_connected)
+        result = echo.execute("c", {"text": "hi"}, lambda: False, None)
+        self.assertTrue(result.is_error)
+        self.assertTrue(result.terminate)
+
+    def test_call_on_dead_session_reports_underlying_error(self) -> None:
+        # Simulate a post-init transport death: session gone, error recorded.
+        self.conn._session = None
+        self.conn._error = RuntimeError("server vanished")
+        with self.assertRaises(MCPError) as ctx:
+            self.conn.call("echo", {"text": "hi"}, timeout=1.0)
+        self.assertIn("server vanished", str(ctx.exception))
 
     def test_abort_before_call_short_circuits(self) -> None:
         echo = next(t for t in self.conn.agent_tools() if t.name == "demo_echo")

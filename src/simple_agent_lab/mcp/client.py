@@ -157,6 +157,18 @@ class MCPConnection:
 
         return self._tools
 
+    @property
+    def is_connected(self) -> bool:
+        """True while the background session is live and usable.
+
+        Goes False after `close()` or when the session dies (e.g. the server
+        exits while idle), so callers can tell a dead connection — where
+        retrying any tool is futile — from a tool that merely returned an error.
+        """
+
+        loop = self._loop
+        return self._session is not None and loop is not None and not loop.is_closed()
+
     def call(
         self,
         tool_name: str,
@@ -174,7 +186,10 @@ class MCPConnection:
         loop = self._loop
         session = self._session
         if loop is None or session is None:
-            raise MCPError(f"MCP server {self.name!r} is not open")
+            # Surface the captured startup/transport error (if any) instead of
+            # a bare "not open", so a session that died is diagnosable.
+            detail = f": {self._error}" if self._error is not None else ""
+            raise MCPError(f"MCP server {self.name!r} is not connected{detail}")
         coro = session.call_tool(tool_name, dict(arguments or {}))
         future = asyncio.run_coroutine_threadsafe(coro, loop)
         deadline = time.monotonic() + timeout
@@ -314,11 +329,18 @@ def mcp_tool_to_agent_tool(
         try:
             result = connection.call(raw_name, args, timeout=call_timeout, abort=abort)
         except MCPError as exc:
-            return text_result(str(exc), is_error=True)
+            # If the connection itself is gone, retrying any MCP tool is futile;
+            # `terminate` stops the run instead of burning the budget on calls
+            # that cannot succeed. A timeout on a still-live connection stays
+            # retryable (terminate=False).
+            return text_result(
+                str(exc), is_error=True, terminate=not connection.is_connected
+            )
         except Exception as exc:  # noqa: BLE001 - report any call failure to the model
             return text_result(
                 f"MCP tool {wire_name!r} failed: {type(exc).__name__}: {exc}",
                 is_error=True,
+                terminate=not connection.is_connected,
             )
 
         blocks = mcp_content_to_blocks(result.content)
