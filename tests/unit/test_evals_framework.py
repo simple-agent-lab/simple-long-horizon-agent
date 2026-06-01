@@ -24,16 +24,17 @@ from simple_agent_lab.evals import (
     ContainerPlan,
     FakeBackend,
     HostHttpStore,
-    HttpArtifactClient,
     LocalDirStore,
     LocalProcessBackend,
     RunOutcome,
     RunSpec,
     Suite,
-    build_command,
-    container_name,
     run_suite_instance,
 )
+
+# Internal helpers live in their own modules, not the top-level facade.
+from simple_agent_lab.evals.runner import build_command, container_name
+from simple_agent_lab.evals.stores import HttpArtifactClient
 
 SWEBENCH_CONTAINER = "simple_agent_lab.evals.suites.swebench.container"
 

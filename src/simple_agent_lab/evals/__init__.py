@@ -29,7 +29,6 @@ from .backends import (
     RemoteDockerBackend,
 )
 from .batch import reconcile_dataset, submit_dataset
-from .bootstrap import bootstrap_script
 from .protocols import (
     INSTANCE_KEY,
     RESULT_KEY,
@@ -47,20 +46,16 @@ from .protocols import (
     Suite,
 )
 from .dataset import DatasetReport, InstanceResult, run_dataset
-from .runner import (
-    RunPaths,
-    build_command,
-    container_name,
-    prepare_run_directory,
-    run_suite_instance,
-)
-from .stores import (
-    HostHttpStore,
-    HttpArtifactClient,
-    LocalDirStore,
-    container_store_from_env,
-)
+from .runner import run_suite_instance
+from .stores import HostHttpStore, LocalDirStore
 
+# Public surface: the things you compose a run from — suites, backends, stores,
+# the run/dataset entry points, and the protocol/value types you implement
+# against. Internal helpers (`build_command`, `container_name`,
+# `prepare_run_directory`/`RunPaths`, `bootstrap_script`, `container_store_from_env`,
+# the container-side `HttpArtifactClient`) stay importable from their own modules
+# but are kept out of the top-level facade so "what do I import from
+# simple_agent_lab.evals" reads as the user surface, not the plumbing.
 __all__ = [
     "INSTANCE_KEY",
     "RESULT_KEY",
@@ -75,7 +70,6 @@ __all__ = [
     "FakeBackend",
     "InstanceResult",
     "HostHttpStore",
-    "HttpArtifactClient",
     "LocalDirStore",
     "LocalDockerBackend",
     "LocalProcessBackend",
@@ -83,14 +77,8 @@ __all__ = [
     "RunArtifacts",
     "RunHandle",
     "RunOutcome",
-    "RunPaths",
     "RunSpec",
     "Suite",
-    "bootstrap_script",
-    "build_command",
-    "container_name",
-    "container_store_from_env",
-    "prepare_run_directory",
     "reconcile_dataset",
     "run_dataset",
     "run_suite_instance",
