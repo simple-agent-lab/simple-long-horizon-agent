@@ -17,6 +17,7 @@ so the demo has no image dependency.
 
 from __future__ import annotations
 
+import base64
 import struct
 import zlib
 
@@ -64,8 +65,6 @@ def render_swatch(color: str, size: int = 48) -> list[TextContent | ImageContent
 
 def _solid_png_base64(side: int, rgb: tuple[int, int, int]) -> str:
     """Encode a `side`x`side` solid-color RGB image as base64 PNG (stdlib only)."""
-
-    import base64
 
     r, g, b = rgb
     row = b"\x00" + bytes((r, g, b)) * side  # filter byte 0 + RGB pixels
