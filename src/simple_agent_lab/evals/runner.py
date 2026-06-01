@@ -89,8 +89,18 @@ def prepare_run_directory(*, run_root: Path, run_id: str, instance_id: str) -> R
     )
 
 
+# Docker container names cap at 255 chars; long SWE-bench instance_ids + a long
+# run_id could overflow. Keep a safety margin and, when over, truncate the joined
+# name and append a short hash so distinct overflowing names stay distinct.
+_MAX_CONTAINER_NAME = 200
+
+
 def container_name(suite_name: str, instance_id: str, run_id: str) -> str:
-    return f"{_safe_part(suite_name)}.{_safe_part(instance_id)}.{_safe_part(run_id)}"
+    name = f"{_safe_part(suite_name)}.{_safe_part(instance_id)}.{_safe_part(run_id)}"
+    if len(name) > _MAX_CONTAINER_NAME:
+        digest = hashlib.sha1(name.encode("utf-8")).hexdigest()[:8]
+        name = f"{name[: _MAX_CONTAINER_NAME - 9]}-{digest}"
+    return name
 
 
 def build_command(spec: RunSpec) -> tuple[str, ...]:

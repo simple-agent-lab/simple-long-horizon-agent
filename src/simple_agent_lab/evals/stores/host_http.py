@@ -23,6 +23,7 @@ writes, so do not expose it publicly. Reaching it from a local container uses
 
 from __future__ import annotations
 
+import os
 import secrets
 import threading
 import urllib.error
@@ -111,7 +112,7 @@ class HostHttpStore:
     def put(self, key: str, data: bytes) -> None:
         path = self._path(key)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
+        _atomic_write(path, data)
 
     def exists(self, key: str) -> bool:
         return self._path(key).exists()
@@ -208,8 +209,18 @@ def _make_handler(base_dir: Path, token: str) -> type[BaseHTTPRequestHandler]:
                 self.send_error(HTTPStatus.FORBIDDEN, "path escapes root")
                 return
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(body)
+            _atomic_write(path, body)
             self.send_response(HTTPStatus.NO_CONTENT)
             self.end_headers()
 
     return Handler
+
+
+def _atomic_write(path: Path, data: bytes) -> None:
+    """Write via a temp file + os.replace so a concurrent reader never sees a
+    torn file (matches LocalDirStore; required for the incrementally-rewritten
+    batch.json manifest to be crash/torn-read safe)."""
+
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_bytes(data)
+    os.replace(tmp, path)

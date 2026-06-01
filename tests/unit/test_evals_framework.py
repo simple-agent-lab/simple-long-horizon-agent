@@ -15,6 +15,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Any, Mapping
+from unittest import mock
 
 from simple_agent_lab.evals import (
     INSTANCE_KEY,
@@ -26,9 +27,11 @@ from simple_agent_lab.evals import (
     HttpArtifactClient,
     LocalDirStore,
     LocalProcessBackend,
+    RunOutcome,
     RunSpec,
     Suite,
     build_command,
+    container_name,
     run_suite_instance,
 )
 
@@ -476,6 +479,124 @@ class SubmitReconcileTest(unittest.TestCase):
                 poll_interval_s=0,
             )
         self.assertEqual(report.summary(), {"total": 1, "ok": 1, "failed": 0})
+
+    def test_finish_records_error_when_instance_record_missing(self) -> None:
+        """A missing input/instance.json is a per-instance error, not a batch crash."""
+        from simple_agent_lab.evals import reconcile_dataset, submit_dataset
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            submit_dataset(
+                suite=_DemoSuite(),
+                # _simulate writes result+trace but the instance.json is written by
+                # submit_dataset itself; delete it to simulate a partial submit.
+                instances=[{"instance_id": "x"}],
+                backend=FakeBackend(on_run=_simulate("ok")),
+                store=LocalDirStore(root),
+                run_root=root,
+                run_id="b",
+                provider="fake",
+            )
+            (root / "b" / "x" / "input" / "instance.json").unlink()
+            report = reconcile_dataset(
+                suite=_DemoSuite(),
+                backend=FakeBackend(),  # poll() -> done immediately
+                store=LocalDirStore(root),
+                run_root=root,
+                run_id="b",
+                poll_interval_s=0,
+            )
+            # One result, marked failed with an error — not an exception.
+            self.assertEqual(report.summary(), {"total": 1, "ok": 0, "failed": 1})
+            self.assertIn("cannot load instance record", report.results[0].error)
+
+    def test_reconcile_floors_the_idle_wait(self) -> None:
+        """poll_interval_s=0 must not busy-spin: the loop sleeps a real floor."""
+        from simple_agent_lab.evals import reconcile_dataset, submit_dataset
+
+        slept: list[float] = []
+
+        # Returns None a few times so the loop has to wait, then completes.
+        class _SlowThenDone(FakeBackend):
+            def __init__(self) -> None:
+                super().__init__()
+                self.n = 0
+
+            def poll(self, handle):  # type: ignore[no-untyped-def]
+                self.n += 1
+                return None if self.n < 3 else RunOutcome(status_code=0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            # No on_run → no result.json, so poll()==None falls through to the
+            # idle wait (instead of the result-on-disk short-circuit).
+            submit_dataset(
+                suite=_DemoSuite(),
+                instances=[{"instance_id": "x"}],
+                backend=FakeBackend(),
+                store=LocalDirStore(root),
+                run_root=root,
+                run_id="b",
+                provider="fake",
+            )
+            reconcile_dataset(
+                suite=_DemoSuite(),
+                backend=_SlowThenDone(),
+                store=LocalDirStore(root),
+                run_root=root,
+                run_id="b",
+                poll_interval_s=0,  # caller asks for 0 …
+                sleep_fn=slept.append,
+            )
+        # … but the loop floored every wait above 0 (no busy-spin).
+        self.assertTrue(slept)
+        self.assertTrue(all(s >= 0.5 for s in slept))
+
+
+class ReviewFixesTest(unittest.TestCase):
+    """Docker-path guards (no real Docker): exit-code parsing, atomic put, names."""
+
+    def test_exit_status_guards_null_and_nonint(self) -> None:
+        from simple_agent_lab.evals.backends.docker_local import exit_status
+
+        self.assertEqual(exit_status({"ExitCode": 0}), 0)
+        self.assertEqual(exit_status({"ExitCode": 137}), 137)
+        self.assertEqual(exit_status({"ExitCode": None}), 1)  # null → failure
+        self.assertEqual(exit_status({}), 1)  # missing → failure
+
+    def test_host_http_put_is_atomic(self) -> None:
+        """put writes via a temp file + replace (no torn read), like LocalDirStore."""
+        import os as _os
+
+        from simple_agent_lab.evals import HostHttpStore
+
+        seen_tmp: list[str] = []
+        real_replace = _os.replace
+
+        def spy_replace(src, dst):  # type: ignore[no-untyped-def]
+            seen_tmp.append(str(src))
+            return real_replace(src, dst)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = HostHttpStore(Path(tmp), container_host="127.0.0.1")
+            with mock.patch(
+                "simple_agent_lab.evals.stores.host_http.os.replace", spy_replace
+            ):
+                with store:
+                    bound = store.bind(Path(tmp) / "r" / "i")
+                    bound.put("out/result.json", b'{"ok": true}')
+                    self.assertEqual(bound.get("out/result.json"), b'{"ok": true}')
+        self.assertTrue(seen_tmp and seen_tmp[0].endswith(".tmp"))
+
+    def test_container_name_clamped_and_distinct(self) -> None:
+        short = container_name("swebench", "sympy__sympy-23824", "run-1")
+        self.assertLessEqual(len(short), 200)
+        self.assertEqual(short, "swebench.sympy__sympy-23824.run-1")  # unchanged
+
+        long_a = container_name("swebench", "x" * 300, "run-1")
+        long_b = container_name("swebench", "x" * 300 + "y", "run-1")
+        self.assertLessEqual(len(long_a), 200)
+        self.assertNotEqual(long_a, long_b)  # distinct overflowing names stay distinct
 
 
 class _FakeRemoteContainer:

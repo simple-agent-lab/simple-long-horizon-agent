@@ -44,6 +44,11 @@ from .runner import _shape_prediction, container_name, prepare_run_directory
 # dirs, so one reload finds every handle.
 BATCH_KEY = "batch.json"
 
+# Lower bound on the idle wait between reconcile poll sweeps, so a caller passing
+# poll_interval_s=0 (or near-0) cannot busy-spin the daemon. A `sleep_fn` is still
+# injectable for tests (which stub it to a no-op).
+_MIN_POLL_INTERVAL_S = 0.5
+
 
 def _write_manifest(batch_store: ArtifactStore, manifest: list[dict[str, Any]]) -> None:
     """Atomically (re)write the whole manifest. Small + atomic, so crash-safe."""
@@ -54,10 +59,13 @@ def _write_manifest(batch_store: ArtifactStore, manifest: list[dict[str, Any]]) 
 
 
 def _has_result(store: ArtifactStore, run_dir: str) -> bool:
+    # ValueError covers a store (e.g. HostHttpStore) whose bind rejects a run_dir
+    # outside its base — treat "can't reach it" as "no result", never crash the
+    # reconcile loop over one handle.
     try:
         store.bind(Path(run_dir)).get(RESULT_KEY)
         return True
-    except (FileNotFoundError, OSError):
+    except (FileNotFoundError, OSError, ValueError):
         return False
 
 
@@ -225,7 +233,11 @@ def reconcile_dataset(
                     attempts=1,
                 )
             break
-        sleep_fn(poll_interval_s)
+        # Floor the wait so a caller passing 0 (or a tiny value) doesn't turn the
+        # poll loop into a 100%-CPU spin hammering the daemon. timeout_s is still
+        # opt-in: a long batch legitimately waits indefinitely by default, but it
+        # waits *idle*.
+        sleep_fn(max(poll_interval_s, _MIN_POLL_INTERVAL_S))
 
     ordered = [done[h.ref] for h in handles if h.ref in done]
     return DatasetReport(results=ordered)
@@ -246,7 +258,18 @@ def _finish(
     if instances_by_id and instance_id in instances_by_id:
         instance = instances_by_id[instance_id]
     else:
-        instance = json.loads(bound.get(INSTANCE_KEY).decode("utf-8"))
+        # The instance record may be missing/unreachable (submit crashed before
+        # writing it, or a store that can't reach this run_dir). Record that as a
+        # per-instance error instead of letting it abort the whole reconcile loop.
+        try:
+            instance = json.loads(bound.get(INSTANCE_KEY).decode("utf-8"))
+        except (FileNotFoundError, OSError, ValueError) as exc:
+            return InstanceResult(
+                instance_id=instance_id,
+                artifacts=None,
+                error=f"cannot load instance record: {type(exc).__name__}: {exc}",
+                attempts=1,
+            )
 
     # Artifact paths follow the same keys as the blocking path (ADR 0016), so
     # they track TRACE_KEY/RESULT_KEY rather than re-hardcoding the layout.

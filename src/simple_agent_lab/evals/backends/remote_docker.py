@@ -34,7 +34,7 @@ from ..protocols import (
     RunSpec,
 )
 from ._archive import pack_file_to_root, read_stream, unpack_members
-from .docker_local import _create_kwargs
+from .docker_local import exit_status, start_container
 
 # Where the worker container keeps its run dir. No host path is shared, so this
 # is purely in-container; the host moves bytes in/out by tar over the daemon API.
@@ -87,9 +87,11 @@ class RemoteDockerBackend:
         base_url: str | None = None,
         user: str = "root",
         keep_container: bool = False,
+        pull: str = "missing",
         live_poll_interval_s: float = 0.0,
     ) -> None:
         self.base_url = base_url
+        self.pull = pull
         self.user = user
         self.keep_container = keep_container
         # >0 enables a background thread that pulls out/trajectory.jsonl on this
@@ -117,24 +119,29 @@ class RemoteDockerBackend:
             "SAL_STORE": "localdir",
             "SAL_STORE_ROOT": RUN_MOUNT,
         }
-        create_kwargs = _create_kwargs(
-            spec, ContainerBinding(), user=self.user, environment=env
+        # Shared lifecycle: pull policy + create + push inputs (host→worker, before
+        # boot) + start, with remove-on-failure. Mirrors LocalDockerBackend so the
+        # pull / collision / cleanup guards never drift.
+        container = start_container(
+            client,
+            spec,
+            ContainerBinding(),
+            user=self.user,
+            pull=self.pull,
+            environment=env,
+            before_start=lambda c: push_inputs(c, store),
         )
-
-        container = client.containers.create(**create_kwargs)
         stop = threading.Event()
         poller: threading.Thread | None = None
         # Bind before the try so the finally / return never references an unbound
-        # name if push_inputs / start / wait / logs raises.
+        # name if wait / logs raises.
         status = 1
         logs = ""
         try:
-            push_inputs(container, store)
-            container.start()
             if self.live_poll_interval_s > 0:
                 poller = self._start_live_poller(container, store, stop)
             result = container.wait()
-            status = int(result.get("StatusCode", 1))
+            status = exit_status({"ExitCode": result.get("StatusCode")})
             logs = container.logs(stdout=True, stderr=True).decode(errors="replace")
         finally:
             stop.set()

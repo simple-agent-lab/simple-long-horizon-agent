@@ -16,6 +16,7 @@ the run's `ArtifactStore`, so this backend never copies files itself.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from ..protocols import (
@@ -28,6 +29,68 @@ from ..protocols import (
 from ..runner import build_command
 
 BACKEND_KIND = "local-docker"
+
+
+def _ensure_image(client: Any, image: str, platform: str | None, pull: str) -> None:
+    """Apply the pull policy before create() (which never auto-pulls)."""
+
+    import docker.errors  # ty: ignore[unresolved-import]
+
+    if pull == "always":
+        client.images.pull(image, platform=platform)
+        return
+    try:
+        client.images.get(image)
+    except docker.errors.ImageNotFound:
+        if pull == "never":
+            raise
+        client.images.pull(image, platform=platform)
+
+
+def start_container(
+    client: Any,
+    spec: RunSpec,
+    binding: ContainerBinding,
+    *,
+    user: str,
+    pull: str,
+    environment: dict[str, str],
+    before_start: Callable[[Any], None] | None = None,
+) -> Any:
+    """Pull-per-policy + create + (before_start) + start a detached container.
+
+    Shared by both docker backends so the pull policy, the create kwargs, and the
+    remove-on-failure guard cannot drift between local and remote. docker-py's
+    ``create`` does not auto-pull (unlike ``run``), and a named container left
+    behind after a failed ``start`` would 409 on the next retry — both handled here.
+
+    `before_start` runs against the created (not yet started) container — the
+    remote backend uses it to ``put_archive`` inputs in before the worker boots.
+    Any failure there also triggers the remove-on-failure cleanup.
+    """
+
+    import docker.errors  # ty: ignore[unresolved-import]
+
+    _ensure_image(client, spec.plan.image, spec.plan.platform or None, pull)
+    create_kwargs = _create_kwargs(spec, binding, user=user, environment=environment)
+    container = client.containers.create(**create_kwargs)
+    try:
+        if before_start is not None:
+            before_start(container)
+        container.start()
+    except (docker.errors.APIError, OSError):
+        # Don't leave the named container behind, or the next attempt (retry /
+        # resubmit) collides on the deterministic name with a 409.
+        container.remove(force=True)
+        raise
+    return container
+
+
+def exit_status(state: Mapping[str, Any]) -> int:
+    """Read a container's exit code from its State, treating null/odd as failure."""
+
+    raw_code = state.get("ExitCode")
+    return int(raw_code) if isinstance(raw_code, int) else 1
 
 
 class LocalDockerBackend:
@@ -55,21 +118,6 @@ class LocalDockerBackend:
 
         return docker.from_env()
 
-    def _ensure_image(self, client: Any, image: str, platform: str | None) -> None:
-        """Apply the pull policy before create() (which never auto-pulls)."""
-
-        import docker.errors  # ty: ignore[unresolved-import]
-
-        if self.pull == "always":
-            client.images.pull(image, platform=platform)
-            return
-        try:
-            client.images.get(image)
-        except docker.errors.ImageNotFound:
-            if self.pull == "never":
-                raise
-            client.images.pull(image, platform=platform)
-
     def submit(
         self,
         spec: RunSpec,
@@ -79,25 +127,16 @@ class LocalDockerBackend:
     ) -> RunHandle:
         """Pull (per policy) + create + start a detached container; no wait."""
 
-        import docker.errors  # ty: ignore[unresolved-import]
-
         del store  # the container reaches the store via `binding` (mounts/env)
         client = self._client()
-        self._ensure_image(client, spec.plan.image, spec.plan.platform or None)
-        create_kwargs = _create_kwargs(
+        start_container(
+            client,
             spec,
             binding,
             user=self.user,
+            pull=self.pull,
             environment={**dict(spec.provider_env), **binding.env},
         )
-        container = client.containers.create(**create_kwargs)
-        try:
-            container.start()
-        except docker.errors.APIError:
-            # Don't leave the named container behind, or the next attempt (retry /
-            # resubmit) collides on the deterministic name with a 409.
-            container.remove(force=True)
-            raise
         return RunHandle(backend_kind=BACKEND_KIND, ref=spec.run_name, run_dir="")
 
     def poll(self, handle: RunHandle) -> RunOutcome | None:
@@ -119,10 +158,7 @@ class LocalDockerBackend:
         container.reload()
         if container.status not in ("exited", "dead"):
             return None
-        state = container.attrs.get("State", {})
-        # ExitCode can be null on odd terminal states; treat as failure, not crash.
-        raw_code = state.get("ExitCode")
-        status = int(raw_code) if isinstance(raw_code, int) else 1
+        status = exit_status(container.attrs.get("State", {}))
         logs = container.logs(stdout=True, stderr=True).decode(errors="replace")
         if not self.keep_container:
             container.remove(force=True)
@@ -146,10 +182,26 @@ class LocalDockerBackend:
         except docker.errors.NotFound:
             pass  # finished + reaped already; poll() reads the terminal state
         outcome = self.poll(handle)
-        # poll() returns None only if the container vanished after wait(); the run
-        # itself wrote result.json, so report success — collect_outputs/_shape_
-        # prediction downstream still find the artifacts.
-        return outcome or RunOutcome(status_code=0, logs="")
+        if outcome is not None:
+            return outcome
+        # The container vanished before poll() could read its exit code. Trust
+        # the artifact, not an assumption: a written result.json means the run
+        # completed; its absence means it failed (e.g. crashed before writing).
+        from ..protocols import RESULT_KEY
+
+        wrote_result = _store_has(store, RESULT_KEY)
+        return RunOutcome(
+            status_code=0 if wrote_result else 1,
+            logs="" if wrote_result else "container disappeared without a result",
+        )
+
+
+def _store_has(store: ArtifactStore, key: str) -> bool:
+    try:
+        store.get(key)
+        return True
+    except (FileNotFoundError, OSError):
+        return False
 
 
 def _create_kwargs(
