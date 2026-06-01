@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
 from collections.abc import Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from concurrent.futures import TimeoutError as FuturesTimeoutError
@@ -68,6 +69,7 @@ class MCPConnection:
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._session: ClientSession | None = None
+        self._serve_task: asyncio.Task[None] | None = None
         self._tools: tuple[mcp_types.Tool, ...] = ()
         self._ready = threading.Event()
         self._close_event: asyncio.Event | None = None
@@ -76,7 +78,13 @@ class MCPConnection:
     # -- lifecycle ---------------------------------------------------------
 
     def open(self) -> "MCPConnection":
-        """Start the background loop, open the session, and discover tools."""
+        """Start the background loop, open the session, and discover tools.
+
+        Atomic: if startup fails or times out, the half-started thread,
+        event loop, and (for stdio) server subprocess are torn down before
+        the error is raised, so a failed `open()` leaves nothing running and
+        the connection can be retried.
+        """
 
         if self._thread is not None:
             return self
@@ -88,24 +96,52 @@ class MCPConnection:
         self._thread = thread
         thread.start()
         # Give connect + handshake + list_tools room beyond the inner timeout.
-        if not self._ready.wait(self._init_timeout + 10.0):
+        ready = self._ready.wait(self._init_timeout + 10.0)
+        if not ready or self._error is not None:
+            error = self._error
+            self.close()  # tear down the background loop/thread/subprocess
+            if error is not None:
+                raise MCPError(
+                    f"MCP server {self.name!r} failed to start: {error}"
+                ) from error
             raise MCPError(f"MCP server {self.name!r} did not become ready in time")
-        if self._error is not None:
-            raise MCPError(
-                f"MCP server {self.name!r} failed to start: {self._error}"
-            ) from self._error
         return self
 
     def close(self) -> None:
-        """Signal the loop to tear down the session and join the thread."""
+        """Tear down the session, join the thread, and reset for reuse.
+
+        Safe to call when never opened or already closed, and idempotent.
+        Resetting the readiness/error state lets a closed connection be
+        `open()`ed again cleanly.
+        """
 
         loop = self._loop
-        close_event = self._close_event
-        if loop is not None and close_event is not None and not loop.is_closed():
-            loop.call_soon_threadsafe(close_event.set)
+        if loop is not None and not loop.is_closed():
+            # Ask the serve coroutine to stop: set the close event (clean
+            # path) and cancel the task (covers a connect/handshake still
+            # hung inside the factory's __aenter__, which the event alone
+            # cannot unstick). Both run on the loop thread.
+            def _request_stop() -> None:
+                if self._close_event is not None:
+                    self._close_event.set()
+                if self._serve_task is not None:
+                    self._serve_task.cancel()
+
+            try:
+                loop.call_soon_threadsafe(_request_stop)
+            except RuntimeError:
+                # Loop is already shutting down; the thread will exit on its own.
+                pass
         if self._thread is not None:
             self._thread.join(timeout=10.0)
         self._thread = None
+        self._loop = None
+        self._session = None
+        self._serve_task = None
+        self._tools = ()
+        self._close_event = None
+        self._error = None
+        self._ready.clear()
 
     def __enter__(self) -> "MCPConnection":
         return self.open()
@@ -127,8 +163,13 @@ class MCPConnection:
         arguments: Mapping[str, Any] | None,
         *,
         timeout: float,
+        abort: Callable[[], bool] = lambda: False,
     ) -> "mcp_types.CallToolResult":
-        """Invoke one MCP tool, blocking until it returns or `timeout` hits."""
+        """Invoke one MCP tool, blocking until it returns, `timeout`, or `abort`.
+
+        The wait is polled in short slices so an `abort` that flips mid-call
+        is observed promptly instead of stalling for the full `timeout`.
+        """
 
         loop = self._loop
         session = self._session
@@ -136,13 +177,21 @@ class MCPConnection:
             raise MCPError(f"MCP server {self.name!r} is not open")
         coro = session.call_tool(tool_name, dict(arguments or {}))
         future = asyncio.run_coroutine_threadsafe(coro, loop)
-        try:
-            return future.result(timeout=timeout)
-        except FuturesTimeoutError:
-            future.cancel()
-            raise MCPError(
-                f"MCP tool {tool_name!r} on {self.name!r} timed out after {timeout:g}s"
-            ) from None
+        deadline = time.monotonic() + timeout
+        while True:
+            if abort():
+                future.cancel()
+                raise MCPError(f"MCP tool {tool_name!r} on {self.name!r} aborted")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                future.cancel()
+                raise MCPError(
+                    f"MCP tool {tool_name!r} on {self.name!r} timed out after {timeout:g}s"
+                )
+            try:
+                return future.result(timeout=min(0.1, remaining))
+            except FuturesTimeoutError:
+                continue
 
     def agent_tools(
         self,
@@ -165,9 +214,18 @@ class MCPConnection:
         self._loop = loop
         asyncio.set_event_loop(loop)
         try:
-            loop.run_until_complete(self._serve())
+            loop.run_until_complete(self._run())
         finally:
             loop.close()
+
+    async def _run(self) -> None:
+        # Run _serve as a task so close() can cancel it (cancellation, unlike
+        # the close event, can unstick a connect hung in the factory).
+        self._serve_task = asyncio.ensure_future(self._serve())
+        try:
+            await self._serve_task
+        except asyncio.CancelledError:
+            pass
 
     async def _serve(self) -> None:
         self._close_event = asyncio.Event()
@@ -180,6 +238,10 @@ class MCPConnection:
                 self._tools = tuple(listing.tools)
                 self._ready.set()
                 await self._close_event.wait()
+        except asyncio.CancelledError:
+            # close() cancelled us; unwind the context managers (closing the
+            # transport / subprocess) and let the cancellation propagate.
+            raise
         except BaseException as exc:  # noqa: BLE001 - reported back via open()
             self._error = exc
         finally:
@@ -202,7 +264,7 @@ def make_mcp_tools(
     """
 
     prefix = f"{connection.name}_" if name_prefix is None else name_prefix
-    return [
+    tools = [
         mcp_tool_to_agent_tool(
             connection,
             tool,
@@ -211,6 +273,17 @@ def make_mcp_tools(
         )
         for tool in connection.tools
     ]
+    # The model-visible name is the dispatch key (core's `tool_by_name` dict),
+    # so a duplicate would silently shadow another tool. Fail loud instead.
+    seen: set[str] = set()
+    for tool in tools:
+        if tool.name in seen:
+            raise MCPError(
+                f"duplicate MCP tool name {tool.name!r} from server "
+                f"{connection.name!r}; set a distinct name_prefix to disambiguate"
+            )
+        seen.add(tool.name)
+    return tools
 
 
 def mcp_tool_to_agent_tool(
@@ -239,7 +312,7 @@ def mcp_tool_to_agent_tool(
                 f"MCP tool {wire_name!r} aborted before start.", is_error=True
             )
         try:
-            result = connection.call(raw_name, args, timeout=call_timeout)
+            result = connection.call(raw_name, args, timeout=call_timeout, abort=abort)
         except MCPError as exc:
             return text_result(str(exc), is_error=True)
         except Exception as exc:  # noqa: BLE001 - report any call failure to the model

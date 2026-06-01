@@ -14,12 +14,19 @@ clear message instead of deep inside the async client.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
 
 Transport = Literal["stdio", "http"]
+
+# `name` is prepended to every tool's model-visible name ("<name>_<tool>").
+# Anthropic and OpenAI both restrict tool names to this character set, so
+# validating here turns a would-be opaque provider 400 at model-call time
+# into a clear error at construction.
+_VALID_NAME = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 @dataclass(frozen=True)
@@ -51,6 +58,12 @@ class MCPServerConfig:
     def __post_init__(self) -> None:
         if not self.name:
             raise ValueError("MCPServerConfig.name must be non-empty")
+        if not _VALID_NAME.fullmatch(self.name):
+            raise ValueError(
+                "MCPServerConfig.name must match [A-Za-z0-9_-]+ because it "
+                "becomes part of the model-visible tool name; "
+                f"got {self.name!r}"
+            )
         if self.transport == "stdio":
             if not self.command:
                 raise ValueError(

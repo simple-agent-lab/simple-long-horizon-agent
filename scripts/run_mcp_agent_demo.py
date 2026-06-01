@@ -83,6 +83,7 @@ def make_scripted_generate(tool_name: str, color: str):
 
 
 def print_tool_result_blocks(state: State, *, save_image: Path | None) -> None:
+    saved = False  # write only the first image so multiple results don't collide
     for message in state.messages:
         if message.kind != "tool_result":
             continue
@@ -94,9 +95,10 @@ def print_tool_result_blocks(state: State, *, save_image: Path | None) -> None:
                         f"  [image] {inner.mime_type}, {len(raw)} bytes "
                         f"(from {block.tool_name})"
                     )
-                    if save_image is not None:
+                    if save_image is not None and not saved:
                         save_image.write_bytes(raw)
                         print(f"  [image] saved to {save_image}")
+                        saved = True
                 else:
                     print(f"  [text ] {text_of((inner,))}")
 

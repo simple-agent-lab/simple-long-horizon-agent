@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import base64
 import logging
+import threading
+import time
 import unittest
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
@@ -38,7 +40,9 @@ try:
 
     from simple_agent_lab.mcp import (
         MCPConnection,
+        MCPError,
         MCPServerConfig,
+        make_mcp_tools,
         mcp_content_to_blocks,
     )
 
@@ -170,6 +174,11 @@ def _demo_server() -> FastMCP:
     def boom() -> str:
         raise ValueError("intentional failure")
 
+    @server.tool(description="Sleeps, to exercise abort/timeout responsiveness.")
+    def slow(seconds: float = 3.0) -> str:
+        time.sleep(seconds)
+        return "done"
+
     return server
 
 
@@ -190,12 +199,12 @@ class McpConnectionTest(unittest.TestCase):
 
     def test_discovers_tools(self) -> None:
         names = {tool.name for tool in self.conn.tools}
-        self.assertEqual(names, {"echo", "render", "boom"})
+        self.assertEqual(names, {"echo", "render", "boom", "slow"})
 
     def test_agent_tools_are_prefixed_with_server_name(self) -> None:
         tools = self.conn.agent_tools()
         names = {tool.name for tool in tools}
-        self.assertEqual(names, {"demo_echo", "demo_render", "demo_boom"})
+        self.assertEqual(names, {"demo_echo", "demo_render", "demo_boom", "demo_slow"})
 
     def test_agent_tool_carries_input_schema(self) -> None:
         echo = next(t for t in self.conn.agent_tools() if t.name == "demo_echo")
@@ -230,6 +239,27 @@ class McpConnectionTest(unittest.TestCase):
         echo = next(t for t in self.conn.agent_tools() if t.name == "demo_echo")
         result = echo.execute("c4", {"text": "hi"}, lambda: True, None)
         self.assertTrue(result.is_error)
+
+    def test_abort_during_call_returns_promptly(self) -> None:
+        # The tool sleeps 3s; an abort that flips ~0.2s in must unblock the
+        # call well before then. The <1.5s bound is below the 3s sleep, so a
+        # broken abort (which would wait the full call) fails the test.
+        aborted = threading.Event()
+        threading.Timer(0.2, aborted.set).start()
+        start = time.monotonic()
+        with self.assertRaises(MCPError) as ctx:
+            self.conn.call("slow", {"seconds": 3.0}, timeout=30.0, abort=aborted.is_set)
+        elapsed = time.monotonic() - start
+        self.assertIn("aborted", str(ctx.exception))
+        self.assertLess(elapsed, 1.5)
+
+    def test_call_timeout_is_reported(self) -> None:
+        start = time.monotonic()
+        with self.assertRaises(MCPError) as ctx:
+            self.conn.call("slow", {"seconds": 3.0}, timeout=0.3)
+        elapsed = time.monotonic() - start
+        self.assertIn("timed out", str(ctx.exception))
+        self.assertLess(elapsed, 1.5)
 
 
 # --------------------------------------------------------------------------
@@ -304,6 +334,78 @@ class McpConfigTest(unittest.TestCase):
         config = MCPServerConfig.http("remote", "https://example.com/mcp")
         self.assertEqual(config.transport, "http")
         self.assertEqual(config.url, "https://example.com/mcp")
+
+    def test_name_with_invalid_chars_rejected(self) -> None:
+        # The name becomes part of the model-visible tool name, which providers
+        # restrict to [A-Za-z0-9_-]; a space must fail fast at construction.
+        with self.assertRaises(ValueError):
+            MCPServerConfig.stdio("my server", "cmd")
+
+    def test_hyphenated_name_allowed(self) -> None:
+        config = MCPServerConfig.stdio("fs-prod_1", "cmd")
+        self.assertEqual(config.name, "fs-prod_1")
+
+
+# --------------------------------------------------------------------------
+# Connection lifecycle: atomic open(), reusable after close()
+# --------------------------------------------------------------------------
+
+
+@unittest.skipUnless(HAS_MCP, _SKIP_REASON)
+class McpLifecycleTest(unittest.TestCase):
+    def test_open_failure_cleans_up_and_is_not_left_running(self) -> None:
+        @asynccontextmanager
+        async def failing_factory() -> AsyncIterator[ClientSession]:
+            raise RuntimeError("handshake boom")
+            yield  # pragma: no cover - unreachable, makes this an async generator
+
+        before = threading.active_count()
+        conn = MCPConnection(failing_factory, name="bad", init_timeout=5.0)
+        with self.assertRaises(MCPError):
+            conn.open()
+        # The background thread must be torn down, not leaked.
+        for _ in range(50):
+            if threading.active_count() <= before:
+                break
+            time.sleep(0.05)
+        self.assertLessEqual(threading.active_count(), before)
+        self.assertIsNone(conn._thread)
+
+    def test_reopen_after_close_works(self) -> None:
+        conn = _open_connection(_demo_server())
+        self.assertTrue(conn.tools)
+        conn.close()
+        self.assertEqual(conn.tools, ())
+        # Reopening must actually reconnect, not return on a stale ready flag.
+        conn2 = conn.open()
+        self.addCleanup(conn.close)
+        self.assertIs(conn2, conn)
+        echo = next(t for t in conn.agent_tools() if t.name == "demo_echo")
+        result = echo.execute("c", {"text": "again"}, lambda: False, None)
+        self.assertFalse(result.is_error)
+        self.assertEqual(result.content, (TextBlock("echo: again"),))
+
+
+# --------------------------------------------------------------------------
+# Tool name collision guard
+# --------------------------------------------------------------------------
+
+
+@unittest.skipUnless(HAS_MCP, _SKIP_REASON)
+class McpToolCollisionTest(unittest.TestCase):
+    def test_duplicate_tool_names_raise(self) -> None:
+        conn = _open_connection(_demo_server())
+        self.addCleanup(conn.close)
+        dup = mcp_types.Tool(
+            name="echo",
+            description="shadow",
+            inputSchema={"type": "object", "properties": {}},
+        )
+        # Force a server that advertises two tools mapping to the same name.
+        conn._tools = (*conn._tools, dup)
+        with self.assertRaises(MCPError) as ctx:
+            make_mcp_tools(conn)
+        self.assertIn("duplicate", str(ctx.exception))
 
 
 if __name__ == "__main__":
