@@ -385,6 +385,8 @@ class CoreTest(unittest.TestCase):
             "model_turns_from_events",
             "openai_training_record",
             "print_trace",
+            "recorded_tool_calls",
+            "replay_side_effects",
             "resume",
             "run",
             "run_trace_from_state",

@@ -20,21 +20,29 @@ own prior output) and watch how the agent reacts.
 Note on side effects: this forks the in-memory transcript only. Tools that
 mutate state outside the message log (a container filesystem, a database)
 are NOT rewound — to replay those faithfully you must restore that external
-state to the chosen point first (see the eval/container notes in the docs).
-For pure-function tools and model-only debugging, the transcript is the
-whole story and no extra work is needed.
+state to the chosen point first.
+
+The `replay_side_effects` helper covers the common "rebuild, don't snapshot"
+strategy: re-execute the tool calls recorded in the kept prefix against a
+fresh environment (e.g. a container booted from the run's baseline image),
+applying their side effects again without ever calling the model. Wire it
+into `resume` via the `on_fork` hook and the external world is restored to
+the fork point before the model loop continues. For pure-function tools and
+model-only debugging, the transcript is the whole story and no rebuild is
+needed.
 """
 
 from __future__ import annotations
 
 import dataclasses
-from typing import Iterator
+from collections.abc import Sequence
+from typing import Callable, Iterator
 
-from .core import Agent, run
-from .messages import Message
+from .core import Agent, _execute_one, run
+from .messages import Message, ToolCallBlock, message_tool_calls
 from .protocols import Event, MessageEvent
 from .state import State
-from .tools import AbortFlag
+from .tools import AbortFlag, AgentTool, ToolResult, ToolUpdateFn
 
 
 def message_event_indices(state: State) -> list[int]:
@@ -89,6 +97,54 @@ def fork_at_message(
     return State(task=state.task, events=kept, data=dict(state.data))
 
 
+def recorded_tool_calls(messages: Sequence[Message]) -> list[ToolCallBlock]:
+    """Every tool call recorded in `messages`, flattened in transcript order.
+
+    A parallel-tool assistant turn contributes its calls in the order they
+    appear in the message, so replaying the result preserves the original
+    sequence of side effects.
+    """
+    calls: list[ToolCallBlock] = []
+    for message in messages:
+        calls.extend(message_tool_calls(message))
+    return calls
+
+
+def replay_side_effects(
+    messages: Sequence[Message],
+    tools: Sequence[AgentTool],
+    *,
+    abort: AbortFlag = lambda: False,
+    on_update: ToolUpdateFn | None = None,
+) -> list[ToolResult]:
+    """Re-execute the tool calls recorded in `messages` for their side effects.
+
+    This is the "rebuild, don't snapshot" half of replay: rather than
+    persisting a filesystem/container checkpoint at every step, boot a fresh
+    environment from the run's baseline and replay the recorded calls to
+    bring the external world back to the fork point. The returned
+    `ToolResult`s come from *this* execution, so a caller can diff them
+    against the recorded `ToolResultBlock`s to surface nondeterminism
+    (a command that read the clock, the network, or a random source).
+
+    Calls run **sequentially in recorded order** — side effects often depend
+    on their predecessors (a write after a `cd`, an edit after a checkout),
+    so this deliberately ignores each tool's `execution_mode` and never
+    parallelizes. Unknown tool names yield an error result rather than
+    raising, mirroring `dispatch_tool_calls`.
+
+    Pass `messages` from the *forked* state (the kept prefix). Fork at a
+    user / tool-result boundary so every recorded call's effect had in fact
+    been applied by that point; forking mid-turn (an assistant message whose
+    calls were not yet dispatched) would over-apply that turn's effects.
+    """
+    tool_by_name = {tool.name: tool for tool in tools}
+    return [
+        _execute_one(call, tool_by_name, abort, on_update)
+        for call in recorded_tool_calls(messages)
+    ]
+
+
 def resume(
     agent: Agent,
     state: State,
@@ -97,6 +153,7 @@ def resume(
     max_turns: int = 10,
     abort: AbortFlag = lambda: False,
     replace_tail: Message | None = None,
+    on_fork: Callable[[State], None] | None = None,
 ) -> tuple[State, Iterator[Event]]:
     """Fork `state` at `message_index` and re-run `agent` from there.
 
@@ -108,7 +165,15 @@ def resume(
 
     Pass `replace_tail` to edit the message at the cut point before
     resuming (see `fork_at_message`).
+
+    `on_fork`, when given, is called with the forked state *before* the
+    model loop starts — the seam for restoring external state to the fork
+    point (e.g. ``on_fork=lambda s: replay_side_effects(s.messages,
+    agent.tools)`` to rebuild a container filesystem). `resume` stays
+    neutral about how the world is rewound; the hook owns that.
     """
     forked = fork_at_message(state, message_index, replace_tail=replace_tail)
+    if on_fork is not None:
+        on_fork(forked)
     events = run(agent, forked, max_turns=max_turns, abort=abort)
     return forked, events

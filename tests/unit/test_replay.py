@@ -6,13 +6,17 @@ from simple_agent_lab import (
     Agent,
     Message,
     State,
+    ToolCallBlock,
     assistant_message,
     fork_at_message,
     message_event_indices,
     message_text,
+    recorded_tool_calls,
+    replay_side_effects,
     resume,
     user_message,
 )
+from simple_agent_lab.tools import AgentTool, text_result
 
 
 def _drain(events) -> None:
@@ -116,6 +120,106 @@ class ReplayTest(unittest.TestCase):
         # ...and the resumed model saw that edited context on its first turn.
         first_seen = replay_agent.seen_contexts[0]
         self.assertEqual(message_text(first_seen[0]), "edited task context")
+
+
+class _ToolThenFinalAgent:
+    """Calls `touch` once per path, in order, then emits a final message."""
+
+    def __init__(self, paths: list[str]) -> None:
+        self._paths = paths
+        self._turn = 0
+
+    def __call__(self, visible: list[Message]) -> Message:
+        del visible
+        if self._turn < len(self._paths):
+            path = self._paths[self._turn]
+            self._turn += 1
+            return assistant_message(
+                [ToolCallBlock(id=f"c{path}", name="touch", arguments={"path": path})],
+                sender="writer",
+                target="user",
+                kind="step",
+            )
+        return assistant_message("done", sender="writer", target="user", kind="final")
+
+
+def _touch_tool(fs: set[str]) -> AgentTool:
+    """A stateful tool standing in for a container filesystem mutation."""
+
+    def touch(call_id, args, abort, on_update):  # noqa: ANN001 - test stub
+        del call_id, abort, on_update
+        fs.add(args["path"])
+        return text_result(f"created {args['path']}")
+
+    return AgentTool(
+        name="touch",
+        description="create a file",
+        parameters={
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "required": ["path"],
+        },
+        execute=touch,
+    )
+
+
+class ReplaySideEffectsTest(unittest.TestCase):
+    def _run_with_two_touches(self) -> tuple[State, set[str], AgentTool]:
+        fs: set[str] = set()
+        tool = _touch_tool(fs)
+        agent = Agent("writer", _ToolThenFinalAgent(["a", "b"]), tools=(tool,))
+        state, events = agent.run("make files", max_turns=5)
+        _drain(events)
+        return state, fs, tool
+
+    def test_recorded_tool_calls_in_transcript_order(self) -> None:
+        state, _fs, _tool = self._run_with_two_touches()
+        calls = recorded_tool_calls(state.messages)
+        self.assertEqual([c.name for c in calls], ["touch", "touch"])
+        self.assertEqual([c.arguments["path"] for c in calls], ["a", "b"])
+
+    def test_replay_rebuilds_external_state(self) -> None:
+        state, fs, tool = self._run_with_two_touches()
+        self.assertEqual(fs, {"a", "b"})  # original run created both
+
+        # Simulate a fresh container: external state wiped.
+        fs.clear()
+
+        # Fork at the second tool-result message; replaying the kept prefix's
+        # recorded calls rebuilds the filesystem to that point.
+        forked = fork_at_message(state, 4)
+        results = replay_side_effects(forked.messages, [tool])
+
+        self.assertEqual(fs, {"a", "b"})
+        self.assertEqual(len(results), 2)
+        self.assertFalse(any(r.is_error for r in results))
+
+    def test_unknown_tool_yields_error_result_not_raise(self) -> None:
+        state, _fs, _tool = self._run_with_two_touches()
+        forked = fork_at_message(state, 4)
+        # No tools provided: every recorded call is unknown.
+        results = replay_side_effects(forked.messages, [])
+        self.assertEqual(len(results), 2)
+        self.assertTrue(all(r.is_error for r in results))
+
+    def test_resume_runs_on_fork_before_loop(self) -> None:
+        state, fs, tool = self._run_with_two_touches()
+        fs.clear()
+
+        seen_lengths: list[int] = []
+
+        def rebuild(forked: State) -> None:
+            seen_lengths.append(len(forked.messages))
+            replay_side_effects(forked.messages, [tool])
+
+        # Resume from message 2 (first tool result); the hook rebuilds {"a"}
+        # before the model loop continues.
+        replay_agent = Agent("writer", _ToolThenFinalAgent([]), tools=(tool,))
+        forked, events = resume(replay_agent, state, 2, on_fork=rebuild)
+        _drain(events)
+
+        self.assertEqual(seen_lengths, [3])  # task + step + tool-result
+        self.assertEqual(fs, {"a"})
 
 
 if __name__ == "__main__":
