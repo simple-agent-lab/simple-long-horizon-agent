@@ -2,10 +2,8 @@
 
 A human-facing walkthrough of what actually happens, end to end, when you run
 the whole SWE-bench benchmark on this framework — from "a dataset of bug reports"
-to "a resolved-rate score." It favors the story and the *why* over API details;
-for those, see [ADR 0017](decisions/0017-generic-containerized-eval-framework.md),
-[`evals/README.md`](../evals/README.md), and the step-by-step
-[integration guide](agent-native/integrating-a-docker-eval-suite.md).
+to "a resolved-rate score." It favors the story and the *why* over API details,
+and reads top to bottom on its own.
 
 ## The big picture: three separate stages
 
@@ -182,5 +180,4 @@ are swappable, without changing the suite or the agent:
   run nothing of ours but a Docker daemon and the images.
 
 All three are "change one argument," because the launch location and the byte
-movement are separate, swappable seams. The deployment details live in
-[multi-machine-deployment.md](agent-native/multi-machine-deployment.md).
+movement are separate, swappable seams.
