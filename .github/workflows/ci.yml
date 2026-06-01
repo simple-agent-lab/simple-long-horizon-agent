@@ -21,7 +21,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
       - name: Sync dev dependencies
-        run: uv sync --group dev
+        run: uv sync --group dev --extra mcp
       - name: Run unit tests
         run: uv run python -m unittest discover -s tests/unit
       - name: Run example smoke
@@ -38,7 +38,7 @@ jobs:
           python-version: "3.13"
           enable-cache: true
       - name: Sync dev dependencies
-        run: uv sync --group dev
+        run: uv sync --group dev --extra mcp
       - name: Run ty check
         run: uv run ty check src
 

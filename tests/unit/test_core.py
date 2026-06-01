@@ -15,6 +15,7 @@ from simple_agent_lab import (
     ModelRequestEvent,
     State,
     TextBlock,
+    TokenUsage,
     ToolCallBlock,
     assistant_message,
     build_context_view,
@@ -370,6 +371,7 @@ class CoreTest(unittest.TestCase):
             "append_openai_training_record",
             "assistant_message",
             "build_context_view",
+            "effective_token_budget",
             "estimate_context_tokens",
             "estimate_message_chars",
             "estimate_message_tokens",
@@ -684,6 +686,134 @@ class CoreTest(unittest.TestCase):
         self.assertIn("Compacted", message_text(compact_replacement))
         llm_replacement = state.messages[compressions[1].summary_message_index]
         self.assertEqual(message_text(llm_replacement), "llm summary text")
+
+    def test_after_tokens_ignores_stale_pre_compression_usage_baseline(self) -> None:
+        # A kept recent assistant carries `usage.context_tokens` from when the
+        # window was full. After compression drops the older messages, that
+        # baseline references content that is gone, so `after_tokens` must NOT
+        # trust it — otherwise the event reports compression as a no-op.
+        def writer(visible: list[Message]) -> Message:
+            del visible
+            return assistant_message(
+                "done", sender="writer", target="user", kind="final"
+            )
+
+        def compressor(visible: list[Message]) -> Message:
+            del visible
+            return assistant_message(
+                "short summary", sender="compressor", target="runtime", kind="final"
+            )
+
+        state = State("task")
+        state.send("task", "user", "writer", state.task)
+        state.send("message", "user", "writer", "old context " + ("x" * 400))
+        # Recent assistant kept by keep_recent; its context_tokens reflects the
+        # full pre-compression window (6120), dwarfing the real text size.
+        state.record(
+            assistant_message(
+                "recent answer",
+                sender="writer",
+                target="user",
+                kind="step",
+                usage=TokenUsage(input_tokens=6000, output_tokens=120),
+            )
+        )
+        state.send("message", "user", "writer", "newest follow-up")
+
+        policy = ContextPolicy(
+            strategies=(
+                simple_agent_lab.SummarizeStrategy(
+                    compressor=Agent("compressor", compressor),
+                    threshold_tokens=50,
+                    keep_recent=2,
+                ),
+            ),
+        )
+        for _ in run(
+            Agent("writer", writer, context_policy=policy), state, max_turns=1
+        ):
+            pass
+
+        compression = next(
+            event
+            for event in state.events
+            if isinstance(event, ContextCompressionEvent)
+        )
+        # The stale baseline would have reported ~6120+; the true post-compression
+        # context (summary + short kept messages, the kept assistant at its exact
+        # 120 output_tokens) is small. Guard well below the stale value.
+        self.assertLess(compression.after_tokens, 1000)
+        self.assertLess(compression.after_tokens, compression.before_tokens)
+
+    def test_tiered_second_strategy_does_not_fire_on_stale_baseline(self) -> None:
+        # In a tiered policy, ToolCompact runs first and folds the old tool
+        # exchanges, bringing the real context well under SummarizeStrategy's
+        # threshold. But a kept assistant still carries a large pre-compression
+        # `context_tokens`. Summarize's gate must read the true (small) size off
+        # the append-only record and NOT fire on the stale baseline.
+        summarizer_calls: list[int] = []
+
+        def writer(visible: list[Message]) -> Message:
+            del visible
+            return assistant_message(
+                "done", sender="writer", target="user", kind="final"
+            )
+
+        def fake_summarizer(visible: list[Message]) -> Message:
+            summarizer_calls.append(len(visible))
+            return assistant_message(
+                "llm summary", sender="compressor", target="runtime", kind="final"
+            )
+
+        state = State("tiered stale baseline")
+        state.send("task", "user", "writer", state.task)
+        for index, ctx_input in enumerate((4800, 5000)):
+            state.record(
+                assistant_message(
+                    [
+                        TextBlock(f"call {index}"),
+                        ToolCallBlock(f"c{index}", "echo", {}),
+                    ],
+                    sender="writer",
+                    target="user",
+                    kind="step",
+                    usage=TokenUsage(input_tokens=ctx_input, output_tokens=200),
+                )
+            )
+            state.record(
+                tool_result_message(
+                    "short result",
+                    tool_call_id=f"c{index}",
+                    tool_name="echo",
+                    target="writer",
+                )
+            )
+
+        policy = ContextPolicy(
+            strategies=(
+                simple_agent_lab.ToolCompactStrategy(
+                    threshold_tokens=1000, keep_recent_exchanges=1
+                ),
+                simple_agent_lab.SummarizeStrategy(
+                    compressor=Agent("compressor", fake_summarizer),
+                    threshold_tokens=3000,
+                    keep_recent=0,
+                ),
+            ),
+        )
+        for _ in run(
+            Agent("writer", writer, context_policy=policy), state, max_turns=1
+        ):
+            pass
+
+        compressions = [
+            event
+            for event in state.events
+            if isinstance(event, ContextCompressionEvent)
+        ]
+        # Only ToolCompact should fire; Summarize sees the true small size.
+        self.assertEqual(len(compressions), 1)
+        self.assertEqual(summarizer_calls, [])
 
     def test_framework_auto_fixes_split_tool_pair(self) -> None:
         # If a strategy puts only one side of a tool_call/tool_result pair

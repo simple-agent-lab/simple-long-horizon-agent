@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import unittest
 
 from simple_agent_lab import (
@@ -9,6 +10,7 @@ from simple_agent_lab import (
     TokenUsage,
     assistant_message,
     build_context_view,
+    effective_token_budget,
     estimate_context_tokens,
     estimate_message_chars,
     estimate_message_tokens,
@@ -57,6 +59,43 @@ class TokenUsageDataclassTest(unittest.TestCase):
             usage.input_tokens = 99  # type: ignore[misc]
         # Hashing means it can live inside frozen AssistantMessage equality.
         self.assertEqual(hash(usage), hash(TokenUsage(input_tokens=1, output_tokens=2)))
+
+
+class FromInclusiveInputTest(unittest.TestCase):
+    """`from_inclusive_input` converts subset-cache reporting to additive.
+
+    This is the one place the "cache is a subset of the input total" shape
+    (OpenAI) becomes the project's "cache is additive to input_tokens" shape,
+    so every OpenAI-family adapter shares it instead of re-deriving it.
+    """
+
+    def test_subtracts_cached_so_context_tokens_is_true_window(self) -> None:
+        usage = TokenUsage.from_inclusive_input(
+            total_input=2007, output=90, cached_read=1984
+        )
+        self.assertEqual(usage.input_tokens, 23)
+        self.assertEqual(usage.cache_read_tokens, 1984)
+        # 23 + 90 + 1984 — the real window, not the double-counted 4081.
+        self.assertEqual(usage.context_tokens, 2097)
+
+    def test_subtracts_both_cache_read_and_write(self) -> None:
+        usage = TokenUsage.from_inclusive_input(
+            total_input=100, output=10, cached_read=30, cache_write=20
+        )
+        self.assertEqual(usage.input_tokens, 50)  # 100 - 30 - 20
+        self.assertEqual(usage.context_tokens, 110)  # back to total_input + output
+
+    def test_no_cache_leaves_input_untouched(self) -> None:
+        usage = TokenUsage.from_inclusive_input(total_input=42, output=7)
+        self.assertEqual(usage.input_tokens, 42)
+        self.assertEqual(usage.cache_read_tokens, 0)
+
+    def test_floors_at_zero_if_cache_exceeds_total(self) -> None:
+        # Defensive: a malformed provider reading must never yield negatives.
+        usage = TokenUsage.from_inclusive_input(
+            total_input=10, output=1, cached_read=99
+        )
+        self.assertEqual(usage.input_tokens, 0)
 
 
 class AssistantMessageUsageTest(unittest.TestCase):
@@ -154,7 +193,7 @@ class LLMResponseToAssistantMessageTest(unittest.TestCase):
 class EstimateMessageTokensTest(unittest.TestCase):
     def test_assistant_with_output_tokens_uses_exact_count(self) -> None:
         message = assistant_message(
-            "x" * 1000,  # ~250 tokens by char/4 fallback
+            "x" * 1000,  # large char-fallback estimate
             usage=TokenUsage(input_tokens=999_999, output_tokens=42),
         )
         # The exact `output_tokens=42` wins over the 250 char-estimate.
@@ -164,37 +203,29 @@ class EstimateMessageTokensTest(unittest.TestCase):
         # output_tokens=0 means "we asked and the answer was zero" but in
         # practice, no real assistant message has zero output tokens — we
         # treat it as "unusable, fall back to estimation". This also keeps
-        # chars/4 the safety net when usage data is partial or fabricated.
+        # the char fallback the safety net when usage data is partial or fabricated.
         message = assistant_message(
             "hello",
             usage=TokenUsage(input_tokens=500, output_tokens=0),
         )
-        expected = (
-            estimate_message_chars(message) + CHARS_PER_TOKEN - 1
-        ) // CHARS_PER_TOKEN
+        expected = math.ceil(estimate_message_chars(message) / CHARS_PER_TOKEN)
         self.assertEqual(estimate_message_tokens(message), expected)
 
     def test_assistant_without_usage_falls_back_to_chars(self) -> None:
         message = assistant_message("hello world")
-        expected = (
-            estimate_message_chars(message) + CHARS_PER_TOKEN - 1
-        ) // CHARS_PER_TOKEN
+        expected = math.ceil(estimate_message_chars(message) / CHARS_PER_TOKEN)
         self.assertEqual(estimate_message_tokens(message), expected)
 
     def test_user_message_always_falls_back_even_if_long(self) -> None:
         # No provider reports per-message tokens for user inputs, so user
         # messages always go through char-estimation.
         message = user_message("x" * 100)
-        expected = (
-            estimate_message_chars(message) + CHARS_PER_TOKEN - 1
-        ) // CHARS_PER_TOKEN
+        expected = math.ceil(estimate_message_chars(message) / CHARS_PER_TOKEN)
         self.assertEqual(estimate_message_tokens(message), expected)
 
     def test_system_message_falls_back(self) -> None:
         message = system_message("be helpful")
-        expected = (
-            estimate_message_chars(message) + CHARS_PER_TOKEN - 1
-        ) // CHARS_PER_TOKEN
+        expected = math.ceil(estimate_message_chars(message) / CHARS_PER_TOKEN)
         self.assertEqual(estimate_message_tokens(message), expected)
 
     def test_tool_result_falls_back(self) -> None:
@@ -204,16 +235,25 @@ class EstimateMessageTokensTest(unittest.TestCase):
             tool_name="bash",
             target="agent",
         )
-        expected = (
-            estimate_message_chars(message) + CHARS_PER_TOKEN - 1
-        ) // CHARS_PER_TOKEN
+        expected = math.ceil(estimate_message_chars(message) / CHARS_PER_TOKEN)
         self.assertEqual(estimate_message_tokens(message), expected)
 
     def test_fallback_rounds_up_via_ceiling(self) -> None:
-        # Char/4 must round UP, not down — otherwise a 1-char message reads
-        # as 0 tokens and a budgeting caller could treat it as "free".
+        # The char fallback must round UP, not down — otherwise a 1-char
+        # message reads as 0 tokens and a budgeting caller could treat it
+        # as "free".
         message = user_message("x")
         self.assertGreaterEqual(estimate_message_tokens(message), 1)
+
+    def test_default_chars_per_token_is_below_the_old_guess(self) -> None:
+        # The default is a rounded neutral ratio below the old 4.0 guess, so the
+        # char fallback no longer under-counts dense content as badly.
+        self.assertLess(CHARS_PER_TOKEN, 4)
+        message = user_message("x" * 400, target="agent")
+        chars = estimate_message_chars(message)
+        self.assertEqual(
+            estimate_message_tokens(message), math.ceil(chars / CHARS_PER_TOKEN)
+        )
 
 
 class ContextStatsUsesUsageTest(unittest.TestCase):
@@ -233,10 +273,8 @@ class ContextStatsUsesUsageTest(unittest.TestCase):
 
         # The assistant contributes its exact 5 output_tokens. The user
         # message still falls back. Total tokens must be lower than what a
-        # pure chars/4 estimate would produce, since output_tokens=5 << 250.
-        char_only_estimate = (
-            view.stats.estimated_chars + CHARS_PER_TOKEN - 1
-        ) // CHARS_PER_TOKEN
+        # pure char-based estimate would produce, since output_tokens=5 is tiny.
+        char_only_estimate = math.ceil(view.stats.estimated_chars / CHARS_PER_TOKEN)
         self.assertLess(view.stats.estimated_tokens, char_only_estimate)
         self.assertEqual(view.stats.usage_known_messages, 1)
 
@@ -268,9 +306,13 @@ class ContextStatsUsesUsageTest(unittest.TestCase):
             assistant_message("hello back", sender="agent", target="user"),
         ]
         view = build_context_view("agent", messages)
-        char_only = (
-            view.stats.estimated_chars + CHARS_PER_TOKEN - 1
-        ) // CHARS_PER_TOKEN
+        # No usage anywhere -> pure char fallback, summed per message (each
+        # message rounds up independently, so this is sum-of-ceilings, not a
+        # single ceiling over the combined character count).
+        char_only = sum(
+            math.ceil(estimate_message_chars(message) / CHARS_PER_TOKEN)
+            for message in messages
+        )
         self.assertEqual(view.stats.estimated_tokens, char_only)
         self.assertEqual(view.stats.usage_known_messages, 0)
 
@@ -304,6 +346,27 @@ class ContextStatsUsesUsageTest(unittest.TestCase):
         view = build_context_view("agent", [message])
         self.assertIn("usage_known_messages", view.stats.as_dict())
         self.assertEqual(view.stats.as_dict()["usage_known_messages"], 1)
+
+
+class EffectiveTokenBudgetTest(unittest.TestCase):
+    def test_reserves_output_and_buffer_from_the_window(self) -> None:
+        self.assertEqual(
+            effective_token_budget(
+                200_000, output_reserve=32_000, safety_buffer=20_000
+            ),
+            148_000,
+        )
+
+    def test_floors_at_zero_for_small_windows(self) -> None:
+        self.assertEqual(
+            effective_token_budget(8_000, output_reserve=32_000, safety_buffer=20_000),
+            0,
+        )
+
+    def test_larger_buffer_yields_smaller_budget(self) -> None:
+        loose = effective_token_budget(100_000, safety_buffer=10_000)
+        tight = effective_token_budget(100_000, safety_buffer=40_000)
+        self.assertGreater(loose, tight)
 
 
 class EndToEndUsagePropagationTest(unittest.TestCase):

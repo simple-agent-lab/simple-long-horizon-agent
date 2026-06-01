@@ -1482,5 +1482,89 @@ class RawCaptureTest(unittest.TestCase):
         self.assertEqual(len(response.raw["request"]["input"]), 1)
 
 
+class CachedTokenNormalizationTest(unittest.TestCase):
+    """Cache tokens must be additive to `input_tokens`, never a subset.
+
+    OpenAI reports `prompt_tokens` *including* the cached portion, with
+    `cached_tokens` as a sub-breakdown. If the adapter stored both verbatim,
+    `context_tokens` (= input + output + cache_read + cache_write) would count
+    the cache twice — inflating the context-window estimate that drives
+    compression. The numbers below are from a real warm-cache call: a 2007-token
+    prompt served almost entirely from cache.
+    """
+
+    def test_openai_chat_subtracts_cached_from_prompt_tokens(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(
+            _chat_response(prompt_tokens=2007, completion_tokens=90, cached=1984),
+            captured,
+            kind="chat",
+        )
+        req = LLMRequest(
+            provider=OPENAI_CHAT_PROVIDER,
+            messages=[LLMMessage(role="user", content="hi")],
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            response = complete(req)
+
+        usage = response.usage
+        self.assertEqual(usage.input_tokens, 23)  # 2007 - 1984 cached
+        self.assertEqual(usage.cache_read_tokens, 1984)
+        # The window is the true 2097, not the double-counted 4081.
+        self.assertEqual(usage.context_tokens, 2097)
+
+    def test_openai_responses_subtracts_cached_from_input_tokens(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(
+            _responses_response(
+                text_blocks=["ok"], input_tokens=2007, output_tokens=90, cached=1984
+            ),
+            captured,
+            kind="responses",
+        )
+        req = LLMRequest(
+            provider=OPENAI_RESPONSES_PROVIDER,
+            messages=[LLMMessage(role="user", content="hi")],
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            response = complete(req)
+
+        usage = response.usage
+        self.assertEqual(usage.input_tokens, 23)
+        self.assertEqual(usage.cache_read_tokens, 1984)
+        self.assertEqual(usage.context_tokens, 2097)  # 23 + 90 + 1984
+
+    def test_anthropic_keeps_native_additive_cache(self) -> None:
+        # Anthropic already reports input_tokens WITHOUT cache, so no
+        # subtraction: input + cache_read + cache_write is the full window.
+        captured: dict[str, Any] = {}
+        module = _stub_anthropic(
+            _anthropic_response(
+                text="ok", input_tokens=23, output_tokens=90, cache_read=1984
+            ),
+            captured,
+        )
+        req = LLMRequest(
+            provider=ANTHROPIC_PROVIDER,
+            messages=[LLMMessage(role="user", content="hi")],
+        )
+        with (
+            _stub_module("anthropic", module),
+            mock.patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "k"}, clear=False),
+        ):
+            response = complete(req)
+
+        usage = response.usage
+        self.assertEqual(usage.input_tokens, 23)
+        self.assertEqual(usage.cache_read_tokens, 1984)
+        self.assertEqual(usage.context_tokens, 2097)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

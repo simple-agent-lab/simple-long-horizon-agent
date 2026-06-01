@@ -13,7 +13,10 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
-uv sync --group dev
+# `--extra mcp` because the MCP integration lives under `src/` and is both
+# type-checked (`ty check src`) and unit-tested; the extra keeps the `mcp`
+# SDK present so those checks cover it instead of silently skipping.
+uv sync --group dev --extra mcp
 
 printf '\n=== ruff format --check . ===\n'
 uv run ruff format --check .

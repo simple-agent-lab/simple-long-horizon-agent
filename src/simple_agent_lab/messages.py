@@ -131,10 +131,19 @@ class TokenUsage:
     """Provider-reported token counts for one model call.
 
     Attached to the AssistantMessage produced from that call. Providers report
-    per-call totals: `input_tokens` covers ALL inputs the call saw (system +
+    per-call totals: the input side covers ALL inputs the call saw (system +
     history + tool results), while `output_tokens` is just this assistant
     message. We therefore only persist usage on AssistantMessage — splitting
     the input total across earlier messages would require re-tokenizing.
+
+    Field convention (adapters normalize every provider to it): `input_tokens`
+    is the *non-cached* input the model processed fresh; `cache_read_tokens`
+    and `cache_write_tokens` are the cached input portions, counted *in
+    addition* to `input_tokens`. So the full input window is
+    `input_tokens + cache_read_tokens + cache_write_tokens`. This matches
+    Anthropic's native shape; the OpenAI adapters subtract `cached_tokens`
+    out of `prompt_tokens` so their (subset) reporting fits the same rule
+    rather than double-counting the cache.
 
     `output_tokens` doubles as a precise estimate of how many tokens this
     message will cost when re-sent in a future call's context, so context_view
@@ -146,17 +155,47 @@ class TokenUsage:
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
 
+    @classmethod
+    def from_inclusive_input(
+        cls,
+        *,
+        total_input: int,
+        output: int,
+        cached_read: int = 0,
+        cache_write: int = 0,
+    ) -> "TokenUsage":
+        """Normalize a provider that reports input *inclusive* of cache.
+
+        OpenAI-style providers report one input total (`prompt_tokens` /
+        `input_tokens`) that already contains the cached tokens as a subset.
+        This subtracts the cache back out so the result fits the project
+        convention — `input_tokens` is non-cached, cache counts are additive —
+        keeping `context_tokens` from double-counting the cache. Providers that
+        already report cache as separate additive buckets (Anthropic) should
+        construct `TokenUsage(...)` directly instead.
+        """
+        return cls(
+            input_tokens=max(0, total_input - cached_read - cache_write),
+            output_tokens=output,
+            cache_read_tokens=cached_read,
+            cache_write_tokens=cache_write,
+        )
+
     @property
     def total_tokens(self) -> int:
+        # Input + output only: cache is tracked separately because it prices
+        # differently, so folding it in here would mislead cost reporting.
         return self.input_tokens + self.output_tokens
 
     @property
     def context_tokens(self) -> int:
-        """All token counts that occupied this call's context window.
+        """How many tokens occupied this call's context window.
 
         The single definition of "how full was this call" / "is any usage
-        reported". `0` means the provider reported nothing, so callers treat
-        the usage as unknown rather than as an authoritative all-zeros.
+        reported". With the field convention above (cache counts are additive
+        to `input_tokens`, never a subset of it), the window is the plain sum
+        of all four counts. `0` means the provider reported nothing, so callers
+        treat the usage as unknown rather than as an authoritative all-zeros.
         """
         return (
             self.input_tokens
