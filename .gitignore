@@ -45,6 +45,9 @@ docs/reference-architectures/*
 # Node
 node_modules/
 
+# Impeccable critique artifacts — local only
+.impeccable/
+
 # Editor / OS
 .DS_Store
 .idea/
