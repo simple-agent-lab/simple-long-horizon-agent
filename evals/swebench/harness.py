@@ -473,7 +473,8 @@ def _project_runtime_dependencies() -> list[str]:
     return [
         requirement
         for requirement in (requires("simple-agent-lab") or [])
-        if "extra ==" not in (requirement.split(";", 1)[1] if ";" in requirement else "")
+        if "extra =="
+        not in (requirement.split(";", 1)[1] if ";" in requirement else "")
     ]
 
 

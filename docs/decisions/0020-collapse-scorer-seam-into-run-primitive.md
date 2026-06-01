@@ -60,7 +60,7 @@ Collapse scoring into the run primitive. There is **one** way to run things
 
 **Removed:** the `Scorer` protocol, `ScoreRequest`, `Suite.scorer()`, the
 `score_dataset` / `suite_scorer` driver (`scoring.py`), and the
-`SeparateScorer` / `ReuseScorer` classes (`evals/swebench/scorer.py`). The
+`SeparateScorer` / `ReuseScorer` classes (`scorer.py`). The
 SWE-bench suite's `score_mode` becomes a single `in_env_scoring: bool` that just
 decides whether `eval_inputs` stages the official eval script (turning the hook
 on).

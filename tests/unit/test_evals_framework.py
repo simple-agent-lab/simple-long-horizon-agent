@@ -804,7 +804,9 @@ class ReviewFixesTest(unittest.TestCase):
             store_mount = {"/host/run": {"bind": "/agent/run", "mode": "rw"}}
 
             bound = with_local_mounts(
-                ContainerBinding(mounts=dict(store_mount), env={"SAL_STORE": "localdir"}),
+                ContainerBinding(
+                    mounts=dict(store_mount), env={"SAL_STORE": "localdir"}
+                ),
                 wheelhouse=wheelhouse,
                 wheelhouse_mount="/agent/wheelhouse",
                 uv_binary=uv,
@@ -840,10 +842,15 @@ class ReviewFixesTest(unittest.TestCase):
         from simple_agent_lab.evals.backends.docker_local import with_local_mounts
         from simple_agent_lab.evals.protocols import ContainerBinding
 
-        binding = ContainerBinding(mounts={"/host/run": {"bind": "/agent/run", "mode": "rw"}})
+        binding = ContainerBinding(
+            mounts={"/host/run": {"bind": "/agent/run", "mode": "rw"}}
+        )
         self.assertIs(
             with_local_mounts(
-                binding, wheelhouse=None, wheelhouse_mount="/agent/wheelhouse", uv_binary=None
+                binding,
+                wheelhouse=None,
+                wheelhouse_mount="/agent/wheelhouse",
+                uv_binary=None,
             ),
             binding,
         )
@@ -981,7 +988,9 @@ class CreateKwargsTest(unittest.TestCase):
         kwargs = _create_kwargs(spec, binding, user="root", environment={"X": "1"})
         self.assertEqual(kwargs["image"], "img")
         self.assertEqual(kwargs["name"], "run-1")
-        self.assertEqual(kwargs["cap_add"], ["SYS_PTRACE"])  # launch_spec cap_add plumbed
+        self.assertEqual(
+            kwargs["cap_add"], ["SYS_PTRACE"]
+        )  # launch_spec cap_add plumbed
         self.assertEqual(
             kwargs["volumes"], {"/host": {"bind": "/agent/run", "mode": "rw"}}
         )

@@ -128,7 +128,9 @@ class SwebenchHarnessTest(unittest.TestCase):
             "/app",
         )
         self.assertEqual(
-            docker_run_command("echo ok", instance, dataset_name="ScaleAI/SWE-bench_Pro"),
+            docker_run_command(
+                "echo ok", instance, dataset_name="ScaleAI/SWE-bench_Pro"
+            ),
             ["/bin/sh", "-lc", "echo ok"],
         )
 
@@ -186,7 +188,9 @@ class SwebenchHarnessTest(unittest.TestCase):
 
         self.assertEqual(record["instance_id"], "sympy__sympy-23824")
         self.assertEqual(record["model_name_or_path"], "simple-agent-lab-verified")
-        self.assertEqual(record["model_patch"], "diff --git a/sympy/core.py b/sympy/core.py\n")
+        self.assertEqual(
+            record["model_patch"], "diff --git a/sympy/core.py b/sympy/core.py\n"
+        )
         self.assertNotIn("prefix", record)
         self.assertNotIn("patch", record)
 
@@ -240,7 +244,9 @@ class SwebenchHarnessTest(unittest.TestCase):
             self.assertEqual(resolve_api_kind(None), "openai-chat")
             self.assertEqual(resolve_api_kind("openai-responses"), "openai-responses")
 
-        with mock.patch.dict("os.environ", {API_KIND_ENV: "openai-responses"}, clear=True):
+        with mock.patch.dict(
+            "os.environ", {API_KIND_ENV: "openai-responses"}, clear=True
+        ):
             self.assertEqual(resolve_api_kind(None), "openai-responses")
             self.assertEqual(resolve_api_kind("openai-chat"), "openai-chat")
 

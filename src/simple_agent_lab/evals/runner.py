@@ -172,9 +172,7 @@ def run_suite_instance(
     # The agent must never see gold/private fields, so they are stripped here.
     # Oracle mode is the trusted exception: it *applies* the reference solution,
     # so it needs the unredacted record (e.g. the gold patch) in the store.
-    record = (
-        dict(instance) if provider == "oracle" else suite.task_input(instance)
-    )
+    record = dict(instance) if provider == "oracle" else suite.task_input(instance)
     bound = store.bind(paths.root)
     bound.put(
         INSTANCE_KEY,

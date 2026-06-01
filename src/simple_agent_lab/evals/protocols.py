@@ -39,7 +39,9 @@ from ..messages import ContentInput
 # are relative to one instance's run directory, so a store bound to that dir
 # (or a bind mount of it) resolves them identically on host and container.
 INSTANCE_KEY = "input/instance.json"  # host puts (sanitized), container gets
-EVAL_KEY = "input/eval.json"  # host puts (gold scoring inputs), container `evaluate` gets
+EVAL_KEY = (
+    "input/eval.json"  # host puts (gold scoring inputs), container `evaluate` gets
+)
 RESULT_KEY = "out/result.json"  # container puts (raw extract_result), host gets
 TRACE_KEY = "out/trajectory.jsonl"  # container re-puts on a cadence = live trace
 
@@ -187,9 +189,7 @@ class ContainerTask(Protocol):
     official harness) simply omits it.
     """
 
-    def build_task(
-        self, instance: Mapping[str, Any], *, workdir: str
-    ) -> ContentInput:
+    def build_task(self, instance: Mapping[str, Any], *, workdir: str) -> ContentInput:
         """Build the model-visible task: `str`, or content blocks for multimodal.
 
         Returning a sequence of content blocks (text + `ImageBlock`) lets a suite

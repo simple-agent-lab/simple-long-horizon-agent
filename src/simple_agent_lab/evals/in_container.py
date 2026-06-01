@@ -99,7 +99,9 @@ def build_agent(
     )
 
 
-def _run_oracle(module: ModuleType, *, workdir: Path, instance: Mapping[str, Any]) -> None:
+def _run_oracle(
+    module: ModuleType, *, workdir: Path, instance: Mapping[str, Any]
+) -> None:
     """Apply the suite's reference ("oracle") solution instead of running a model.
 
     Oracle mode is a deterministic, model-free check that a suite is wired

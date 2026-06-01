@@ -98,7 +98,9 @@ def start_container(
     Any failure there also triggers the remove-on-failure cleanup.
     """
 
-    _ensure_image(client, spec.launch_spec.image, spec.launch_spec.platform or None, pull)
+    _ensure_image(
+        client, spec.launch_spec.image, spec.launch_spec.platform or None, pull
+    )
     create_kwargs = _create_kwargs(spec, binding, user=user, environment=environment)
     container = client.containers.create(**create_kwargs)
     try:

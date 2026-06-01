@@ -88,7 +88,9 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _resolve_paths(args: argparse.Namespace, instance: dict) -> tuple[Path, Path | None]:
+def _resolve_paths(
+    args: argparse.Namespace, instance: dict
+) -> tuple[Path, Path | None]:
     """Pick the run root + wheelhouse, swapping to Pro defaults for Pro instances."""
 
     pro = harness.is_swebench_pro_instance(instance, dataset_name=args.dataset_name)

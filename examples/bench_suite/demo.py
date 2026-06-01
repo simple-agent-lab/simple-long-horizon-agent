@@ -65,7 +65,9 @@ def _provider_env() -> dict[str, str]:
 
 
 def main() -> None:
-    missing = [k for k in ("OPENAI_MODEL", "OPENAI_AUTH_TOKEN") if not os.environ.get(k)]
+    missing = [
+        k for k in ("OPENAI_MODEL", "OPENAI_AUTH_TOKEN") if not os.environ.get(k)
+    ]
     if missing:
         print(
             "This demo runs a real model. Set OPENAI_MODEL and OPENAI_AUTH_TOKEN "

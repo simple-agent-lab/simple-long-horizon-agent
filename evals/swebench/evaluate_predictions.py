@@ -641,9 +641,7 @@ def _grade_reuse_log(
         "resolved": resolved,
         "status": "resolved" if resolved else "unresolved",
         "tests_status": instance_report.get("tests_status"),
-        "patch_successfully_applied": instance_report.get(
-            "patch_successfully_applied"
-        ),
+        "patch_successfully_applied": instance_report.get("patch_successfully_applied"),
         "report_source": "in-environment reuse (official eval script + grader)",
     }
 
