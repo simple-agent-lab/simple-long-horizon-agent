@@ -9,6 +9,7 @@ surface. Import them explicitly, e.g.::
 """
 
 from .core import Agent, run
+from .replay import fork_at_message, message_event_indices, resume
 from .state import State
 from .llm_agent import make_llm_agent
 from .messages import make_message
@@ -143,6 +144,9 @@ __all__ = [
     "message_text",
     "print_trace",
     "run",
+    "fork_at_message",
+    "message_event_indices",
+    "resume",
     "ModelTurn",
     "RunTrace",
     "Span",
