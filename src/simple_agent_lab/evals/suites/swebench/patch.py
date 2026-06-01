@@ -3,6 +3,9 @@
 The filtering rules mirror SWALM's SWE task patch collection rules, but this
 adapter writes them to `.git/info/exclude` so the generated ignore block itself
 does not become part of the model patch.
+
+Shipped in the wheel so the in-container runner can use it without copying files
+in. The SWE-bench container half imports it directly from here.
 """
 
 from __future__ import annotations
@@ -10,7 +13,6 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 from typing import Any
-
 
 IGNORE_BLOCK_START = "# === SIMPLE AGENT LAB SWE-BENCH AUTO-GENERATED START ==="
 IGNORE_BLOCK_END = "# === SIMPLE AGENT LAB SWE-BENCH AUTO-GENERATED END ==="
@@ -304,3 +306,19 @@ def _without_generated_block(text: str) -> str:
         if not skipping:
             lines.append(line)
     return "\n".join(lines)
+
+
+__all__ = [
+    "DEFAULT_GITIGNORE_RULES",
+    "IGNORE_BLOCK_END",
+    "IGNORE_BLOCK_START",
+    "LANGUAGE_ALIASES",
+    "LANGUAGE_GITIGNORE_RULES",
+    "git_diff",
+    "gitignore_rules",
+    "instance_base_commit",
+    "instance_language",
+    "normalize_language",
+    "prepare_baseline_commit",
+    "update_info_exclude",
+]

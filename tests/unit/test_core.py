@@ -64,6 +64,32 @@ class CoreTest(unittest.TestCase):
         self.assertIn("model_response", [event.kind for event in state.events])
         self.assertEqual(state.events[-1].kind, "agent_end")
 
+    def test_run_accepts_a_multimodal_content_list_task(self) -> None:
+        """`Agent.run` takes `str` or content blocks; a text+image task is seeded
+        as one user message carrying both blocks (the multimodal task path)."""
+        from simple_agent_lab.messages import ImageBlock
+
+        def writer(visible: list[Message]) -> Message:
+            del visible
+            return assistant_message(
+                "done", sender="writer", target="user", kind="final"
+            )
+
+        task = [
+            TextBlock("Describe this screenshot:"),
+            ImageBlock(data="QUJD", mime_type="image/png"),
+        ]
+        agent = Agent("writer", writer, role="Describe.")
+        state, events = agent.run(task, max_turns=2)
+        for _ in events:
+            pass
+
+        # The seeded task message preserves both content blocks (text + image).
+        blocks = state.messages[0].content
+        self.assertEqual(len(blocks), 2)
+        self.assertIsInstance(blocks[0], TextBlock)
+        self.assertIsInstance(blocks[1], ImageBlock)
+
     def test_dispatches_agent_tool_result_back_to_agent(self) -> None:
         def coordinator(visible: list[Message]) -> Message:
             if any(message.kind == "tool_result" for message in visible):

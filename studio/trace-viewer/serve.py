@@ -298,10 +298,10 @@ def _safe_relative(path: Path, base: Path) -> Path:
 
 
 # Trajectories produced by the containerized SWE-bench runner land at
-# ``<scan>/<...>/<run_id>/<instance_id>/out/{trajectory,trace}.jsonl`` (see
-# ``evals/swebench/containerized_agent.prepare_run_directory``). Extract
-# ``run_id`` from that shape so the viewer can aggregate the per-instance
-# files back into a single experiment row.
+# ``<scan>/<...>/<run_id>/<instance_id>/out/{trajectory,trace}.jsonl`` (the run
+# directory layout from ``simple_agent_lab.evals.runner``). Extract ``run_id``
+# from that shape so the viewer can aggregate the per-instance files back into a
+# single experiment row.
 _RUN_ARTIFACT_NAMES = {"trajectory.jsonl", "trace.jsonl"}
 
 

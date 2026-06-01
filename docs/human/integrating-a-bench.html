@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Integrating a benchmark · Simple Agent Lab</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1d212b; --ink: #e6e8ee;
+    --muted: #9aa3b2; --line: #2a2f3a; --accent: #6ea8fe; --accent2: #7ee2b8;
+    --warn: #f0b86e; --code: #0b0d11; --chip: #232838;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 48px 24px 96px; }
+  header h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: -0.02em; }
+  header p.sub { color: var(--muted); margin: 0 0 28px; font-size: 17px; }
+  h2 { font-size: 21px; margin: 44px 0 14px; letter-spacing: -0.01em; }
+  h3 { font-size: 16px; margin: 0 0 4px; }
+  p { margin: 0 0 14px; }
+  a { color: var(--accent); }
+  code, pre { font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; }
+  code { background: var(--chip); padding: 1px 6px; border-radius: 5px; font-size: 13.5px; }
+  pre {
+    background: var(--code); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px 18px; overflow-x: auto; font-size: 13px; line-height: 1.55; margin: 0;
+  }
+  pre .c { color: #6b7385; }     /* comment */
+  pre .k { color: var(--accent); }  /* keyword */
+  pre .s { color: var(--accent2); } /* string */
+  pre .d { color: var(--warn); }    /* def name */
+  .lede {
+    background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    border-radius: 10px; padding: 16px 18px; margin: 0 0 8px;
+  }
+  .lede b { color: #fff; }
+
+  /* the two-halves diagram */
+  .halves { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 18px 0 8px; }
+  .half { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+  .half h3 { color: var(--accent); font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
+  .half ul { margin: 0; padding-left: 18px; }
+  .half li { margin: 6px 0; }
+  .half .where { color: var(--muted); font-size: 13px; margin-top: 12px; }
+  @media (max-width: 720px) { .halves { grid-template-columns: 1fr; } }
+
+  /* numbered steps */
+  .step { display: grid; grid-template-columns: 40px 1fr; gap: 16px; margin: 18px 0; align-items: start; }
+  .num {
+    width: 40px; height: 40px; border-radius: 50%; background: var(--accent);
+    color: #08111f; font-weight: 700; font-size: 17px; display: grid; place-items: center;
+  }
+  .step.opt .num { background: var(--chip); color: var(--muted); border: 1px solid var(--line); }
+  .body { min-width: 0; }
+  .body .ttl { font-weight: 600; font-size: 17px; margin-bottom: 6px; }
+  .body .ttl .file { color: var(--muted); font-weight: 400; font-size: 13.5px; }
+  .tag { display: inline-block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+         padding: 2px 8px; border-radius: 999px; margin-left: 8px; vertical-align: middle; }
+  .tag.req { background: #2b3a55; color: var(--accent); }
+  .tag.opt { background: #2e2a1f; color: var(--warn); }
+
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 4px; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+  td code { font-size: 12.5px; }
+
+  .flow { background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin: 16px 0; }
+  .flow pre { background: transparent; border: none; padding: 0; color: var(--ink); font-size: 12.5px; }
+
+  .callout { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin: 14px 0; }
+  .callout .h { color: var(--warn); font-weight: 600; margin-bottom: 4px; }
+  .muted { color: var(--muted); }
+  .lang { float: right; font-size: 13px; color: var(--muted); }
+  .lang a { margin-left: 10px; }
+  footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); padding-top: 16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="lang"><b style="color:var(--ink)">English</b> · <a href="./integrating-a-bench.zh.html">中文</a></div>
+  <h1>Integrating a benchmark</h1>
+  <p class="sub">The standard way to add a new Docker-based eval suite to this framework.</p>
+</header>
+
+<div class="lede">
+  <p style="margin:0">The framework already owns the hard, generic parts: the container
+  lifecycle, the Python bootstrap, the run-directory layout, moving bytes in and out,
+  concurrency, and host-reentrant batches. <b>You write two small halves and register
+  them.</b> You do <b>not</b> modify the benchmark image, and you do <b>not</b> copy the
+  agent into it — it is installed when the container starts.</p>
+</div>
+
+<h2>The shape of an integration</h2>
+<p>A benchmark is fundamentally two programs that meet at a shared artifact store: a
+<b>host half</b> that decides how to launch each instance and how to read the result, and
+a <b>container half</b> that runs inside the image and does the actual task. You implement
+both; everything between them is the framework.</p>
+
+<div class="halves">
+  <div class="half">
+    <h3>Host half — a <code>Suite</code></h3>
+    <ul>
+      <li><code>name</code> &amp; <code>container_module</code> — identity + dotted path to the container half</li>
+      <li><code>launch_spec(instance)</code> — image, workdir, shell, entrypoint, <code>cap_add</code> as <i>data</i> (no <code>if</code>-branching)</li>
+      <li><code>task_input(instance)</code> — drop the gold/answer fields before the agent sees it</li>
+      <li><code>eval_inputs(instance)</code> — gold scoring inputs staged for the container half's <code>evaluate</code> hook (in-environment scoring), or <code>None</code> to score elsewhere. Staging gold is the toggle that turns the hook on (ADR 0020) — there is no separate <code>scorer()</code> method.</li>
+    </ul>
+    <div class="where">lives under <code>evals/&lt;name&gt;/suite.py</code> · may use heavy deps (datasets, docker)</div>
+  </div>
+  <div class="half">
+    <h3>Container half — two functions</h3>
+    <ul>
+      <li><code>build_task(instance, *, workdir)</code> — turn the instance into the agent's task <i>prompt</i> (a string, or content blocks for multimodal — text + images). It only builds the prompt; the agent loop is the framework's.</li>
+      <li><code>extract_result(workspace, instance, *, context)</code> — read the run's product (e.g. a <code>git diff</code>)</li>
+      <li class="muted">optional <code>prepare(...)</code> — pre-run setup, fed back as <code>context</code></li>
+      <li class="muted">optional <code>apply_oracle(workspace, instance)</code> — apply the reference solution for the model-free self-check</li>
+      <li class="muted">optional <code>agent_spec()</code> / <code>build_agent(...)</code> — choose/customize the agent</li>
+    </ul>
+    <div class="where">ships in the wheel at <code>simple_agent_lab/evals/suites/&lt;name&gt;/</code> · stdlib + installed runtime only</div>
+  </div>
+</div>
+
+<h2>The five steps</h2>
+
+<div class="step">
+  <div class="num">1</div>
+  <div class="body">
+    <div class="ttl">Write the container half <span class="tag req">required</span>
+      <span class="file">— src/simple_agent_lab/evals/suites/&lt;name&gt;/container.py</span></div>
+    <p>The code that runs <i>inside</i> the image. It imports only the standard library and
+    the installed <code>simple_agent_lab</code> runtime, because the benchmark image has
+    nothing else.</p>
+<pre><span class="c"># build_task: instance dict -> the model-visible task prompt.</span>
+<span class="c"># Return a str, or a list of content blocks for multimodal (text + images).</span>
+<span class="k">def</span> <span class="d">build_task</span>(instance, *, workdir):
+    <span class="k">return</span> <span class="s">f"Fix this bug in {workdir}:\n{instance['problem_statement']}"</span>
+
+<span class="c"># extract_result: read the agent's effect on the workspace (not its chat)</span>
+<span class="c"># Declare *, context even if unused — that's how prepare()'s output reaches you.</span>
+<span class="k">def</span> <span class="d">extract_result</span>(workspace, instance, *, context=<span class="k">None</span>):
+    <span class="k">return</span> {<span class="s">"model_patch"</span>: git_diff(workspace)}</pre>
+  </div>
+</div>
+
+<div class="step">
+  <div class="num">2</div>
+  <div class="body">
+    <div class="ttl">Write the host half <span class="tag req">required</span>
+      <span class="file">— evals/&lt;name&gt;/suite.py</span></div>
+    <p>A class satisfying the <code>Suite</code> protocol. The per-instance differences
+    (which image, where the repo lives, what capabilities the tests need) are expressed
+    as <b>data</b> in <code>launch_spec</code> — never as branches in the runner.</p>
+<pre><span class="k">class</span> <span class="d">MyBenchSuite</span>:
+    name = <span class="s">"mybench"</span>
+    container_module = <span class="s">"simple_agent_lab.evals.suites.mybench.container"</span>
+
+    <span class="k">def</span> <span class="d">launch_spec</span>(self, instance):
+        <span class="k">return</span> LaunchSpec(image=instance[<span class="s">"image"</span>], workdir=<span class="s">"/repo"</span>,
+                             cap_add=(<span class="s">"SYS_PTRACE"</span>,))   <span class="c"># caps the tests need</span>
+    <span class="k">def</span> <span class="d">task_input</span>(self, instance):
+        <span class="k">return</span> {k: v <span class="k">for</span> k, v <span class="k">in</span> instance.items() <span class="k">if</span> k != <span class="s">"gold_patch"</span>}
+    <span class="c"># Stage gold for the container half's `evaluate` hook (in-environment</span>
+    <span class="c"># scoring, ADR 0020). Return None to score elsewhere (a follow-up run or</span>
+    <span class="c"># the official harness CLI). There is no separate scorer() method.</span>
+    <span class="k">def</span> <span class="d">eval_inputs</span>(self, instance):
+        <span class="k">return</span> {<span class="s">"expected"</span>: instance[<span class="s">"gold_patch"</span>]}   <span class="c"># or None to score elsewhere</span></pre>
+
+    <p style="margin-top:14px"><code>LaunchSpec</code> is a frozen dataclass — pure launch
+    <i>data</i>, no behavior. The per-instance differences live here, never as <code>if</code>-branches:</p>
+<pre><span class="k">class</span> <span class="d">LaunchSpec</span>:
+    image: <span class="d">str</span>                              <span class="c"># the Docker image for this instance</span>
+    workdir: <span class="d">str</span>                            <span class="c"># cwd inside the container (e.g. /testbed, /app)</span>
+    shell: <span class="d">tuple</span>[str, ...] = (<span class="s">"bash"</span>, <span class="s">"-lc"</span>)  <span class="c"># argv prefix the bootstrap is run under</span>
+    entrypoint: <span class="d">str</span> | <span class="k">None</span> = <span class="k">None</span>           <span class="c"># ""=clear image ENTRYPOINT; None=keep image default</span>
+    platform: <span class="d">str</span> | <span class="k">None</span> = <span class="k">None</span>             <span class="c"># e.g. "linux/amd64"</span>
+    cap_add: <span class="d">tuple</span>[str, ...] = ()           <span class="c"># Linux caps the tests need (e.g. "SYS_PTRACE")</span>
+    network_mode: <span class="d">str</span> | <span class="k">None</span> = <span class="k">None</span>         <span class="c"># docker network mode (e.g. "none", "host")</span></pre>
+    <table>
+      <tr><th>Field</th><th>Required?</th><th>What it controls</th></tr>
+      <tr><td><code>image</code></td><td>required</td><td>The image launched for this instance — usually read off the instance (<code>instance["image"]</code>).</td></tr>
+      <tr><td><code>workdir</code></td><td>required</td><td>Where the agent's bash tool runs and where the repo lives inside the container.</td></tr>
+      <tr><td><code>shell</code></td><td>default <code>("bash","-lc")</code></td><td>The argv prefix the bootstrap script is handed to; Alpine/musl images use <code>("/bin/sh","-lc")</code>.</td></tr>
+      <tr><td><code>entrypoint</code></td><td>default <code>None</code></td><td><code>""</code> clears an image's <code>ENTRYPOINT</code> (some images set one); <code>None</code> keeps the image default.</td></tr>
+      <tr><td><code>platform</code></td><td>optional</td><td>Force an architecture, e.g. <code>"linux/amd64"</code> on Apple Silicon.</td></tr>
+      <tr><td><code>cap_add</code></td><td>default <code>()</code></td><td>Linux capabilities the benchmark's tests require (e.g. <code>SYS_PTRACE</code>) — forgetting these is a common pitfall.</td></tr>
+      <tr><td><code>network_mode</code></td><td>optional</td><td>Docker network mode, e.g. <code>"none"</code> for a sandboxed, offline run.</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="step">
+  <div class="num">3</div>
+  <div class="body">
+    <div class="ttl">Provide a dataset loader <span class="tag req">required</span>
+      <span class="file">— any function returning an iterable of instance dicts</span></div>
+    <p>"The whole dataset" is just a stream of dicts, each with an <code>instance_id</code>.
+    Load them however you like — HuggingFace, JSONL, an API. This is a plain function, not
+    a framework interface.</p>
+<pre><span class="k">def</span> <span class="d">load_instances</span>(split=<span class="s">"test"</span>):
+    <span class="k">for</span> row <span class="k">in</span> load_dataset(<span class="s">"my/dataset"</span>, split=split):
+        <span class="k">yield</span> <span class="d">dict</span>(row)   <span class="c"># must contain instance_id + whatever your Suite reads</span></pre>
+  </div>
+</div>
+
+<div class="step">
+  <div class="num">4</div>
+  <div class="body">
+    <div class="ttl">Run it <span class="tag req">required</span></div>
+    <p>Develop in-process (no Docker, debuggable), then deploy by swapping one argument —
+    the suite code does not change.</p>
+<pre><span class="k">from</span> simple_agent_lab.evals <span class="k">import</span> run_dataset, LocalDockerBackend, LocalDirStore
+
+run_dataset(
+    suite=MyBenchSuite(),
+    instances=load_instances(<span class="s">"test"</span>),
+    backend=LocalDockerBackend(),        <span class="c"># or LocalProcessBackend() for local dev</span>
+    store=LocalDirStore(<span class="s">"evals/out/mybench"</span>),
+    run_root=<span class="s">"evals/out/mybench"</span>, run_id=<span class="s">"run-1"</span>,
+    concurrency=8, provider=<span class="s">"openai"</span>, provider_env={...},
+)</pre>
+  </div>
+</div>
+
+<div class="step opt">
+  <div class="num">5</div>
+  <div class="body">
+    <div class="ttl">Wire up outputs &amp; tests <span class="tag opt">convention</span></div>
+    <p>An <code>evals/out/&lt;name&gt;/README.md</code> documenting the output layout, a
+    <code>runs/run_&lt;name&gt;.sh</code> convenience runner, and unit tests that exercise the
+    suite with <b>no Docker</b> — drive it with the in-memory <code>FakeBackend</code>, or
+    run the real container half in-process with <code>LocalProcessBackend</code> and the
+    deterministic <code>fake</code> provider.</p>
+  </div>
+</div>
+
+<div class="step opt">
+  <div class="num">6</div>
+  <div class="body">
+    <div class="ttl">Ship an oracle self-check <span class="tag opt">convention</span></div>
+    <p>Add a tiny self-contained <b>oracle instance</b> (no dataset download) plus an
+    <code>apply_oracle(workspace, instance)</code> in your container half that lands the
+    <i>reference solution</i> instead of calling a model. Then run the suite end-to-end with
+    <code>provider="oracle"</code>: the framework skips the agent loop, applies the gold
+    solution, and your <code>extract_result</code> must reproduce the gold product. This is a
+    deterministic, model-free, Docker-free check that the whole pipeline
+    (<code>build_task → run → extract_result</code>) is wired correctly and
+    the instance is actually solvable — distinct from <i>scoring</i>, which is the
+    <code>evaluate</code> hook or a follow-up run.</p>
+<pre><span class="c"># container half — apply the gold solution (no model)</span>
+<span class="k">def</span> <span class="d">apply_oracle</span>(workspace, instance):
+    git_apply(workspace, instance[<span class="s">"patch"</span>])   <span class="c"># the reference solution</span>
+
+<span class="c"># smoke test — in-process, deterministic; model_patch must equal the gold</span>
+artifacts = run_suite_instance(suite=MyBenchSuite(), instance=oracle_instance,
+                               backend=LocalProcessBackend(workspace=repo),
+                               store=LocalDirStore(out), run_root=out, run_id=<span class="s">"oracle"</span>,
+                               provider=<span class="s">"oracle"</span>)</pre>
+  </div>
+</div>
+
+<h2>What the framework does between your two halves</h2>
+<p>You never write any of this — it is the same for every benchmark:</p>
+<div class="flow">
+<pre>HOST                              STORE                 CONTAINER (your image)
+launch_spec() ── launch shape
+task_input() ─ write ───▶ input/instance.json
+start container ───────────────────────────────────▶  bootstrap: pip install runner
+  (wait)                                                build_task()  ← your code
+                                                        run the agent loop
+                                 trajectory.jsonl ◀──     (model calls + bash edits)
+                                 out/result.json  ◀──   extract_result()  ← your code
+                                 out/result.json  ◀──   evaluate()  ← optional, merges verdict
+read result.json ◀──────────────  (verdict included)</pre>
+</div>
+<p class="muted">There is no separate scoring driver (ADR 0020). When a suite stages
+gold via <code>eval_inputs</code>, the container half's <code>evaluate</code> hook
+scores <i>in the run environment</i> and merges its verdict into
+<code>result.json</code> — reusing the run's fault tolerance. Otherwise scoring is a
+follow-up run (an agent judge) or the official harness CLI
+(<code>evaluate_predictions.py</code>, which must match official parity). The
+framework produces results; the <code>evaluate</code> hook or a follow-up run decides
+correctness.</p>
+
+<h2>What actually runs inside the container</h2>
+<p>Only a narrow slice of the wheel executes in the image — not the whole repo. The
+container's main process is the bootstrap shell script, which finds a Python,
+<code>pip install</code>s the <code>simple-agent-lab</code> wheel (from a mounted wheelhouse
+when offline), then execs <code>python -m simple_agent_lab.evals.in_container</code>. From
+there the in-container code is:</p>
+
+<div class="flow">
+<pre>bootstrap.sh  →  python -m simple_agent_lab.evals.in_container   (the generic runner)
+                   ├─ agent runtime ....... core · agents.bash/​bash_task · llm · state · trajectory · context_view
+                   ├─ your container half .. simple_agent_lab.evals.suites.&lt;name&gt;.container  (build_task / prepare / extract_result / apply_oracle)
+                   └─ store client ......... container_store_from_env() → LocalDirStore (bind mount) | HttpArtifactClient (http)</pre>
+</div>
+
+<div class="halves">
+  <div class="half">
+    <h3>Runs in the container</h3>
+    <ul>
+      <li>the bootstrap script + the generic runner <code>evals.in_container</code></li>
+      <li>the agent loop: <code>core</code>, <code>agents.bash</code>/<code>bash_task</code>, <code>llm</code> (the model call happens here), <code>state</code>, <code>trajectory</code>, <code>context_view</code></li>
+      <li>your container half <code>suites.&lt;name&gt;.container</code> (+ its local imports, e.g. swebench's <code>patch</code>)</li>
+      <li>the container-side store client (reads <code>input/instance.json</code>, writes <code>out/result.json</code> + <code>out/trajectory.jsonl</code>)</li>
+    </ul>
+  </div>
+  <div class="half">
+    <h3>Stays on the host</h3>
+    <ul>
+      <li><code>run_dataset</code> / <code>run_suite_instance</code> / <code>batch.py</code> (the controller)</li>
+      <li>every backend (<code>docker_local</code>, <code>remote_docker</code>, <code>local_process</code>, <code>fake</code>) — they drive the container from outside</li>
+      <li>the store <i>server</i> <code>HostHttpStore</code> (the container only has the HTTP client)</li>
+      <li>the suite host half <code>evals/&lt;name&gt;/suite.py</code>, the dataset loader, and scoring (<code>evaluate_predictions.py</code>)</li>
+    </ul>
+  </div>
+</div>
+
+<div class="callout">
+  <div class="h">Two subtleties</div>
+  <p style="margin:0"><b>LocalProcessBackend</b> runs that same container-half code <i>in the host
+  process</i> (no container) — that is why local, debugger-friendly development works.
+  And in <b>oracle mode</b> the agent runtime is still imported but never invoked: no agent
+  is built and no model is called; only <code>apply_oracle</code> + <code>extract_result</code> run.</p>
+</div>
+
+<h2>How the container half gets in and runs</h2>
+<p>Your container half (e.g. <code>…/suites/swebench/container.py</code>) is <b>never copied into
+the image</b>. It ships in the <code>simple-agent-lab</code> wheel, is <code>pip install</code>ed
+at container start, and is imported by its <b>dotted module path</b> — the same string the suite
+declares as <code>container_module</code>:</p>
+
+<div class="flow">
+<pre>host: RunSpec(image=launch_spec.image, container_module="…suites.swebench.container", …)
+  └─ docker create(image=plan.image, command=build_command(spec))          ← the backend
+       └─ container main process = bash -lc "&lt;bootstrap script&gt;"
+            ├─ pip install simple-agent-lab        ← container.py arrives here, inside the wheel
+            └─ python -m simple_agent_lab.evals.in_container --container-module …swebench.container
+                 └─ importlib.import_module("…swebench.container")          ← imports your file
+                      └─ build_task / prepare / extract_result / apply_oracle   ← calls it</pre>
+</div>
+
+<p>So the container's main process is not your file directly — it is a tiny bootstrap script that
+prepares Python, installs the wheel (offline via a mounted wheelhouse with <code>--find-links</code>),
+then execs the generic in-container runner. The runner reads <code>--container-module</code> and
+<code>importlib.import_module</code>s your half, then calls its functions.</p>
+
+<div class="callout">
+  <div class="h">Why this way (ADR 0017)</div>
+  <p style="margin:0"><b>Runtime injection, not modified images:</b> the agent installs into an
+  isolated <code>/tmp/agent-venv</code> and never touches the image's own environment (the one the
+  benchmark under test depends on), so upstream bench images are used unchanged — no rebuilding
+  hundreds of images per agent change. <b>Dotted module, not file copy:</b> because the half is
+  installed from the wheel, the version imported in the container always matches the installed
+  runtime — which is exactly why the container half may import <i>only the standard library and the
+  installed wheel</i>: nothing else exists in there.</p>
+</div>
+
+<h2>Where each piece goes</h2>
+<table>
+  <tr><th>Piece</th><th>Location</th><th>Why there</th></tr>
+  <tr><td>Host half (<code>Suite</code>)</td><td><code>evals/&lt;name&gt;/suite.py</code></td><td>May pull heavy deps (datasets, docker); kept out of the core package</td></tr>
+  <tr><td>Container half</td><td><code>simple_agent_lab/evals/suites/&lt;name&gt;/</code></td><td>Ships in the wheel so the container imports it with zero file copying</td></tr>
+  <tr><td>Dataset loader</td><td>your choice</td><td>Just a function; loading is orthogonal to running one instance</td></tr>
+  <tr><td>Output docs + runner</td><td><code>evals/out/&lt;name&gt;/</code>, <code>runs/</code></td><td>Repeatable layout convention across suites</td></tr>
+</table>
+
+<h2>Common pitfalls</h2>
+<table>
+  <tr><th>Pitfall</th><th>Fix</th></tr>
+  <tr><td>Forgetting <code>cap_add</code> in <code>launch_spec</code></td><td>Capability-dependent tests fail with confusing errors — pull caps from the image's spec.</td></tr>
+  <tr><td>Omitting <code>*, context</code> on <code>extract_result</code></td><td><code>prepare()</code>'s setup never reaches extraction → wrong product.</td></tr>
+  <tr><td>Heavy imports in the container half</td><td>It fails to import inside the image — keep it stdlib + the installed wheel.</td></tr>
+  <tr><td>Putting <code>if dataset == …</code> in the runner</td><td>Express the difference as <code>LaunchSpec</code> data instead.</td></tr>
+</table>
+
+<footer>
+  Simple Agent Lab — containerized eval framework. This page is self-contained; for the
+  authoritative API and decisions, see the eval framework code and ADR&nbsp;0017 in the repo.
+  To run with no PyPI access, see <a href="./running-offline.html">Running offline with LocalDockerBackend</a>.
+</footer>
+</div>
+</body>
+</html>

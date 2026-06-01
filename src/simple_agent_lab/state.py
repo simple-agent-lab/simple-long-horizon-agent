@@ -69,7 +69,8 @@ class StateSnapshot:
 
 @dataclass
 class State:
-    task: str
+    # `str` or a sequence of content blocks (multimodal task: text + images).
+    task: ContentInput
     events: list[Event] = field(default_factory=list)
     snapshot: StateSnapshot = field(default_factory=StateSnapshot)
     # Open scratchpad for harnesses/experiments to hang run-level metadata

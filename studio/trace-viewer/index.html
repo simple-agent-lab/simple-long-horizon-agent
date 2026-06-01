@@ -2513,9 +2513,47 @@
       animation: live-dot 1.4s ease-in-out infinite;
     }
     @keyframes live-dot { 50% { opacity: 0.35; } }
+
+    /* Burst shown next to the trace title ONLY when a live reload actually
+       pulled new content off disk. Unlike the footer blip (which flashes on
+       every poll), this fires on real change so you can tell a refresh apart
+       from a no-op poll. */
+    .refresh-burst {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      color: var(--bg-0, #0b0f0d);
+      background: var(--phosphor);
+      padding: 1px 5px;
+      border-radius: 2px;
+      flex: 0 0 auto;
+      white-space: nowrap;
+    }
+    .refresh-burst[hidden] { display: none; }
+    .refresh-burst.bursting { animation: refresh-burst-pop 1700ms ease-out forwards; }
+    @keyframes refresh-burst-pop {
+      0%   { opacity: 0; transform: scale(0.6); }
+      10%  { opacity: 1; transform: scale(1.1); }
+      22%  { opacity: 1; transform: scale(1); }
+      80%  { opacity: 1; }
+      100% { opacity: 0; transform: scale(1); }
+    }
+    /* Glow ring on the LIVE pill at the moment fresh content lands. */
+    .live-pill.just-refreshed { animation: live-pill-pulse 900ms ease-out; }
+    @keyframes live-pill-pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(91,230,166,0.65); }
+      100% { box-shadow: 0 0 16px 4px rgba(91,230,166,0); }
+    }
+
     @media (prefers-reduced-motion: reduce) {
       .live-pill .live-pill-dot,
       .tp-live .live-dot { animation: none; opacity: 1; }
+      .refresh-burst.bursting { animation: none; opacity: 1; }
+      .live-pill.just-refreshed { animation: none; }
     }
 
     /* Make sure the focus ring on tp-entry stays visible on live entries. */
@@ -2598,6 +2636,7 @@
                     title="this trace just grew on disk">
                 <span class="live-pill-dot"></span>LIVE
               </span>
+              <span class="refresh-burst" id="refresh-burst" hidden aria-live="polite"></span>
             </div>
             <div class="crumb-popover" id="crumb-popover" role="tooltip"></div>
           </div>
@@ -6678,14 +6717,49 @@
     Picker.loadedMtime = serverMtime != null
       ? serverMtime
       : (Number.isFinite(entry.mtime) ? entry.mtime : Picker.loadedMtime);
+    // Count events before/after so the refresh effect can show how much
+    // actually arrived (vs a rewrite that didn't add events).
+    const prevCount = State.trace?.events?.length ?? 0;
     // Hand the new record to setTrace with incremental=true so it preserves
     // State.selected (if still valid) and the stream's scroll position.
     setTrace(record, { incremental: true });
+    const newCount = State.trace?.events?.length ?? 0;
     const label = smartLabel(entry);
     setActiveTraceLabel(`${label} · ${fmtBytes(entry.size || text.length)}`, true);
     updateActiveTraceLive();
+    flashContentRefresh(newCount - prevCount);
     if (Picker.open) renderPicker();
     Picker.liveReloadInFlight = false;
+  }
+
+  /* Visible confirmation that a live reload pulled fresh content off disk.
+   *
+   * Fires only from the incremental-reload path (real on-disk growth), so it
+   * is a true "this just refreshed" signal — unlike the footer blip, which
+   * flashes on every 2.5s poll regardless of change. Pulses the LIVE pill and
+   * pops a "↻ +N" badge next to the trace title (N = new events; bare "↻"
+   * when the file was rewritten without adding events). */
+  function flashContentRefresh(delta) {
+    const pill = document.getElementById("crumb-live-pill");
+    if (pill) {
+      pill.hidden = false; // keep it visible through the pulse even if mtime is borderline
+      pill.classList.remove("just-refreshed");
+      void pill.offsetWidth; // restart the animation
+      pill.classList.add("just-refreshed");
+    }
+    const burst = document.getElementById("refresh-burst");
+    if (burst) {
+      burst.textContent = delta > 0 ? `↻ +${delta}` : "↻ synced";
+      burst.hidden = false;
+      burst.classList.remove("bursting");
+      void burst.offsetWidth; // restart the animation
+      burst.classList.add("bursting");
+      clearTimeout(flashContentRefresh._t);
+      flashContentRefresh._t = setTimeout(() => {
+        burst.hidden = true;
+        burst.classList.remove("bursting");
+      }, 1750);
+    }
   }
 
   // Update the LIVE pill on the active-trace label based on the currently

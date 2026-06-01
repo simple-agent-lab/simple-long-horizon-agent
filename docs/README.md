@@ -14,6 +14,10 @@ based on the task.
 
 ## Supporting
 
+- [`human/`](human/README.md) — plain-language, self-contained explainers for
+  people. Includes `integrating-a-bench.html`: a visual guide to the standard
+  way to integrate a new benchmark (the two halves, the five steps, the pitfalls)
+  — open it in a browser.
 - [`glossary.md`](glossary.md) — shared vocabulary. The repo-root
   [`CONTEXT.md`](../CONTEXT.md) holds resolved terminology boundaries
   (message protocol, provider adapter, content blocks).

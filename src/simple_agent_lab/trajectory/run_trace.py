@@ -12,6 +12,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from ..messages import normalize_content, text_of
 from ..protocols import Event
 from .jsonl import json_safe
 from .spans import Span, merge_sub_agent_spans, span_record, spans_from_events
@@ -60,10 +61,15 @@ def run_trace_from_state(
 ) -> RunTrace:
     """Build a RunTrace from a runtime State-like object."""
 
+    # `state.task` is `str` or a content-block sequence (multimodal); the trace's
+    # `task` field is a readable text summary, so non-text blocks (e.g. images)
+    # are dropped here — the full task message is preserved in `messages`.
+    task = state.task
+    task_text = task if isinstance(task, str) else text_of(normalize_content(task))
     return RunTrace(
         trace_id=trace_id,
         producer=producer,
-        task=str(state.task),
+        task=task_text,
         events=list(state.events),
         messages=list(state.messages),
         meta=dict(meta or {}),

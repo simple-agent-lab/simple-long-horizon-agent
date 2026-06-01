@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from evals.swebench.patch_extract import (
+from simple_agent_lab.evals.suites.swebench.patch import (
     git_diff,
     instance_base_commit,
     instance_language,

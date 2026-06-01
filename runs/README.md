@@ -44,7 +44,7 @@ To verify SWE-bench adapter tests specifically (already included in `run_ci.sh`)
 ```bash
 uv run python -m unittest \
   tests.unit.test_swebench_patch_extract \
-  tests.unit.test_swebench_containerized_agent \
+  tests.unit.test_swebench_harness \
   tests.unit.test_swebench_evaluate_predictions
 ```
 

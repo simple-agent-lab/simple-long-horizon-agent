@@ -23,7 +23,8 @@ Bind the host run root into the container at a stable path:
 docker run -v "$HOST_RUN:/agent/run:rw" ...
 ```
 
-SWE-bench uses ``/agent/run`` by default (see ``evals/swebench/containerized_agent.py``).
+SWE-bench uses ``/agent/run`` by default (see ``evals/swebench/suite.py`` and the
+SWE-bench container half in ``simple_agent_lab.evals.suites.swebench``).
 
 ## Container path
 
@@ -89,6 +90,6 @@ Or open a single file URL (see ``scripts/run_live_trace_demo.py``).
 
 - ``src/simple_agent_lab/trajectory/live.py`` — ``LiveTraceSession``, ``IncrementalTraceWriter``, and final-record helpers
 - ``src/simple_agent_lab/trajectory/jsonl.py`` — atomic JSONL read/write
-- ``evals/swebench/in_container_runner.py`` — SWE-bench reference wiring
-- ``evals/swebench/containerized_agent.py`` — mount and ``--traces`` defaults
+- ``src/simple_agent_lab/evals/suites/swebench/`` — SWE-bench container half (trace wiring)
+- ``src/simple_agent_lab/evals/in_container.py`` — generic in-container runner and trace defaults
 - ``scripts/run_live_trace_demo.py`` — local demo without Docker

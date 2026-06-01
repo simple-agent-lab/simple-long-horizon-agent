@@ -179,17 +179,17 @@ if [ -d "$WHEELHOUSE" ] && [ -n "$(ls -A "$WHEELHOUSE" 2>/dev/null)" ]; then
   echo "  Wheelhouse already populated; refreshing project wheel."
   "${PYTHON[@]}" - <<'PY'
 from pathlib import Path
-from evals.swebench.containerized_agent import prepare_project_wheel
+from evals.swebench.harness import prepare_project_wheel
 prepare_project_wheel(Path("evals/out/swebench/wheelhouse/cp311-manylinux"))
 PY
 else
   "${PYTHON[@]}" - <<'PY'
 from pathlib import Path
-from evals.swebench.containerized_agent import prepare_wheelhouse
+from evals.swebench.harness import prepare_wheelhouse
 prepare_wheelhouse(Path("evals/out/swebench/wheelhouse/cp311-manylinux"))
 PY
 fi
 
 echo ""
 echo "Setup complete! Run the agent with:"
-echo "  bash runs/run_swebench_container.sh $INSTANCE_ID"
+echo "  bash runs/run_swebench_suite.sh $INSTANCE_ID"

@@ -45,6 +45,13 @@ if TYPE_CHECKING:
 
 StopReason = Literal["end_turn", "tool_use", "max_tokens", "error"]
 
+# When a model emits tool-call arguments that aren't valid JSON, adapters can't
+# build a real argument dict. Rather than raise (which would abort the run on a
+# self-correctable model slip), they stash the raw string under this single key.
+# It is the agent-visible signal that "the model produced a malformed tool call",
+# which `simple_agent_lab.llm.retry` looks for to re-ask the model.
+RAW_ARGUMENTS_KEY = "_raw_arguments"
+
 
 @dataclass(frozen=True)
 class LLMMessage:
@@ -219,6 +226,7 @@ class StreamEvent:
 
 
 __all__ = [
+    "RAW_ARGUMENTS_KEY",
     "ContentBlock",
     "LLMMessage",
     "LLMRequest",

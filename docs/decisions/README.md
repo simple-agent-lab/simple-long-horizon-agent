@@ -17,7 +17,7 @@ Use [0000-template.md](0000-template.md) for new records. Number accepted decisi
 - [ADR 0008: Separate Trajectory, Evaluation, and Training Data Records](0008-collect-training-trajectories-across-design-versions.md)
 - [ADR 0009: Promote Balanced Runtime To Src Core](0009-promote-balanced-runtime-to-src-core.md)
 - [ADR 0010: Make Context View An Explicit Projection](0010-make-context-view-an-explicit-projection.md)
-- [ADR 0011: Keep Benchmark Suites As Eval Adapters](0011-keep-benchmark-suites-as-eval-adapters.md)
+- [ADR 0011: Keep Benchmark Suites As Eval Adapters](0011-keep-benchmark-suites-as-eval-adapters.md) — superseded for the containerized case by ADR 0017
 - [ADR 0012: Unify the Message Protocol on Content Blocks](0012-unify-message-protocol-on-content-blocks.md) — tool-result fragment superseded by ADR 0014
 - [ADR 0013: Provider-Namespaced `extra` Channel and Two-Layer Trace](0013-extra-channel-and-two-layer-trace.md)
 - [ADR 0014: Tool Results Are Content Blocks, Not a Separate Message Role](0014-tool-result-as-content-block.md)
@@ -25,6 +25,13 @@ Use [0000-template.md](0000-template.md) for new records. Number accepted decisi
 - [ADR 0016: Eval Output Directory Convention](0016-eval-output-directory-convention.md)
 - [ADR 0017: Context-Size Accounting — Provider Usage, Confined Estimation, a Safety Buffer](0017-context-size-accounting.md)
 - [ADR 0018: MCP Servers Are a Tool Source, Wrapped at the Tool Boundary](0018-mcp-as-tool-source.md)
+- [ADR 0020: Collapse the Scorer Seam into the Run Primitive](0020-collapse-scorer-seam-into-run-primitive.md) — amends ADR 0019 and ADR 0017, builds on ADR 0018
+
+## Proposed
+
+- [ADR 0017: Generic Containerized Eval Framework](0017-generic-containerized-eval-framework.md) — supersedes ADR 0011 for containerized suites
+- [ADR 0018: Oracle Run Mode for Suite Self-Check](0018-oracle-run-mode-for-suite-self-check.md) — builds on ADR 0017
+- [ADR 0019: Scorer Seam and Per-Suite Scoring Topology](0019-scorer-seam-and-scoring-topology.md) — amends ADR 0017, builds on ADR 0018, amended by ADR 0020
 
 ## Withdrawn
 

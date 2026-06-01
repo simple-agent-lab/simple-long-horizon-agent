@@ -25,7 +25,7 @@ class RunsScriptsTest(unittest.TestCase):
         scripts = [
             ROOT / "runs/eval_swebench.sh",
             ROOT / "runs/setup_swebench_docker.sh",
-            ROOT / "runs/run_swebench_container.sh",
+            ROOT / "runs/run_swebench_suite.sh",
             ROOT / "runs/run_swebench_gold_smoke.sh",
             ROOT / "runs/run_swebench_verified.sh",
             ROOT / "runs/run_swebench_pro.sh",
@@ -57,11 +57,10 @@ class RunsScriptsTest(unittest.TestCase):
                 self.assertIn("FETCH_PYTHON", text)
                 self.assertIn("--extra swebench", text)
                 self.assertIn("wait -n", text)
-                self.assertIn("prediction.jsonl", text)
+                self.assertIn("--collect-predictions", text)
 
     def test_swebench_run_scripts_load_provider_settings_from_dotenv(self) -> None:
         scripts = [
-            ROOT / "runs/run_swebench_container.sh",
             ROOT / "runs/run_swebench_verified.sh",
             ROOT / "runs/run_swebench_pro.sh",
         ]
@@ -86,11 +85,6 @@ class RunsScriptsTest(unittest.TestCase):
                 'WHEELHOUSE="evals/out/swebench_pro/wheelhouse/cp311-manylinux"',
                 "instance_${instance_id}.jsonl",
                 '--wheelhouse "$WHEELHOUSE"',
-            ],
-            "run_swebench_container.sh": [
-                "evals/out/swebench/instance_${INSTANCE_ID}.jsonl",
-                "evals/out/swebench/wheelhouse",
-                'CONTAINER_RUN_ROOT="evals/out/swebench"',
             ],
             "setup_swebench_docker.sh": [
                 "evals/out/swebench/instance_${INSTANCE_ID}.jsonl",
@@ -134,7 +128,7 @@ class RunsScriptsTest(unittest.TestCase):
     def test_verified_swebench_entries_do_not_use_lite_dataset(self) -> None:
         files = [
             ROOT / "runs/setup_swebench_docker.sh",
-            ROOT / "runs/run_swebench_container.sh",
+            ROOT / "runs/run_swebench_suite.sh",
             ROOT / "runs/run_swebench_gold_smoke.sh",
             ROOT / "evals/swebench/evaluate_predictions.py",
             ROOT / "evals/swebench/README.md",

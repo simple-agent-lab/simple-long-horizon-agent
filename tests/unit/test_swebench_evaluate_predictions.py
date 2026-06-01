@@ -351,5 +351,87 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
                     evaluate_predictions.run_official_pro_harness(args)
 
 
+def _instance(instance_id: str) -> dict[str, object]:
+    return {"instance_id": instance_id, "repo": "acme/widget"}
+
+
+def _separate_row(instance_id: str, *, resolved: bool) -> dict[str, object]:
+    """An official ("separate") row, as `--run-official` would normalize it."""
+
+    prediction = {"instance_id": instance_id, "model_name_or_path": "stub"}
+    official = {
+        "resolved": resolved,
+        "status": "resolved" if resolved else "unresolved",
+    }
+    return evaluate_predictions.eval_result_record(
+        evaluate_predictions.eval_result_from_official(prediction, official)
+    )
+
+
+class ReuseEvalRowTest(unittest.TestCase):
+    """In-environment ("reuse") scoring helper, no Docker (ADR 0020).
+
+    `reuse_eval_row` grades what the container-half ``evaluate`` hook merged into
+    ``result.json``. The no-Docker branches (an explicit verdict, a missing
+    verdict) route through the same `eval_result_from_official` mapping as the
+    official path, so the rows are interchangeable.
+    """
+
+    def test_explicit_verdict_maps_to_row(self) -> None:
+        row = evaluate_predictions.reuse_eval_row(
+            _instance("sympy__sympy-1"),
+            {"model_patch": "diff", "resolved": True, "status": "resolved"},
+        )
+        self.assertEqual(row["metrics"]["instance_id"], "sympy__sympy-1")
+        self.assertTrue(row["passed"])
+        self.assertEqual(row["score"], 1.0)
+
+    def test_unresolved_verdict_fails(self) -> None:
+        row = evaluate_predictions.reuse_eval_row(
+            _instance("sympy__sympy-2"),
+            {"model_patch": "diff", "resolved": False},
+        )
+        self.assertFalse(row["passed"])
+
+    def test_missing_verdict_is_unresolved_diagnostic(self) -> None:
+        row = evaluate_predictions.reuse_eval_row(
+            _instance("sympy__sympy-3"), {"model_patch": "diff"}
+        )
+        self.assertFalse(row["passed"])
+        self.assertEqual(row["metrics"]["status"], "no_reuse_verdict")
+
+
+class ParityGateTest(unittest.TestCase):
+    """The parity gate (hard requirement, ADR 0020): reuse must match official."""
+
+    def test_parity_holds_when_reuse_matches_official(self) -> None:
+        separate = [
+            _separate_row("sympy__sympy-1", resolved=True),
+            _separate_row("sympy__sympy-2", resolved=False),
+        ]
+        reuse = [
+            evaluate_predictions.reuse_eval_row(
+                _instance("sympy__sympy-1"), {"resolved": True}
+            ),
+            evaluate_predictions.reuse_eval_row(
+                _instance("sympy__sympy-2"), {"resolved": False}
+            ),
+        ]
+        self.assertEqual(evaluate_predictions.parity_mismatches(separate, reuse), [])
+
+    def test_parity_flags_disagreement(self) -> None:
+        separate = [_separate_row("sympy__sympy-1", resolved=True)]  # harness: pass
+        reuse = [
+            evaluate_predictions.reuse_eval_row(
+                _instance("sympy__sympy-1"), {"resolved": False}
+            )
+        ]
+        mismatches = evaluate_predictions.parity_mismatches(separate, reuse)
+        self.assertEqual(len(mismatches), 1)
+        self.assertEqual(mismatches[0]["instance_id"], "sympy__sympy-1")
+        self.assertTrue(mismatches[0]["separate_passed"])
+        self.assertFalse(mismatches[0]["reuse_passed"])
+
+
 if __name__ == "__main__":
     unittest.main()

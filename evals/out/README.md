@@ -45,7 +45,7 @@ the adapter directory name under `evals/`.
 bash runs/setup_swebench_docker.sh sympy__sympy-23824
 
 # 2. Run the agent
-bash runs/run_swebench_container.sh sympy__sympy-23824
+bash runs/run_swebench_suite.sh sympy__sympy-23824
 ```
 
 Outputs land under `swebench/<run-id>/<instance-id>/out/`.
