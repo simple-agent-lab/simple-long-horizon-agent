@@ -35,6 +35,11 @@ swebench = [
     "docker>=7.0.0",
     "swebench>=3.0.0",
 ]
+mcp = [
+    # 1.10.0 is the first release with ResourceLink, AudioContent, and
+    # CallToolResult.structuredContent, all of which the integration uses.
+    "mcp>=1.10.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/simple-agent-lab/simple-agent-lab"

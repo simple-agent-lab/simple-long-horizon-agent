@@ -18,6 +18,11 @@ uv sync --group dev
 install only — fine for a quick demo, not enough to run the formatter or type
 check. Add `--extra swebench` only when working on the SWE-bench adapter.
 
+The MCP integration lives under `src/` (so it is type-checked and unit-tested)
+but stays behind the optional `mcp` extra. The gate therefore syncs
+`--group dev --extra mcp`; sync the same way locally when touching
+`src/simple_agent_lab/mcp/`.
+
 ## The quality gate
 
 Five checks must pass before a change ships. They're cheap; run them often.
@@ -48,7 +53,8 @@ bash runs/run_ci.sh
 The script:
 
 1. Verifies `uv` is installed (fails fast if not).
-2. Runs `uv sync --group dev` so the dev tools are present.
+2. Runs `uv sync --group dev --extra mcp` so the dev tools and the
+   type-checked/tested MCP extra are present.
 3. Runs `uv run ruff format --check .`.
 4. Runs `uv run ruff check .`.
 5. Runs `uv run python scripts/lint_docs.py`.
