@@ -34,7 +34,7 @@ from ..protocols import (
     RunSpec,
 )
 from ._archive import pack_file_to_root, read_stream, unpack_members
-from .docker_local import exit_status, start_container
+from .docker_local import _require_docker, exit_status, start_container
 
 # Where the worker container keeps its run dir. No host path is shared, so this
 # is purely in-container; the host moves bytes in/out by tar over the daemon API.
@@ -105,7 +105,7 @@ class RemoteDockerBackend:
         store: ArtifactStore,
         binding: ContainerBinding,
     ) -> RunOutcome:
-        import docker  # ty: ignore[unresolved-import]  # lazy: optional ``swebench`` extra
+        docker = _require_docker()
 
         del binding  # remote ignores host mounts/env; the worker uses a local store
         client = (

@@ -599,6 +599,17 @@ class ReviewFixesTest(unittest.TestCase):
         self.assertLessEqual(len(long_a), 200)
         self.assertNotEqual(long_a, long_b)  # distinct overflowing names stay distinct
 
+    def test_docker_backends_import_without_docker_and_error_clearly(self) -> None:
+        """The optional `docker` dep is import-guarded: the module loads without it,
+        and using a docker backend gives an actionable install hint, not ImportError."""
+        from simple_agent_lab.evals.backends import docker_local
+
+        if docker_local.docker is not None:
+            self.skipTest("docker is installed; can't exercise the missing-dep path")
+        with self.assertRaises(RuntimeError) as ctx:
+            docker_local._require_docker()
+        self.assertIn("swebench", str(ctx.exception))
+
 
 class _FakeRemoteContainer:
     """Stand-in for a docker-py container: tar in (put), local FS, tar out (get)."""

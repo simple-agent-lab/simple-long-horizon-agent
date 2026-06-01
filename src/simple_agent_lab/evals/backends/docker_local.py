@@ -28,13 +28,39 @@ from ..protocols import (
 )
 from ..runner import build_command
 
+# `docker` is the optional ``swebench`` extra: import it once at module top,
+# guarded so host-only callers (FakeBackend, LocalProcessBackend, the whole
+# `simple_agent_lab.evals` facade) still import on a machine without it. The
+# docker backends call `_require_docker()` before any daemon op, turning a bare
+# ModuleNotFoundError into an actionable install hint.
+# Declared `Any` (not the inferred `module | None`) so the guarded attribute
+# access below — `docker.errors.NotFound`, reached only after `_require_docker()`
+# — type checks cleanly; the runtime None-guard, not the type, enforces presence.
+docker: Any = None
+try:  # pragma: no cover - import guard
+    import docker as _docker  # ty: ignore[unresolved-import]
+    import docker.errors  # ty: ignore[unresolved-import]  # noqa: F401
+
+    docker = _docker
+except ImportError:  # pragma: no cover - exercised only without the extra
+    pass
+
 BACKEND_KIND = "local-docker"
+
+
+def _require_docker() -> Any:
+    """Return the imported ``docker`` module, or raise an actionable error."""
+
+    if docker is None:
+        raise RuntimeError(
+            "Docker backends need the 'swebench' extra: "
+            "pip install 'simple-agent-lab[swebench]'"
+        )
+    return docker
 
 
 def _ensure_image(client: Any, image: str, platform: str | None, pull: str) -> None:
     """Apply the pull policy before create() (which never auto-pulls)."""
-
-    import docker.errors  # ty: ignore[unresolved-import]
 
     if pull == "always":
         client.images.pull(image, platform=platform)
@@ -68,8 +94,6 @@ def start_container(
     remote backend uses it to ``put_archive`` inputs in before the worker boots.
     Any failure there also triggers the remove-on-failure cleanup.
     """
-
-    import docker.errors  # ty: ignore[unresolved-import]
 
     _ensure_image(client, spec.plan.image, spec.plan.platform or None, pull)
     create_kwargs = _create_kwargs(spec, binding, user=user, environment=environment)
@@ -114,9 +138,7 @@ class LocalDockerBackend:
         self.pull = pull
 
     def _client(self) -> Any:
-        import docker  # ty: ignore[unresolved-import]  # lazy: optional ``swebench`` extra
-
-        return docker.from_env()
+        return _require_docker().from_env()
 
     def submit(
         self,
@@ -147,8 +169,6 @@ class LocalDockerBackend:
         `keep_container`) removes the container.
         """
 
-        import docker.errors  # ty: ignore[unresolved-import]
-
         client = self._client()
         try:
             container = client.containers.get(handle.ref)
@@ -172,8 +192,6 @@ class LocalDockerBackend:
         binding: ContainerBinding,
     ) -> RunOutcome:
         """Blocking lifecycle: submit, wait for exit, collect via poll."""
-
-        import docker.errors  # ty: ignore[unresolved-import]
 
         handle = self.submit(spec, store=store, binding=binding)
         client = self._client()
