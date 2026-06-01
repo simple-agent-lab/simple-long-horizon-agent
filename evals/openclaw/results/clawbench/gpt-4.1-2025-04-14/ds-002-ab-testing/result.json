@@ -1,0 +1,19 @@
+{
+  "task_id": "ds-002-ab-testing",
+  "dir_name": "ds-002-ab-testing",
+  "domain": "data-science",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "passed": false,
+  "score": 0.6667,
+  "checks_total": 3,
+  "checks_passed": 2,
+  "details": "passed: data-science/ds-002-ab-testing/verifier/test_output.py::test_ab_results_exists\npassed: data-science/ds-002-ab-testing/verifier/test_output.py::test_ab_results_content\nfailed: data-science/ds-002-ab-testing/verifier/test_output.py::test_chi2_pvalue",
+  "error": null,
+  "execution_time": 15.68,
+  "raw_events_count": 23,
+  "workspace_files": [
+    "ab_results.json",
+    "ab_test.csv"
+  ]
+}

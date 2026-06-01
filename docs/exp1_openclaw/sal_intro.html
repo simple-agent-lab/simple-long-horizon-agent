@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simple Agent Lab - 仓库源码解析</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --surface2: #1c2333;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text2: #8b949e;
+  --accent: #58a6ff;
+  --green: #3fb950;
+  --orange: #d29922;
+  --red: #f85149;
+  --purple: #bc8cff;
+  --cyan: #39d2c0;
+  --pink: #f778ba;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+}
+
+/* Header */
+.header {
+  background: linear-gradient(135deg, #0d1117 0%, #161b22 50%, #1a1f36 100%);
+  border-bottom: 1px solid var(--border);
+  padding: 48px 32px 32px;
+  text-align: center;
+}
+.header h1 {
+  font-size: 2.4em;
+  background: linear-gradient(135deg, var(--accent), var(--purple));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 12px;
+}
+.header .subtitle {
+  color: var(--text2);
+  font-size: 1.1em;
+  max-width: 700px;
+  margin: 0 auto;
+}
+.header .tags {
+  margin-top: 16px;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.tag {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 16px;
+  font-size: 0.8em;
+  font-weight: 500;
+}
+.tag-blue { background: rgba(88,166,255,0.15); color: var(--accent); border: 1px solid rgba(88,166,255,0.3); }
+.tag-green { background: rgba(63,185,80,0.15); color: var(--green); border: 1px solid rgba(63,185,80,0.3); }
+.tag-orange { background: rgba(210,153,34,0.15); color: var(--orange); border: 1px solid rgba(210,153,34,0.3); }
+.tag-purple { background: rgba(188,140,255,0.15); color: var(--purple); border: 1px solid rgba(188,140,255,0.3); }
+.tag-cyan { background: rgba(57,210,192,0.15); color: var(--cyan); border: 1px solid rgba(57,210,192,0.3); }
+
+/* Layout */
+.container { max-width: 1200px; margin: 0 auto; padding: 32px; }
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+.tab-btn {
+  padding: 10px 20px;
+  background: transparent;
+  color: var(--text2);
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-size: 0.95em;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* Cards */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+.card-title {
+  font-size: 1.15em;
+  font-weight: 600;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.card-title .icon { font-size: 1.2em; }
+
+/* TLDR */
+.tldr {
+  background: rgba(88,166,255,0.08);
+  border-left: 3px solid var(--accent);
+  padding: 16px 20px;
+  border-radius: 0 8px 8px 0;
+  margin-bottom: 20px;
+  font-size: 0.95em;
+}
+.tldr strong { color: var(--accent); }
+
+/* Grid */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+
+/* Code */
+code {
+  background: var(--surface2);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+  font-size: 0.88em;
+  color: var(--cyan);
+}
+pre {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px;
+  overflow-x: auto;
+  font-size: 0.85em;
+  line-height: 1.5;
+  margin: 12px 0;
+}
+pre code { background: none; padding: 0; color: var(--text); }
+
+/* Architecture Diagram */
+.arch-diagram {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 24px;
+  background: var(--surface);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+.arch-layer {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.arch-box {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 18px;
+  text-align: center;
+  font-size: 0.9em;
+  min-width: 120px;
+}
+.arch-box.highlight {
+  border-color: var(--accent);
+  background: rgba(88,166,255,0.08);
+}
+.arch-box.green { border-color: var(--green); background: rgba(63,185,80,0.08); }
+.arch-box.purple { border-color: var(--purple); background: rgba(188,140,255,0.08); }
+.arch-box.orange { border-color: var(--orange); background: rgba(210,153,34,0.08); }
+.arch-box.cyan { border-color: var(--cyan); background: rgba(57,210,192,0.08); }
+.arch-arrow {
+  color: var(--text2);
+  font-size: 1.2em;
+  text-align: center;
+}
+.arch-label {
+  color: var(--text2);
+  font-size: 0.8em;
+  margin-bottom: 4px;
+}
+
+/* File tree */
+.file-tree {
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 0.85em;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px 20px;
+}
+.file-tree .dir { color: var(--accent); font-weight: 600; }
+.file-tree .file { color: var(--text2); }
+.file-tree .key-file { color: var(--green); }
+.file-tree .line { padding: 2px 0; }
+
+/* Data flow */
+.flow-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+  padding: 12px 0;
+}
+.flow-step {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 14px;
+  text-align: center;
+  font-size: 0.88em;
+}
+.flow-arrow { color: var(--text2); font-size: 1.1em; }
+
+/* Message blocks */
+.msg-block {
+  border-left: 3px solid;
+  padding: 10px 14px;
+  margin: 6px 0;
+  border-radius: 0 4px 4px 0;
+  font-size: 0.88em;
+}
+.msg-user { border-color: var(--accent); background: rgba(88,166,255,0.05); }
+.msg-assistant { border-color: var(--green); background: rgba(63,185,80,0.05); }
+.msg-tool { border-color: var(--orange); background: rgba(210,153,34,0.05); }
+.msg-system { border-color: var(--purple); background: rgba(188,140,255,0.05); }
+
+/* Table */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 0.9em;
+}
+th, td {
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+th { background: var(--surface2); color: var(--text2); font-weight: 600; font-size: 0.85em; text-transform: uppercase; }
+td { color: var(--text); }
+
+/* Section headers */
+h2 { margin: 28px 0 16px; font-size: 1.4em; color: var(--text); }
+h3 { margin: 20px 0 12px; font-size: 1.1em; color: var(--accent); }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  .container { padding: 16px; }
+  .header h1 { font-size: 1.8em; }
+}
+
+.highlight-text { color: var(--accent); font-weight: 600; }
+.green-text { color: var(--green); }
+.orange-text { color: var(--orange); }
+.purple-text { color: var(--purple); }
+.cyan-text { color: var(--cyan); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Simple Agent Lab</h1>
+  <div class="subtitle">一个面向学习和原型设计的轻量级 Agent 框架，采用 Balanced Message Runtime 架构，核心循环简洁可读，支持 SWE-bench 评测</div>
+  <div class="tags">
+    <span class="tag tag-blue">Python Agent Framework</span>
+    <span class="tag tag-green">SWE-bench 集成</span>
+    <span class="tag tag-purple">Provider-Agnostic LLM</span>
+    <span class="tag tag-cyan">Multi-Agent 委托</span>
+    <span class="tag tag-orange">Docker 沙箱</span>
+  </div>
+</div>
+
+<div class="container">
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="overview">项目概览</button>
+    <button class="tab-btn" data-tab="architecture">架构设计</button>
+    <button class="tab-btn" data-tab="core">核心运行时</button>
+    <button class="tab-btn" data-tab="tools">工具系统</button>
+    <button class="tab-btn" data-tab="swebench">SWE-bench 评测</button>
+    <button class="tab-btn" data-tab="openclaw">OpenClaw 集成</button>
+  </div>
+
+  <!-- Tab 1: Overview -->
+  <div class="tab-content active" id="tab-overview">
+    <div class="tldr">
+      <strong>TLDR:</strong> Simple Agent Lab 是一个文档优先、面向教学的 Agent 框架，核心设计理念是 <strong>"最小 Agent 循环 + 显式数据流"</strong>。它用 5 个核心组件（Agent + Message + State + ContextView + run()）驱动一个 Generator-based 运行时，支持 Bash 工具执行、多 Agent 委托、Provider 无关的 LLM 调用，以及 Docker 化的 SWE-bench 评测。
+    </div>
+
+    <h2>一句话概括</h2>
+    <div class="card">
+      <p><strong>Simple Agent Lab</strong> 是一个 <span class="highlight-text">docs-first 的轻量 Agent 框架</span>，面向高校学生、小团队和独立开发者，目标是让 Agent 的核心循环（Agent Loop）可以通过代码直接阅读和理解，而不需要面对复杂的框架抽象。</p>
+    </div>
+
+    <h2>设计哲学</h2>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title"><span class="icon">&#x1F4D6;</span> 文档优先</div>
+        <p>AGENTS.md / CONTEXT.md / CONTRIBUTING.md 等文档驱动开发，核心代码不超过几百行，可以完整阅读。</p>
+      </div>
+      <div class="card">
+        <div class="card-title"><span class="icon">&#x1F504;</span> 最小循环</div>
+        <p>Agent Loop 是一个 Generator，每轮：构建上下文 → 调用 LLM → 分发工具 → 检查终态。没有隐藏的框架行为。</p>
+      </div>
+      <div class="card">
+        <div class="card-title"><span class="icon">&#x1F517;</span> 显式数据流</div>
+        <p>所有消息走统一 ContentBlock 模型（TextBlock | ImageBlock | ThinkingBlock | ToolCallBlock | ToolResultBlock），没有隐式转换。</p>
+      </div>
+      <div class="card">
+        <div class="card-title"><span class="icon">&#x1F310;</span> Provider 无关</div>
+        <p>LLM 层通过 Bridge 模式将 runtime Message 投影为 provider-agnostic 的 LLMMessage，支持 OpenAI / Anthropic / Fake 等多种后端。</p>
+      </div>
+    </div>
+
+    <h2>目录结构</h2>
+    <div class="file-tree">
+      <div class="line"><span class="dir">simple-agent-lab/</span></div>
+      <div class="line">├── <span class="key-file">src/simple_agent_lab/</span>    <span class="file"># 核心源码</span></div>
+      <div class="line">│   ├── <span class="key-file">core.py</span>              <span class="file"># Agent 数据类 + run() 主循环 + dispatch_tool_calls()</span></div>
+      <div class="line">│   ├── <span class="key-file">messages.py</span>          <span class="file"># 统一消息协议（ContentBlock 联合类型）</span></div>
+      <div class="line">│   ├── <span class="key-file">state.py</span>             <span class="file"># Append-only 事件日志 + StateSnapshot 缓存</span></div>
+      <div class="line">│   ├── <span class="key-file">protocols.py</span>         <span class="file"># 冻结数据类事件类型（Event 协议）</span></div>
+      <div class="line">│   ├── <span class="key-file">context_view.py</span>      <span class="file"># 上下文投影（token 预算、裁剪、压缩）</span></div>
+      <div class="line">│   ├── <span class="key-file">llm_agent.py</span>         <span class="file"># make_llm_agent() 工厂函数</span></div>
+      <div class="line">│   ├── <span class="dir">llm/</span>                <span class="file"># Provider-agnostic LLM 访问层</span></div>
+      <div class="line">│   │   ├── <span class="key-file">bridge.py</span>      <span class="file"># Message → LLMMessage 投影</span></div>
+      <div class="line">│   │   ├── <span class="key-file">provider.py</span>    <span class="file"># Provider 数据类（OpenAI / Anthropic / Fake）</span></div>
+      <div class="line">│   │   ├── <span class="key-file">stream.py</span>      <span class="file"># 流式响应适配器</span></div>
+      <div class="line">│   │   ├── <span class="dir">adapters/</span>     <span class="file"># 各 provider 适配器实现</span></div>
+      <div class="line">│   │   └── <span class="key-file">types.py</span>       <span class="file"># LLMMessage / LLMRequest / LLMResponse 类型</span></div>
+      <div class="line">│   ├── <span class="dir">tools/</span>              <span class="file"># 工具系统</span></div>
+      <div class="line">│   │   ├── <span class="key-file">bash.py</span>       <span class="file"># Bash 命令执行工具（超时、截断、图片附加）</span></div>
+      <div class="line">│   │   └── <span class="key-file">task.py</span>       <span class="file"># 多 Agent 委托工具（task_tool）</span></div>
+      <div class="line">│   ├── <span class="dir">agents/bash/</span>        <span class="file"># 预设 Bash Agent</span></div>
+      <div class="line">│   │   ├── <span class="key-file">agent.py</span>      <span class="file"># make_bash_agent() 工厂</span></div>
+      <div class="line">│   │   └── <span class="key-file">__init__.py</span>   <span class="file"># 导出所有 bash 相关 API</span></div>
+      <div class="line">│   ├── <span class="key-file">compression.py</span>      <span class="file"># 上下文压缩</span></div>
+      <div class="line">│   ├── <span class="key-file">trace.py</span>            <span class="file"># 人类可读 trace + OpenAI 训练格式导出</span></div>
+      <div class="line">│   └── <span class="key-file">trajectory.py</span>        <span class="file"># 多层 trace（Event → Span → 训练数据）</span></div>
+      <div class="line">├── <span class="dir">evals/swebench/</span>          <span class="file"># SWE-bench 评测集成</span></div>
+      <div class="line">│   ├── <span class="key-file">containerized_agent.py</span> <span class="file"># Docker 化的 Agent 运行编排</span></div>
+      <div class="line">│   ├── <span class="key-file">in_container_runner.py</span> <span class="file"># 容器内 Agent 执行器</span></div>
+      <div class="line">│   └── <span class="key-file">patch_extract.py</span>     <span class="file"># Git diff 提取</span></div>
+      <div class="line">├── <span class="dir">scripts/</span>                 <span class="file"># Demo 脚本</span></div>
+      <div class="line">├── <span class="dir">tests/</span>                   <span class="file"># 单元测试 + E2E 测试</span></div>
+      <div class="line">├── <span class="dir">runs/</span>                    <span class="file"># 可复现的运行脚本</span></div>
+      <div class="line">└── <span class="key-file">pyproject.toml</span>           <span class="file"># 项目配置</span></div>
+    </div>
+
+    <h2>核心公式</h2>
+    <div class="card" style="text-align:center; font-size:1.1em; padding: 24px;">
+      <span class="highlight-text">Agent</span> + <span class="green-text">Message</span> + <span class="purple-text">State</span> + <span class="cyan-text">context_view()</span> + <span class="orange-text">run()</span> = <strong>完整 Agent 运行时</strong>
+    </div>
+  </div>
+
+  <!-- Tab 2: Architecture -->
+  <div class="tab-content" id="tab-architecture">
+    <div class="tldr">
+      <strong>TLDR:</strong> 架构分为 5 层 —— <strong>Agent 层</strong>（定义 agent + tools）、<strong>Runtime 层</strong>（run 循环 + State）、<strong>Message 层</strong>（统一内容块协议）、<strong>LLM 层</strong>（provider-agnostic bridge）和 <strong>Tool 层</strong>（bash / task）。数据流清晰：Agent.generate() → Message → Bridge → LLM → Response → ToolCall → Execute → ToolResult。
+    </div>
+
+    <h2>系统架构图</h2>
+    <div class="arch-diagram">
+      <div class="arch-label">用户层</div>
+      <div class="arch-layer">
+        <div class="arch-box highlight">agent.run(task)<br><small>入口方法</small></div>
+        <div class="arch-box">run(agent, state)<br><small>Generator 主循环</small></div>
+      </div>
+      <div class="arch-arrow">&#x25BC;</div>
+      <div class="arch-label">运行时层</div>
+      <div class="arch-layer">
+        <div class="arch-box purple">State<br><small>Append-only 事件日志</small></div>
+        <div class="arch-box cyan">ContextView<br><small>上下文投影 + Token 预算</small></div>
+        <div class="arch-box" style="border-color:var(--pink);background:rgba(247,120,186,0.08);">Compression<br><small>上下文压缩</small></div>
+      </div>
+      <div class="arch-arrow">&#x25BC;</div>
+      <div class="arch-label">消息层</div>
+      <div class="arch-layer">
+        <div class="arch-box">TextBlock</div>
+        <div class="arch-box">ImageBlock</div>
+        <div class="arch-box">ThinkingBlock</div>
+        <div class="arch-box">ToolCallBlock</div>
+        <div class="arch-box">ToolResultBlock</div>
+      </div>
+      <div class="arch-arrow">&#x25BC;</div>
+      <div class="arch-label">LLM 层 (Bridge)</div>
+      <div class="arch-layer">
+        <div class="arch-box green">Provider<br><small>OpenAI</small></div>
+        <div class="arch-box green">Provider<br><small>Anthropic</small></div>
+        <div class="arch-box green">Provider<br><small>Fake</small></div>
+        <div class="arch-box orange">Stream<br><small>流式适配器</small></div>
+      </div>
+      <div class="arch-arrow">&#x25BC;</div>
+      <div class="arch-label">工具层</div>
+      <div class="arch-layer">
+        <div class="arch-box highlight">bash.py<br><small>Shell 执行</small></div>
+        <div class="arch-box highlight">task.py<br><small>多 Agent 委托</small></div>
+      </div>
+    </div>
+
+    <h2>数据流</h2>
+    <div class="card">
+      <div class="flow-row">
+        <div class="flow-step" style="border-color:var(--accent)">Task 输入</div>
+        <div class="flow-arrow">&#x27A1;</div>
+        <div class="flow-step" style="border-color:var(--purple)">State 记录</div>
+        <div class="flow-arrow">&#x27A1;</div>
+        <div class="flow-step" style="border-color:var(--cyan)">ContextView 投影</div>
+        <div class="flow-arrow">&#x27A1;</div>
+        <div class="flow-step" style="border-color:var(--green)">LLM 调用</div>
+        <div class="flow-arrow">&#x27A1;</div>
+        <div class="flow-step" style="border-color:var(--orange)">工具执行</div>
+        <div class="flow-arrow">&#x27A1;</div>
+        <div class="flow-step" style="border-color:var(--pink)">结果返回</div>
+      </div>
+      <p style="color:var(--text2); font-size:0.88em; text-align:center; margin-top:8px;">循环直到 Agent 发出 <code>kind="final"</code> 消息或达到 <code>max_turns</code></p>
+    </div>
+
+    <h2>消息协议</h2>
+    <p>所有消息共享统一的 ContentBlock 模型，运行时路由字段（sender, target, kind, channel）独立于 provider 协议：</p>
+    <div class="grid-3">
+      <div class="msg-block msg-user">
+        <strong>UserMessage</strong><br>
+        role: "user"<br>
+        携带 task、tool_result 等
+      </div>
+      <div class="msg-block msg-assistant">
+        <strong>AssistantMessage</strong><br>
+        role: "assistant"<br>
+        携带 text、thinking、tool_call
+      </div>
+      <div class="msg-block msg-system">
+        <strong>SystemMessage</strong><br>
+        role: "system"<br>
+        携带系统级指令
+      </div>
+    </div>
+
+    <h2>消息种类 (MessageKind)</h2>
+    <table>
+      <tr><th>Kind</th><th>用途</th><th>循环行为</th></tr>
+      <tr><td><code>task</code></td><td>Agent 初始任务</td><td>种子消息，启动循环</td></tr>
+      <tr><td><code>thought</code></td><td>Agent 中间思考</td><td>继续循环</td></tr>
+      <tr><td><code>final</code></td><td>Agent 终止输出</td><td>触发循环结束</td></tr>
+      <tr><td><code>tool_result</code></td><td>工具返回值</td><td>作为下一轮上下文</td></tr>
+      <tr><td><code>summary</code></td><td>上下文压缩摘要</td><td>替代被裁剪的消息</td></tr>
+      <tr><td><code>context</code></td><td>委托注入的上下文</td><td>子 agent 场景</td></tr>
+    </table>
+
+    <h2>Provider 适配器架构</h2>
+    <div class="card">
+      <pre><code># Provider 定义（纯数据类，无继承）
+@dataclass
+class Provider:
+    kind: str           # "openai" | "anthropic" | "fake"
+    model: str
+    base_url: str | None
+    api_key: str | None
+
+# Bridge 投影
+messages_to_llm_messages(visible_messages, with_header=True) → list[LLMMessage]
+
+# 每种 Provider 注册一个 adapter
+# adapters/openai_chat.py    → OpenAI ChatCompletion API
+# adapters/anthropic.py      → Anthropic Messages API
+# adapters/fake.py           → 本地测试用 fake provider</code></pre>
+    </div>
+  </div>
+
+  <!-- Tab 3: Core Runtime -->
+  <div class="tab-content" id="tab-core">
+    <div class="tldr">
+      <strong>TLDR:</strong> <code>run()</code> 是核心 —— 一个 Generator 函数，每轮 yield 事件（Event），在每轮中：构建 ContextView → 调用 agent.generate(visible) → 记录输出 → 分发工具调用。当 agent 输出 <code>kind="final"</code> 时循环结束。整个过程是完全显式的，没有隐藏的状态机或回调。
+    </div>
+
+    <h2>Agent 数据类</h2>
+    <div class="card">
+      <pre><code>@dataclass
+class Agent:
+    name: str              # agent 名称
+    generate: GenerateFn   # 核心生成函数 (list[Message] → Message)
+    role: str = ""         # agent 角色描述
+    tools: tuple[AgentTool, ...] = ()  # 绑定的工具集
+    context_policy: ContextPolicy | None = None  # 上下文策略
+
+    def run(self, task, *, max_turns=10, abort=None):
+        state = State(task=task)
+        state.send("task", "user", self.name, task)
+        events = run(self, state, max_turns=max_turns, abort=abort)
+        return state, events</code></pre>
+    </div>
+
+    <h2>run() 主循环伪代码</h2>
+    <div class="card">
+      <pre><code>def run(agent, state, max_turns=10):
+    yield agent_start()
+    for _ in range(max_turns):
+        yield turn_start()
+
+        # 1. 上下文压缩（可选）
+        for evt in maybe_compress_context(agent, state, policy):
+            yield evt
+
+        # 2. 构建上下文视图（token 预算、裁剪）
+        context = build_context_view(name, state.active_context_messages(), policy)
+
+        # 3. 调用 LLM
+        yield model_request(visible_messages, tools)
+        output = agent.generate(visible_messages)
+        yield model_response(output)
+        state.record(output)
+
+        # 4. 分发工具调用（支持并行/顺序）
+        if output has tool_calls:
+            for evt in dispatch_tool_calls(output, tools, state):
+                yield evt
+
+        yield turn_end()
+
+        # 5. 终止条件
+        if output.kind == "final":
+            break
+
+    yield agent_end(reason="done" | "max_turns")</code></pre>
+    </div>
+
+    <h2>工具分发 (dispatch_tool_calls)</h2>
+    <div class="card">
+      <p>工具分发支持 <strong>并行</strong> 和 <strong>顺序</strong> 两种执行模式：</p>
+      <ul style="margin-left: 20px; margin-top: 8px;">
+        <li>如果任何工具标记为 <code>execution_mode="sequential"</code>，则所有工具顺序执行</li>
+        <li>否则使用 <code>ThreadPoolExecutor</code> 并行执行（最多 8 个并发）</li>
+        <li>每个工具有独立的 <code>timeout_seconds</code> 和 <code>abort</code> 检查</li>
+        <li>工具结果打包为单个 <code>tool_results_message()</code>（N 个 ToolResultBlock）</li>
+        <li>支持 <code>terminate</code> 标志，工具可以主动终止循环</li>
+      </ul>
+    </div>
+
+    <h2>State 管理</h2>
+    <div class="card">
+      <pre><code>@dataclass
+class State:
+    """Append-only 事件日志，支持快照缓存"""
+    events: list[Event]
+
+    def record(self, msg)      # 记录消息到 transcript
+    def active_context_messages() → list[Message]  # 获取 agent 可见消息
+    def agent_start()          # yield AgentStartEvent
+    def turn_start/turn_end()  # yield TurnStartEvent / TurnEndEvent
+    def model_request/response()  # yield Model*Event
+    def tool_execution_*()     # yield ToolExecution*Event
+    def agent_end(reason)      # yield AgentEndEvent</code></pre>
+      <p style="margin-top: 8px; color: var(--text2); font-size: 0.88em;">State 是 append-only 的，所有变更都通过事件记录。StateSnapshot 提供快速缓存访问。</p>
+    </div>
+
+    <h2>ContextView 投影</h2>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title"><span class="icon">&#x1F4CA;</span> ContextPolicy</div>
+        <pre><code>@dataclass
+class ContextPolicy:
+    max_tokens: int = 4096
+    trim_from: str = "bottom"  # 裁剪方向
+    reserve_for_response: int = 1024</code></pre>
+      </div>
+      <div class="card">
+        <div class="card-title"><span class="icon">&#x1F50D;</span> build_context_view()</div>
+        <p>将完整的 transcript 投影为 agent 可见的消息列表。基于 token 预算裁剪，优先保留最近的对话。支持消息级压缩。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab 4: Tools -->
+  <div class="tab-content" id="tab-tools">
+    <div class="tldr">
+      <strong>TLDR:</strong> 工具系统设计极简 —— 每个 <code>AgentTool</code> = Tool 定义 + execute 函数 + 执行模式。内置两个核心工具：<strong>bash</strong>（本地 Shell 执行，支持超时/截断/图片附加）和 <strong>task</strong>（多 Agent 委托，父 agent 选择子 agent，子 agent 的 final 消息作为 tool result 返回）。
+    </div>
+
+    <h2>Bash 工具</h2>
+    <div class="card">
+      <div class="card-title"><span class="icon">&#x1F4BB;</span> bash.py — 本地 Shell 执行</div>
+      <pre><code>def make_bash_tool(*, cwd=None, timeout=300, max_output=100000):
+    return AgentTool(
+        name="bash",
+        description="Run bash commands",
+        parameters={...},  # JSON Schema
+        execute=fn(tool_call_id, args, abort, on_update),
+        execution_mode="sequential",
+        timeout_seconds=timeout,
+    )</code></pre>
+      <h3 style="margin-top:16px;">核心特性</h3>
+      <ul style="margin-left: 20px;">
+        <li><strong>超时保护</strong>：默认 300s，最大可配，超时自动终止</li>
+        <li><strong>输出截断</strong>：max_output_chars 控制输出大小，超出截断并提示</li>
+        <li><strong>图片附加</strong>：支持 <code>attach</code> 参数，将图片文件转为 ImageBlock 附加到结果</li>
+        <li><strong>sleep 检测</strong>：<code>detect_blocked_sleep_pattern()</code> 检测无意义的 sleep 调用</li>
+        <li><strong>Abort 检查</strong>：每条命令执行前检查 abort 标志</li>
+      </ul>
+    </div>
+
+    <h2>Task 工具 — 多 Agent 委托</h2>
+    <div class="card">
+      <div class="card-title"><span class="icon">&#x1F9E0;</span> task.py — 多 Agent 委托</div>
+      <pre><code>def task_tool(agents: list[Agent]) -> AgentTool:
+    return AgentTool(
+        name="task",
+        description="Delegate to a sub-agent",
+        parameters={
+            "subagent_type": {"enum": [a.name for a in agents]},
+            "prompt": {"type": "string"},
+        },
+        execute=fn(call_id, args, abort, on_update):
+            # 1. 从 agents 中选择 subagent_type 对应的 agent
+            # 2. sub_agent.run(args["prompt"])
+            # 3. 子 agent 的 final 消息作为 tool result 返回
+    )</code></pre>
+      <p style="margin-top:12px;">这使得多 Agent 流程的表达方式是：<strong>父 agent 通过 task tool 委托给子 agent</strong>，子 agent 独立完成自己的 run() 循环后，final 消息作为父 agent 的 tool result 返回。</p>
+    </div>
+
+    <h2>Bash Agent 预设</h2>
+    <div class="card">
+      <pre><code>BASH_AGENT_SYSTEM_PROMPT = (
+    "You are a tiny bash-use agent. Use the bash tool to satisfy the task "
+    "— parallel tool calls are fine when the steps are independent, and "
+    "set `attach` on the call when you want to surface an image file. "
+    "After the tool_result, return a short final answer."
+)
+
+def make_bash_agent(provider, *, cwd=None) → Agent:
+    return make_llm_agent(
+        name="bash_agent",
+        provider=provider,
+        tools=[make_bash_tool(cwd=cwd)],
+        system_prompt=BASH_AGENT_SYSTEM_PROMPT,
+        target="user",
+    )</code></pre>
+      <p style="margin-top:8px; color:var(--text2);">这是 SWE-bench 评测的核心 agent —— 一个"用 bash 解决任务"的最小预设。</p>
+    </div>
+  </div>
+
+  <!-- Tab 5: SWE-bench -->
+  <div class="tab-content" id="tab-swebench">
+    <div class="tldr">
+      <strong>TLDR:</strong> SWE-bench 集成采用 <strong>Docker 沙箱架构</strong>：Host 端启动容器 → 挂载 wheelhouse + run 目录 → 安装 simple-agent-lab → 在容器内运行 bash agent → 收集 git diff 作为预测 → 导出 trajectory。开发者已跑通主流程，Bash Agent 可以跑 SWE-bench 评测。
+    </div>
+
+    <h2>Docker 沙箱架构</h2>
+    <div class="arch-diagram">
+      <div class="arch-label">Host 端编排</div>
+      <div class="arch-layer">
+        <div class="arch-box highlight">containerized_agent.py<br><small>Host 端编排器</small></div>
+      </div>
+      <div class="arch-arrow">&#x25BC; Docker API</div>
+      <div class="arch-label">Docker 容器</div>
+      <div class="arch-layer">
+        <div class="arch-box green">SWE-bench Testbed<br><small>/testbed 工作区</small></div>
+        <div class="arch-box cyan">simple-agent-lab<br><small>从 wheelhouse 安装</small></div>
+        <div class="arch-box purple">in_container_runner.py<br><small>容器内执行器</small></div>
+      </div>
+      <div class="arch-arrow">&#x25BC; 输出</div>
+      <div class="arch-layer">
+        <div class="arch-box orange">trajectory.jsonl<br><small>完整执行轨迹</small></div>
+        <div class="arch-box orange">prediction.jsonl<br><small>Git diff 预测</small></div>
+      </div>
+    </div>
+
+    <h2>执行流程</h2>
+    <div class="card">
+      <div class="flow-row" style="flex-direction:column; gap:6px; align-items:stretch;">
+        <div class="flow-step" style="border-color:var(--accent)">
+          <strong>1.</strong> Host 端加载 instance 记录（instance.json），清理私有字段（patch, test_patch 等）
+        </div>
+        <div class="flow-step" style="border-color:var(--green)">
+          <strong>2.</strong> 准备运行目录（input/output），写入 sanitized instance
+        </div>
+        <div class="flow-step" style="border-color:var(--purple)">
+          <strong>3.</strong> 调用 <code>swebench.make_test_spec()</code> 构建 Docker 容器配置
+        </div>
+        <div class="flow-step" style="border-color:var(--cyan)">
+          <strong>4.</strong> 创建容器，挂载 run 目录 + wheelhouse，拷贝 runner 脚本
+        </div>
+        <div class="flow-step" style="border-color:var(--orange)">
+          <strong>5.</strong> 容器内：安装 simple-agent-lab → 运行 <code>in_container_runner.py</code>
+        </div>
+        <div class="flow-step" style="border-color:var(--pink)">
+          <strong>6.</strong> Bash Agent 在 /testbed 中工作，收集 git diff → prediction.jsonl
+        </div>
+      </div>
+    </div>
+
+    <h2>关键实现细节</h2>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title">Wheelhouse 机制</div>
+        <p>预先下载所有依赖 wheel（包括 simple-agent-lab 自身和 anthropic/openai SDK），容器内通过 <code>--no-index --find-links</code> 离线安装。支持增量更新（每次运行重建项目 wheel）。</p>
+      </div>
+      <div class="card">
+        <div class="card-title">环境隔离</div>
+        <p>API Key 通过 Docker environment 注入（OPENAI_MODEL, OPENAI_AUTH_TOKEN），不写入容器文件系统。支持 <code>--network-mode host</code> 等网络配置。</p>
+      </div>
+      <div class="card">
+        <div class="card-title">实例清理</div>
+        <p>加载 instance 时自动去除 <code>patch</code>, <code>test_patch</code>, <code>FAIL_TO_PASS</code> 等私有字段，防止模型看到答案。</p>
+      </div>
+      <div class="card">
+        <div class="card-title">API 兼容</div>
+        <p>支持 <code>openai-chat</code> 和 <code>openai-responses</code> 两种 API 模式。通过 OpenAI 兼容接口可以接入任意 LLM 后端。</p>
+      </div>
+    </div>
+
+    <h2>运行方式</h2>
+    <div class="card">
+      <pre><code># 单个 instance
+python evals/swebench/containerized_agent.py \
+  --instance-json instances.json \
+  --instance_id django__django-12345 \
+  --provider openai \
+  --model-name gpt-4 \
+  --max-turns 20
+
+# 批量（通过 runs/ 脚本）
+bash runs/run_swebench_verified.sh</code></pre>
+    </div>
+  </div>
+
+  <!-- Tab 6: OpenClaw -->
+  <div class="tab-content" id="tab-openclaw">
+    <div class="tldr">
+      <strong>TLDR:</strong> <span class="green-text">已完成集成</span> —— 在 <code>feature/openclaw</code> 分支上实现了 ClawEvalkit benchmark 评测适配层。支持 PinchBench（23 tasks）和 AgentBench（39 tasks），通过 SAL 事件格式转换桥接 ClawEvalkit 的评分系统。Fake provider 测试全部通过（3/3），真实 API 需配置环境变量后运行。
+    </div>
+
+    <h2>ClawEvalkit Benchmark 一览</h2>
+    <table>
+      <tr><th>Benchmark</th><th>Display Name</th><th>任务数</th><th>评分方式</th><th>Docker</th></tr>
+      <tr><td><code>agentbench</code></td><td>AgentBench-OpenClaw</td><td>39</td><td>LLM Judge</td><td>Yes</td></tr>
+      <tr><td><code>skillsbench</code></td><td>SkillsBench</td><td>56-68</td><td>Pytest</td><td>Yes (per-task)</td></tr>
+      <tr><td><code>clawbench-official</code></td><td>ClawBench Official</td><td>250-303</td><td>Pytest</td><td>Yes</td></tr>
+      <tr><td><code>claweval</code></td><td>ClawEval</td><td>199-300</td><td>Multi-dimension</td><td>Yes</td></tr>
+      <tr><td><code>zclawbench</code></td><td>ZClawBench</td><td>116</td><td>LLM Judge (4 dim)</td><td>No</td></tr>
+      <tr><td><code>pinchbench</code></td><td>PinchBench</td><td>23</td><td>Rule-based</td><td>No</td></tr>
+      <tr><td><code>tribe</code></td><td>Claw-Bench-Tribe</td><td>8</td><td>LLM scoring</td><td>No</td></tr>
+      <tr><td><code>wildclawbench</code></td><td>WildClawBench</td><td>-</td><td>-</td><td>Yes</td></tr>
+    </table>
+
+    <h2>集成方案</h2>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title"><span class="icon">&#x2705;</span> 已实现</div>
+        <ul style="margin-left:20px; margin-top:8px;">
+          <li><span class="green-text">config.py</span> — 模型配置，自动从 ClawEvalkit YAML 加载，映射 provider → SAL ApiKind</li>
+          <li><span class="green-text">adapter.py</span> — SAL 事件 → ClawEvalkit transcript 格式转换 + 任务执行</li>
+          <li><span class="green-text">runner.py</span> — 主运行器，PinchBench + AgentBench 完整评测 pipeline</li>
+          <li><span class="green-text">test_integration.py</span> — Fake provider 冒烟测试（3/3 passed）</li>
+          <li>支持断点续跑（缓存已有结果）</li>
+          <li>支持并行任务执行</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-title"><span class="icon">&#x1F4C1;</span> 目录结构</div>
+        <pre><code>evals/openclaw/
+├── __init__.py          # 入口：run_eval()
+├── __main__.py          # python -m evals.openclaw
+├── config.py            # 模型配置（ClawEvalkit YAML → SAL Provider）
+├── adapter.py           # SAL ↔ ClawEvalkit 格式适配
+├── runner.py            # 评测主入口（PinchBench + AgentBench）
+└── test_integration.py  # 冒烟测试</code></pre>
+      </div>
+    </div>
+
+    <h2>使用方式</h2>
+    <div class="card">
+      <pre><code># 运行 PinchBench（需要 Python 3.10+，推荐 uv run）
+uv run python -m evals.openclaw \
+  --bench pinchbench \
+  --model claude-sonnet \
+  --clawevalkit /path/to/ClawEvalkit \
+  --sample 3
+
+# 运行 AgentBench
+uv run python -m evals.openclaw \
+  --bench agentbench \
+  --model glm-4.7 \
+  --clawevalkit /path/to/ClawEvalkit \
+  --sample 5
+
+# 冒烟测试（fake provider，无需 API key）
+uv run python evals/openclaw/test_integration.py</code></pre>
+    </div>
+
+    <h2>数据流（PinchBench 为例）</h2>
+    <div class="card">
+      <div class="flow-row" style="flex-direction:column; gap:6px; align-items:stretch;">
+        <div class="flow-step" style="border-color:var(--accent)">
+          <strong>1.</strong> 从 ClawEvalkit benchmarks/pinchbench/tasks/ 加载任务（解析 YAML frontmatter + Prompt + grade_code）
+        </div>
+        <div class="flow-step" style="border-color:var(--green)">
+          <strong>2.</strong> 构建 SAL Provider（从 ClawEvalkit configs/models/ 读取模型配置，映射 provider → ApiKind）
+        </div>
+        <div class="flow-step" style="border-color:var(--purple)">
+          <strong>3.</strong> 创建 Bash Agent，在隔离 workspace 中运行
+        </div>
+        <div class="flow-step" style="border-color:var(--cyan)">
+          <strong>4.</strong> 将 SAL 事件转换为 ClawEvalkit transcript 格式（MessageEvent → message dict, ToolExecution → tool_call/tool_result）
+        </div>
+        <div class="flow-step" style="border-color:var(--orange)">
+          <strong>5.</strong> 执行任务的 grade_code（内嵌 Python 函数），计算评分
+        </div>
+        <div class="flow-step" style="border-color:var(--pink)">
+          <strong>6.</strong> 保存结果到 outputs/pinchbench/{model}/{task_id}/result.json
+        </div>
+      </div>
+    </div>
+
+    <h2>开发者说明</h2>
+    <div class="card" style="border-left: 3px solid var(--orange);">
+      <p style="font-style: italic; color: var(--orange);">"上周我和 @王超凡 已经把这个主流程跑通了，现在基于我们的 Bash Agent 应该是可以跑 SWE-bench 的。"</p>
+      <p style="margin-top: 8px; color: var(--text2);">主流程已验证 —— Bash Agent 在 Docker 沙箱中执行 → 收集输出 → 评分。OpenClaw 集成在非 Docker 模式下运行 SAL Bash Agent，并复用 ClawEvalkit 的评分系统。</p>
+    </div>
+  </div>
+</div>
+
+<script>
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+</script>
+</body>
+</html>

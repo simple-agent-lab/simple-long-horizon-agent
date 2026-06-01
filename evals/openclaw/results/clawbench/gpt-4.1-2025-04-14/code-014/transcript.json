@@ -1,0 +1,258 @@
+[
+  {
+    "type": "message",
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "toolCall",
+          "name": "bash",
+          "arguments": {
+            "command": "cat /private/var/folders/vm/xpzxhfhn76x_ns21zfd5dyk80000gn/T/sal_clawbench_code-014_or6w__64/app/models.py",
+            "description": "Read models.py content"
+          },
+          "id": "call_aZDIiIPdvhJibqhSHAzf2oH8"
+        },
+        {
+          "type": "toolCall",
+          "name": "bash",
+          "arguments": {
+            "command": "cat /private/var/folders/vm/xpzxhfhn76x_ns21zfd5dyk80000gn/T/sal_clawbench_code-014_or6w__64/app/views.py",
+            "description": "Read views.py content"
+          },
+          "id": "call_CG8MdRwvGrraSHs4wrT0ego3"
+        },
+        {
+          "type": "toolCall",
+          "name": "bash",
+          "arguments": {
+            "command": "cat /private/var/folders/vm/xpzxhfhn76x_ns21zfd5dyk80000gn/T/sal_clawbench_code-014_or6w__64/app/utils.py",
+            "description": "Read utils.py content"
+          },
+          "id": "call_m1r7kSl3vGEN78dHsZFcr43A"
+        },
+        {
+          "type": "toolCall",
+          "name": "bash",
+          "arguments": {
+            "command": "cat /private/var/folders/vm/xpzxhfhn76x_ns21zfd5dyk80000gn/T/sal_clawbench_code-014_or6w__64/app/__init__.py",
+            "description": "Read __init__.py content"
+          },
+          "id": "call_RZJ3LyUfqHWKRXL17hgvwcBP"
+        }
+      ]
+    }
+  },
+  {
+    "type": "tool_call",
+    "name": "bash",
+    "params": {}
+  },
+  {
+    "type": "tool_call",
+    "name": "bash",
+    "params": {}
+  },
+  {
+    "type": "tool_call",
+    "name": "bash",
+    "params": {}
+  },
+  {
+    "type": "tool_call",
+    "name": "bash",
+    "params": {}
+  },
+  {
+    "type": "tool_result",
+    "result": ""
+  },
+  {
+    "type": "tool_result",
+    "result": ""
+  },
+  {
+    "type": "tool_result",
+    "result": ""
+  },
+  {
+    "type": "tool_result",
+    "result": ""
+  },
+  {
+    "type": "message",
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "type": "toolResult",
+          "content": [
+            "$ cat /private/var/folders/vm/xpzxhfhn76x_ns21zfd5dyk80000gn/T/sal_clawbench_code-014_or6w__64/app/models.py\nstdout:\n\"\"\"Data models with duplicated validation logic.\"\"\"\n\n\nclass User:\n    \"\"\"User model.\"\"\"\n\n    def __init__(self, name, email, age):\n        # Duplicated validation\n        if not isinstance(name, str) or len(name.strip()) == 0:\n            raise ValueError(\"Name must be a non-empty string\")\n        if not isinstance(email, str) or \"@\" not in email:\n            raise ValueError(\"Invalid email address\")\n        if not isinstance(age, int) or age < 0:\n            raise ValueError(\"Age must be a non-negative integer\")\n\n        self.name = name.strip()\n        self.email = email.strip().lower()\n        self.age = age\n\n    def to_dict(self):\n        \"\"\"Serialize to dictionary.\"\"\"\n        # Duplicated serialization pattern\n        result = {}\n        for key in [\"name\", \"email\", \"age\"]:\n            result[key] = getattr(self, key)\n        return result\n\n    def validate(self):\n        \"\"\"Validate current state.\"\"\"\n        # Duplicated validation\n        if not isinstance(self.name, str) or len(self.name.strip()) == 0:\n            return False, \"Name must be a non-empty string\"\n        if not isinstance(self.email, str) or \"@\" not in self.email:\n            return False, \"Invalid email address\"\n        return True, \"\"\n\n\nclass Product:\n    \"\"\"Product model.\"\"\"\n\n    def __init__(self, title, price, quantity):\n        # Duplicated validation\n        if not isinstance(title, str) or len(title.strip()) == 0:\n            raise ValueError(\"Title must be a non-empty string\")\n        if not isinstance(price, (int, float)) or price < 0:\n            raise ValueError(\"Price must be a non-negative number\")\n        if not isinstance(quantity, int) or quantity < 0:\n            raise ValueError(\"Quantity must be a non-negative integer\")\n\n        self.title = title.strip()\n        self.price = price\n        self.quantity = quantity\n\n    def to_dict(self):\n        \"\"\"Serialize to dictionary.\"\"\"\n        # Duplicated serialization pattern\n        result = {}\n        for key in [\"title\", \"price\", \"quantity\"]:\n            result[key] = getattr(self, key)\n        return result\n\n    def validate(self):\n        \"\"\"Validate current state.\"\"\"\n        # Duplicated validation\n        if not isinstance(self.title, str) or len(self.title.strip()) == 0:\n            return False, \"Title must be a non-empty string\"\n        if not isinstance(self.price, (int, float)) or self.price < 0:\n            return False, \"Price must be a non-negative number\"\n        return True, \"\""
+          ],
+          "tool_call_id": "call_aZDIiIPdvhJibqhSHAzf2oH8",
+          "tool_name": "bash"
+        },
+        {
+          "type": "toolResult",
+          "content": [
+            "$ cat /private/var/folders/vm/xpzxhfhn76x_ns21zfd5dyk80000gn/T/sal_clawbench_code-014_or6w__64/app/views.py\nstdout:\n\"\"\"View handlers with duplicated response formatting.\"\"\"\n\n\ndef _format_response(data, status=\"ok\"):\n    \"\"\"Format a response dict -- duplicated helper.\"\"\"\n    return {\n        \"status\": status,\n        \"data\": data,\n    }\n\n\ndef _format_error(message):\n    \"\"\"Format an error response -- duplicated helper.\"\"\"\n    return {\n        \"status\": \"error\",\n        \"data\": None,\n        \"message\": message,\n    }\n\n\ndef render_user(user):\n    \"\"\"Render a user as a response.\"\"\"\n    try:\n        data = user.to_dict()\n        # Duplicated response formatting\n        return _format_response(data)\n    except Exception as e:\n        # Duplicated error handling\n        return _format_error(str(e))\n\n\ndef render_product(product):\n    \"\"\"Render a product as a response.\"\"\"\n    try:\n        data = product.to_dict()\n        # Duplicated response formatting\n        return _format_response(data)\n    except Exception as e:\n        # Duplicated error handling\n        return _format_error(str(e))"
+          ],
+          "tool_call_id": "call_CG8MdRwvGrraSHs4wrT0ego3",
+          "tool_name": "bash"
+        },
+        {
+          "type": "toolResult",
+          "content": [
+            "$ cat /private/var/folders/vm/xpzxhfhn76x_ns21zfd5dyk80000gn/T/sal_clawbench_code-014_or6w__64/app/utils.py\nstdout:\n\"\"\"Utility functions with duplicated string processing.\"\"\"\n\n\ndef clean_name(name):\n    \"\"\"Clean a name string.\"\"\"\n    # Duplicated string cleaning logic\n    if not isinstance(name, str):\n        return \"\"\n    cleaned = name.strip()\n    cleaned = \" \".join(cleaned.split())  # normalize whitespace\n    return cleaned\n\n\ndef clean_title(title):\n    \"\"\"Clean a title string.\"\"\"\n    # Duplicated string cleaning logic\n    if not isinstance(title, str):\n        return \"\"\n    cleaned = title.strip()\n    cleaned = \" \".join(cleaned.split())  # normalize whitespace\n    return cleaned"
+          ],
+          "tool_call_id": "call_m1r7kSl3vGEN78dHsZFcr43A",
+          "tool_name": "bash"
+        },
+        {
+          "type": "toolResult",
+          "content": [
+            "$ cat /private/var/folders/vm/xpzxhfhn76x_ns21zfd5dyk80000gn/T/sal_clawbench_code-014_or6w__64/app/__init__.py\nstdout:\n\"\"\"Application package.\"\"\"\n\nfrom .models import User, Product\nfrom .views import render_user, render_product\nfrom .utils import clean_name, clean_title"
+          ],
+          "tool_call_id": "call_RZJ3LyUfqHWKRXL17hgvwcBP",
+          "tool_name": "bash"
+        }
+      ]
+    }
+  },
+  {
+    "type": "message",
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "Here is the plan for the refactor:\n\n### Shared Logic to Extract\n\n- **Validation & Serialization Patterns (models.py):** The repeated logic for checking and serializing can be abstracted into common base functions/classes.\n- **Response Formatting & Error Handling (views.py):** Both response and error formatting can move to shared helpers.\n- **String Cleaning (utils.py):** The duplicated string cleaning logic should be put in one place.\n\n### New `base.py`\n\n- Contains:\n  - `validate_string(value, name)`\n  - `validate_email(email)`\n  - `validate_number(value, name, allow_float)`\n  - `serialize_model(obj, fields)`\n  - `clean_string(value)`\n  - `_format_response(data, status='ok')`\n  - `_format_error(message)`\n\n### Refactored Files\n\n- **models.py:** Use validation and serialization functions/classes from `base.py`.\n- **views.py:** Use response/error formatting from `base.py`.\n- **utils.py:** Use string cleaning from `base.py`.\n- **__init__.py:** No changes needed for API.\n\n---\n\nI'll now write the four files to the required path.\n\n---\n\n#### 1. `base.py`\nThis will host all shared logic.\n\n#### 2. `models.py`\nData model classes use base helpers.\n\n#### 3. `views.py`\nResponse formatting & error helpers imported from base.\n\n#### 4. `utils.py`\nString cleaning delegates to base.\n\n---\n\n### Let's write the files.\n\n"
+        },
+        {
+          "type": "toolCall",
+          "name": "bash",
+          "arguments": {
+            "command": "cat > /private/var/folders/vm/xpzxhfhn76x_ns21zfd5dyk80000gn/T/sal_clawbench_code-014_or6w__64/app/base.py <<EOF\n\"\"\"Shared base logic for models, views, and utils.\"\"\"\n\n# --- Validation helpers ---\ndef validate_string(value, field_name):\n    if not isinstance(value, str) or len(value.strip()) == 0:\n        raise ValueError(f\"{field_name} must be a non-empty string\")\n    return value.strip()\n\ndef validate_email(email):\n    email = validate_string(email, \"Email\")\n    if \"@\" not in email:\n        raise ValueError(\"Invalid email address\")\n    return email.strip().lower()\n\ndef validate_number(value, field_name, allow_float=False):\n    valid_types = (int, float) if allow_float else (int,)\n    if not isinstance(value, valid_types) or value < 0:\n        raise ValueError(f\"{field_name} must be a non-negative {'number' if allow_float else 'integer'}\")\n    return value\n\n# --- Serialization helper ---\ndef serialize_model(obj, fields):\n    return {key: getattr(obj, key) for key in fields}\n\n# --- Reusable validation pattern for instance methods ---\ndef instance_validate_string(value, field_name):\n    if not isinstance(value, str) or len(value.strip()) == 0:\n        return False, f\"{field_name} must be a non-empty string\"\n    return True, \"\"\n\ndef instance_validate_number(value, field_name, allow_float=False):\n    valid_types = (int, float) if allow_float else (int,)\n    if not isinstance(value, valid_types) or value < 0:\n        return False, f\"{field_name} must be a non-negative {'number' if allow_float else 'integer'}\"\n    return True, \"\"\n\ndef instance_validate_email(email):\n    ok, msg = instance_validate_string(email, \"Email\")\n    if not ok:\n        return False, msg\n    if \"@\" not in email:\n        return False, \"Invalid email address\"\n    return True, \"\"\n\n# --- String cleaning ---\ndef clean_string(value):\n    if not isinstance(value, str):\n        return \"\"\n    cleaned = value.strip()\n    cleaned = \" \".join(cleaned.split())  # normalize whitespace\n    return cleaned\n\n# --- Response formatting and error handling ---\ndef format_response(data, status=\"ok\"):\n    return {\n        \"status\": status,\n        \"data\": data,\n    }\n\ndef format_error(message):\n    return {\n        \"status\": \"error\",\n        \"data\": None,\n        \"message\": message,\n    }\nEOF\n",
+            "description": "Write shared base.py with extracted common logic"
+          },
+          "id": "call_CHHXkGJeRqbw3R4StlLG5TrB"
+        },
+        {
+          "type": "toolCall",
+          "name": "bash",
+          "arguments": {
+            "command": "cat > /private/var/folders/vm/xpzxhfhn76x_ns21zfd5dyk80000gn/T/sal_clawbench_code-014_or6w__64/app/models.py <<EOF\n\"\"\"Data models refactored to use base logic.\"\"\"\nfrom .base import (\n    validate_string, validate_email, validate_number, serialize_model,\n    instance_validate_string, instance_validate_email, instance_validate_number\n)\n\nclass User:\n    \"\"\"User model.\"\"\"\n    def __init__(self, name, email, age):\n        self.name = validate_string(name, \"Name\")\n        self.email = validate_email(email)\n        self.age = validate_number(age, \"Age\")\n\n    def to_dict(self):\n        return serialize_model(self, [\"name\", \"email\", \"age\"])\n\n    def validate(self):\n        ok, msg = instance_validate_string(self.name, \"Name\")\n        if not ok:\n            return False, msg\n        ok, msg = instance_validate_email(self.email)\n        if not ok:\n            return False, msg\n        return True, \"\"\n\nclass Product:\n    \"\"\"Product model.\"\"\"\n    def __init__(self, title, price, quantity):\n        self.title = validate_string(title, \"Title\")\n        self.price = validate_number(price, \"Price\", allow_float=True)\n        self.quantity = validate_number(quantity, \"Quantity\")\n\n    def to_dict(self):\n        return serialize_model(self, [\"title\", \"price\", \"quantity\"])\n\n    def validate(self):\n        ok, msg = instance_validate_string(self.title, \"Title\")\n        if not ok:\n            return False, msg\n        ok, msg = instance_validate_number(self.price, \"Price\", allow_float=True)\n        if not ok:\n            return False, msg\n        return True, \"\"\nEOF\n",
+            "description": "Write refactored models.py"
+          },
+          "id": "call_ALgS9jfW0Afeltv99dk2zHwc"
+        },
+        {
+          "type": "toolCall",
+          "name": "bash",
+          "arguments": {
+            "command": "cat > /private/var/folders/vm/xpzxhfhn76x_ns21zfd5dyk80000gn/T/sal_clawbench_code-014_or6w__64/app/views.py <<EOF\n\"\"\"View handlers refactored to use base response formatting.\"\"\"\nfrom .base import format_response, format_error\n\ndef render_user(user):\n    \"\"\"Render a user as a response.\"\"\"\n    try:\n        data = user.to_dict()\n        return format_response(data)\n    except Exception as e:\n        return format_error(str(e))\n\ndef render_product(product):\n    \"\"\"Render a product as a response.\"\"\"\n    try:\n        data = product.to_dict()\n        return format_response(data)\n    except Exception as e:\n        return format_error(str(e))\nEOF\n",
+            "description": "Write refactored views.py"
+          },
+          "id": "call_edMK9D9DSt6wDA57XDIR1NkY"
+        },
+        {
+          "type": "toolCall",
+          "name": "bash",
+          "arguments": {
+            "command": "cat > /private/var/folders/vm/xpzxhfhn76x_ns21zfd5dyk80000gn/T/sal_clawbench_code-014_or6w__64/app/utils.py <<EOF\n\"\"\"Utility functions refactored for string cleaning.\"\"\"\nfrom .base import clean_string\n\ndef clean_name(name):\n    \"\"\"Clean a name string.\"\"\"\n    return clean_string(name)\n\ndef clean_title(title):\n    \"\"\"Clean a title string.\"\"\"\n    return clean_string(title)\nEOF\n",
+            "description": "Write refactored utils.py"
+          },
+          "id": "call_ZJFtHZYxriozutMYNwqRbMce"
+        }
+      ]
+    }
+  },
+  {
+    "type": "tool_call",
+    "name": "bash",
+    "params": {}
+  },
+  {
+    "type": "tool_call",
+    "name": "bash",
+    "params": {}
+  },
+  {
+    "type": "tool_call",
+    "name": "bash",
+    "params": {}
+  },
+  {
+    "type": "tool_call",
+    "name": "bash",
+    "params": {}
+  },
+  {
+    "type": "tool_result",
+    "result": ""
+  },
+  {
+    "type": "tool_result",
+    "result": ""
+  },
+  {
+    "type": "tool_result",
+    "result": ""
+  },
+  {
+    "type": "tool_result",
+    "result": ""
+  },
+  {
+    "type": "message",
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "type": "toolResult",
+          "content": [
+            "$ cat > /private/var/folders/vm/xpzxhfhn76x_ns21zfd5dyk80000gn/T/sal_clawbench_code-014_or6w__64/app/base.py <<EOF\n\"\"\"Shared base logic for models, views, and utils.\"\"\"\n\n# --- Validation helpers ---\ndef validate_string(value, field_name):\n    if not isinstance(value, str) or len(value.strip()) == 0:\n        raise ValueError(f\"{field_name} must be a non-empty string\")\n    return value.strip()\n\ndef validate_email(email):\n    email = validate_string(email, \"Email\")\n    if \"@\" not in email:\n        raise ValueError(\"Invalid email address\")\n    return email.strip().lower()\n\ndef validate_number(value, field_name, allow_float=False):\n    valid_types = (int, float) if allow_float else (int,)\n    if not isinstance(value, valid_types) or value < 0:\n        raise ValueError(f\"{field_name} must be a non-negative {'number' if allow_float else 'integer'}\")\n    return value\n\n# --- Serialization helper ---\ndef serialize_model(obj, fields):\n    return {key: getattr(obj, key) for key in fields}\n\n# --- Reusable validation pattern for instance methods ---\ndef instance_validate_string(value, field_name):\n    if not isinstance(value, str) or len(value.strip()) == 0:\n        return False, f\"{field_name} must be a non-empty string\"\n    return True, \"\"\n\ndef instance_validate_number(value, field_name, allow_float=False):\n    valid_types = (int, float) if allow_float else (int,)\n    if not isinstance(value, valid_types) or value < 0:\n        return False, f\"{field_name} must be a non-negative {'number' if allow_float else 'integer'}\"\n    return True, \"\"\n\ndef instance_validate_email(email):\n    ok, msg = instance_validate_string(email, \"Email\")\n    if not ok:\n        return False, msg\n    if \"@\" not in email:\n        return False, \"Invalid email address\"\n    return True, \"\"\n\n# --- String cleaning ---\ndef clean_string(value):\n    if not isinstance(value, str):\n        return \"\"\n    cleaned = value.strip()\n    cleaned = \" \".join(cleaned.split())  # normalize whitespace\n    return cleaned\n\n# --- Response formatting and error handling ---\ndef format_response(data, status=\"ok\"):\n    return {\n        \"status\": status,\n        \"data\": data,\n    }\n\ndef format_error(message):\n    return {\n        \"status\": \"error\",\n        \"data\": None,\n        \"message\": message,\n    }\nEOF\nDone. Command completed with no output."
+          ],
+          "tool_call_id": "call_CHHXkGJeRqbw3R4StlLG5TrB",
+          "tool_name": "bash"
+        },
+        {
+          "type": "toolResult",
+          "content": [
+            "$ cat > /private/var/folders/vm/xpzxhfhn76x_ns21zfd5dyk80000gn/T/sal_clawbench_code-014_or6w__64/app/models.py <<EOF\n\"\"\"Data models refactored to use base logic.\"\"\"\nfrom .base import (\n    validate_string, validate_email, validate_number, serialize_model,\n    instance_validate_string, instance_validate_email, instance_validate_number\n)\n\nclass User:\n    \"\"\"User model.\"\"\"\n    def __init__(self, name, email, age):\n        self.name = validate_string(name, \"Name\")\n        self.email = validate_email(email)\n        self.age = validate_number(age, \"Age\")\n\n    def to_dict(self):\n        return serialize_model(self, [\"name\", \"email\", \"age\"])\n\n    def validate(self):\n        ok, msg = instance_validate_string(self.name, \"Name\")\n        if not ok:\n            return False, msg\n        ok, msg = instance_validate_email(self.email)\n        if not ok:\n            return False, msg\n        return True, \"\"\n\nclass Product:\n    \"\"\"Product model.\"\"\"\n    def __init__(self, title, price, quantity):\n        self.title = validate_string(title, \"Title\")\n        self.price = validate_number(price, \"Price\", allow_float=True)\n        self.quantity = validate_number(quantity, \"Quantity\")\n\n    def to_dict(self):\n        return serialize_model(self, [\"title\", \"price\", \"quantity\"])\n\n    def validate(self):\n        ok, msg = instance_validate_string(self.title, \"Title\")\n        if not ok:\n            return False, msg\n        ok, msg = instance_validate_number(self.price, \"Price\", allow_float=True)\n        if not ok:\n            return False, msg\n        return True, \"\"\nEOF\nDone. Command completed with no output."
+          ],
+          "tool_call_id": "call_ALgS9jfW0Afeltv99dk2zHwc",
+          "tool_name": "bash"
+        },
+        {
+          "type": "toolResult",
+          "content": [
+            "$ cat > /private/var/folders/vm/xpzxhfhn76x_ns21zfd5dyk80000gn/T/sal_clawbench_code-014_or6w__64/app/views.py <<EOF\n\"\"\"View handlers refactored to use base response formatting.\"\"\"\nfrom .base import format_response, format_error\n\ndef render_user(user):\n    \"\"\"Render a user as a response.\"\"\"\n    try:\n        data = user.to_dict()\n        return format_response(data)\n    except Exception as e:\n        return format_error(str(e))\n\ndef render_product(product):\n    \"\"\"Render a product as a response.\"\"\"\n    try:\n        data = product.to_dict()\n        return format_response(data)\n    except Exception as e:\n        return format_error(str(e))\nEOF\nDone. Command completed with no output."
+          ],
+          "tool_call_id": "call_edMK9D9DSt6wDA57XDIR1NkY",
+          "tool_name": "bash"
+        },
+        {
+          "type": "toolResult",
+          "content": [
+            "$ cat > /private/var/folders/vm/xpzxhfhn76x_ns21zfd5dyk80000gn/T/sal_clawbench_code-014_or6w__64/app/utils.py <<EOF\n\"\"\"Utility functions refactored for string cleaning.\"\"\"\nfrom .base import clean_string\n\ndef clean_name(name):\n    \"\"\"Clean a name string.\"\"\"\n    return clean_string(name)\n\ndef clean_title(title):\n    \"\"\"Clean a title string.\"\"\"\n    return clean_string(title)\nEOF\nDone. Command completed with no output."
+          ],
+          "tool_call_id": "call_ZJFtHZYxriozutMYNwqRbMce",
+          "tool_name": "bash"
+        }
+      ]
+    }
+  },
+  {
+    "type": "message",
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "Refactor complete! Here are the new contents for each file, saved at your requested path:\n\n---\n\n**`base.py`:**\n```python\n\"\"\"Shared base logic for models, views, and utils.\"\"\"\n\n# --- Validation helpers ---\ndef validate_string(value, field_name):\n    if not isinstance(value, str) or len(value.strip()) == 0:\n        raise ValueError(f\"{field_name} must be a non-empty string\")\n    return value.strip()\n\ndef validate_email(email):\n    email = validate_string(email, \"Email\")\n    if \"@\" not in email:\n        raise ValueError(\"Invalid email address\")\n    return email.strip().lower()\n\ndef validate_number(value, field_name, allow_float=False):\n    valid_types = (int, float) if allow_float else (int,)\n    if not isinstance(value, valid_types) or value < 0:\n        raise ValueError(f\"{field_name} must be a non-negative {'number' if allow_float else 'integer'}\")\n    return value\n\n# --- Serialization helper ---\ndef serialize_model(obj, fields):\n    return {key: getattr(obj, key) for key in fields}\n\n# --- Reusable validation pattern for instance methods ---\ndef instance_validate_string(value, field_name):\n    if not isinstance(value, str) or len(value.strip()) == 0:\n        return False, f\"{field_name} must be a non-empty string\"\n    return True, \"\"\n\ndef instance_validate_number(value, field_name, allow_float=False):\n    valid_types = (int, float) if allow_float else (int,)\n    if not isinstance(value, valid_types) or value < 0:\n        return False, f\"{field_name} must be a non-negative {'number' if allow_float else 'integer'}\"\n    return True, \"\"\n\ndef instance_validate_email(email):\n    ok, msg = instance_validate_string(email, \"Email\")\n    if not ok:\n        return False, msg\n    if \"@\" not in email:\n        return False, \"Invalid email address\"\n    return True, \"\"\n\n# --- String cleaning ---\ndef clean_string(value):\n    if not isinstance(value, str):\n        return \"\"\n    cleaned = value.strip()\n    cleaned = \" \".join(cleaned.split())  # normalize whitespace\n    return cleaned\n\n# --- Response formatting and error handling ---\ndef format_response(data, status=\"ok\"):\n    return {\n        \"status\": status,\n        \"data\": data,\n    }\n\ndef format_error(message):\n    return {\n        \"status\": \"error\",\n        \"data\": None,\n        \"message\": message,\n    }\n```\n\n---\n\n**`models.py`:**\n```python\n\"\"\"Data models refactored to use base logic.\"\"\"\nfrom .base import (\n    validate_string, validate_email, validate_number, serialize_model,\n    instance_validate_string, instance_validate_email, instance_validate_number\n)\n\nclass User:\n    \"\"\"User model.\"\"\"\n    def __init__(self, name, email, age):\n        self.name = validate_string(name, \"Name\")\n        self.email = validate_email(email)\n        self.age = validate_number(age, \"Age\")\n\n    def to_dict(self):\n        return serialize_model(self, [\"name\", \"email\", \"age\"])\n\n    def validate(self):\n        ok, msg = instance_validate_string(self.name, \"Name\")\n        if not ok:\n            return False, msg\n        ok, msg = instance_validate_email(self.email)\n        if not ok:\n            return False, msg\n        return True, \"\"\n\nclass Product:\n    \"\"\"Product model.\"\"\"\n    def __init__(self, title, price, quantity):\n        self.title = validate_string(title, \"Title\")\n        self.price = validate_number(price, \"Price\", allow_float=True)\n        self.quantity = validate_number(quantity, \"Quantity\")\n\n    def to_dict(self):\n        return serialize_model(self, [\"title\", \"price\", \"quantity\"])\n\n    def validate(self):\n        ok, msg = instance_validate_string(self.title, \"Title\")\n        if not ok:\n            return False, msg\n        ok, msg = instance_validate_number(self.price, \"Price\", allow_float=True)\n        if not ok:\n            return False, msg\n        return True, \"\"\n```\n\n---\n\n**`views.py`:**\n```python\n\"\"\"View handlers refactored to use base response formatting.\"\"\"\nfrom .base import format_response, format_error\n\ndef render_user(user):\n    \"\"\"Render a user as a response.\"\"\"\n    try:\n        data = user.to_dict()\n        return format_response(data)\n    except Exception as e:\n        return format_error(str(e))\n\ndef render_product(product):\n    \"\"\"Render a product as a response.\"\"\"\n    try:\n        data = product.to_dict()\n        return format_response(data)\n    except Exception as e:\n        return format_error(str(e))\n```\n\n---\n\n**`utils.py`:**\n```python\n\"\"\"Utility functions refactored for string cleaning.\"\"\"\nfrom .base import clean_string\n\ndef clean_name(name):\n    \"\"\"Clean a name string.\"\"\"\n    return clean_string(name)\n\ndef clean_title(title):\n    \"\"\"Clean a title string.\"\"\"\n    return clean_string(title)\n```\n\n---\n\n**`__init__.py` stays unchanged--your public API is preserved.**\n\nIf you need to see the file contents or further customize, let me know!"
+        }
+      ]
+    }
+  }
+]

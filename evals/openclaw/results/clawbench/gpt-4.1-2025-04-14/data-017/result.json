@@ -1,0 +1,20 @@
+{
+  "task_id": "data-017",
+  "dir_name": "data-017-employee-attendance-report",
+  "domain": "data-analysis",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "passed": true,
+  "score": 1.0,
+  "checks_total": 27,
+  "checks_passed": 27,
+  "details": "passed: data-analysis/data-017-employee-attendance-report/verifier/test_output.py::test_output_file_exists\npassed: data-analysis/data-017-employee-attendance-report/verifier/test_output.py::test_top_level_keys\npassed: data-analysis/data-017-employee-attendance-report/verifier/test_output.py::test_period\npassed: data-analysis/data-017-employee-attendance-report/verifier/test_output.py::test_employee_count\npassed: data-analysis/data-017-employee-attendance-report/verifier/test_output.py::test_employee_entry_structure\npassed: data-analysis/data-017-employee-attendance-report/verifier/test_output.py::test_alice_total_hours\npassed: data-analysis/data-017-employee-attendance-report/verifier/test_output.py::test_alice_late_days\npassed: data-analysis/data-017-employee-attendance-report/verifier/test_output.py::test_alice_late_dates\npassed: data-analysis/data-017-employee-attendance-report/verifier/test_output.py::test_alice_punctuality\npassed: data-analysis/data-017-employee-attendance-report/verifier/test_output.py::test_bob_total_hours\npassed: data-analysis/data-017-employee-attendance-report/verifier/test_output.py::test_bob_late_days\npassed: data-analysis/data-017-employee-attendance-report/verifier/test_output.py::test_bob_late_dates\npassed: data-analysis/data-017-employee-attendance-report/verifier/test_output.py::test_bob_punctuality\npassed: data-analysis/data-017-employee-attendance-report/verifier/test_output.py::test_carol_total_hours\npassed: data-analysis/data-017-employee-attendance-report/verifier/test_output.py::test_carol_late_days\npassed: data-analysis/data-017-employee-attendance-report/verifier/test_output.py::test_carol_punctuality\npassed: data-analysis/data-017-employee-attendance-report/verifier/test_output.py::test_most_punctual\npassed: data-analysis/data-017-employee-attendance-report/verifier/test_output.py::test_total_late_arrivals\npassed: data-analysis/data-017-employee-attendance-report/verifier/test_output.py::test_team_avg_hours\npassed: data-analysis/data-017-employee-attendance-report/verifier/test_output.py::test_employees_sorted_alphabetically\npassed: data-analysis/data-017-employee-attendance-report/verifier/test_output.py::test_no_placeholder_values\npassed: data-analysis/data-017-employee-attendance-report/verifier/test_output.py::test_no_empty_critical_fields\npassed: data-analysis/data-017-employee-attendance-report/verifier/test_output.py::test_encoding_valid\npassed: data-analysis/data-017-employee-attendance-report/verifier/test_output.py::test_consistent_key_naming\npassed: data-analysis/data-017-employee-attendance-report/verifier/test_output.py::test_no_duplicate_entries\npassed: data-analysis/data-017-employee-attendance-report/verifier/test_output.py::test_no_extraneous_files\npassed: data-analysis/data-017-employee-attendance-report/verifier/test_output.py::test_output_not_excessively_large",
+  "error": null,
+  "execution_time": 26.59,
+  "raw_events_count": 63,
+  "workspace_files": [
+    "attendance.csv",
+    "attendance_report.json",
+    "gen_attendance_report.py"
+  ]
+}

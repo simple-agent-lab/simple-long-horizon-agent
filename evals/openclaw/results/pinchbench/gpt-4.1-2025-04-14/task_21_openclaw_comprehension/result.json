@@ -1,0 +1,20 @@
+{
+  "task_id": "task_21_openclaw_comprehension",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "scores": {
+    "file_created": 0.0,
+    "total_skills_correct": 0.0,
+    "filtered_skills_correct": 0.0,
+    "top_category_correct": 0.0,
+    "second_category_correct": 0.0,
+    "skill_filename_correct": 0.0,
+    "api_type_correct": 0.0,
+    "date_correct": 0.0,
+    "proposed_tasks_correct": 0.0
+  },
+  "mean": 0.0,
+  "error": null,
+  "execution_time": 3.49,
+  "raw_events_count": 15
+}

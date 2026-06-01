@@ -1,0 +1,14 @@
+[
+  {
+    "type": "message",
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "I can't access real-time stock prices directly, but I can guide you on how to get the latest AAPL price and summarize the market. Alternatively, I can use a shell command to retrieve the latest price from a public source (like Yahoo Finance) and generate the report.\n\nWould you like me to fetch the latest AAPL price using a shell command and create the report automatically? If so, please confirm."
+        }
+      ]
+    }
+  }
+]

@@ -1,0 +1,29 @@
+{
+  "task_id": "xdom-009",
+  "dir_name": "xdom-009-full-project-setup",
+  "domain": "cross-domain",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "passed": true,
+  "score": 1.0,
+  "checks_total": 26,
+  "checks_passed": 26,
+  "details": "passed: cross-domain/xdom-009-full-project-setup/verifier/test_output.py::test_project_directory_exists\npassed: cross-domain/xdom-009-full-project-setup/verifier/test_output.py::test_readme_exists\npassed: cross-domain/xdom-009-full-project-setup/verifier/test_output.py::test_readme_has_sections\npassed: cross-domain/xdom-009-full-project-setup/verifier/test_output.py::test_setup_py_exists\npassed: cross-domain/xdom-009-full-project-setup/verifier/test_output.py::test_setup_py_valid_python\npassed: cross-domain/xdom-009-full-project-setup/verifier/test_output.py::test_setup_py_has_setup_call\npassed: cross-domain/xdom-009-full-project-setup/verifier/test_output.py::test_setup_py_has_entry_points\npassed: cross-domain/xdom-009-full-project-setup/verifier/test_output.py::test_gitignore_exists\npassed: cross-domain/xdom-009-full-project-setup/verifier/test_output.py::test_gitignore_has_python_entries\npassed: cross-domain/xdom-009-full-project-setup/verifier/test_output.py::test_ci_config_exists\npassed: cross-domain/xdom-009-full-project-setup/verifier/test_output.py::test_src_package_exists\npassed: cross-domain/xdom-009-full-project-setup/verifier/test_output.py::test_init_has_version\npassed: cross-domain/xdom-009-full-project-setup/verifier/test_output.py::test_cli_module_exists\npassed: cross-domain/xdom-009-full-project-setup/verifier/test_output.py::test_reader_module_exists\npassed: cross-domain/xdom-009-full-project-setup/verifier/test_output.py::test_transformer_module_exists\npassed: cross-domain/xdom-009-full-project-setup/verifier/test_output.py::test_tests_directory_exists\npassed: cross-domain/xdom-009-full-project-setup/verifier/test_output.py::test_test_reader_exists_and_valid\npassed: cross-domain/xdom-009-full-project-setup/verifier/test_output.py::test_test_transformer_exists_and_valid\npassed: cross-domain/xdom-009-full-project-setup/verifier/test_output.py::test_test_reader_has_enough_tests\npassed: cross-domain/xdom-009-full-project-setup/verifier/test_output.py::test_test_transformer_has_enough_tests\npassed: cross-domain/xdom-009-full-project-setup/verifier/test_output.py::test_test_functions_have_assertions\npassed: cross-domain/xdom-009-full-project-setup/verifier/test_output.py::test_no_placeholder_values\npassed: cross-domain/xdom-009-full-project-setup/verifier/test_output.py::test_encoding_valid\npassed: cross-domain/xdom-009-full-project-setup/verifier/test_output.py::test_no_extraneous_files\npassed: cross-domain/xdom-009-full-project-setup/verifier/test_output.py::test_output_not_excessively_large\npassed: cross-domain/xdom-009-full-project-setup/verifier/test_output.py::test_json_parseable_if_present",
+  "error": null,
+  "execution_time": 42.26,
+  "raw_events_count": 77,
+  "workspace_files": [
+    "project/.gitignore",
+    "project/README.md",
+    "project/ci.yml",
+    "project/setup.py",
+    "project/src/csv_tool/__init__.py",
+    "project/src/csv_tool/cli.py",
+    "project/src/csv_tool/reader.py",
+    "project/src/csv_tool/transformer.py",
+    "project/tests/__init__.py",
+    "project/tests/test_reader.py",
+    "project/tests/test_transformer.py",
+    "project_brief.md"
+  ]
+}

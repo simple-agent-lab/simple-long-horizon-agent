@@ -1,0 +1,16 @@
+{
+  "task_id": "bio-005-variant-annotation",
+  "dir_name": "bio-005-variant-annotation",
+  "domain": "bioinformatics",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "passed": false,
+  "score": 0.0,
+  "checks_total": 3,
+  "checks_passed": 0,
+  "details": "failed: bioinformatics/bio-005-variant-annotation/verifier/test_output.py::test_output_file_exists\nfailed: bioinformatics/bio-005-variant-annotation/verifier/test_output.py::test_output_format_and_content\nfailed: bioinformatics/bio-005-variant-annotation/verifier/test_output.py::test_annotation_consistency",
+  "error": null,
+  "execution_time": 3.75,
+  "raw_events_count": 15,
+  "workspace_files": []
+}

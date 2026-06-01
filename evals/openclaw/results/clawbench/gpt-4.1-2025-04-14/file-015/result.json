@@ -1,0 +1,20 @@
+{
+  "task_id": "file-015",
+  "dir_name": "file-015-data-pipeline",
+  "domain": "file-operations",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "passed": true,
+  "score": 1.0,
+  "checks_total": 20,
+  "checks_passed": 20,
+  "details": "passed: file-operations/file-015-data-pipeline/verifier/test_output.py::test_clean_csv_exists\npassed: file-operations/file-015-data-pipeline/verifier/test_output.py::test_summary_json_exists\npassed: file-operations/file-015-data-pipeline/verifier/test_output.py::test_correct_row_count\npassed: file-operations/file-015-data-pipeline/verifier/test_output.py::test_no_empty_cells\npassed: file-operations/file-015-data-pipeline/verifier/test_output.py::test_names_title_case\npassed: file-operations/file-015-data-pipeline/verifier/test_output.py::test_cities_title_case\npassed: file-operations/file-015-data-pipeline/verifier/test_output.py::test_dates_normalized\npassed: file-operations/file-015-data-pipeline/verifier/test_output.py::test_has_total_column\npassed: file-operations/file-015-data-pipeline/verifier/test_output.py::test_total_computed_correctly\npassed: file-operations/file-015-data-pipeline/verifier/test_output.py::test_summary_total_rows\npassed: file-operations/file-015-data-pipeline/verifier/test_output.py::test_summary_total_revenue\npassed: file-operations/file-015-data-pipeline/verifier/test_output.py::test_summary_average_order\npassed: file-operations/file-015-data-pipeline/verifier/test_output.py::test_summary_cities\npassed: file-operations/file-015-data-pipeline/verifier/test_output.py::test_no_placeholder_values\npassed: file-operations/file-015-data-pipeline/verifier/test_output.py::test_no_empty_critical_fields\npassed: file-operations/file-015-data-pipeline/verifier/test_output.py::test_encoding_valid\npassed: file-operations/file-015-data-pipeline/verifier/test_output.py::test_consistent_key_naming\npassed: file-operations/file-015-data-pipeline/verifier/test_output.py::test_no_duplicate_entries\npassed: file-operations/file-015-data-pipeline/verifier/test_output.py::test_no_extraneous_files\npassed: file-operations/file-015-data-pipeline/verifier/test_output.py::test_output_not_excessively_large",
+  "error": null,
+  "execution_time": 15.91,
+  "raw_events_count": 23,
+  "workspace_files": [
+    "clean_data.csv",
+    "raw_data.csv",
+    "summary.json"
+  ]
+}

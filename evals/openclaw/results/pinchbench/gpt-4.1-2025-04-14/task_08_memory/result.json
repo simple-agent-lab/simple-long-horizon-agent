@@ -1,0 +1,16 @@
+{
+  "task_id": "task_08_memory",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "scores": {
+    "file_created": 1.0,
+    "correct_date": 1.0,
+    "clear_answer": 1.0,
+    "read_notes": 0.0,
+    "no_hallucination": 1.0
+  },
+  "mean": 0.8,
+  "error": null,
+  "execution_time": 4.97,
+  "raw_events_count": 23
+}

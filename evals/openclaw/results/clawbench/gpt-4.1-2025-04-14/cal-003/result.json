@@ -1,0 +1,20 @@
+{
+  "task_id": "cal-003",
+  "dir_name": "cal-003-list-today-schedule",
+  "domain": "calendar",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "passed": true,
+  "score": 1.0,
+  "checks_total": 14,
+  "checks_passed": 14,
+  "details": "passed: calendar/cal-003-list-today-schedule/verifier/test_output.py::test_output_file_exists\npassed: calendar/cal-003-list-today-schedule/verifier/test_output.py::test_event_count\npassed: calendar/cal-003-list-today-schedule/verifier/test_output.py::test_all_events_on_correct_date\npassed: calendar/cal-003-list-today-schedule/verifier/test_output.py::test_sorted_by_start_time\npassed: calendar/cal-003-list-today-schedule/verifier/test_output.py::test_correct_event_ids\npassed: calendar/cal-003-list-today-schedule/verifier/test_output.py::test_first_event_is_morning_standup\npassed: calendar/cal-003-list-today-schedule/verifier/test_output.py::test_events_retain_all_fields\npassed: calendar/cal-003-list-today-schedule/verifier/test_output.py::test_no_placeholder_values\npassed: calendar/cal-003-list-today-schedule/verifier/test_output.py::test_no_empty_critical_fields\npassed: calendar/cal-003-list-today-schedule/verifier/test_output.py::test_encoding_valid\npassed: calendar/cal-003-list-today-schedule/verifier/test_output.py::test_consistent_key_naming\npassed: calendar/cal-003-list-today-schedule/verifier/test_output.py::test_no_duplicate_entries\npassed: calendar/cal-003-list-today-schedule/verifier/test_output.py::test_no_extraneous_files\npassed: calendar/cal-003-list-today-schedule/verifier/test_output.py::test_output_not_excessively_large",
+  "error": null,
+  "execution_time": 3.61,
+  "raw_events_count": 15,
+  "workspace_files": [
+    ".gitkeep",
+    "calendar.json",
+    "today.json"
+  ]
+}

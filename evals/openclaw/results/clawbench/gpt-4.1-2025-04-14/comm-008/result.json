@@ -1,0 +1,25 @@
+{
+  "task_id": "comm-008",
+  "dir_name": "comm-008-communication-audit",
+  "domain": "communication",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "passed": true,
+  "score": 1.0,
+  "checks_total": 23,
+  "checks_passed": 23,
+  "details": "passed: communication/comm-008-communication-audit/verifier/test_output.py::test_metrics_file_exists\npassed: communication/comm-008-communication-audit/verifier/test_output.py::test_report_file_exists\npassed: communication/comm-008-communication-audit/verifier/test_output.py::test_total_messages\npassed: communication/comm-008-communication-audit/verifier/test_output.py::test_per_channel_counts\npassed: communication/comm-008-communication-audit/verifier/test_output.py::test_all_channels_covered\npassed: communication/comm-008-communication-audit/verifier/test_output.py::test_busiest_channel\npassed: communication/comm-008-communication-audit/verifier/test_output.py::test_busiest_user\npassed: communication/comm-008-communication-audit/verifier/test_output.py::test_per_user_sent\npassed: communication/comm-008-communication-audit/verifier/test_output.py::test_date_range_present\npassed: communication/comm-008-communication-audit/verifier/test_output.py::test_response_pairs\npassed: communication/comm-008-communication-audit/verifier/test_output.py::test_avg_messages_per_day\npassed: communication/comm-008-communication-audit/verifier/test_output.py::test_report_has_title\npassed: communication/comm-008-communication-audit/verifier/test_output.py::test_report_has_summary_section\npassed: communication/comm-008-communication-audit/verifier/test_output.py::test_report_has_channel_breakdown\npassed: communication/comm-008-communication-audit/verifier/test_output.py::test_report_has_top_senders\npassed: communication/comm-008-communication-audit/verifier/test_output.py::test_report_mentions_all_channels\npassed: communication/comm-008-communication-audit/verifier/test_output.py::test_no_placeholder_values\npassed: communication/comm-008-communication-audit/verifier/test_output.py::test_no_empty_critical_fields\npassed: communication/comm-008-communication-audit/verifier/test_output.py::test_encoding_valid\npassed: communication/comm-008-communication-audit/verifier/test_output.py::test_consistent_key_naming\npassed: communication/comm-008-communication-audit/verifier/test_output.py::test_no_duplicate_entries\npassed: communication/comm-008-communication-audit/verifier/test_output.py::test_no_extraneous_files\npassed: communication/comm-008-communication-audit/verifier/test_output.py::test_output_not_excessively_large",
+  "error": null,
+  "execution_time": 36.88,
+  "raw_events_count": 99,
+  "workspace_files": [
+    "all_messages.json",
+    "audit_report.md",
+    "communications/discord.json",
+    "communications/email.json",
+    "communications/slack.json",
+    "communications/teams.json",
+    "flat_messages.tsv",
+    "metrics.json"
+  ]
+}

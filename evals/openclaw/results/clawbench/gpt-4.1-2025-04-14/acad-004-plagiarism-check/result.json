@@ -1,0 +1,18 @@
+{
+  "task_id": "acad-004-plagiarism-check",
+  "dir_name": "acad-004-plagiarism-check",
+  "domain": "academic-research",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "passed": false,
+  "score": 0.0,
+  "checks_total": 4,
+  "checks_passed": 0,
+  "details": "failed: academic-research/acad-004-plagiarism-check/verifier/test_output.py::test_similarity_matrix_exists\nfailed: academic-research/acad-004-plagiarism-check/verifier/test_output.py::test_plagiarism_report_exists\nfailed: academic-research/acad-004-plagiarism-check/verifier/test_output.py::test_similarity_matrix_format_and_values\nfailed: academic-research/acad-004-plagiarism-check/verifier/test_output.py::test_plagiarism_report_content",
+  "error": null,
+  "execution_time": 10.03,
+  "raw_events_count": 39,
+  "workspace_files": [
+    "file_list.txt"
+  ]
+}

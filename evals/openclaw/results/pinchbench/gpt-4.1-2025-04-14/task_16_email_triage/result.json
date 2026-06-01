@@ -1,0 +1,22 @@
+{
+  "task_id": "task_16_email_triage",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "scores": {
+    "file_created": 1.0,
+    "all_emails_covered": 1.0,
+    "priorities_assigned": 1.0,
+    "categories_assigned": 1.0,
+    "actions_assigned": 1.0,
+    "outage_is_p0": 1.0,
+    "alert_linked_to_outage": 1.0,
+    "client_is_high_priority": 1.0,
+    "spam_is_low_priority": 0.0,
+    "sorted_by_priority": 1.0,
+    "has_summary_section": 1.0
+  },
+  "mean": 0.9091,
+  "error": null,
+  "execution_time": 17.6,
+  "raw_events_count": 47
+}

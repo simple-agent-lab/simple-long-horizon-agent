@@ -1,0 +1,19 @@
+{
+  "task_id": "code-011",
+  "dir_name": "code-011-data-validation",
+  "domain": "code-assistance",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "passed": false,
+  "score": 0.9667,
+  "checks_total": 30,
+  "checks_passed": 29,
+  "details": "passed: code-assistance/code-011-data-validation/verifier/test_output.py::test_file_exists\npassed: code-assistance/code-011-data-validation/verifier/test_output.py::test_email_valid\npassed: code-assistance/code-011-data-validation/verifier/test_output.py::test_email_no_at\npassed: code-assistance/code-011-data-validation/verifier/test_output.py::test_email_no_domain_dot\npassed: code-assistance/code-011-data-validation/verifier/test_output.py::test_email_empty_local\npassed: code-assistance/code-011-data-validation/verifier/test_output.py::test_email_empty_domain\npassed: code-assistance/code-011-data-validation/verifier/test_output.py::test_phone_valid_plain\npassed: code-assistance/code-011-data-validation/verifier/test_output.py::test_phone_valid_dashes\npassed: code-assistance/code-011-data-validation/verifier/test_output.py::test_phone_valid_parens\npassed: code-assistance/code-011-data-validation/verifier/test_output.py::test_phone_too_short\npassed: code-assistance/code-011-data-validation/verifier/test_output.py::test_phone_letters\npassed: code-assistance/code-011-data-validation/verifier/test_output.py::test_url_valid_https\npassed: code-assistance/code-011-data-validation/verifier/test_output.py::test_url_valid_http_with_path\npassed: code-assistance/code-011-data-validation/verifier/test_output.py::test_url_ftp_invalid\npassed: code-assistance/code-011-data-validation/verifier/test_output.py::test_url_no_scheme\npassed: code-assistance/code-011-data-validation/verifier/test_output.py::test_url_empty_domain\npassed: code-assistance/code-011-data-validation/verifier/test_output.py::test_date_valid\npassed: code-assistance/code-011-data-validation/verifier/test_output.py::test_date_invalid_month\npassed: code-assistance/code-011-data-validation/verifier/test_output.py::test_date_invalid_day\npassed: code-assistance/code-011-data-validation/verifier/test_output.py::test_date_not_a_date\npassed: code-assistance/code-011-data-validation/verifier/test_output.py::test_ip_valid\npassed: code-assistance/code-011-data-validation/verifier/test_output.py::test_ip_zeros\npassed: code-assistance/code-011-data-validation/verifier/test_output.py::test_ip_out_of_range\npassed: code-assistance/code-011-data-validation/verifier/test_output.py::test_ip_too_few_octets\npassed: code-assistance/code-011-data-validation/verifier/test_output.py::test_ip_too_many_octets\npassed: code-assistance/code-011-data-validation/verifier/test_output.py::test_no_placeholder_values\npassed: code-assistance/code-011-data-validation/verifier/test_output.py::test_encoding_valid\nfailed: code-assistance/code-011-data-validation/verifier/test_output.py::test_no_extraneous_files\npassed: code-assistance/code-011-data-validation/verifier/test_output.py::test_output_not_excessively_large\npassed: code-assistance/code-011-data-validation/verifier/test_output.py::test_json_parseable_if_present",
+  "error": null,
+  "execution_time": 11.06,
+  "raw_events_count": 15,
+  "workspace_files": [
+    "__pycache__/validator.cpython-310.pyc",
+    "validator.py"
+  ]
+}

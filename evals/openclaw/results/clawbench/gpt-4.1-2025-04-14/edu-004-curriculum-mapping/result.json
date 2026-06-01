@@ -1,0 +1,23 @@
+{
+  "task_id": "edu-004-curriculum-mapping",
+  "dir_name": "edu-004-curriculum-mapping",
+  "domain": "educational-assessment",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "passed": true,
+  "score": 1.0,
+  "checks_total": 4,
+  "checks_passed": 4,
+  "details": "passed: educational-assessment/edu-004-curriculum-mapping/verifier/test_output.py::test_alignment_matrix\npassed: educational-assessment/edu-004-curriculum-mapping/verifier/test_output.py::test_gap_analysis\npassed: educational-assessment/edu-004-curriculum-mapping/verifier/test_output.py::test_unmapped\npassed: educational-assessment/edu-004-curriculum-mapping/verifier/test_output.py::test_alignment_summary",
+  "error": null,
+  "execution_time": 29.34,
+  "raw_events_count": 65,
+  "workspace_files": [
+    "alignment_matrix.csv",
+    "co_obj_data.tmp",
+    "course_objectives.csv",
+    "gap_analysis.json",
+    "standards.csv",
+    "std_data.tmp"
+  ]
+}

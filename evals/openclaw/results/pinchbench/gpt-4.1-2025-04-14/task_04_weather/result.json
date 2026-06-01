@@ -1,0 +1,18 @@
+{
+  "task_id": "task_04_weather",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "scores": {
+    "file_created": 0.0,
+    "valid_python": 0.0,
+    "has_http_request": 0.0,
+    "references_location": 0.0,
+    "has_error_handling": 0.0,
+    "has_output": 0.0,
+    "executable_structure": 0.0
+  },
+  "mean": 0.0,
+  "error": null,
+  "execution_time": 2.42,
+  "raw_events_count": 7
+}

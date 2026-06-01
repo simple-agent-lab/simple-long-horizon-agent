@@ -1,0 +1,19 @@
+{
+  "task_id": "mem-008",
+  "dir_name": "mem-008-ambiguous-requirements",
+  "domain": "memory",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "passed": true,
+  "score": 1.0,
+  "checks_total": 18,
+  "checks_passed": 18,
+  "details": "passed: memory/mem-008-ambiguous-requirements/verifier/test_output.py::test_requirements_analysis_exists\npassed: memory/mem-008-ambiguous-requirements/verifier/test_output.py::test_identifies_at_least_5_ambiguities\npassed: memory/mem-008-ambiguous-requirements/verifier/test_output.py::test_ambiguity_has_quote\npassed: memory/mem-008-ambiguous-requirements/verifier/test_output.py::test_ambiguity_has_problem\npassed: memory/mem-008-ambiguous-requirements/verifier/test_output.py::test_ambiguity_has_suggestion\npassed: memory/mem-008-ambiguous-requirements/verifier/test_output.py::test_addresses_vague_quantities\npassed: memory/mem-008-ambiguous-requirements/verifier/test_output.py::test_addresses_performance_ambiguity\npassed: memory/mem-008-ambiguous-requirements/verifier/test_output.py::test_addresses_timeline_ambiguity\npassed: memory/mem-008-ambiguous-requirements/verifier/test_output.py::test_has_priority_ranking\npassed: memory/mem-008-ambiguous-requirements/verifier/test_output.py::test_priority_ranking_has_entries\npassed: memory/mem-008-ambiguous-requirements/verifier/test_output.py::test_has_assumptions\npassed: memory/mem-008-ambiguous-requirements/verifier/test_output.py::test_assumptions_has_at_least_3\npassed: memory/mem-008-ambiguous-requirements/verifier/test_output.py::test_assumptions_are_substantive\npassed: memory/mem-008-ambiguous-requirements/verifier/test_output.py::test_no_placeholder_values\npassed: memory/mem-008-ambiguous-requirements/verifier/test_output.py::test_encoding_valid\npassed: memory/mem-008-ambiguous-requirements/verifier/test_output.py::test_no_extraneous_files\npassed: memory/mem-008-ambiguous-requirements/verifier/test_output.py::test_output_not_excessively_large\npassed: memory/mem-008-ambiguous-requirements/verifier/test_output.py::test_json_parseable_if_present",
+  "error": null,
+  "execution_time": 18.34,
+  "raw_events_count": 31,
+  "workspace_files": [
+    "requirements.txt",
+    "requirements_analysis.txt"
+  ]
+}

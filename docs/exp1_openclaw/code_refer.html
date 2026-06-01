@@ -1,0 +1,1114 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>exp129 代码数据流剖析</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0d1117;
+  color: #e6edf3;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* ── 顶栏 ── */
+.topbar {
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+  padding: 14px 32px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.topbar h1 { font-size: 15px; color: #58a6ff; font-weight: 700; }
+.topbar .subtitle { color: #8b949e; font-size: 12px; }
+
+/* ── 整体布局：左流程 + 右代码面板 ── */
+.page { display: flex; height: calc(100vh - 53px); }
+
+/* ── 左侧：数据流主线 ── */
+.flow-sidebar {
+  width: 380px;
+  min-width: 380px;
+  background: #161b22;
+  border-right: 1px solid #30363d;
+  overflow-y: auto;
+  padding: 24px 0;
+  flex-shrink: 0;
+}
+
+.flow-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #484f58;
+  padding: 0 20px 8px;
+}
+
+/* 每个流程节点 */
+.flow-node {
+  position: relative;
+  padding: 12px 20px 12px 44px;
+  cursor: pointer;
+  transition: background .15s;
+  border-left: 3px solid transparent;
+}
+.flow-node:hover { background: #1c2128; }
+.flow-node.active {
+  background: #1c2128;
+  border-left-color: #58a6ff;
+}
+.flow-node.active .node-title { color: #58a6ff; }
+
+/* 圆圈编号 */
+.flow-node .node-num {
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #21262d;
+  border: 1.5px solid #30363d;
+  color: #8b949e;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.flow-node.active .node-num {
+  background: #1b3a5c;
+  border-color: #58a6ff;
+  color: #58a6ff;
+}
+
+.node-title { font-weight: 600; font-size: 13px; color: #c9d1d9; }
+.node-file { font-size: 10.5px; color: #58a6ff; font-family: monospace; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.node-desc { font-size: 11.5px; color: #8b949e; margin-top: 3px; line-height: 1.5; }
+
+/* 箭头连线 */
+.flow-arrow {
+  padding: 2px 20px 2px 54px;
+  color: #30363d;
+  font-size: 18px;
+  line-height: 1;
+  pointer-events: none;
+}
+.flow-arrow-label {
+  padding: 0 20px 4px 54px;
+  font-size: 10px;
+  color: #6e7681;
+  font-family: monospace;
+}
+
+/* 分组标题 */
+.flow-group {
+  margin-top: 20px;
+  padding: 0 20px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: #3fb950;
+  border-top: 1px solid #21262d;
+  padding-top: 16px;
+}
+
+/* ── 右侧：代码 + 注解面板 ── */
+.detail-panel {
+  flex: 1;
+  overflow-y: auto;
+  background: #0d1117;
+}
+
+/* 详情头 */
+.detail-header {
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+  padding: 18px 28px 14px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.detail-header .dh-title { font-size: 16px; font-weight: 700; color: #e6edf3; }
+.detail-header .dh-question {
+  margin-top: 6px;
+  font-size: 13px;
+  color: #ffa657;
+  font-weight: 600;
+}
+.detail-header .dh-answer {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #c9d1d9;
+  line-height: 1.7;
+  max-width: 720px;
+}
+
+/* 数据样本卡 */
+.data-card {
+  margin: 20px 28px 0;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.data-card-title {
+  background: #21262d;
+  padding: 8px 14px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .8px;
+  color: #8b949e;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.data-card-title .tag {
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+}
+.tag-in { background: #1b3a5c; color: #58a6ff; }
+.tag-out { background: #1a3a24; color: #3fb950; }
+.tag-key { background: #3a2200; color: #ffa657; }
+.data-card pre {
+  padding: 12px 16px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* 代码块 */
+.code-section {
+  margin: 20px 28px 0;
+}
+.code-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .8px;
+  color: #8b949e;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.code-section-title .filepath {
+  font-family: monospace;
+  font-size: 12px;
+  color: #58a6ff;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.code-wrap {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.code-wrap pre {
+  margin: 0;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 12.5px;
+  line-height: 1.8;
+  overflow-x: auto;
+}
+.cl { display: flex; }
+.cl:hover { background: rgba(88,166,255,.04); }
+.ln {
+  min-width: 44px;
+  text-align: right;
+  padding: 0 12px 0 8px;
+  color: #484f58;
+  user-select: none;
+  flex-shrink: 0;
+}
+.lc { flex: 1; padding-right: 16px; white-space: pre; }
+
+/* 高亮行 */
+.cl.hl     { background: #1f2d3d; border-left: 3px solid #58a6ff; }
+.cl.hl-g   { background: #0d2918; border-left: 3px solid #3fb950; }
+.cl.hl-r   { background: #2a0d0d; border-left: 3px solid #f85149; }
+.cl.hl-y   { background: #2a1f00; border-left: 3px solid #e3b341; }
+
+.cl.hl .ln   { color: #58a6ff; }
+.cl.hl-g .ln { color: #3fb950; }
+.cl.hl-r .ln { color: #f85149; }
+.cl.hl-y .ln { color: #e3b341; }
+
+/* 行内注解 tooltip */
+.lc .tip {
+  display: inline-block;
+  margin-left: 12px;
+  padding: 1px 8px;
+  background: #21262d;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  font-size: 10.5px;
+  color: #8b949e;
+  white-space: normal;
+  font-style: italic;
+}
+
+/* 注解卡片列表 */
+.anno-list { margin: 16px 28px 0; display: flex; flex-direction: column; gap: 10px; }
+.anno-card {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  gap: 12px;
+}
+.anno-card .icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+.anno-card .body {}
+.anno-card .body strong { font-size: 13px; color: #e6edf3; display: block; margin-bottom: 4px; }
+.anno-card .body p { font-size: 12.5px; color: #c9d1d9; line-height: 1.6; }
+.anno-card .body code {
+  background: #21262d;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 11.5px;
+  color: #a5d6ff;
+}
+
+/* 空状态 */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 60vh;
+  color: #484f58;
+}
+.empty-state .arrow { font-size: 40px; margin-bottom: 12px; }
+.empty-state p { font-size: 14px; }
+
+/* 语法高亮 */
+.kw { color: #ff7b72; }
+.fn { color: #d2a8ff; }
+.st { color: #a5d6ff; }
+.nm { color: #79c0ff; }
+.cm { color: #6e7681; font-style: italic; }
+.cls { color: #ffa657; }
+.dc { color: #ffa657; }
+.bi { color: #79c0ff; }
+
+/* 底部间距 */
+.detail-panel > *:last-child { margin-bottom: 40px; }
+
+/* 滚动条 */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #0d1117; }
+::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>exp129 BFCL RL — 代码数据流剖析</h1>
+  <span class="subtitle">实验目录：work/exp129_rl_webshop  ·  点击左侧节点查看该步骤的输入输出 + 核心代码</span>
+</div>
+
+<div class="page">
+
+  <!-- ════════════════════════════════
+       左侧：数据流主线
+  ════════════════════════════════ -->
+  <nav class="flow-sidebar">
+    <div class="flow-label">一次训练 Step 的完整数据流</div>
+
+    <!-- 第一组：Rollout -->
+    <div class="flow-group">① Rollout — 模型和环境交互</div>
+
+    <div class="flow-node active" onclick="show('multi_turn_loop')">
+      <div class="node-num">1</div>
+      <div class="node-title">多轮 Rollout 总控</div>
+      <div class="node-file">verl/recipe/sdpo/bfcl/agent_system/multi_turn_rollout/rollout_loop.py</div>
+      <div class="node-desc">multi_turn_loop → vanilla_multi_turn_loop，驱动 steps 2~5 反复循环直到 done</div>
+    </div>
+    <div class="flow-arrow">↓</div>
+
+    <div class="flow-node" onclick="show('reset')">
+      <div class="node-num">2</div>
+      <div class="node-title">环境重置</div>
+      <div class="node-file">verl/recipe/sdpo/bfcl/bfcl_adapter/envs.py</div>
+      <div class="node-desc">选 task，启动 8 个并行 env，拿到首条 user question</div>
+    </div>
+    <div class="flow-arrow">↓</div>
+
+    <div class="flow-node" onclick="show('generate')">
+      <div class="node-num">3</div>
+      <div class="node-title">LLM 生成</div>
+      <div class="node-file">verl/recipe/sdpo/bfcl/agentic_trainer.py</div>
+      <div class="node-desc">vLLM 推理，输出含 &lt;think&gt; + &lt;tool_call&gt; 的文本</div>
+    </div>
+    <div class="flow-arrow">↓</div>
+
+    <div class="flow-node" onclick="show('projection')">
+      <div class="node-num">4</div>
+      <div class="node-title">格式校验</div>
+      <div class="node-file">verl/recipe/sdpo/bfcl/bfcl_adapter/projection.py</div>
+      <div class="node-desc">验证 LLM 输出格式是否合法（有 think + tool_call 标签）</div>
+    </div>
+    <div class="flow-arrow">↓</div>
+
+    <div class="flow-node" onclick="show('env_step')">
+      <div class="node-num">5</div>
+      <div class="node-title">环境执行</div>
+      <div class="node-file">verl/recipe/sdpo/bfcl/bfcl_adapter/envs.py</div>
+      <div class="node-desc">把 LLM 原文传给 BfclEnv，执行工具调用，拿到 obs_dict + reward</div>
+    </div>
+    <div class="flow-arrow">↓</div>
+
+    <div class="flow-node" onclick="show('step_reward')">
+      <div class="node-num">6</div>
+      <div class="node-title">per-step 奖励计算</div>
+      <div class="node-file">verl/recipe/sdpo/bfcl/bfcl_env_manager.py</div>
+      <div class="node-desc">根据 obs_type 决定 +0.1 / -0.1 / -0.2，加到 terminal reward 上</div>
+    </div>
+
+    <!-- 第二组：Training -->
+    <div class="flow-group">② Training — 计算梯度</div>
+
+    <div class="flow-node" onclick="show('reward_inject')">
+      <div class="node-num">7</div>
+      <div class="node-title">奖励注入 tensor</div>
+      <div class="node-file">verl/recipe/sdpo/bfcl/agentic_trainer.py</div>
+      <div class="node-desc">per-step reward → token_level_scores（放在 response 末尾 token）</div>
+    </div>
+    <div class="flow-arrow">↓</div>
+
+    <div class="flow-node" onclick="show('grpo')">
+      <div class="node-num">8</div>
+      <div class="node-title">GRPO advantage</div>
+      <div class="node-file">verl/recipe/sdpo/verl/trainer/ppo/core_algos.py</div>
+      <div class="node-desc">同组 4 条轨迹归一化：adv = (r - μ) / σ</div>
+    </div>
+    <div class="flow-arrow">↓</div>
+
+    <div class="flow-node" onclick="show('actor_update')">
+      <div class="node-num">9</div>
+      <div class="node-title">Actor 参数更新</div>
+      <div class="node-file">verl/recipe/sdpo/bfcl/agentic_trainer.py</div>
+      <div class="node-desc">loss = -adv × log_prob，梯度回传，更新 Qwen2.5-7B 参数</div>
+    </div>
+
+    <!-- 第三组：Val -->
+    <div class="flow-group">③ Validation — 评估效果</div>
+
+    <div class="flow-node" onclick="show('success_eval')">
+      <div class="node-num">10</div>
+      <div class="node-title">成功率评估</div>
+      <div class="node-file">verl/recipe/sdpo/bfcl/bfcl_env_manager.py</div>
+      <div class="node-desc">从轨迹末尾取 won/task_score，统计 success_rate + func_acc</div>
+    </div>
+  </nav>
+
+  <!-- ════════════════════════════════
+       右侧：详情面板
+  ════════════════════════════════ -->
+  <div class="detail-panel" id="detail">
+
+    <!-- 默认状态 -->
+    <div class="empty-state" id="empty" style="display:none">
+      <div class="arrow">←</div>
+      <p>点击左侧任意节点，查看该步骤的输入 / 输出 / 代码</p>
+    </div>
+
+    <!-- ── 节点 1: multi_turn_loop ── -->
+    <div id="pane-multi_turn_loop" class="pane" style="display:block">
+      <div class="detail-header">
+        <div class="dh-title">① 多轮 Rollout 总控 — multi_turn_loop() → vanilla_multi_turn_loop()</div>
+        <div class="dh-question">这一步在做什么？</div>
+        <div class="dh-answer">
+          这是整个 Rollout 阶段的<b>外层驱动函数</b>，位于 <code>agentic_trainer.fit()</code> 内部，一行代码触发：
+          <br><br>
+          <code>gen_batch_output = self.traj_collector.multi_turn_loop(gen_batch, inferencer, envs, is_train=True)</code>
+          <br><br>
+          它内部调用 <code>vanilla_multi_turn_loop()</code>，后者用一个 <b>for 循环（最多 max_steps=10 次）</b>驱动节点 2~6 反复执行：每轮先重置 env 拿 obs，再让 LLM 生成、格式校验、env 执行、算奖励，直到所有 env 的 <code>done=True</code> 或达到 max_steps。
+          循环结束后把所有轨迹打包成一个 <code>DataProto</code> 返回给 trainer。
+        </div>
+      </div>
+
+      <div class="data-card" style="margin-top:20px; margin-left:28px; margin-right:28px;">
+        <div class="data-card-title"><span>调用栈</span><span class="tag tag-key">两层函数嵌套</span></div>
+        <pre>agentic_trainer.fit()
+  └─ traj_collector.<span style="color:#d2a8ff;">multi_turn_loop</span>(gen_batch, inferencer, envs, is_train=True)
+       │
+       ├─ gen_batch.repeat(n=4, interleave=True)   <span style="color:#6e7681;">← 把 2 条 prompt 扩成 8 条（每题 4 份）</span>
+       │
+       └─ <span style="color:#d2a8ff;">vanilla_multi_turn_loop</span>(gen_batch, inferencer, envs)
+            │
+            ├─ envs.reset()                         <span style="color:#6e7681;">← 节点 2</span>
+            ├─ for _step in range(max_steps=10):
+            │    ├─ inferencer.generate_sequences() <span style="color:#6e7681;">← 节点 3</span>
+            │    ├─ bfcl_projection()               <span style="color:#6e7681;">← 节点 4</span>
+            │    ├─ envs.step()                     <span style="color:#6e7681;">← 节点 5 + 6</span>
+            │    └─ if all done: break
+            └─ envs.success_evaluator()             <span style="color:#6e7681;">← 节点 10</span></pre>
+      </div>
+
+      <div class="data-card" style="margin-left:28px; margin-right:28px;">
+        <div class="data-card-title"><span>OUTPUT — 返回给 agentic_trainer</span><span class="tag tag-out">gen_batch_output: DataProto</span></div>
+        <pre>gen_batch_output.batch = {
+  <span style="color:#a5d6ff;">"input_ids"</span>:        Tensor[N, 4096],   <span style="color:#6e7681;">← 每个 step 的 prompt</span>
+  <span style="color:#a5d6ff;">"responses"</span>:         Tensor[N, 512],    <span style="color:#6e7681;">← 每个 step 的 LLM 输出</span>
+  <span style="color:#a5d6ff;">"attention_mask"</span>:    Tensor[N, 4608],
+  <span style="color:#a5d6ff;">"response_mask"</span>:     Tensor[N, 512],
+}
+gen_batch_output.non_tensor_batch = {
+  <span style="color:#a5d6ff;">"rewards"</span>:           ndarray[N],        <span style="color:#6e7681;">← 每个 step 的 per-step reward</span>
+  <span style="color:#a5d6ff;">"uid"</span>:               ndarray[N],        <span style="color:#6e7681;">← 同组 4 步共享一个 uid，供 GRPO 分组</span>
+  <span style="color:#a5d6ff;">"episode_rewards"</span>:   ndarray[N],        <span style="color:#6e7681;">← episode 累计奖励（仅用于 logging）</span>
+  <span style="color:#a5d6ff;">"active_masks"</span>:      ndarray[N],        <span style="color:#6e7681;">← 该 step 是否有效（未 done）</span>
+  <span style="color:#a5d6ff;">"success_rate"</span>:      ndarray[N],
+  <span style="color:#a5d6ff;">"bfcl_func_acc"</span>:     ndarray[N],
+}
+<span style="color:#6e7681;">N = 所有 step × 所有 env 的总展平行数（例如 8 env × 10 steps = 最多 80 行）</span></pre>
+      </div>
+
+      <div class="code-section">
+        <div class="code-section-title">核心代码 <span class="filepath">verl/recipe/sdpo/bfcl/agent_system/multi_turn_rollout/rollout_loop.py : multi_turn_loop()</span></div>
+        <div class="code-wrap"><pre>
+<div class="cl hl"><span class="ln">534</span><span class="lc"><span class="kw">if</span> is_train:</span></div>
+<div class="cl hl"><span class="ln">534</span><span class="lc">    gen_batch = gen_batch.<span class="fn">repeat</span>(repeat_times=self.config.env.rollout.n, interleave=<span class="kw">True</span>)<span class="tip">2条prompt × n=4 → 8条，interleave保证[A,A,A,A,B,B,B,B]顺序</span></span></div>
+<div class="cl"><span class="ln">546</span><span class="lc"><span class="cm"># 当前配置走 vanilla（filter_groups.enable=False）</span></span></div>
+<div class="cl hl-g"><span class="ln">547</span><span class="lc">total_batch_list, ... = self.<span class="fn">vanilla_multi_turn_loop</span>(gen_batch, actor_rollout_wg, envs)</span></div>
+<div class="cl hl-g"><span class="ln">560</span><span class="lc">gen_batch_output = self.<span class="fn">gather_rollout_data</span>(...)<span class="tip">把 list of dict 打包成 DataProto，供 trainer 使用</span></span></div></pre></div>
+      </div>
+
+      <div class="code-section">
+        <div class="code-section-title">核心代码 <span class="filepath">verl/recipe/sdpo/bfcl/agent_system/multi_turn_rollout/rollout_loop.py : vanilla_multi_turn_loop()</span></div>
+        <div class="code-wrap"><pre>
+<div class="cl"><span class="ln">337</span><span class="lc">obs, infos = envs.<span class="fn">reset</span>(...)<span class="tip">节点2：启动所有 env，拿到首条 user question</span></span></div>
+<div class="cl hl-y"><span class="ln">342</span><span class="lc"><span class="kw">for</span> i <span class="kw">in</span> <span class="bi">range</span>(batch_size):</span></div>
+<div class="cl hl-y"><span class="ln">345</span><span class="lc">    <span class="kw">if</span> i % self.config.env.rollout.n == <span class="nm">0</span>: uid = str(uuid.<span class="fn">uuid4</span>())<span class="tip">每4个env共用一个uid，供GRPO按组归一化</span></span></div>
+<div class="cl hl-y"><span class="ln">347</span><span class="lc">    uid_batch.<span class="fn">append</span>(uid)</span></div>
+<div class="cl hl"><span class="ln">360</span><span class="lc"><span class="kw">for</span> _step <span class="kw">in</span> <span class="bi">range</span>(self.config.env.max_steps):  <span class="cm"># max_steps=10</span></span></div>
+<div class="cl"><span class="ln">383</span><span class="lc">    batch_output = actor_rollout_wg.<span class="fn">generate_sequences</span>(batch_input)<span class="tip">节点3：vLLM推理</span></span></div>
+<div class="cl"><span class="ln">393</span><span class="lc">    text_actions = self.tokenizer.<span class="fn">batch_decode</span>(batch.batch[<span class="st">'responses'</span>], skip_special_tokens=<span class="kw">False</span>)</span></div>
+<div class="cl hl-g"><span class="ln">395</span><span class="lc">    next_obs, rewards, dones, infos = envs.<span class="fn">step</span>(text_actions)<span class="tip">节点4+5+6：格式校验、env执行、算奖励</span></span></div>
+<div class="cl hl-g"><span class="ln">417</span><span class="lc">    batch.non_tensor_batch[<span class="st">'rewards'</span>] = <span class="fn">torch_to_numpy</span>(rewards)<span class="tip">per-step reward 存入 non_tensor_batch，供节点7使用</span></span></div>
+<div class="cl hl-g"><span class="ln">418</span><span class="lc">    batch.non_tensor_batch[<span class="st">'active_masks'</span>] = <span class="fn">torch_to_numpy</span>(active_masks)</span></div>
+<div class="cl hl-r"><span class="ln">428</span><span class="lc">    is_done = np.<span class="fn">logical_or</span>(is_done, dones)</span></div>
+<div class="cl hl-r"><span class="ln">434</span><span class="lc">    <span class="kw">if</span> is_done.<span class="fn">all</span>(): <span class="kw">break</span><span class="tip">所有env全部done才提前退出，否则跑满max_steps=10步</span></span></div>
+<div class="cl"><span class="ln">437</span><span class="lc">success = envs.<span class="fn">success_evaluator</span>(...)<span class="tip">节点10：统计success_rate和func_acc</span></span></div></pre></div>
+      </div>
+
+      <div class="anno-list">
+        <div class="anno-card">
+          <div class="icon">🔑</div>
+          <div class="body">
+            <strong>为什么叫 vanilla（朴素）multi_turn_loop？</strong>
+            <p>相对于 <code>dynamic_multi_turn_loop</code>（用于 DAPO/GiGPO，会过滤低质量 group 再重采样）。当前配置 <code>filter_groups.enable=False</code>，所以直接走 vanilla 版本——8 个 env 的轨迹不过滤，全部送去训练。</p>
+          </div>
+        </div>
+        <div class="anno-card">
+          <div class="icon">💡</div>
+          <div class="body">
+            <strong>gen_batch_output 的行数 N 是变长的</strong>
+            <p>8 个 env，每个 env 最多跑 10 步，但 done 后就停。所以 N 的范围是 8（所有 env 第1步就 done）到 80（全部跑满）。trainer 在拿到这个 DataProto 后会 <code>pad_dataproto_to_divisor(dp_size=2)</code> 补齐。</p>
+          </div>
+        </div>
+        <div class="anno-card">
+          <div class="icon">⚠️</div>
+          <div class="body">
+            <strong>skip_special_tokens=False 是关键（v17 修复）</strong>
+            <p>L393 解码时用 <code>skip_special_tokens=False</code>，保留 Qwen 的 <code>&lt;tool_call&gt;</code>/<code>&lt;/tool_call&gt;</code> added tokens（token id 151657/151658）。早期用 True 会剥掉这些标签，BfclEnv 的 XMLParser 解析失败，episode reward 全为 0。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 节点 2: reset ── -->
+    <div id="pane-reset" class="pane" style="display:none">
+      <div class="detail-header">
+        <div class="dh-title">① 环境重置 — BfclVectorizedEnv.reset()</div>
+        <div class="dh-question">这一步在做什么？</div>
+        <div class="dh-answer">
+          从 200 条 BFCL 任务里随机挑几条，<b>每条任务复制 4 份</b>（group_n=4），分配给 8 个并行 Ray Worker，
+          让每个 Worker 重置自己的 BfclEnv，返回首条 user question 和工具列表。
+          <br>复制 4 份是 GRPO 的核心要求：同一个问题要有 4 条独立轨迹，才能做组内对比。
+        </div>
+      </div>
+
+      <div class="data-card" style="margin-top:20px; margin-left:28px; margin-right:28px;">
+        <div class="data-card-title">
+          <span>INPUT → reset() 被调用时没有输入</span>
+          <span class="tag tag-in">内部用 RNG 随机选 task</span>
+        </div>
+        <pre style="color:#8b949e;">（无外部输入，内部从 _task_pool=[100..199] 随机抽样）</pre>
+      </div>
+
+      <div class="data-card" style="margin-left:28px; margin-right:28px;">
+        <div class="data-card-title">
+          <span>OUTPUT — 每个 env 返回</span>
+          <span class="tag tag-out">obs_list[8], info_list[8]</span>
+        </div>
+        <pre><span style="color:#3fb950;">obs_list[0]</span> = <span style="color:#a5d6ff;">"What is the current stock price of AAPL?"</span>
+<span style="color:#3fb950;">obs_list[1]</span> = <span style="color:#a5d6ff;">"What is the current stock price of AAPL?"</span>  <span style="color:#6e7681;">← 同一个 task，复制了4份</span>
+<span style="color:#3fb950;">obs_list[2]</span> = <span style="color:#a5d6ff;">"What is the current stock price of AAPL?"</span>
+<span style="color:#3fb950;">obs_list[3]</span> = <span style="color:#a5d6ff;">"What is the current stock price of AAPL?"</span>
+<span style="color:#3fb950;">obs_list[4]</span> = <span style="color:#a5d6ff;">"Book a flight from NYC to LA on Dec 5th"</span>  <span style="color:#6e7681;">← 第二个 task，也复制4份</span>
+<span style="color:#3fb950;">obs_list[5]</span> = <span style="color:#a5d6ff;">"Book a flight from NYC to LA on Dec 5th"</span>
+...
+
+<span style="color:#3fb950;">info_list[0]</span> = {
+  <span style="color:#a5d6ff;">"env_introduction"</span>: <span style="color:#a5d6ff;">"You are a stock portfolio manager..."</span>,
+  <span style="color:#a5d6ff;">"tools"</span>: [{<span style="color:#a5d6ff;">"name"</span>: <span style="color:#a5d6ff;">"getStockPrice"</span>, <span style="color:#a5d6ff;">"parameters"</span>: {...}}, ...],  <span style="color:#6e7681;">← 3~8个工具</span>
+  <span style="color:#a5d6ff;">"won"</span>: <span style="color:#ff7b72;">False</span>,
+  <span style="color:#a5d6ff;">"task_score"</span>: <span style="color:#79c0ff;">0.0</span>
+}</pre>
+      </div>
+
+      <div class="code-section">
+        <div class="code-section-title">核心代码 <span class="filepath">verl/recipe/sdpo/bfcl/bfcl_adapter/envs.py : BfclVectorizedEnv.reset()</span></div>
+        <div class="code-wrap"><pre>
+<div class="cl hl-y"><span class="ln">189</span><span class="lc">idx = self._rng.<span class="fn">choice</span>(self._task_pool, size=self.env_num, replace=<span class="kw">False</span>)<span class="tip">从后100条里随机选2个task，不重复</span></span></div>
+<div class="cl hl"><span class="ln">190</span><span class="lc">idx = np.<span class="fn">repeat</span>(idx, self.group_n).<span class="fn">tolist</span>()<span class="tip">每个task复制4次 → [A,A,A,A,B,B,B,B]，8个env各跑1份</span></span></div>
+<div class="cl"><span class="ln">192</span><span class="lc">futures = [w.reset.<span class="fn">remote</span>(<span class="bi">int</span>(i)) <span class="kw">for</span> w, i <span class="kw">in</span> <span class="bi">zip</span>(self._workers, idx)]</span></div>
+<div class="cl hl-g"><span class="ln">193</span><span class="lc">results = self._ray.<span class="fn">get</span>(futures)<span class="tip">并行等待8个Ray Worker全部完成重置</span></span></div></pre></div>
+      </div>
+
+      <div class="code-section">
+        <div class="code-section-title">核心代码 <span class="filepath">verl/recipe/sdpo/bfcl/bfcl_adapter/envs.py : BfclWorker.reset()</span></div>
+        <div class="code-wrap"><pre>
+<div class="cl hl-y"><span class="ln">51</span><span class="lc">task_key = <span class="st">f"multi_turn_base_{task_index}"</span><span class="tip">⚠️ BfclEnv 要求字符串key，直接传整数会 KeyError</span></span></div>
+<div class="cl"><span class="ln">54</span><span class="lc">obs, info = self.env.<span class="fn">reset</span>(seed=self.seed, task_index=task_key)</span></div>
+<div class="cl hl-g"><span class="ln">56</span><span class="lc">info[<span class="st">"won"</span>] = <span class="kw">False</span><span class="tip">手动初始化，BfclEnv.reset()不返回这个字段</span></span></div>
+<div class="cl hl-g"><span class="ln">57</span><span class="lc">info[<span class="st">"task_score"</span>] = <span class="nm">0.0</span></span></div></pre></div>
+      </div>
+
+      <div class="anno-list">
+        <div class="anno-card">
+          <div class="icon">🔑</div>
+          <div class="body">
+            <strong>为什么要 np.repeat？</strong>
+            <p>GRPO 要求同一道题的 n=4 个 rollout 放在同一组才能计算组内 advantage。<code>np.repeat([A,B], 4)</code> 保证 8 个 env 中，前4个跑题A、后4个跑题B，训练时按 group_n=4 分组算 <code>(r - μ) / σ</code>。</p>
+          </div>
+        </div>
+        <div class="anno-card">
+          <div class="icon">⚠️</div>
+          <div class="body">
+            <strong>task_key 必须是字符串（Round 1 踩坑）</strong>
+            <p>BfclEnv 内部 dataset 的 key 是 <code>"multi_turn_base_142"</code> 这种字符串，直接传 int 142 会 KeyError。这是早期调试发现的 19 个坑之一。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 节点 2: generate ── -->
+    <div id="pane-generate" class="pane" style="display:none">
+      <div class="detail-header">
+        <div class="dh-title">② LLM 生成 — VLLMDirectInferencer.generate_sequences()</div>
+        <div class="dh-question">这一步在做什么？</div>
+        <div class="dh-answer">
+          把 user question（tokenized）传给 vLLM server，让 Qwen2.5-7B-Instruct 在 temperature=1.5 下生成回复。
+          输出必须包含 <b>&lt;think&gt;...&lt;/think&gt;</b> 推理过程和 <b>&lt;tool_call&gt;...&lt;/tool_call&gt;</b> 工具调用。
+          <br><br>直接调用 vLLM Ray Actor，绕过 FSDP 的 sleep/wake 切换，速度更快。
+        </div>
+      </div>
+
+      <div class="data-card" style="margin-top:20px; margin-left:28px; margin-right:28px;">
+        <div class="data-card-title"><span>INPUT → generate_sequences()</span><span class="tag tag-in">input_ids [8, 4096]</span></div>
+        <pre>batch_input.batch[<span style="color:#a5d6ff;">"input_ids"</span>]  = Tensor[<span style="color:#79c0ff;">8, 4096</span>]  <span style="color:#6e7681;">← 8个env的prompt，left-padded</span>
+batch_input.meta_info[<span style="color:#a5d6ff;">"temperature"</span>] = <span style="color:#79c0ff;">1.5</span>         <span style="color:#6e7681;">← 高温保证rollout多样性</span></pre>
+      </div>
+      <div class="data-card" style="margin-left:28px; margin-right:28px;">
+        <div class="data-card-title"><span>OUTPUT — LLM 生成文本（理想格式）</span><span class="tag tag-out">responses [8, 512]</span></div>
+        <pre><span style="color:#3fb950;">理想输出：</span>
+&lt;<span style="color:#ff7b72;">think</span>&gt;
+The user wants the stock price of AAPL. I should call getStockPrice.
+&lt;/<span style="color:#ff7b72;">think</span>&gt;
+&lt;<span style="color:#d2a8ff;">tool_call</span>&gt;
+{<span style="color:#a5d6ff;">"name"</span>: <span style="color:#a5d6ff;">"getStockPrice"</span>, <span style="color:#a5d6ff;">"arguments"</span>: {<span style="color:#a5d6ff;">"ticker"</span>: <span style="color:#a5d6ff;">"AAPL"</span>}}
+&lt;/<span style="color:#d2a8ff;">tool_call</span>&gt;
+
+<span style="color:#f85149;">退化输出（v26 step15后频繁出现）：</span>
+&lt;<span style="color:#ff7b72;">think</span>&gt;Task is done.&lt;/<span style="color:#ff7b72;">think</span>&gt;
+&lt;<span style="color:#d2a8ff;">tool_call</span>&gt;Task Completed&lt;/<span style="color:#d2a8ff;">tool_call</span>&gt;  <span style="color:#6e7681;">← 每步都这样发，刷 +0.1</span></pre>
+      </div>
+
+      <div class="code-section">
+        <div class="code-section-title">核心代码 <span class="filepath">verl/recipe/sdpo/bfcl/agentic_trainer.py : VLLMDirectInferencer.generate_sequences()</span></div>
+        <div class="code-wrap"><pre>
+<div class="cl"><span class="ln">86</span><span class="lc">ray_futures = []</span></div>
+<div class="cl hl"><span class="ln">87</span><span class="lc"><span class="kw">for</span> i <span class="kw">in</span> <span class="bi">range</span>(bsz):</span></div>
+<div class="cl hl"><span class="ln">90</span><span class="lc">    actual_ids = ids[mask.<span class="fn">bool</span>()].<span class="fn">tolist</span>()<span class="tip">去掉 left-padding，只传真实 token</span></span></div>
+<div class="cl hl"><span class="ln">93</span><span class="lc">    ray_futures.<span class="fn">append</span>(</span></div>
+<div class="cl hl"><span class="ln">94</span><span class="lc">        self.server_handle.generate.<span class="fn">remote</span>(actual_ids, sampling_params, req_id)</span></div>
+<div class="cl hl"><span class="ln">95</span><span class="lc">    )<span class="tip">直接调用 vLLM Ray Actor，无需 FSDP sleep/wake</span></span></div>
+<div class="cl"><span class="ln">99</span><span class="lc">outputs = ray.<span class="fn">get</span>(ray_futures)<span class="tip">阻塞等待8个并行推理完成</span></span></div>
+<div class="cl"><span class="ln">107</span><span class="lc">responses = torch.<span class="fn">full</span>((bsz, response_len), self.pad_token_id, dtype=torch.long)</span></div>
+<div class="cl hl-g"><span class="ln">110</span><span class="lc">    responses[i, :L] = torch.<span class="fn">tensor</span>(resp_ids[:L], dtype=torch.long)<span class="tip">统一 padding 到 max_response_len=512</span></span></div></pre></div>
+      </div>
+
+      <div class="anno-list">
+        <div class="anno-card">
+          <div class="icon">💡</div>
+          <div class="body">
+            <strong>为什么 temperature=1.5 这么高？</strong>
+            <p>GRPO 需要同组 4 个 rollout 有不同的输出，才能计算组内 std。temperature 太低（如 0.4）会让 4 个输出几乎一样，std→0，advantage→0，训练停滞。1.5 保证足够多样性，代价是偶尔输出格式混乱。</p>
+          </div>
+        </div>
+        <div class="anno-card">
+          <div class="icon">🔧</div>
+          <div class="body">
+            <strong>skip_special_tokens=False（v17 修复）</strong>
+            <p>早期用 <code>skip_special_tokens=True</code> 解码，会剥掉 Qwen2.5 的 added tokens，导致 <code>&lt;tool_call&gt;</code> 标签丢失，BfclEnv 解析失败。改为 <code>False</code> 后模型才开始正常输出 XML 格式。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 节点 3: projection ── -->
+    <div id="pane-projection" class="pane" style="display:none">
+      <div class="detail-header">
+        <div class="dh-title">③ 格式校验 — bfcl_projection()</div>
+        <div class="dh-question">这一步在做什么？</div>
+        <div class="dh-answer">
+          检查 LLM 输出是否符合要求的 XML 格式（有 &lt;think&gt; 标签 + &lt;tool_call&gt; 标签 + 没有中文）。
+          <b>不修改动作本身</b>——BfclEnv 的内部 XMLParser 会自己解析，projection 只是打个合法性标记。
+        </div>
+      </div>
+
+      <div class="data-card" style="margin-top:20px; margin-left:28px; margin-right:28px;">
+        <div class="data-card-title"><span>INPUT</span><span class="tag tag-in">actions: List[str]，长度8</span></div>
+        <pre>actions[<span style="color:#79c0ff;">0</span>] = <span style="color:#a5d6ff;">"&lt;think&gt;...&lt;/think&gt;&lt;tool_call&gt;{\"name\":\"getStockPrice\",...}&lt;/tool_call&gt;"</span>
+actions[<span style="color:#79c0ff;">1</span>] = <span style="color:#a5d6ff;">"&lt;think&gt;done&lt;/think&gt;&lt;tool_call&gt;Task Completed&lt;/tool_call&gt;"</span>
+actions[<span style="color:#79c0ff;">2</span>] = <span style="color:#a5d6ff;">"I should get the stock price."</span>  <span style="color:#6e7681;">← 没有 tool_call 标签，格式不合法</span></pre>
+      </div>
+      <div class="data-card" style="margin-left:28px; margin-right:28px;">
+        <div class="data-card-title"><span>OUTPUT</span><span class="tag tag-out">actions（原样）, valids: [1,1,0,...]</span></div>
+        <pre>actions  = <span style="color:#6e7681;">← 原样返回，不改变</span>
+valids   = [<span style="color:#3fb950;">1</span>, <span style="color:#3fb950;">1</span>, <span style="color:#f85149;">0</span>, <span style="color:#3fb950;">1</span>, <span style="color:#3fb950;">1</span>, <span style="color:#3fb950;">1</span>, <span style="color:#3fb950;">1</span>, <span style="color:#f85149;">0</span>]
+              <span style="color:#6e7681;">↑合法  ↑合法  ↑无tool标签,不合法</span></pre>
+      </div>
+
+      <div class="code-section">
+        <div class="code-section-title">核心代码 <span class="filepath">verl/recipe/sdpo/bfcl/bfcl_adapter/projection.py : bfcl_projection()</span></div>
+        <div class="code-wrap"><pre>
+<div class="cl hl"><span class="ln">33</span><span class="lc">has_think = <span class="bi">bool</span>(re.<span class="fn">search</span>(<span class="st">r"&lt;think&gt;.*?&lt;/think&gt;"</span>, action, re.DOTALL))</span></div>
+<div class="cl hl"><span class="ln">34</span><span class="lc">has_tool  = <span class="bi">bool</span>(re.<span class="fn">search</span>(<span class="st">r"&lt;tool_call&gt;.*?&lt;/tool_call&gt;"</span>, action, re.DOTALL))</span></div>
+<div class="cl hl-r"><span class="ln">36</span><span class="lc">has_chinese = <span class="bi">bool</span>(re.<span class="fn">search</span>(<span class="st">r"[一-鿿]"</span>, action))<span class="tip">Qwen有时输出中文，BFCL是英文bench，直接标为不合法</span></span></div>
+<div class="cl"><span class="ln">38</span><span class="lc"><span class="kw">if</span> has_think <span class="kw">and</span> has_tool <span class="kw">and not</span> has_chinese:</span></div>
+<div class="cl hl-g"><span class="ln">39</span><span class="lc">    valids.<span class="fn">append</span>(<span class="nm">1</span>)<span class="tip">格式合法：有think + tool_call，无中文</span></span></div>
+<div class="cl"><span class="ln">41</span><span class="lc">    valids.<span class="fn">append</span>(<span class="nm">0</span>)</span></div>
+<div class="cl hl-y"><span class="ln">43</span><span class="lc"><span class="kw">return</span> actions, valids<span class="tip">actions 原样返回，BfclEnv 的 XMLParser 自己解析</span></span></div></pre></div>
+      </div>
+
+      <div class="anno-list">
+        <div class="anno-card">
+          <div class="icon">💡</div>
+          <div class="body">
+            <strong>为什么 projection 这么简单？</strong>
+            <p>因为 BfclEnv 内部有完整的 XMLParser，能直接从 LLM 原文提取 <code>&lt;tool_call&gt;</code> 里的 JSON 并执行。所以这里不需要自己解析 JSON，只需打个"格式是否合法"的标记，写进 <code>info["is_action_valid"]</code>。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 节点 4: env_step ── -->
+    <div id="pane-env_step" class="pane" style="display:none">
+      <div class="detail-header">
+        <div class="dh-title">④ 环境执行 — BfclWorker.step()</div>
+        <div class="dh-question">这一步在做什么？</div>
+        <div class="dh-answer">
+          把 LLM 原始输出传给 BfclEnv，它内部解析 <code>&lt;tool_call&gt;</code>，真实执行工具函数（不是 Mock），
+          返回执行结果。<br><br>
+          关键：返回的 <code>obs_dict["type"]</code> 决定了下一步奖励：
+          <b>type="user"</b> = 模型发了 "Task Completed"，成功推进到下一轮；
+          <b>type="tool"</b> = 工具执行完毕，继续当前轮；
+          <b>done=True</b> = episode 结束，触发 terminal reward (func_score×40)。
+        </div>
+      </div>
+
+      <div class="data-card" style="margin-top:20px; margin-left:28px; margin-right:28px;">
+        <div class="data-card-title"><span>INPUT</span><span class="tag tag-in">llm_text: str</span></div>
+        <pre>llm_text = <span style="color:#a5d6ff;">"&lt;think&gt;Get AAPL price&lt;/think&gt;&lt;tool_call&gt;{\"name\":\"getStockPrice\",\"arguments\":{\"ticker\":\"AAPL\"}}&lt;/tool_call&gt;"</span></pre>
+      </div>
+      <div class="data-card" style="margin-left:28px; margin-right:28px;">
+        <div class="data-card-title"><span>OUTPUT 情况A — 工具执行成功</span><span class="tag tag-out">type="tool"</span></div>
+        <pre>obs_dict = {<span style="color:#a5d6ff;">"type"</span>: <span style="color:#a5d6ff;">"tool"</span>, <span style="color:#a5d6ff;">"content"</span>: <span style="color:#a5d6ff;">"{'price': 189.84, 'currency': 'USD'}"</span>}
+reward   = <span style="color:#79c0ff;">0.0</span>  <span style="color:#6e7681;">← 未结束，no terminal reward</span>
+done     = <span style="color:#ff7b72;">False</span></pre>
+      </div>
+      <div class="data-card" style="margin-left:28px; margin-right:28px;">
+        <div class="data-card-title"><span>OUTPUT 情况B — 模型说 "Task Completed"</span><span class="tag tag-out">type="user"（推进到下一轮）</span></div>
+        <pre>obs_dict = {<span style="color:#a5d6ff;">"type"</span>: <span style="color:#a5d6ff;">"user"</span>, <span style="color:#a5d6ff;">"content"</span>: <span style="color:#a5d6ff;">"Now please calculate the portfolio return."</span>}
+reward   = <span style="color:#79c0ff;">0.0</span>  <span style="color:#6e7681;">← turn advance，还未结束</span>
+done     = <span style="color:#ff7b72;">False</span></pre>
+      </div>
+      <div class="data-card" style="margin-left:28px; margin-right:28px;">
+        <div class="data-card-title"><span>OUTPUT 情况C — 最后一轮完成</span><span class="tag tag-key">done=True，触发 terminal reward</span></div>
+        <pre>obs_dict = {<span style="color:#a5d6ff;">"type"</span>: <span style="color:#a5d6ff;">"finish"</span>, <span style="color:#a5d6ff;">"content"</span>: <span style="color:#a5d6ff;">"Episode complete."</span>}
+reward   = <span style="color:#ffa657;">8.0</span>   <span style="color:#6e7681;">← func_score=0.2 × 40 = 8.0</span>
+done     = <span style="color:#3fb950;">True</span>
+info[<span style="color:#a5d6ff;">"reward_info"</span>] = {<span style="color:#a5d6ff;">"func_score"</span>: <span style="color:#79c0ff;">0.2</span>, <span style="color:#a5d6ff;">"state_score"</span>: <span style="color:#79c0ff;">0.0</span>}</pre>
+      </div>
+
+      <div class="code-section">
+        <div class="code-section-title">核心代码 <span class="filepath">verl/recipe/sdpo/bfcl/bfcl_adapter/envs.py : BfclWorker.step()</span></div>
+        <div class="code-wrap"><pre>
+<div class="cl hl"><span class="ln">67</span><span class="lc">obs_dict, reward, terminated, truncated, info = self.env.<span class="fn">step</span>(llm_text)<span class="tip">BfclEnv 内部XMLParser解析tool_call，真实执行工具</span></span></div>
+<div class="cl hl-r"><span class="ln">68</span><span class="lc"><span class="kw">except</span> Exception <span class="kw">as</span> e:</span></div>
+<div class="cl hl-r"><span class="ln">71</span><span class="lc">    obs_dict = {<span class="st">"type"</span>:<span class="st">"tool"</span>, <span class="st">"content"</span>: <span class="st">f"Error: {str(e)[:200]}"</span>}<span class="tip">env异常不让Ray Actor崩溃，给错误obs继续训练</span></span></div>
+<div class="cl"><span class="ln">79</span><span class="lc">done = terminated <span class="kw">or</span> truncated</span></div>
+<div class="cl hl-g"><span class="ln">86</span><span class="lc"><span class="kw">if</span> done <span class="kw">and</span> <span class="st">"reward_info"</span> <span class="kw">in</span> info:</span></div>
+<div class="cl hl-g"><span class="ln">88</span><span class="lc">    func_score = ri.<span class="fn">get</span>(<span class="st">"func_score"</span>, <span class="nm">0.0</span>)        <span class="cm"># 0~0.5，BFCL官方分数</span></span></div>
+<div class="cl hl-g"><span class="ln">90</span><span class="lc">    scaled_reward = <span class="bi">float</span>(func_score) * <span class="nm">40.0</span>         <span class="cm"># →0~20，terminal reward</span></span></div>
+<div class="cl hl-g"><span class="ln">92</span><span class="lc">    info[<span class="st">"won"</span>] = <span class="bi">bool</span>(func_score * <span class="nm">2.0</span> >= <span class="nm">0.5</span>)<span class="tip">func_acc≥0.5才算胜利（至少50%函数调用正确）</span></span></div></pre></div>
+      </div>
+
+      <div class="anno-list">
+        <div class="anno-card">
+          <div class="icon">🔑</div>
+          <div class="body">
+            <strong>func_score × 40 为什么是 40？</strong>
+            <p>v23 用的是 ×20（max=10），但当时 turn_advance +1.0×5=5 > terminal，模型学会了每步刷 "Task Completed"。v25 把 terminal 调到 ×40（max=20），让 <code>terminal(20) >> turn_advance(0.5)</code>，消除快钱漏洞。</p>
+          </div>
+        </div>
+        <div class="anno-card">
+          <div class="icon">📊</div>
+          <div class="body">
+            <strong>func_score 是 BFCL 的 partial credit</strong>
+            <p>BFCL 原生支持部分得分：每个 turn 的工具调用里，答对 k/n 个参数得 k/n 分（不是全对才给分）。<code>func_score</code> 范围 0~0.5，×2 得 0~1 的 func_acc。这比 all-or-nothing 提供更丰富的学习信号。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 节点 5: step_reward ── -->
+    <div id="pane-step_reward" class="pane" style="display:none">
+      <div class="detail-header">
+        <div class="dh-title">⑤ per-step 奖励计算 — BfclEnvironmentManager.step()</div>
+        <div class="dh-question">这一步在做什么？</div>
+        <div class="dh-answer">
+          在 BfclEnv 返回的 terminal reward 基础上，再叠加 per-step shaping reward：
+          根据 <code>obs_type</code> 信号判断这一步的结果，给出 +0.1 / -0.1 / -0.2 的微小调整。
+          <br><br>
+          <b>设计目标</b>：让每个 step 有不同的奖励值，让 GRPO 组内有方差，训练不坍塌。
+          <b>当前问题</b>：+0.1 仍被模型在 step 15 后饱和（每步刷 Task Completed）。
+        </div>
+      </div>
+
+      <div class="data-card" style="margin-top:20px; margin-left:28px; margin-right:28px;">
+        <div class="data-card-title"><span>奖励规则表（v26）</span><span class="tag tag-key">per-step shaping</span></div>
+        <pre>obs_type == <span style="color:#a5d6ff;">"user"</span>   (模型发了Task Completed，turn推进)  → step_r = <span style="color:#3fb950;">+0.1</span>
+obs_type == <span style="color:#a5d6ff;">"tool"</span>   + 执行出错                          → step_r = <span style="color:#f85149;">-0.1</span>
+没有 &lt;tool_call&gt; 标签  (退化输出)                          → step_r = <span style="color:#f85149;">-0.2</span>
+其他（工具执行成功）                                         → step_r = <span style="color:#79c0ff;">0.0</span>
+
+terminal reward (仅 done=True 时)：
+  func_score × 40  → <span style="color:#ffa657;">0 ~ 20.0</span>   <span style="color:#6e7681;">← 主要学习信号</span>
+
+一个 episode 的最大总奖励：
+  5轮 × turn_advance(0.1) + terminal(20) = <span style="color:#ffa657;">20.5</span></pre>
+      </div>
+
+      <div class="code-section">
+        <div class="code-section-title">核心代码 <span class="filepath">verl/recipe/sdpo/bfcl/bfcl_env_manager.py : step() 奖励部分</span></div>
+        <div class="code-wrap"><pre>
+<div class="cl hl"><span class="ln">299</span><span class="lc">obs_type = next_obs_list[i].<span class="fn">get</span>(<span class="st">"type"</span>, <span class="st">""</span>)<span class="tip">直接读env返回的obs_type，比解析LLM输出更可靠</span></span></div>
+<div class="cl"><span class="ln">300</span><span class="lc"><span class="kw">if</span> obs_type == <span class="st">"user"</span>:</span></div>
+<div class="cl hl-g"><span class="ln">301</span><span class="lc">    turn_advanced = <span class="kw">True</span>   <span class="cm"># 模型发了Task Completed且成功推进</span></span></div>
+<div class="cl"><span class="ln">313</span><span class="lc">step_r = <span class="nm">0.0</span></span></div>
+<div class="cl hl-g"><span class="ln">314</span><span class="lc"><span class="kw">if</span> turn_advanced:</span></div>
+<div class="cl hl-g"><span class="ln">315</span><span class="lc">    step_r += <span class="nm">0.1</span>    <span class="cm"># 5×0.1=0.5 &lt;&lt; terminal max=20，理论上无法被利用</span></span></div>
+<div class="cl hl-r"><span class="ln">316</span><span class="lc"><span class="kw">elif</span> obs_type == <span class="st">"tool"</span> <span class="kw">and</span> tool_exec_error:</span></div>
+<div class="cl hl-r"><span class="ln">317</span><span class="lc">    step_r -= <span class="nm">0.1</span>   <span class="cm"># 工具调用格式错误/执行失败</span></span></div>
+<div class="cl hl-r"><span class="ln">318</span><span class="lc"><span class="kw">elif not</span> has_tool_open:</span></div>
+<div class="cl hl-r"><span class="ln">319</span><span class="lc">    step_r -= <span class="nm">0.2</span>   <span class="cm"># 没有 &lt;tool_call&gt; 标签，退化输出</span></span></div>
+<div class="cl"><span class="ln">320</span><span class="lc">rewards[i] += step_r    <span class="cm"># 叠加到 terminal reward 上</span></span></div></pre></div>
+      </div>
+
+      <div class="anno-list">
+        <div class="anno-card">
+          <div class="icon">🐛</div>
+          <div class="body">
+            <strong>v26 仍然被饱和（step 15-16 坍塌）</strong>
+            <p>v26 step 15-16 出现 <code>score=[0.1, 0.1]</code>，4 个 rollout 全都在每步刷 "Task Completed"，拿 +0.1。
+            turn_advance 只有 0.1 理论上不会超过 terminal，但 <b>cold-start 阶段 func_score≈0</b>，
+            模型比较的是 0.5（刷满5次）vs ~0（terminal），所以还是选快钱。</p>
+          </div>
+        </div>
+        <div class="anno-card">
+          <div class="icon">💡</div>
+          <div class="body">
+            <strong>根本矛盾：任何正值 per-step reward 都会被饱和</strong>
+            <p>常数正值 → 模型学会"每步触发" → 组内4个rollout全部相同 → std=0 → GRPO advantage=0 → 零梯度。
+            需要一种有<b>自然方差</b>且<b>不可饱和</b>的 per-step 信号（如 entropy bonus，或 mid-episode func_score diff）。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 节点 6: reward_inject ── -->
+    <div id="pane-reward_inject" class="pane" style="display:none">
+      <div class="detail-header">
+        <div class="dh-title">⑥ 奖励注入 tensor — AgenticBFCLTrainer.fit()</div>
+        <div class="dh-question">这一步在做什么？</div>
+        <div class="dh-answer">
+          把每个 step 的标量 reward（一个浮点数）放进 shape=[8, 512] 的 tensor，
+          放置位置是 response 的<b>最后一个有效 token</b>，其余位置填 0。
+          <br><br>
+          这是 <b>v24 的根因修复</b>：之前用的是 episode_total（整个 episode 的总分），
+          赋给 episode 内所有 step，导致同一 episode 的每步奖励相同，组内 std=0。
+          改用 per-step reward 后，每步奖励不同，GRPO 才有梯度信号。
+        </div>
+      </div>
+
+      <div class="data-card" style="margin-top:20px; margin-left:28px; margin-right:28px;">
+        <div class="data-card-title"><span>v23 之前的错误方式</span><span class="tag tag-in">episode_rewards</span></div>
+        <pre><span style="color:#f85149;">❌ 错误：episode_total 赋给 episode 内所有 step</span>
+episode rollout：step1, step2, step3, step4, step5
+  step1.reward = <span style="color:#f85149;">3.2</span>  (episode总分)
+  step2.reward = <span style="color:#f85149;">3.2</span>  ← 全部相同
+  step3.reward = <span style="color:#f85149;">3.2</span>  ← 全部相同
+GRPO组内：所有 step score = 3.2 → std = 0 → advantage = 0 → <span style="color:#f85149;">零梯度</span></pre>
+      </div>
+      <div class="data-card" style="margin-left:28px; margin-right:28px;">
+        <div class="data-card-title"><span>v24 修复后的正确方式</span><span class="tag tag-out">per-step rewards</span></div>
+        <pre><span style="color:#3fb950;">✅ 正确：每个 step 有自己的 reward</span>
+  step1.reward = <span style="color:#3fb950;">0.1</span>   (turn_advanced)
+  step2.reward = <span style="color:#3fb950;">-0.1</span>  (tool error)
+  step3.reward = <span style="color:#3fb950;">0.0</span>   (valid tool call)
+  step4.reward = <span style="color:#3fb950;">0.1</span>   (turn_advanced)
+  step5.reward = <span style="color:#3fb950;">8.0</span>   (terminal: func_score=0.2 × 40)
+GRPO组内：不同step有不同score → std &gt; 0 → advantage ≠ 0 → <span style="color:#3fb950;">有效梯度</span></pre>
+      </div>
+
+      <div class="code-section">
+        <div class="code-section-title">核心代码 <span class="filepath">verl/recipe/sdpo/bfcl/agentic_trainer.py : fit() — reward 注入部分</span></div>
+        <div class="code-wrap"><pre>
+<div class="cl hl"><span class="ln">285</span><span class="lc">step_rewards = batch.non_tensor_batch.<span class="fn">get</span>(<span class="st">"rewards"</span>, <span class="kw">None</span>)<span class="tip">per-step reward，traj_collector 已存入 non_tensor_batch</span></span></div>
+<div class="cl hl-r"><span class="ln">288</span><span class="lc"><span class="kw">if</span> step_rewards <span class="kw">is</span> <span class="kw">None</span>:   <span class="cm"># 安全回退，实际应有</span></span></div>
+<div class="cl hl-r"><span class="ln">289</span><span class="lc">    step_rewards = batch.non_tensor_batch.<span class="fn">get</span>(<span class="st">"episode_rewards"</span>, <span class="kw">None</span>)<span class="tip">⚠️ 回退到episode_total会触发老bug</span></span></div>
+<div class="cl"><span class="ln">291</span><span class="lc">resp_len = batch.batch[<span class="st">"responses"</span>].shape[<span class="nm">1</span>]  <span class="cm"># =512</span></span></div>
+<div class="cl"><span class="ln">292</span><span class="lc">reward_tensor = torch.<span class="fn">zeros</span>(<span class="bi">len</span>(batch.batch), resp_len, dtype=torch.float32)</span></div>
+<div class="cl hl-g"><span class="ln">296</span><span class="lc"><span class="kw">for</span> i, r <span class="kw">in</span> <span class="bi">enumerate</span>(step_rewards):</span></div>
+<div class="cl hl-g"><span class="ln">297</span><span class="lc">    last_tok = <span class="bi">int</span>(batch.batch[<span class="st">"response_mask"</span>][i].<span class="fn">sum</span>()) - <span class="nm">1</span><span class="tip">找到response的最后一个真实token位置</span></span></div>
+<div class="cl hl-g"><span class="ln">299</span><span class="lc">    reward_tensor[i, last_tok] = <span class="bi">float</span>(r)<span class="tip">reward放在最后一个token，其余为0</span></span></div>
+<div class="cl"><span class="ln">300</span><span class="lc">batch.batch[<span class="st">"token_level_scores"</span>] = reward_tensor<span class="tip">GRPO用 scores.sum(-1) 得到每行的标量分数</span></span></div></pre></div>
+      </div>
+
+      <div class="anno-list">
+        <div class="anno-card">
+          <div class="icon">🔑</div>
+          <div class="body">
+            <strong>为什么 reward 放在"最后一个 token"？</strong>
+            <p>verl GRPO 的实现：<code>scores = token_level_rewards.sum(dim=-1)</code>，把 shape=[bsz,512] 的 token reward 按行求和，得到 [bsz] 的标量分数，再按 group 归一化。
+            把 reward 集中放最后一个 token，等效于 sequence-level reward，数学上等价，实现上最简单。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 节点 7: grpo ── -->
+    <div id="pane-grpo" class="pane" style="display:none">
+      <div class="detail-header">
+        <div class="dh-title">⑦ GRPO Advantage 计算 — compute_advantage()</div>
+        <div class="dh-question">这一步在做什么？</div>
+        <div class="dh-answer">
+          把 8 个 step 的 token_level_scores（每步一个标量）按 group_n=4 分组，
+          在组内做归一化：<b>adv = (score_i - mean_group) / std_group</b>。
+          <br><br>
+          直觉：同一道题的 4 个 rollout，谁做得比平均好就给正 adv，谁比平均差就给负 adv。
+          不需要绝对分数，只看相对排名。
+        </div>
+      </div>
+
+      <div class="data-card" style="margin-top:20px; margin-left:28px; margin-right:28px;">
+        <div class="data-card-title"><span>一个 group (n=4) 的计算示例</span><span class="tag tag-key">关键数学</span></div>
+        <pre>同一道题的4条轨迹分数：
+  rollout_A: score = <span style="color:#3fb950;">8.1</span>   (func_score=0.2, turn×1)
+  rollout_B: score = <span style="color:#3fb950;">0.1</span>   (turn×1, no terminal)
+  rollout_C: score = <span style="color:#3fb950;">-0.2</span>  (no tool call)
+  rollout_D: score = <span style="color:#3fb950;">0.0</span>   (valid tool, no terminal)
+
+mean = (8.1 + 0.1 - 0.2 + 0.0) / 4 = <span style="color:#79c0ff;">2.0</span>
+std  = <span style="color:#79c0ff;">3.71</span>
+
+advantage_A = (8.1 - 2.0) / 3.71 = <span style="color:#3fb950;">+1.64</span>  ← 强化这条轨迹的行为
+advantage_B = (0.1 - 2.0) / 3.71 = <span style="color:#f85149;">-0.51</span>  ← 抑制这条轨迹的行为
+advantage_C = (-0.2- 2.0) / 3.71 = <span style="color:#f85149;">-0.59</span>
+advantage_D = (0.0 - 2.0) / 3.71 = <span style="color:#f85149;">-0.54</span></pre>
+      </div>
+      <div class="data-card" style="margin-left:28px; margin-right:28px;">
+        <div class="data-card-title"><span>Collapse 案例（v26 step 15）</span><span class="tag tag-in">std=0 坍塌</span></div>
+        <pre>4条轨迹都刷了 turn_advance：
+  rollout_A: score = <span style="color:#f85149;">0.1</span>
+  rollout_B: score = <span style="color:#f85149;">0.1</span>
+  rollout_C: score = <span style="color:#f85149;">0.1</span>
+  rollout_D: score = <span style="color:#f85149;">0.1</span>
+
+std = 0 → advantage_A = advantage_B = ... = <span style="color:#f85149;">0 / 0 = NaN → 0</span>
+loss = 0 → 零梯度 → 参数不更新 → <span style="color:#f85149;">训练停止</span></pre>
+      </div>
+
+      <div class="code-section">
+        <div class="code-section-title">核心代码 <span class="filepath">verl/recipe/sdpo/verl/trainer/ppo/core_algos.py : compute_grpo_outcome_advantage()</span></div>
+        <div class="code-wrap"><pre>
+<div class="cl hl"><span class="ln">290</span><span class="lc">scores = token_level_rewards.<span class="fn">sum</span>(dim=-<span class="nm">1</span>)<span class="tip">每行token_level_rewards求和 → [bsz] 标量</span></span></div>
+<div class="cl hl"><span class="ln">293</span><span class="lc">id2score = <span class="fn">defaultdict</span>(<span class="bi">list</span>)  <span class="cm"># uid → 同组所有 score</span></span></div>
+<div class="cl"><span class="ln">294</span><span class="lc"><span class="kw">for</span> i <span class="kw">in</span> <span class="bi">range</span>(bsz):</span></div>
+<div class="cl"><span class="ln">295</span><span class="lc">    id2score[index[i]].<span class="fn">append</span>(scores[i])</span></div>
+<div class="cl hl-g"><span class="ln">298</span><span class="lc"><span class="kw">for</span> uid, uid_scores <span class="kw">in</span> id2score.<span class="fn">items</span>():</span></div>
+<div class="cl hl-g"><span class="ln">299</span><span class="lc">    mean = <span class="fn">mean</span>(uid_scores)</span></div>
+<div class="cl hl-g"><span class="ln">300</span><span class="lc">    std  = <span class="fn">std</span>(uid_scores)  <span class="cm"># std=0 → advantage=0 → 训练停止</span></span></div>
+<div class="cl hl-g"><span class="ln">301</span><span class="lc">    id2mean[uid] = mean</span></div>
+<div class="cl hl-g"><span class="ln">302</span><span class="lc">    id2std[uid] = std + <span class="nm">1e-8</span><span class="tip">加 epsilon 防除零，但 std≈0 时 advantage 仍≈0</span></span></div>
+<div class="cl hl"><span class="ln">306</span><span class="lc">advantages[i] = (scores[i] - id2mean[index[i]]) / id2std[index[i]]</span></div></pre></div>
+      </div>
+
+      <div class="anno-list">
+        <div class="anno-card">
+          <div class="icon">🔑</div>
+          <div class="body">
+            <strong>uid 是怎么分配的？</strong>
+            <p>rollout_loop.py 中 <code>if i % n == 0: uid = new_uuid()</code>，每 group_n=4 个 step 共享一个 uid。这保证同一道题的 4 条轨迹被 compute_advantage 归为一组，做组内归一化。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 节点 8: actor_update ── -->
+    <div id="pane-actor_update" class="pane" style="display:none">
+      <div class="detail-header">
+        <div class="dh-title">⑧ Actor 参数更新 — _update_actor(batch)</div>
+        <div class="dh-question">这一步在做什么？</div>
+        <div class="dh-answer">
+          用 GRPO advantage 乘以 log_prob 得到 policy gradient loss，
+          反向传播更新 Qwen2.5-7B 的参数（用 FSDP 分布在 2 张 H100 上）。
+          <br><br>
+          advantage > 0 的动作：log_prob 被推高（模型更倾向于生成这个输出）。
+          advantage < 0 的动作：log_prob 被压低（模型更不倾向于生成这个输出）。
+        </div>
+      </div>
+
+      <div class="data-card" style="margin-top:20px; margin-left:28px; margin-right:28px;">
+        <div class="data-card-title"><span>Loss 计算公式</span><span class="tag tag-key">GRPO Policy Gradient</span></div>
+        <pre>pg_loss = -mean( advantage × log_prob )
+
+具体数字（v24 step1）：
+  pg_loss = <span style="color:#79c0ff;">-4.94e-5</span>  → step2: <span style="color:#79c0ff;">-6.68e-5</span>  ← 在变化，说明梯度有效
+  entropy = <span style="color:#79c0ff;">0.52</span>         ← 较高，模型输出多样性好
+  adv range = [<span style="color:#f85149;">-6.17</span>, <span style="color:#3fb950;">+3.45</span>]  ← 组内有真实分差</pre>
+      </div>
+
+      <div class="code-section">
+        <div class="code-section-title">核心代码 <span class="filepath">verl/recipe/sdpo/bfcl/agentic_trainer.py : fit() — actor 更新部分</span></div>
+        <div class="code-wrap"><pre>
+<div class="cl hl"><span class="ln">325</span><span class="lc">batch.batch[<span class="st">"token_level_rewards"</span>] = batch.batch[<span class="st">"token_level_scores"</span>]</span></div>
+<div class="cl hl"><span class="ln">331</span><span class="lc">batch = <span class="fn">compute_advantage</span>(</span></div>
+<div class="cl hl"><span class="ln">333</span><span class="lc">    adv_estimator=<span class="st">"grpo"</span>,</span></div>
+<div class="cl hl"><span class="ln">337</span><span class="lc">    num_repeat=<span class="nm">4</span>,     <span class="cm"># group_n=4</span></span></div>
+<div class="cl hl"><span class="ln">338</span><span class="lc">)</span></div>
+<div class="cl hl-g"><span class="ln">347</span><span class="lc">actor_output = self.<span class="fn">_update_actor</span>(batch)<span class="tip">FSDP分布在2张H100，gradient checkpoint节省显存</span></span></div>
+<div class="cl hl-g"><span class="ln">352</span><span class="lc">self.checkpoint_manager.<span class="fn">update_weights</span>(self.global_steps)<span class="tip">每步更新vLLM server的权重，下一轮rollout用最新模型</span></span></div></pre></div>
+      </div>
+
+      <div class="anno-list">
+        <div class="anno-card">
+          <div class="icon">💡</div>
+          <div class="body">
+            <strong>update_weights 是关键的闭环</strong>
+            <p>每个 training step 结束后，<code>checkpoint_manager.update_weights()</code> 把更新后的 actor 参数同步到 vLLM server。下一轮 rollout 用的就是最新模型，形成"生成→训练→生成"的在线 RL 闭环。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 节点 9: success_eval ── -->
+    <div id="pane-success_eval" class="pane" style="display:none">
+      <div class="detail-header">
+        <div class="dh-title">⑨ 成功率评估 — success_evaluator()</div>
+        <div class="dh-question">这一步在做什么？</div>
+        <div class="dh-answer">
+          每 20 个 training step 跑一次 val（前 100 条 BFCL 任务），
+          从每条轨迹里取出最后一个有效 step 的 info，读取 won（是否成功）和 task_score（func_acc）。
+          <br><br>
+          当前 v26 val 结果：<b>success_rate=0, func_acc=0</b>——模型在 val 上还没学到有效的工具调用。
+        </div>
+      </div>
+
+      <div class="data-card" style="margin-top:20px; margin-left:28px; margin-right:28px;">
+        <div class="data-card-title"><span>val 结果历史</span><span class="tag tag-key">success_rate / func_acc</span></div>
+        <pre>v17 step5 (train): success_rate = <span style="color:#3fb950;">37.5%</span>  ← 训练中峰值
+v23 step6 (train): func_acc    = <span style="color:#3fb950;">0.325</span>   ← 训练中峰值
+
+v24 val (step20):  success_rate = <span style="color:#f85149;">0</span>,  func_acc = <span style="color:#f85149;">0</span>
+v26 val (step20):  success_rate = <span style="color:#f85149;">0</span>,  func_acc = <span style="color:#f85149;">0</span>
+
+现象：训练 metrics 有进展，val metrics 始终为0
+原因：模型学会的是"刷turn_advance"策略，val时 temperature低，全发Task Completed</pre>
+      </div>
+
+      <div class="code-section">
+        <div class="code-section-title">核心代码 <span class="filepath">verl/recipe/sdpo/bfcl/bfcl_env_manager.py : success_evaluator() + _process_batch()</span></div>
+        <div class="code-wrap"><pre>
+<div class="cl hl"><span class="ln">402</span><span class="lc"><span class="kw">for</span> i <span class="kw">in</span> <span class="bi">reversed</span>(<span class="bi">range</span>(<span class="bi">len</span>(total_batch_list[batch_idx]))):</span></div>
+<div class="cl hl"><span class="ln">403</span><span class="lc">    batch_item = total_batch_list[batch_idx][i]</span></div>
+<div class="cl hl-g"><span class="ln">404</span><span class="lc">    <span class="kw">if</span> batch_item[<span class="st">"active_masks"</span>]:<span class="tip">倒序找最后一个真实step（active_masks=True表示还在跑，非padding）</span></span></div>
+<div class="cl hl-g"><span class="ln">406</span><span class="lc">        won_value   = <span class="bi">float</span>(info.<span class="fn">get</span>(<span class="st">"won"</span>, <span class="kw">False</span>))</span></div>
+<div class="cl hl-g"><span class="ln">407</span><span class="lc">        score_value = <span class="bi">float</span>(info.<span class="fn">get</span>(<span class="st">"task_score"</span>, <span class="nm">0.0</span>))</span></div>
+<div class="cl hl-g"><span class="ln">408</span><span class="lc">        success[<span class="st">"success_rate"</span>].<span class="fn">append</span>(won_value)<span class="tip">统计 won=True 的比例</span></span></div>
+<div class="cl hl-g"><span class="ln">409</span><span class="lc">        success[<span class="st">"bfcl_func_acc"</span>].<span class="fn">append</span>(score_value)<span class="tip">统计 func_acc 均值</span></span></div>
+<div class="cl hl-g"><span class="ln">410</span><span class="lc">        <span class="kw">return</span>  <span class="cm"># 找到就停，不继续往前</span></span></div></pre></div>
+      </div>
+
+      <div class="anno-list">
+        <div class="anno-card">
+          <div class="icon">📊</div>
+          <div class="body">
+            <strong>为什么 val success_rate=0 但训练中有成功？</strong>
+            <p>训练用 temperature=1.5，val 用 temperature=0.4（更确定性）。模型当前学到的"策略"是以高温下随机碰运气得到正确调用，低温下就退化成永远刷 Task Completed。这说明学到的不是真正的工具调用能力，只是噪声。</p>
+          </div>
+        </div>
+        <div class="anno-card">
+          <div class="icon">💡</div>
+          <div class="body">
+            <strong>compute_partial_rewards 未被调用（潜在优化）</strong>
+            <p><code>BfclVectorizedEnv.compute_partial_rewards()</code> 在 truncation 时可以给出部分分数，但 traj_collector 的 rollout_loop 没调用它。导致 max_steps=10 截断的 episode 拿到 reward=0，cold-start 难度大。接入这个接口可能改善训练初期的学习信号。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /.detail-panel -->
+</div><!-- /.page -->
+
+<script>
+function show(id) {
+  // 隐藏所有 pane
+  document.querySelectorAll('.pane').forEach(p => p.style.display = 'none');
+  document.getElementById('empty').style.display = 'none';
+  // 显示目标 pane
+  document.getElementById('pane-' + id).style.display = 'block';
+  // 更新左侧导航高亮
+  document.querySelectorAll('.flow-node').forEach(n => n.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+  // 滚动到顶部
+  document.getElementById('detail').scrollTop = 0;
+}
+</script>
+
+</body>
+</html>

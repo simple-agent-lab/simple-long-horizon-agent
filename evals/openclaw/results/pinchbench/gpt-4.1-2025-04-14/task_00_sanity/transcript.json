@@ -1,0 +1,14 @@
+[
+  {
+    "type": "message",
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello, I'm ready!"
+        }
+      ]
+    }
+  }
+]

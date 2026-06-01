@@ -1,0 +1,17 @@
+{
+  "task_id": "task_12_skill_search",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "scores": {
+    "settings_host_updated": 1.0,
+    "settings_db_updated": 1.0,
+    "settings_loglevel_updated": 1.0,
+    "settings_api_updated": 0.0,
+    "yaml_host_updated": 1.0,
+    "yaml_db_updated": 1.0
+  },
+  "mean": 0.8333,
+  "error": null,
+  "execution_time": 16.37,
+  "raw_events_count": 55
+}

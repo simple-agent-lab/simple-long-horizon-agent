@@ -1,0 +1,24 @@
+{
+  "task_id": "xdom-007",
+  "dir_name": "xdom-007-multi-format-conversion",
+  "domain": "cross-domain",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "passed": true,
+  "score": 1.0,
+  "checks_total": 18,
+  "checks_passed": 18,
+  "details": "passed: cross-domain/xdom-007-multi-format-conversion/verifier/test_output.py::test_report_exists\npassed: cross-domain/xdom-007-multi-format-conversion/verifier/test_output.py::test_valid_html_structure\npassed: cross-domain/xdom-007-multi-format-conversion/verifier/test_output.py::test_has_title\npassed: cross-domain/xdom-007-multi-format-conversion/verifier/test_output.py::test_csv_data_as_table\npassed: cross-domain/xdom-007-multi-format-conversion/verifier/test_output.py::test_table_contains_csv_data\npassed: cross-domain/xdom-007-multi-format-conversion/verifier/test_output.py::test_all_csv_rows_present\npassed: cross-domain/xdom-007-multi-format-conversion/verifier/test_output.py::test_markdown_content_present\npassed: cross-domain/xdom-007-multi-format-conversion/verifier/test_output.py::test_markdown_lists_converted\npassed: cross-domain/xdom-007-multi-format-conversion/verifier/test_output.py::test_json_config_present\npassed: cross-domain/xdom-007-multi-format-conversion/verifier/test_output.py::test_json_deployment_info\npassed: cross-domain/xdom-007-multi-format-conversion/verifier/test_output.py::test_has_sections\npassed: cross-domain/xdom-007-multi-format-conversion/verifier/test_output.py::test_no_placeholder_values\npassed: cross-domain/xdom-007-multi-format-conversion/verifier/test_output.py::test_no_empty_critical_fields\npassed: cross-domain/xdom-007-multi-format-conversion/verifier/test_output.py::test_encoding_valid\npassed: cross-domain/xdom-007-multi-format-conversion/verifier/test_output.py::test_consistent_key_naming\npassed: cross-domain/xdom-007-multi-format-conversion/verifier/test_output.py::test_no_duplicate_entries\npassed: cross-domain/xdom-007-multi-format-conversion/verifier/test_output.py::test_no_extraneous_files\npassed: cross-domain/xdom-007-multi-format-conversion/verifier/test_output.py::test_output_not_excessively_large",
+  "error": null,
+  "execution_time": 20.07,
+  "raw_events_count": 27,
+  "workspace_files": [
+    "config.json",
+    "data.csv",
+    "notes.md",
+    "report.html",
+    "source/config.json",
+    "source/data.csv",
+    "source/notes.md"
+  ]
+}

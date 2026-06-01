@@ -1,0 +1,24 @@
+{
+  "task_id": "data-016",
+  "dir_name": "data-016-monthly-budget-analysis",
+  "domain": "data-analysis",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "passed": true,
+  "score": 1.0,
+  "checks_total": 27,
+  "checks_passed": 27,
+  "details": "passed: data-analysis/data-016-monthly-budget-analysis/verifier/test_output.py::test_output_file_exists\npassed: data-analysis/data-016-monthly-budget-analysis/verifier/test_output.py::test_top_level_keys\npassed: data-analysis/data-016-monthly-budget-analysis/verifier/test_output.py::test_month_value\npassed: data-analysis/data-016-monthly-budget-analysis/verifier/test_output.py::test_summary_count\npassed: data-analysis/data-016-monthly-budget-analysis/verifier/test_output.py::test_summary_entry_structure\npassed: data-analysis/data-016-monthly-budget-analysis/verifier/test_output.py::test_rent_actual\npassed: data-analysis/data-016-monthly-budget-analysis/verifier/test_output.py::test_rent_status\npassed: data-analysis/data-016-monthly-budget-analysis/verifier/test_output.py::test_utilities_actual\npassed: data-analysis/data-016-monthly-budget-analysis/verifier/test_output.py::test_groceries_actual\npassed: data-analysis/data-016-monthly-budget-analysis/verifier/test_output.py::test_transportation_actual\npassed: data-analysis/data-016-monthly-budget-analysis/verifier/test_output.py::test_dining_actual\npassed: data-analysis/data-016-monthly-budget-analysis/verifier/test_output.py::test_entertainment_actual\npassed: data-analysis/data-016-monthly-budget-analysis/verifier/test_output.py::test_subscriptions_actual\npassed: data-analysis/data-016-monthly-budget-analysis/verifier/test_output.py::test_total_budget\npassed: data-analysis/data-016-monthly-budget-analysis/verifier/test_output.py::test_total_actual\npassed: data-analysis/data-016-monthly-budget-analysis/verifier/test_output.py::test_total_difference\npassed: data-analysis/data-016-monthly-budget-analysis/verifier/test_output.py::test_over_budget_categories\npassed: data-analysis/data-016-monthly-budget-analysis/verifier/test_output.py::test_under_budget_categories\npassed: data-analysis/data-016-monthly-budget-analysis/verifier/test_output.py::test_difference_sign_convention\npassed: data-analysis/data-016-monthly-budget-analysis/verifier/test_output.py::test_status_consistency\npassed: data-analysis/data-016-monthly-budget-analysis/verifier/test_output.py::test_no_placeholder_values\npassed: data-analysis/data-016-monthly-budget-analysis/verifier/test_output.py::test_no_empty_critical_fields\npassed: data-analysis/data-016-monthly-budget-analysis/verifier/test_output.py::test_encoding_valid\npassed: data-analysis/data-016-monthly-budget-analysis/verifier/test_output.py::test_consistent_key_naming\npassed: data-analysis/data-016-monthly-budget-analysis/verifier/test_output.py::test_no_duplicate_entries\npassed: data-analysis/data-016-monthly-budget-analysis/verifier/test_output.py::test_no_extraneous_files\npassed: data-analysis/data-016-monthly-budget-analysis/verifier/test_output.py::test_output_not_excessively_large",
+  "error": null,
+  "execution_time": 37.89,
+  "raw_events_count": 119,
+  "workspace_files": [
+    "actual_extracted.csv",
+    "budget.csv",
+    "budget_extracted.csv",
+    "budget_report.json",
+    "make_report.py",
+    "make_report_fixed.py",
+    "transactions.csv"
+  ]
+}

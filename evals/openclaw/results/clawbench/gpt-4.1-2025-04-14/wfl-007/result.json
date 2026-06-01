@@ -1,0 +1,20 @@
+{
+  "task_id": "wfl-007",
+  "dir_name": "wfl-007-branching-workflow",
+  "domain": "workflow-automation",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "passed": true,
+  "score": 1.0,
+  "checks_total": 21,
+  "checks_passed": 21,
+  "details": "passed: workflow-automation/wfl-007-branching-workflow/verifier/test_output.py::test_output_file_exists\npassed: workflow-automation/wfl-007-branching-workflow/verifier/test_output.py::test_all_applications_processed\npassed: workflow-automation/wfl-007-branching-workflow/verifier/test_output.py::test_all_have_required_fields\npassed: workflow-automation/wfl-007-branching-workflow/verifier/test_output.py::test_app001_approved_low_rate\npassed: workflow-automation/wfl-007-branching-workflow/verifier/test_output.py::test_app002_conditional_high_credit\npassed: workflow-automation/wfl-007-branching-workflow/verifier/test_output.py::test_app003_conditional_manual\npassed: workflow-automation/wfl-007-branching-workflow/verifier/test_output.py::test_app004_rejected_credit\npassed: workflow-automation/wfl-007-branching-workflow/verifier/test_output.py::test_app005_rejected_employment\npassed: workflow-automation/wfl-007-branching-workflow/verifier/test_output.py::test_app006_approved\npassed: workflow-automation/wfl-007-branching-workflow/verifier/test_output.py::test_app007_conditional_manual\npassed: workflow-automation/wfl-007-branching-workflow/verifier/test_output.py::test_app008_conditional_high_credit\npassed: workflow-automation/wfl-007-branching-workflow/verifier/test_output.py::test_paths_start_with_initial_review\npassed: workflow-automation/wfl-007-branching-workflow/verifier/test_output.py::test_paths_have_minimum_length\npassed: workflow-automation/wfl-007-branching-workflow/verifier/test_output.py::test_status_distribution\npassed: workflow-automation/wfl-007-branching-workflow/verifier/test_output.py::test_no_placeholder_values\npassed: workflow-automation/wfl-007-branching-workflow/verifier/test_output.py::test_no_empty_critical_fields\npassed: workflow-automation/wfl-007-branching-workflow/verifier/test_output.py::test_encoding_valid\npassed: workflow-automation/wfl-007-branching-workflow/verifier/test_output.py::test_consistent_key_naming\npassed: workflow-automation/wfl-007-branching-workflow/verifier/test_output.py::test_no_duplicate_entries\npassed: workflow-automation/wfl-007-branching-workflow/verifier/test_output.py::test_no_extraneous_files\npassed: workflow-automation/wfl-007-branching-workflow/verifier/test_output.py::test_output_not_excessively_large",
+  "error": null,
+  "execution_time": 13.5,
+  "raw_events_count": 25,
+  "workspace_files": [
+    "applications.json",
+    "processed_applications.json",
+    "workflow.json"
+  ]
+}

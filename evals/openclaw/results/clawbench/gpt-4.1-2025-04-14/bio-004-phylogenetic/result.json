@@ -1,0 +1,19 @@
+{
+  "task_id": "bio-004-phylogenetic",
+  "dir_name": "bio-004-phylogenetic",
+  "domain": "bioinformatics",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "passed": false,
+  "score": 0.0,
+  "checks_total": 4,
+  "checks_passed": 0,
+  "details": "failed: bioinformatics/bio-004-phylogenetic/verifier/test_output.py::test_distance_matrix_file_exists\nfailed: bioinformatics/bio-004-phylogenetic/verifier/test_output.py::test_distance_matrix_format_and_values\nfailed: bioinformatics/bio-004-phylogenetic/verifier/test_output.py::test_tree_newick_file_and_format\nfailed: bioinformatics/bio-004-phylogenetic/verifier/test_output.py::test_consistency_between_distance_and_tree",
+  "error": null,
+  "execution_time": 13.48,
+  "raw_events_count": 31,
+  "workspace_files": [
+    "compute_dist_matrix.py",
+    "species_sequences.fasta"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "task_id": "task_09_files",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "scores": {
+    "src_directory": 1.0,
+    "main_py_created": 1.0,
+    "main_py_valid": 1.0,
+    "readme_created": 1.0,
+    "readme_has_title": 1.0,
+    "gitignore_created": 1.0,
+    "gitignore_has_pycache": 0.0
+  },
+  "mean": 0.8571,
+  "error": null,
+  "execution_time": 3.92,
+  "raw_events_count": 19
+}

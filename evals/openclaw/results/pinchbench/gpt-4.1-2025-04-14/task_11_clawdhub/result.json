@@ -1,0 +1,18 @@
+{
+  "task_id": "task_11_clawdhub",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "scores": {
+    "src_directory_created": 1.0,
+    "tests_directory_created": 1.0,
+    "init_file_created": 1.0,
+    "test_file_created": 1.0,
+    "pyproject_created": 1.0,
+    "readme_created": 1.0,
+    "pyproject_has_metadata": 1.0
+  },
+  "mean": 1.0,
+  "error": null,
+  "execution_time": 4.71,
+  "raw_events_count": 21
+}

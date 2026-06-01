@@ -1,0 +1,16 @@
+{
+  "task_id": "ds-004-time-series",
+  "dir_name": "ds-004-time-series",
+  "domain": "data-science",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "passed": false,
+  "score": 0.0,
+  "checks_total": 0,
+  "checks_passed": 0,
+  "details": "",
+  "error": null,
+  "execution_time": 3.43,
+  "raw_events_count": 15,
+  "workspace_files": []
+}

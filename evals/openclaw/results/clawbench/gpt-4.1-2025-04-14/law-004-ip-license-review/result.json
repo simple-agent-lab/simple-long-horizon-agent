@@ -1,0 +1,20 @@
+{
+  "task_id": "law-004-ip-license-review",
+  "dir_name": "law-004-ip-license-review",
+  "domain": "contract-review",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "passed": true,
+  "score": 1.0,
+  "checks_total": 3,
+  "checks_passed": 3,
+  "details": "passed: contract-review/law-004-ip-license-review/verifier/test_output.py::test_files_exist\npassed: contract-review/law-004-ip-license-review/verifier/test_output.py::test_csv_format_and_content\npassed: contract-review/law-004-ip-license-review/verifier/test_output.py::test_json_content_consistency",
+  "error": null,
+  "execution_time": 18.27,
+  "raw_events_count": 25,
+  "workspace_files": [
+    "license_agreement.txt",
+    "license_summary.json",
+    "rights_matrix.csv"
+  ]
+}

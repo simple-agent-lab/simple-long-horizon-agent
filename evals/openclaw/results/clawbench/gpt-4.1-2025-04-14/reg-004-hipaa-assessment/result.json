@@ -1,0 +1,19 @@
+{
+  "task_id": "reg-004-hipaa-assessment",
+  "dir_name": "reg-004-hipaa-assessment",
+  "domain": "regulatory-compliance",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "passed": true,
+  "score": 1.0,
+  "checks_total": 2,
+  "checks_passed": 2,
+  "details": "passed: regulatory-compliance/reg-004-hipaa-assessment/verifier/test_output.py::test_hipaa_assessment_file_exists\npassed: regulatory-compliance/reg-004-hipaa-assessment/verifier/test_output.py::test_hipaa_assessment_content",
+  "error": null,
+  "execution_time": 6.86,
+  "raw_events_count": 23,
+  "workspace_files": [
+    "hipaa_assessment.json",
+    "system_config.json"
+  ]
+}

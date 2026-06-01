@@ -1,0 +1,20 @@
+{
+  "task_id": "task_18_spreadsheet_summary",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "scores": {
+    "report_created": 0.0,
+    "total_revenue": 0.0,
+    "total_profit": 0.0,
+    "top_region": 0.0,
+    "top_product": 0.0,
+    "total_expenses": 0.0,
+    "top_department": 0.0,
+    "top_employee": 0.0,
+    "budget_comparison": 0.0
+  },
+  "mean": 0.0,
+  "error": null,
+  "execution_time": 10.01,
+  "raw_events_count": 17
+}

@@ -1,0 +1,16 @@
+{
+  "task_id": "debug-004",
+  "dir_name": "debug-004",
+  "domain": "debugging",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "passed": false,
+  "score": 0.0625,
+  "checks_total": 16,
+  "checks_passed": 1,
+  "details": "failed: debugging/debug-004/verifier/test_output.py::test_main_py_exists\nfailed: debugging/debug-004/verifier/test_output.py::test_utils_py_exists\nfailed: debugging/debug-004/verifier/test_output.py::test_config_py_exists\nfailed: debugging/debug-004/verifier/test_output.py::test_utils_no_get_settings_import\nfailed: debugging/debug-004/verifier/test_output.py::test_utils_imports_get_config\nfailed: debugging/debug-004/verifier/test_output.py::test_main_executes_successfully\nfailed: debugging/debug-004/verifier/test_output.py::test_main_output_contains_report\nfailed: debugging/debug-004/verifier/test_output.py::test_config_module_unchanged\nfailed: debugging/debug-004/verifier/test_output.py::test_validate_format_json\nfailed: debugging/debug-004/verifier/test_output.py::test_validate_format_invalid\nfailed: debugging/debug-004/verifier/test_output.py::test_format_output_structure\nfailed: debugging/debug-004/verifier/test_output.py::test_main_output_has_processed_items\nfailed: debugging/debug-004/verifier/test_output.py::test_validate_format_csv\nfailed: debugging/debug-004/verifier/test_output.py::test_validate_format_xml\nfailed: debugging/debug-004/verifier/test_output.py::test_config_has_all_fields\npassed: debugging/debug-004/verifier/test_output.py::test_no_extraneous_files",
+  "error": null,
+  "execution_time": 6.4,
+  "raw_events_count": 25,
+  "workspace_files": []
+}

@@ -1,0 +1,28 @@
+{
+  "task_id": "file-013",
+  "dir_name": "file-013-multi-file-search",
+  "domain": "file-operations",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "passed": false,
+  "score": 0.9286,
+  "checks_total": 14,
+  "checks_passed": 13,
+  "details": "passed: file-operations/file-013-multi-file-search/verifier/test_output.py::test_output_file_exists\npassed: file-operations/file-013-multi-file-search/verifier/test_output.py::test_has_heading\npassed: file-operations/file-013-multi-file-search/verifier/test_output.py::test_has_summary_line\npassed: file-operations/file-013-multi-file-search/verifier/test_output.py::test_has_table_header\npassed: file-operations/file-013-multi-file-search/verifier/test_output.py::test_has_separator_row\npassed: file-operations/file-013-multi-file-search/verifier/test_output.py::test_correct_match_count\npassed: file-operations/file-013-multi-file-search/verifier/test_output.py::test_all_files_present\npassed: file-operations/file-013-multi-file-search/verifier/test_output.py::test_line_numbers_accurate\npassed: file-operations/file-013-multi-file-search/verifier/test_output.py::test_content_contains_todo\nfailed: file-operations/file-013-multi-file-search/verifier/test_output.py::test_no_placeholder_values\npassed: file-operations/file-013-multi-file-search/verifier/test_output.py::test_encoding_valid\npassed: file-operations/file-013-multi-file-search/verifier/test_output.py::test_no_extraneous_files\npassed: file-operations/file-013-multi-file-search/verifier/test_output.py::test_output_not_excessively_large\npassed: file-operations/file-013-multi-file-search/verifier/test_output.py::test_json_parseable_if_present",
+  "error": null,
+  "execution_time": 8.17,
+  "raw_events_count": 31,
+  "workspace_files": [
+    "api_notes.txt",
+    "backlog.txt",
+    "changelog.txt",
+    "design.txt",
+    "docs/api_notes.txt",
+    "docs/backlog.txt",
+    "docs/changelog.txt",
+    "docs/design.txt",
+    "docs/meeting_notes.txt",
+    "meeting_notes.txt",
+    "report.md"
+  ]
+}

@@ -1,0 +1,108 @@
+[
+  {
+    "type": "message",
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "toolCall",
+          "name": "bash",
+          "arguments": {
+            "command": "mkdir -p src && echo 'print(\"Hello, world!\")' > src/main.py",
+            "description": "Create src directory and add main.py with Hello World."
+          },
+          "id": "call_7r7wfKZXUhW6LoCOKY1d958d"
+        },
+        {
+          "type": "toolCall",
+          "name": "bash",
+          "arguments": {
+            "command": "echo '# Project Title' > README.md",
+            "description": "Create README.md with project title."
+          },
+          "id": "call_8W0DMnK8hvZQ5V4jd5NfJl12"
+        },
+        {
+          "type": "toolCall",
+          "name": "bash",
+          "arguments": {
+            "command": "echo '**pycache**' > .gitignore",
+            "description": "Create .gitignore to ignore **pycache**."
+          },
+          "id": "call_Qo0PSiXmGUQ0iDn2JbgwhhC7"
+        }
+      ]
+    }
+  },
+  {
+    "type": "tool_call",
+    "name": "bash",
+    "params": {}
+  },
+  {
+    "type": "tool_call",
+    "name": "bash",
+    "params": {}
+  },
+  {
+    "type": "tool_call",
+    "name": "bash",
+    "params": {}
+  },
+  {
+    "type": "tool_result",
+    "result": ""
+  },
+  {
+    "type": "tool_result",
+    "result": ""
+  },
+  {
+    "type": "tool_result",
+    "result": ""
+  },
+  {
+    "type": "message",
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "type": "toolResult",
+          "content": [
+            "$ mkdir -p src && echo 'print(\"Hello, world!\")' > src/main.py\nDone. Command completed with no output."
+          ],
+          "tool_call_id": "call_7r7wfKZXUhW6LoCOKY1d958d",
+          "tool_name": "bash"
+        },
+        {
+          "type": "toolResult",
+          "content": [
+            "$ echo '# Project Title' > README.md\nDone. Command completed with no output."
+          ],
+          "tool_call_id": "call_8W0DMnK8hvZQ5V4jd5NfJl12",
+          "tool_name": "bash"
+        },
+        {
+          "type": "toolResult",
+          "content": [
+            "$ echo '**pycache**' > .gitignore\nDone. Command completed with no output."
+          ],
+          "tool_call_id": "call_Qo0PSiXmGUQ0iDn2JbgwhhC7",
+          "tool_name": "bash"
+        }
+      ]
+    }
+  },
+  {
+    "type": "message",
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "Your project structure has been created with the following details:\n\n- src/ directory (contains source code)\n- src/main.py (prints \"Hello, world!\")\n- README.md (with project title)\n- .gitignore (ignoring **pycache**)\n\nIf you'd like to modify any content or need additional files (like requirements.txt or tests), let me know!"
+        }
+      ]
+    }
+  }
+]

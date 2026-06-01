@@ -1,0 +1,12 @@
+{
+  "task_id": "task_00_sanity",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "scores": {
+    "agent_responded": 1.0
+  },
+  "mean": 1.0,
+  "error": null,
+  "execution_time": 3.23,
+  "raw_events_count": 7
+}

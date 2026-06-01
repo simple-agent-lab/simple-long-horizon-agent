@@ -1,0 +1,18 @@
+{
+  "task_id": "bio-003-gene-expression",
+  "dir_name": "bio-003-gene-expression",
+  "domain": "bioinformatics",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "passed": false,
+  "score": 0.0,
+  "checks_total": 0,
+  "checks_passed": 0,
+  "details": "",
+  "error": null,
+  "execution_time": 23.18,
+  "raw_events_count": 31,
+  "workspace_files": [
+    "dge_analysis.py"
+  ]
+}

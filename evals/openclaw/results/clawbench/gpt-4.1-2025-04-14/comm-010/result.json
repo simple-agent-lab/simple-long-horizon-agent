@@ -1,0 +1,20 @@
+{
+  "task_id": "comm-010",
+  "dir_name": "comm-010-notification-router",
+  "domain": "communication",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "passed": false,
+  "score": 0.963,
+  "checks_total": 27,
+  "checks_passed": 26,
+  "details": "passed: communication/comm-010-notification-router/verifier/test_output.py::test_output_file_exists\npassed: communication/comm-010-notification-router/verifier/test_output.py::test_valid_json\npassed: communication/comm-010-notification-router/verifier/test_output.py::test_is_array\npassed: communication/comm-010-notification-router/verifier/test_output.py::test_event_count\npassed: communication/comm-010-notification-router/verifier/test_output.py::test_required_fields\npassed: communication/comm-010-notification-router/verifier/test_output.py::test_event_order\npassed: communication/comm-010-notification-router/verifier/test_output.py::test_evt001_critical_system\npassed: communication/comm-010-notification-router/verifier/test_output.py::test_evt002_deploy_production\npassed: communication/comm-010-notification-router/verifier/test_output.py::test_evt003_security_breach\npassed: communication/comm-010-notification-router/verifier/test_output.py::test_evt004_heartbeat\npassed: communication/comm-010-notification-router/verifier/test_output.py::test_evt005_database_critical\npassed: communication/comm-010-notification-router/verifier/test_output.py::test_evt006_api_rate_limit\npassed: communication/comm-010-notification-router/verifier/test_output.py::test_evt007_no_match\npassed: communication/comm-010-notification-router/verifier/test_output.py::test_evt008_deploy_staging\npassed: communication/comm-010-notification-router/verifier/test_output.py::test_evt009_security_general\npassed: communication/comm-010-notification-router/verifier/test_output.py::test_evt010_database_warning\npassed: communication/comm-010-notification-router/verifier/test_output.py::test_evt011_unmatched\npassed: communication/comm-010-notification-router/verifier/test_output.py::test_evt012_high_severity_system\npassed: communication/comm-010-notification-router/verifier/test_output.py::test_channels_are_strings\npassed: communication/comm-010-notification-router/verifier/test_output.py::test_priority_is_string\npassed: communication/comm-010-notification-router/verifier/test_output.py::test_no_placeholder_values\nfailed: communication/comm-010-notification-router/verifier/test_output.py::test_no_empty_critical_fields\npassed: communication/comm-010-notification-router/verifier/test_output.py::test_encoding_valid\npassed: communication/comm-010-notification-router/verifier/test_output.py::test_consistent_key_naming\npassed: communication/comm-010-notification-router/verifier/test_output.py::test_no_duplicate_entries\npassed: communication/comm-010-notification-router/verifier/test_output.py::test_no_extraneous_files\npassed: communication/comm-010-notification-router/verifier/test_output.py::test_output_not_excessively_large",
+  "error": null,
+  "execution_time": 22.4,
+  "raw_events_count": 49,
+  "workspace_files": [
+    "events.json",
+    "routed_notifications.json",
+    "rules.yaml"
+  ]
+}

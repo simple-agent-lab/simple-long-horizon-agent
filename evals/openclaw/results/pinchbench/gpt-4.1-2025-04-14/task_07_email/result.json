@@ -1,0 +1,10 @@
+{
+  "task_id": "task_07_email",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "scores": {},
+  "mean": 1.0,
+  "error": null,
+  "execution_time": 3.89,
+  "raw_events_count": 15
+}

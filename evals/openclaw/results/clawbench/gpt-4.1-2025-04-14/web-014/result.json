@@ -1,0 +1,19 @@
+{
+  "task_id": "web-014",
+  "dir_name": "web-014-web-scraping-parser",
+  "domain": "web-browsing",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "passed": true,
+  "score": 1.0,
+  "checks_total": 19,
+  "checks_passed": 19,
+  "details": "passed: web-browsing/web-014-web-scraping-parser/verifier/test_output.py::test_output_file_exists\npassed: web-browsing/web-014-web-scraping-parser/verifier/test_output.py::test_top_level_keys\npassed: web-browsing/web-014-web-scraping-parser/verifier/test_output.py::test_product_count\npassed: web-browsing/web-014-web-scraping-parser/verifier/test_output.py::test_product_structure\npassed: web-browsing/web-014-web-scraping-parser/verifier/test_output.py::test_prices_are_floats\npassed: web-browsing/web-014-web-scraping-parser/verifier/test_output.py::test_in_stock_is_boolean\npassed: web-browsing/web-014-web-scraping-parser/verifier/test_output.py::test_specific_products\npassed: web-browsing/web-014-web-scraping-parser/verifier/test_output.py::test_total_products\npassed: web-browsing/web-014-web-scraping-parser/verifier/test_output.py::test_avg_price\npassed: web-browsing/web-014-web-scraping-parser/verifier/test_output.py::test_categories\npassed: web-browsing/web-014-web-scraping-parser/verifier/test_output.py::test_in_stock_count\npassed: web-browsing/web-014-web-scraping-parser/verifier/test_output.py::test_out_of_stock_products\npassed: web-browsing/web-014-web-scraping-parser/verifier/test_output.py::test_no_placeholder_values\npassed: web-browsing/web-014-web-scraping-parser/verifier/test_output.py::test_no_empty_critical_fields\npassed: web-browsing/web-014-web-scraping-parser/verifier/test_output.py::test_encoding_valid\npassed: web-browsing/web-014-web-scraping-parser/verifier/test_output.py::test_consistent_key_naming\npassed: web-browsing/web-014-web-scraping-parser/verifier/test_output.py::test_no_duplicate_entries\npassed: web-browsing/web-014-web-scraping-parser/verifier/test_output.py::test_no_extraneous_files\npassed: web-browsing/web-014-web-scraping-parser/verifier/test_output.py::test_output_not_excessively_large",
+  "error": null,
+  "execution_time": 19.01,
+  "raw_events_count": 47,
+  "workspace_files": [
+    "products.html",
+    "products.json"
+  ]
+}

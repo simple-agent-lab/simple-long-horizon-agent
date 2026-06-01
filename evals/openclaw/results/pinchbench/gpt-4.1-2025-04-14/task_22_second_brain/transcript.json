@@ -1,0 +1,14 @@
+[
+  {
+    "type": "message",
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "Understood! I'm ready to assist with your multi-session task. Please let me know what you'd like to do or which session you want to begin with. If you have a specific set of instructions or fields (like the `sessions` field or prompt sequence), feel free to share them, and I'll follow them accordingly."
+        }
+      ]
+    }
+  }
+]

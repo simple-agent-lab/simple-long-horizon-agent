@@ -1,0 +1,20 @@
+{
+  "task_id": "cal-002",
+  "dir_name": "cal-002-delete-meeting",
+  "domain": "calendar",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "passed": true,
+  "score": 1.0,
+  "checks_total": 13,
+  "checks_passed": 13,
+  "details": "passed: calendar/cal-002-delete-meeting/verifier/test_output.py::test_output_file_exists\npassed: calendar/cal-002-delete-meeting/verifier/test_output.py::test_meeting_count\npassed: calendar/cal-002-delete-meeting/verifier/test_output.py::test_deleted_meeting_removed\npassed: calendar/cal-002-delete-meeting/verifier/test_output.py::test_remaining_meetings_present\npassed: calendar/cal-002-delete-meeting/verifier/test_output.py::test_remaining_meetings_unchanged\npassed: calendar/cal-002-delete-meeting/verifier/test_output.py::test_valid_json_structure\npassed: calendar/cal-002-delete-meeting/verifier/test_output.py::test_no_placeholder_values\npassed: calendar/cal-002-delete-meeting/verifier/test_output.py::test_no_empty_critical_fields\npassed: calendar/cal-002-delete-meeting/verifier/test_output.py::test_encoding_valid\npassed: calendar/cal-002-delete-meeting/verifier/test_output.py::test_consistent_key_naming\npassed: calendar/cal-002-delete-meeting/verifier/test_output.py::test_no_duplicate_entries\npassed: calendar/cal-002-delete-meeting/verifier/test_output.py::test_no_extraneous_files\npassed: calendar/cal-002-delete-meeting/verifier/test_output.py::test_output_not_excessively_large",
+  "error": null,
+  "execution_time": 4.22,
+  "raw_events_count": 15,
+  "workspace_files": [
+    ".gitkeep",
+    "calendar.json",
+    "updated_calendar.json"
+  ]
+}

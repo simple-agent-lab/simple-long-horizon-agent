@@ -1,0 +1,28 @@
+{
+  "task_id": "doc-017",
+  "dir_name": "doc-017-weekly-status-report",
+  "domain": "document-editing",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "passed": true,
+  "score": 1.0,
+  "checks_total": 20,
+  "checks_passed": 20,
+  "details": "passed: document-editing/doc-017-weekly-status-report/verifier/test_output.py::test_output_file_exists\npassed: document-editing/doc-017-weekly-status-report/verifier/test_output.py::test_valid_json\npassed: document-editing/doc-017-weekly-status-report/verifier/test_output.py::test_week_field\npassed: document-editing/doc-017-weekly-status-report/verifier/test_output.py::test_completed_is_list\npassed: document-editing/doc-017-weekly-status-report/verifier/test_output.py::test_completed_count_matches\npassed: document-editing/doc-017-weekly-status-report/verifier/test_output.py::test_completed_has_eight_items\npassed: document-editing/doc-017-weekly-status-report/verifier/test_output.py::test_completed_contains_key_items\npassed: document-editing/doc-017-weekly-status-report/verifier/test_output.py::test_in_progress_is_list\npassed: document-editing/doc-017-weekly-status-report/verifier/test_output.py::test_in_progress_from_friday\npassed: document-editing/doc-017-weekly-status-report/verifier/test_output.py::test_blockers_is_list\npassed: document-editing/doc-017-weekly-status-report/verifier/test_output.py::test_blockers_contains_staging_issue\npassed: document-editing/doc-017-weekly-status-report/verifier/test_output.py::test_blockers_does_not_contain_resolved\npassed: document-editing/doc-017-weekly-status-report/verifier/test_output.py::test_has_highlights\npassed: document-editing/doc-017-weekly-status-report/verifier/test_output.py::test_no_placeholder_values\npassed: document-editing/doc-017-weekly-status-report/verifier/test_output.py::test_no_empty_critical_fields\npassed: document-editing/doc-017-weekly-status-report/verifier/test_output.py::test_encoding_valid\npassed: document-editing/doc-017-weekly-status-report/verifier/test_output.py::test_consistent_key_naming\npassed: document-editing/doc-017-weekly-status-report/verifier/test_output.py::test_no_duplicate_entries\npassed: document-editing/doc-017-weekly-status-report/verifier/test_output.py::test_no_extraneous_files\npassed: document-editing/doc-017-weekly-status-report/verifier/test_output.py::test_output_not_excessively_large",
+  "error": null,
+  "execution_time": 8.22,
+  "raw_events_count": 31,
+  "workspace_files": [
+    "friday.txt",
+    "monday.txt",
+    "standups/friday.txt",
+    "standups/monday.txt",
+    "standups/thursday.txt",
+    "standups/tuesday.txt",
+    "standups/wednesday.txt",
+    "thursday.txt",
+    "tuesday.txt",
+    "wednesday.txt",
+    "weekly_report.json"
+  ]
+}

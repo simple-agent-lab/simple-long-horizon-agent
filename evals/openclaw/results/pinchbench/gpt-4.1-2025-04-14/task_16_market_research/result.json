@@ -1,0 +1,19 @@
+{
+  "task_id": "task_16_market_research",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "scores": {
+    "file_created": 1.0,
+    "competitors_identified": 1.0,
+    "has_comparison_table": 1.0,
+    "has_pricing_info": 1.0,
+    "has_trends_section": 1.0,
+    "has_structure": 1.0,
+    "has_executive_summary": 1.0,
+    "used_web_search": 0.0
+  },
+  "mean": 0.875,
+  "error": null,
+  "execution_time": 15.91,
+  "raw_events_count": 15
+}

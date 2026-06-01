@@ -1,0 +1,21 @@
+{
+  "task_id": "mm-009",
+  "dir_name": "mm-009-markdown-report",
+  "domain": "multimodal",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "passed": false,
+  "score": 0.7368,
+  "checks_total": 19,
+  "checks_passed": 14,
+  "details": "passed: multimodal/mm-009-markdown-report/verifier/test_output.py::test_output_file_exists\nfailed: multimodal/mm-009-markdown-report/verifier/test_output.py::test_ytd_total\nfailed: multimodal/mm-009-markdown-report/verifier/test_output.py::test_avg_monthly\npassed: multimodal/mm-009-markdown-report/verifier/test_output.py::test_top_performer_name\nfailed: multimodal/mm-009-markdown-report/verifier/test_output.py::test_top_performer_total\npassed: multimodal/mm-009-markdown-report/verifier/test_output.py::test_report_date_present\nfailed: multimodal/mm-009-markdown-report/verifier/test_output.py::test_sales_table_exists\npassed: multimodal/mm-009-markdown-report/verifier/test_output.py::test_sales_table_has_all_salespeople\nfailed: multimodal/mm-009-markdown-report/verifier/test_output.py::test_sales_table_percentages\npassed: multimodal/mm-009-markdown-report/verifier/test_output.py::test_sales_table_sorted_descending\npassed: multimodal/mm-009-markdown-report/verifier/test_output.py::test_target_values_in_table\npassed: multimodal/mm-009-markdown-report/verifier/test_output.py::test_no_unfilled_placeholders\npassed: multimodal/mm-009-markdown-report/verifier/test_output.py::test_no_placeholder_values\npassed: multimodal/mm-009-markdown-report/verifier/test_output.py::test_no_empty_critical_fields\npassed: multimodal/mm-009-markdown-report/verifier/test_output.py::test_encoding_valid\npassed: multimodal/mm-009-markdown-report/verifier/test_output.py::test_consistent_key_naming\npassed: multimodal/mm-009-markdown-report/verifier/test_output.py::test_no_duplicate_entries\npassed: multimodal/mm-009-markdown-report/verifier/test_output.py::test_no_extraneous_files\npassed: multimodal/mm-009-markdown-report/verifier/test_output.py::test_output_not_excessively_large",
+  "error": null,
+  "execution_time": 10.87,
+  "raw_events_count": 27,
+  "workspace_files": [
+    "report.md",
+    "sales.csv",
+    "targets.json",
+    "template.md"
+  ]
+}

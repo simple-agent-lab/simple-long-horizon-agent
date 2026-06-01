@@ -1,0 +1,21 @@
+{
+  "task_id": "task_17_email_search",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "scores": {
+    "file_created": 0.0,
+    "project_identified": 0.0,
+    "tech_stack": 0.0,
+    "budget_tracking": 0.0,
+    "timeline_tracking": 0.0,
+    "security_findings": 0.0,
+    "client_revenue": 0.0,
+    "noise_filtered": 0.0,
+    "has_required_sections": 0.0,
+    "cross_referencing": 0.0
+  },
+  "mean": 0.0,
+  "error": null,
+  "execution_time": 16.03,
+  "raw_events_count": 39
+}

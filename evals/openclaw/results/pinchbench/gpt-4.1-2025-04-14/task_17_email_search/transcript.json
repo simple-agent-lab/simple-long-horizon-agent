@@ -1,0 +1,306 @@
+[
+  {
+    "type": "message",
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "toolCall",
+          "name": "bash",
+          "arguments": {
+            "command": "grep -ril 'Project Alpha' emails/",
+            "description": "Find all email files mentioning Project Alpha."
+          },
+          "id": "call_Lcj6pgYdfNJJYYDKtOrZmhhI"
+        }
+      ]
+    }
+  },
+  {
+    "type": "tool_call",
+    "name": "bash",
+    "params": {}
+  },
+  {
+    "type": "tool_result",
+    "result": ""
+  },
+  {
+    "type": "message",
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "type": "toolResult",
+          "content": [
+            "$ grep -ril 'Project Alpha' emails/\nstdout:\nemails/2026-02-18_alpha_timeline_slip.txt\nemails/2026-01-15_project_alpha_kickoff.txt\nemails/2026-01-22_alpha_data_pipeline.txt\nemails/2026-02-12_alpha_phase1_complete.txt\nemails/2026-02-10_alpha_security_review.txt\nemails/2026-02-25_alpha_frontend_progress.txt\nemails/2026-02-14_alpha_client_feedback.txt\nemails/2026-02-03_alpha_budget_concern.txt\nemails/2026-02-05_alpha_api_design.txt"
+          ],
+          "tool_call_id": "call_Lcj6pgYdfNJJYYDKtOrZmhhI",
+          "tool_name": "bash"
+        }
+      ]
+    }
+  },
+  {
+    "type": "message",
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "toolCall",
+          "name": "bash",
+          "arguments": {
+            "command": "cat emails/2026-01-15_project_alpha_kickoff.txt",
+            "description": "Read kickoff email for Project Alpha."
+          },
+          "id": "call_kNLJiP24ITIOHaybeLlcCxS5"
+        },
+        {
+          "type": "toolCall",
+          "name": "bash",
+          "arguments": {
+            "command": "cat emails/2026-01-22_alpha_data_pipeline.txt",
+            "description": "Read data pipeline email for Project Alpha."
+          },
+          "id": "call_DQ3M7yiCeG9kdvWFm8IBrHGK"
+        },
+        {
+          "type": "toolCall",
+          "name": "bash",
+          "arguments": {
+            "command": "cat emails/2026-02-03_alpha_budget_concern.txt",
+            "description": "Read email about budget concerns for Project Alpha."
+          },
+          "id": "call_jtKvcnXhTSPN3ojRTtTLigI9"
+        },
+        {
+          "type": "toolCall",
+          "name": "bash",
+          "arguments": {
+            "command": "cat emails/2026-02-05_alpha_api_design.txt",
+            "description": "Read API design email for Project Alpha."
+          },
+          "id": "call_5Em1E27rI2FrV8uTsqDaM2HU"
+        },
+        {
+          "type": "toolCall",
+          "name": "bash",
+          "arguments": {
+            "command": "cat emails/2026-02-10_alpha_security_review.txt",
+            "description": "Read security review email for Project Alpha."
+          },
+          "id": "call_5cM1eXRyMMVkptMIhhna13KC"
+        },
+        {
+          "type": "toolCall",
+          "name": "bash",
+          "arguments": {
+            "command": "cat emails/2026-02-12_alpha_phase1_complete.txt",
+            "description": "Read phase 1 completion email for Project Alpha."
+          },
+          "id": "call_eyoQgqQc5b4jjwtAbOctv5xw"
+        },
+        {
+          "type": "toolCall",
+          "name": "bash",
+          "arguments": {
+            "command": "cat emails/2026-02-14_alpha_client_feedback.txt",
+            "description": "Read client feedback email for Project Alpha."
+          },
+          "id": "call_oAaRyR7YZqReLuCOBsgBNeWf"
+        },
+        {
+          "type": "toolCall",
+          "name": "bash",
+          "arguments": {
+            "command": "cat emails/2026-02-18_alpha_timeline_slip.txt",
+            "description": "Read timeline slip email for Project Alpha."
+          },
+          "id": "call_7f8Mw5PJI3m5cgqFoYRX9JRp"
+        },
+        {
+          "type": "toolCall",
+          "name": "bash",
+          "arguments": {
+            "command": "cat emails/2026-02-25_alpha_frontend_progress.txt",
+            "description": "Read frontend progress email for Project Alpha."
+          },
+          "id": "call_pKzkPdzScPBPwjvMFTGk7kJV"
+        }
+      ]
+    }
+  },
+  {
+    "type": "tool_call",
+    "name": "bash",
+    "params": {}
+  },
+  {
+    "type": "tool_call",
+    "name": "bash",
+    "params": {}
+  },
+  {
+    "type": "tool_call",
+    "name": "bash",
+    "params": {}
+  },
+  {
+    "type": "tool_call",
+    "name": "bash",
+    "params": {}
+  },
+  {
+    "type": "tool_call",
+    "name": "bash",
+    "params": {}
+  },
+  {
+    "type": "tool_call",
+    "name": "bash",
+    "params": {}
+  },
+  {
+    "type": "tool_call",
+    "name": "bash",
+    "params": {}
+  },
+  {
+    "type": "tool_call",
+    "name": "bash",
+    "params": {}
+  },
+  {
+    "type": "tool_call",
+    "name": "bash",
+    "params": {}
+  },
+  {
+    "type": "tool_result",
+    "result": ""
+  },
+  {
+    "type": "tool_result",
+    "result": ""
+  },
+  {
+    "type": "tool_result",
+    "result": ""
+  },
+  {
+    "type": "tool_result",
+    "result": ""
+  },
+  {
+    "type": "tool_result",
+    "result": ""
+  },
+  {
+    "type": "tool_result",
+    "result": ""
+  },
+  {
+    "type": "tool_result",
+    "result": ""
+  },
+  {
+    "type": "tool_result",
+    "result": ""
+  },
+  {
+    "type": "tool_result",
+    "result": ""
+  },
+  {
+    "type": "message",
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "type": "toolResult",
+          "content": [
+            "$ cat emails/2026-01-15_project_alpha_kickoff.txt\nstdout:\nFrom: sarah.chen@mycompany.com (Sarah Chen, Project Lead)\nTo: engineering-team@mycompany.com\nDate: Thu, 15 Jan 2026 09:00:00 -0500\nSubject: Project Alpha - Kickoff and Timeline\n\nHi team,\n\nExcited to announce that Project Alpha has been officially greenlit! This is our\nnew customer-facing analytics dashboard that will replace the legacy reporting\nsystem. Here's what you need to know:\n\nTimeline:\n- Phase 1 (Data Pipeline): Jan 20 - Feb 14\n- Phase 2 (API Layer): Feb 17 - Mar 14\n- Phase 3 (Frontend): Mar 17 - Apr 18\n- Beta Launch: Apr 21\n- GA Release: May 12\n\nKey decisions from the planning meeting:\n- We're going with PostgreSQL + TimescaleDB for the time-series data\n- API will be built with FastAPI (Python)\n- Frontend will use React with the new charting library (Recharts)\n- Authentication will integrate with our existing SSO via OAuth2\n\nBudget has been approved for $340K total, broken down as:\n- Infrastructure: $85K\n- Engineering (6 FTEs, 4 months): $220K\n- QA and testing: $35K\n\nI'll be sending out individual role assignments by end of week. Please review\nthe PRD linked here: https://docs.mycompany.com/alpha-prd\n\nLet's make this one a success!\nSarah"
+          ],
+          "tool_call_id": "call_kNLJiP24ITIOHaybeLlcCxS5",
+          "tool_name": "bash"
+        },
+        {
+          "type": "toolResult",
+          "content": [
+            "$ cat emails/2026-01-22_alpha_data_pipeline.txt\nstdout:\nFrom: raj.patel@mycompany.com (Raj Patel, Senior Data Engineer)\nTo: sarah.chen@mycompany.com\nCc: engineering-team@mycompany.com\nDate: Thu, 22 Jan 2026 14:30:00 -0500\nSubject: Re: Project Alpha - Data Pipeline Architecture Proposal\n\nHi Sarah,\n\nHere's the data pipeline architecture proposal for Phase 1:\n\nIngestion Layer:\n- Apache Kafka for real-time event streaming from client applications\n- Batch ingestion via Airflow DAGs for historical data migration\n- Expected throughput: ~50K events/sec at peak\n\nProcessing:\n- Apache Flink for stream processing and aggregation\n- dbt for batch transformations and data modeling\n- Data quality checks via Great Expectations\n\nStorage:\n- TimescaleDB for time-series metrics (as decided)\n- Redis for caching frequently accessed aggregations\n- S3 for raw data lake storage\n\nOne concern: the estimated data volume (~2TB/day) is higher than initially\nprojected. This will push our infrastructure costs up by approximately $15K/month\nbeyond the original budget. I recommend we discuss this at Friday's standup.\n\nAlso, I've identified a potential risk with the Kafka cluster sizing. We may need\nto provision 6 brokers instead of 3 to handle the peak load safely. This adds\nanother $8K/month to our cloud spend.\n\nI've documented everything in detail: https://docs.mycompany.com/alpha-pipeline-arch\n\nRaj"
+          ],
+          "tool_call_id": "call_DQ3M7yiCeG9kdvWFm8IBrHGK",
+          "tool_name": "bash"
+        },
+        {
+          "type": "toolResult",
+          "content": [
+            "$ cat emails/2026-02-03_alpha_budget_concern.txt\nstdout:\nFrom: linda.zhao@mycompany.com (Linda Zhao, CFO)\nTo: sarah.chen@mycompany.com\nCc: david.park@mycompany.com\nDate: Tue, 03 Feb 2026 10:15:00 -0500\nSubject: Re: Project Alpha - Budget Overrun Risk\n\nSarah,\n\nI've reviewed the updated infrastructure cost projections you forwarded from Raj.\nThe additional $23K/month ($15K data volume + $8K Kafka scaling) translates to\nroughly $92K over the 4-month project timeline. This would push us from $340K to\npotentially $432K - a 27% overrun.\n\nBefore I can approve the expanded budget, I need:\n\n1. A detailed cost-benefit analysis showing ROI at the higher spend level\n2. Confirmation from the sales team that the projected $2.1M ARR from the\n   analytics product still holds\n3. An exploration of cost optimization options - can we use spot instances?\n   Can we tier the data retention to reduce storage costs?\n\nI've flagged this to David (CTO) as well. Let's schedule a 30-min budget review\nmeeting this week. Thursday at 2pm works for me.\n\nThis isn't a \"no\" - it's a \"show me the numbers.\" I want this project to succeed\nbut we need fiscal discipline.\n\nLinda"
+          ],
+          "tool_call_id": "call_jtKvcnXhTSPN3ojRTtTLigI9",
+          "tool_name": "bash"
+        },
+        {
+          "type": "toolResult",
+          "content": [
+            "$ cat emails/2026-02-05_alpha_api_design.txt\nstdout:\nFrom: marcus.johnson@mycompany.com (Marcus Johnson, Backend Lead)\nTo: engineering-team@mycompany.com\nDate: Thu, 05 Feb 2026 16:45:00 -0500\nSubject: Project Alpha - API Design Review Request\n\nTeam,\n\nI've completed the initial API design for the Alpha analytics dashboard. Looking\nfor feedback before we start Phase 2 implementation.\n\nKey endpoints:\n\nGET /api/v1/dashboards - List user dashboards\nPOST /api/v1/dashboards - Create custom dashboard\nGET /api/v1/metrics/{metric_id}/timeseries - Query time-series data\nPOST /api/v1/reports/generate - Generate exportable report (PDF/CSV)\nGET /api/v1/alerts - List configured alerts\nPOST /api/v1/alerts - Create threshold-based alert\nWebSocket /ws/v1/live-metrics - Real-time metric streaming\n\nAuthentication: OAuth2 bearer tokens via existing SSO\nRate limiting: 100 req/sec per tenant, 1000 req/sec global\nPagination: Cursor-based for all list endpoints\n\nI have a concern about the real-time WebSocket endpoint. Our current\ninfrastructure doesn't support sticky sessions for WebSocket connections. We\neither need to:\na) Add Redis pub/sub for WebSocket message distribution\nb) Deploy a separate WebSocket gateway service\nc) Use Server-Sent Events (SSE) instead (simpler but one-directional)\n\nI'm leaning toward option (b) for scalability, but it adds ~2 weeks to the Phase 2\ntimeline. Thoughts?\n\nFull API spec: https://docs.mycompany.com/alpha-api-spec\n\nMarcus"
+          ],
+          "tool_call_id": "call_5Em1E27rI2FrV8uTsqDaM2HU",
+          "tool_name": "bash"
+        },
+        {
+          "type": "toolResult",
+          "content": [
+            "$ cat emails/2026-02-10_alpha_security_review.txt\nstdout:\nFrom: security@mycompany.com (Security Team)\nTo: sarah.chen@mycompany.com, marcus.johnson@mycompany.com\nDate: Tue, 10 Feb 2026 11:00:00 -0500\nSubject: Project Alpha - Mandatory Security Review Findings\n\nHi Sarah and Marcus,\n\nWe've completed the preliminary security review of Project Alpha's architecture\nand API design. Here are our findings:\n\nCRITICAL (must fix before launch):\n1. The /api/v1/metrics/{metric_id}/timeseries endpoint allows cross-tenant\n   data access if metric_id is guessable. Must implement tenant isolation\n   at the query layer, not just the API layer.\n2. WebSocket connections must implement per-message authentication tokens,\n   not just connection-time auth. Long-lived connections are a known attack\n   vector.\n\nHIGH (should fix before launch):\n3. Rate limiting should be per-tenant AND per-user to prevent single-user\n   abuse within a tenant.\n4. The report generation endpoint (POST /reports/generate) accepts format\n   parameters that could be exploited for SSRF if not properly validated.\n5. Audit logging is missing for dashboard creation and alert configuration\n   changes.\n\nMEDIUM (fix within 30 days post-launch):\n6. Consider implementing request signing for the API to prevent replay attacks.\n7. Add CORS configuration documentation and ensure allowlists are strict.\n\nWe'll need a follow-up review after the critical and high items are addressed.\nPlease schedule this at least 2 weeks before the beta launch date.\n\nFull report: https://docs.mycompany.com/alpha-security-review\n\nSecurity Team"
+          ],
+          "tool_call_id": "call_5cM1eXRyMMVkptMIhhna13KC",
+          "tool_name": "bash"
+        },
+        {
+          "type": "toolResult",
+          "content": [
+            "$ cat emails/2026-02-12_alpha_phase1_complete.txt\nstdout:\nFrom: raj.patel@mycompany.com (Raj Patel, Senior Data Engineer)\nTo: sarah.chen@mycompany.com\nCc: engineering-team@mycompany.com\nDate: Thu, 12 Feb 2026 17:00:00 -0500\nSubject: Project Alpha - Phase 1 Complete! Data Pipeline Live\n\nHi everyone,\n\nHappy to report that Phase 1 (Data Pipeline) is officially complete, on schedule!\n\nWhat's live:\n- Kafka cluster (6 brokers) processing ~48K events/sec average\n- Flink stream processing with <200ms end-to-end latency\n- TimescaleDB populated with 3 weeks of historical data\n- dbt models running on hourly schedule\n- Great Expectations data quality suite passing at 99.7% threshold\n\nBudget update:\n- After the meeting with Linda, we got approval for the expanded budget ($410K)\n- We saved $22K by using spot instances for the Flink processing nodes\n- Current Phase 1 actual spend: $78K (vs $85K budgeted for infra)\n\nOne hiccup: we had a 4-hour outage on Feb 8 when the Kafka cluster hit a\nrebalancing storm during a broker restart. We've since implemented graceful\nshutdown procedures and added monitoring alerts. Incident doc is here:\nhttps://docs.mycompany.com/alpha-incident-feb8\n\nMoving on to Phase 2 starting Monday. Raj will hand off pipeline ops to the\nSRE team.\n\nGreat work everyone!\nRaj"
+          ],
+          "tool_call_id": "call_eyoQgqQc5b4jjwtAbOctv5xw",
+          "tool_name": "bash"
+        },
+        {
+          "type": "toolResult",
+          "content": [
+            "$ cat emails/2026-02-14_alpha_client_feedback.txt\nstdout:\nFrom: jessica.torres@mycompany.com (Jessica Torres, Head of Sales)\nTo: sarah.chen@mycompany.com, david.park@mycompany.com\nDate: Fri, 14 Feb 2026 13:20:00 -0500\nSubject: Project Alpha - Early Client Feedback from Beta Waitlist\n\nSarah, David,\n\nWanted to share some exciting feedback from our beta waitlist clients. We've had\npreliminary demos with 5 enterprise prospects and the response has been very\npositive:\n\nAcme Corp ($500K ARR potential):\n- \"The real-time dashboard is exactly what we've been looking for\"\n- Want custom alerting based on business KPIs, not just technical metrics\n- Asked about SSO integration with their Okta instance\n\nGlobalTech ($350K ARR):\n- Impressed with the data pipeline latency numbers\n- Need CSV and PDF export for compliance reporting\n- Want API access for programmatic data pulls\n\nNexus Industries ($280K ARR):\n- Love the UI mockups\n- Concerned about multi-region data residency requirements (GDPR)\n- Asked about SLA guarantees for the real-time streaming\n\nSummit Financial ($420K ARR):\n- Very interested in the anomaly detection features (not yet built)\n- Need SOC 2 Type II compliance before they can sign\n- Want white-labeling options for their own clients\n\nDataFlow Inc ($300K ARR):\n- Wants to integrate with their existing Snowflake data warehouse\n- Asked about custom metric definitions via the API\n- Budget approval contingent on Q2 board meeting\n\nTotal pipeline from these 5 alone: $1.85M ARR. Combined with existing prospects,\nwe're tracking toward $2.8M ARR - ahead of our $2.1M projection.\n\nThe top feature requests across all prospects:\n1. Custom alerting / anomaly detection\n2. Compliance-ready export (PDF/CSV)\n3. API access for programmatic use\n4. Multi-region / data residency support\n5. White-labeling capabilities\n\nLet me know if you want me to join the next sprint planning to prioritize these.\n\nJessica"
+          ],
+          "tool_call_id": "call_oAaRyR7YZqReLuCOBsgBNeWf",
+          "tool_name": "bash"
+        },
+        {
+          "type": "toolResult",
+          "content": [
+            "$ cat emails/2026-02-18_alpha_timeline_slip.txt\nstdout:\nFrom: sarah.chen@mycompany.com (Sarah Chen, Project Lead)\nTo: engineering-team@mycompany.com\nCc: david.park@mycompany.com\nDate: Wed, 18 Feb 2026 09:30:00 -0500\nSubject: Project Alpha - Updated Timeline (Phase 2 delay)\n\nTeam,\n\nAfter reviewing the security findings and Marcus's WebSocket proposal, I need to\ncommunicate a timeline adjustment for Project Alpha:\n\nWhat changed:\n- Security critical items (cross-tenant isolation, WebSocket auth) add ~1.5 weeks\n- WebSocket gateway service (option b) adds ~2 weeks\n- Combined impact: Phase 2 extends by ~2.5 weeks (some work parallelizable)\n\nUpdated timeline:\n- Phase 2 (API Layer): Feb 17 - Apr 1 (was Mar 14)\n- Phase 3 (Frontend): Apr 2 - May 3 (was Mar 17 - Apr 18)\n- Beta Launch: May 6 (was Apr 21)\n- GA Release: May 27 (was May 12)\n\nThe beta launch slips by 15 days. I've discussed with David and he supports\nthe decision - shipping secure is non-negotiable.\n\nTo partially offset the delay, we're:\n1. Bringing in Alex Wong as a 7th engineer to help with the security fixes\n2. Moving the compliance export feature to Phase 3 to keep Phase 2 focused\n3. Starting frontend component development in parallel during late Phase 2\n\nJessica from sales has confirmed that none of our beta waitlist clients have\nhard deadlines before May 6, so client impact is minimal.\n\nI know delays are frustrating, but this is the right call. The security team's\nfindings were legitimate and we'd rather fix them now than scramble post-launch.\n\nUpdated Gantt chart: https://docs.mycompany.com/alpha-timeline-v2\n\nSarah"
+          ],
+          "tool_call_id": "call_7f8Mw5PJI3m5cgqFoYRX9JRp",
+          "tool_name": "bash"
+        },
+        {
+          "type": "toolResult",
+          "content": [
+            "$ cat emails/2026-02-25_alpha_frontend_progress.txt\nstdout:\nFrom: emily.nakamura@mycompany.com (Emily Nakamura, Frontend Lead)\nTo: sarah.chen@mycompany.com\nCc: engineering-team@mycompany.com\nDate: Wed, 25 Feb 2026 15:45:00 -0500\nSubject: Project Alpha - Frontend Early Progress Update\n\nHi Sarah,\n\nPer your suggestion, we started early frontend work in parallel with Phase 2.\nHere's where we stand:\n\nCompleted:\n- Design system and component library set up (Storybook)\n- Dashboard layout engine with drag-and-drop widget placement\n- Chart components (line, bar, area, pie) using Recharts\n- Authentication flow integrated with SSO\n- Responsive layouts for tablet and desktop\n\nIn Progress:\n- Real-time data streaming UI (waiting on WebSocket gateway from Marcus)\n- Report export interface (PDF preview + CSV download)\n- Alert configuration wizard\n\nBlocked:\n- Live metric widgets need the WebSocket API endpoint\n- Custom metric builder needs the metric definition API (Marcus ETA: Mar 10)\n\nOne thing from the client feedback - Summit Financial's white-labeling request\nis actually easier than I expected. Our design system already supports theme\ntokens. We could add white-label support with ~3 days of work during Phase 3.\nWorth prioritizing?\n\nFrontend demo environment: https://alpha-staging.mycompany.com\n\nEmily"
+          ],
+          "tool_call_id": "call_pKzkPdzScPBPwjvMFTGk7kJV",
+          "tool_name": "bash"
+        }
+      ]
+    }
+  },
+  {
+    "type": "message",
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "I've reviewed all emails relating to \"Project Alpha\" and synthesized their contents into a comprehensive summary. Here is your requested summary document:\n\n---\n\n# alpha_summary.md\n\n## 1. Project Overview\n\n**Project Alpha** is a new customer-facing analytics dashboard replacing the legacy reporting system. Its core technologies include:\n- **Backend/Data:** PostgreSQL + TimescaleDB for time-series analytics, Apache Kafka (event streaming), Apache Flink (real-time processing), Airflow (batch ingestion), dbt (data modeling), Redis (caching), S3 (data lake).\n- **API:** FastAPI (Python)\n- **Frontend:** React with Recharts (charting), SSO via OAuth2\n- **Authentication:** SSO, OAuth2 integration\n\n**Budget:**\n- Originally approved: $340K (Infrastructure $85K, Engineering $220K, QA/Testing $35K)\n- Expanded due to increased data volume and scaling needs: Approved for **$410K** (analyzed risks, offset costs using spot instances for Flink nodes).\n\n## 2. Timeline\n\n### Original Timeline (Jan 15, 2026)\n- Phase 1 (Data Pipeline): Jan 20 – Feb 14\n- Phase 2 (API Layer): Feb 17 – Mar 14\n- Phase 3 (Frontend): Mar 17 – Apr 18\n- Beta Launch: Apr 21\n- GA Release: May 12\n\n### Updated Timeline (as of Feb 18, 2026)\n- **Phase 1:** Delivered on schedule, Feb 12\n- **Phase 2:** API Layer – Feb 17 – Apr 1 (delay due to security fixes and WebSocket gateway)\n- **Phase 3:** Frontend – Apr 2 – May 3\n- **Beta Launch:** May 6 (slipped by 15 days)\n- **GA Release:** May 27 (slipped by 15 days)\n\n**Other adjustments:**\n- Compliance export feature pushed to Phase 3\n- Frontend started in parallel during late Phase 2\n- Added Alex Wong as a 7th engineer for security tasks\n\n## 3. Key Risks and Issues\n\n**Budget Concerns:**\n- Data volumes and Kafka scaling increased infrastructure cost (+$23K/mo, ~27% overrun).\n- CFO approval required with detailed ROI and sales confirmation.\n- Savings achieved via cloud cost optimizations.\n\n**Security Review Findings (Feb 10):**\n- *Critical:* Tenant isolation for metric queries, per-message auth for WebSockets.\n- *High:* Per-user rate limiting, SSRF risk on report generation, missing audit logging.\n- *Medium:* Request signing, strict CORS allowlists.\n- Timeline impact: Added ~2.5 weeks to Phase 2.\n\n**Technical Challenges:**\n- WebSocket sticky session issue for real-time dashboards. Decision to build a gateway service, adding ~2 weeks to API timeline.\n- Kafka cluster sizing (6 brokers needed vs. 3).\n- One incident: Feb 8 outage due to Kafka rebalance (now resolved).\n\n## 4. Client/Business Impact\n\n**Sales Pipeline & Projections:**\n- Early demos with 5 enterprise prospects ($1.85M ARR potential):\n  - Acme Corp: SSO, custom alerting, $500K ARR\n  - GlobalTech: Compliance export, API access, $350K ARR\n  - Nexus Industries: UI, GDPR/data residency, SLA, $280K ARR\n  - Summit Financial: Anomaly detection, SOC 2, white-labeling, $420K ARR\n  - DataFlow Inc: Snowflake integration, custom metrics, $300K ARR\n- **Total pipeline tracking:** $2.8M ARR (ahead of $2.1M projection)\n- Feature requests: Custom alerting/anomaly detection, API access, compliance export, multi-region/dataprotection, white-labeling.\n\n**Client Feedback:**\n- Positive responses, no client deadlines before May 6 (timeline slip minimal impact).\n- White-labeling support easy to implement (summit request).\n- Sales head ready to join sprint planning for feature prioritization.\n\n## 5. Current Status (as of Feb 25, 2026)\n\n- **Phase 1 (Data pipeline):** Complete, live and stable\n    - Kafka, Flink, TimescaleDB, dbt, Great Expectations suite running, 99.7% data quality\n    - Incident resolved, graceful shutdown procedures in place\n    - Actual infra spend slightly under budget due to optimizations\n    - SRE team handed off pipeline ops\n\n- **Phase 2 (API layer):** In progress, delayed until Apr 1\n    - WebSocket gateway service implementation ongoing\n    - Security fixes underway, Alex Wong added to support\n    - Some endpoint work (e.g. custom metric builder) scheduled for mid-March\n\n- **Frontend (React):** Early progress, some components live in staging\n    - Design system, dashboard layout, charting, SSO auth started\n    - Real-time data streaming UI blocked pending WebSocket gateway\n    - Features for report export and alert configuration underway\n    - White-labeling possible in Phase 3\n\n- **Sales & Business:** Strong pipeline, ahead of financial projection, client feature requests prioritized, timeline slip has minimal client impact.\n\n---\n\nLet me know if you need a more detailed breakdown for any specific section or want to review the raw email contents."
+        }
+      ]
+    }
+  }
+]

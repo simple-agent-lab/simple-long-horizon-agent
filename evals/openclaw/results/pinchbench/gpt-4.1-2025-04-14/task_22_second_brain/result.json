@@ -1,0 +1,13 @@
+{
+  "task_id": "task_22_second_brain",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "scores": {
+    "memory_tool_used": 0.0,
+    "recall_tool_used": 0.0
+  },
+  "mean": 0.0,
+  "error": null,
+  "execution_time": 1.41,
+  "raw_events_count": 7
+}

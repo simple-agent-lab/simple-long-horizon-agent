@@ -1,0 +1,17 @@
+{
+  "task_id": "task_02_stock",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "scores": {
+    "file_created": 0.0,
+    "ticker_present": 0.0,
+    "price_present": 0.0,
+    "date_present": 0.0,
+    "summary_present": 0.0,
+    "well_formatted": 0.0
+  },
+  "mean": 0.0,
+  "error": null,
+  "execution_time": 1.53,
+  "raw_events_count": 7
+}

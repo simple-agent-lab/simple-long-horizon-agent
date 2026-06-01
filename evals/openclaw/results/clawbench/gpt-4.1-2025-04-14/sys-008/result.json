@@ -1,0 +1,19 @@
+{
+  "task_id": "sys-008",
+  "dir_name": "sys-008-log-rotation-script",
+  "domain": "system-admin",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "passed": false,
+  "score": 0.3333,
+  "checks_total": 21,
+  "checks_passed": 7,
+  "details": "failed: system-admin/sys-008-log-rotation-script/verifier/test_output.py::test_rotation_plan_exists\nfailed: system-admin/sys-008-log-rotation-script/verifier/test_output.py::test_rotate_script_exists\nerror: system-admin/sys-008-log-rotation-script/verifier/test_output.py::test_plan_total_files\nerror: system-admin/sys-008-log-rotation-script/verifier/test_output.py::test_plan_rotate_plus_skip_equals_total\nerror: system-admin/sys-008-log-rotation-script/verifier/test_output.py::test_size_threshold_applied\nerror: system-admin/sys-008-log-rotation-script/verifier/test_output.py::test_age_threshold_applied\nerror: system-admin/sys-008-log-rotation-script/verifier/test_output.py::test_within_threshold_files_skipped\nerror: system-admin/sys-008-log-rotation-script/verifier/test_output.py::test_rotation_reasons_correct\nerror: system-admin/sys-008-log-rotation-script/verifier/test_output.py::test_script_starts_with_shebang\nerror: system-admin/sys-008-log-rotation-script/verifier/test_output.py::test_script_has_set_flags\nerror: system-admin/sys-008-log-rotation-script/verifier/test_output.py::test_script_is_valid_bash\nerror: system-admin/sys-008-log-rotation-script/verifier/test_output.py::test_script_references_rotated_files\nerror: system-admin/sys-008-log-rotation-script/verifier/test_output.py::test_space_to_free\nerror: system-admin/sys-008-log-rotation-script/verifier/test_output.py::test_rules_documented\npassed: system-admin/sys-008-log-rotation-script/verifier/test_output.py::test_no_placeholder_values\npassed: system-admin/sys-008-log-rotation-script/verifier/test_output.py::test_no_empty_critical_fields\npassed: system-admin/sys-008-log-rotation-script/verifier/test_output.py::test_encoding_valid\npassed: system-admin/sys-008-log-rotation-script/verifier/test_output.py::test_consistent_key_naming\npassed: system-admin/sys-008-log-rotation-script/verifier/test_output.py::test_no_duplicate_entries\npassed: system-admin/sys-008-log-rotation-script/verifier/test_output.py::test_no_extraneous_files\npassed: system-admin/sys-008-log-rotation-script/verifier/test_output.py::test_output_not_excessively_large",
+  "error": null,
+  "execution_time": 11.32,
+  "raw_events_count": 15,
+  "workspace_files": [
+    "log_manifest.json",
+    "logs/log_manifest.json"
+  ]
+}

@@ -1,0 +1,1201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>evals/openclaw/ 代码数据流剖析</title>
+<style>* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; line-height: 1.6; min-height: 100vh; }
+.topbar { background: #161b22; border-bottom: 1px solid #30363d; padding: 14px 32px; display: flex; align-items: center; gap: 16px; position: sticky; top: 0; z-index: 100; }
+.topbar h1 { font-size: 15px; color: #58a6ff; font-weight: 700; }
+.topbar .subtitle { color: #8b949e; font-size: 12px; }
+.page { display: flex; height: calc(100vh - 53px); }
+.flow-sidebar { width: 380px; min-width: 380px; background: #161b22; border-right: 1px solid #30363d; overflow-y: auto; padding: 24px 0; flex-shrink: 0; }
+.flow-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #484f58; padding: 0 20px 8px; }
+.flow-node { position: relative; padding: 12px 20px 12px 44px; cursor: pointer; transition: background .15s; border-left: 3px solid transparent; }
+.flow-node:hover { background: #1c2128; }
+.flow-node.active { background: #1c2128; border-left-color: #58a6ff; }
+.flow-node.active .node-title { color: #58a6ff; }
+.flow-node .node-num { position: absolute; left: 14px; top: 14px; width: 22px; height: 22px; border-radius: 50%; background: #21262d; border: 1.5px solid #30363d; color: #8b949e; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.flow-node.active .node-num { background: #1b3a5c; border-color: #58a6ff; color: #58a6ff; }
+.node-title { font-weight: 600; font-size: 13px; color: #c9d1d9; }
+.node-file { font-size: 10.5px; color: #58a6ff; font-family: monospace; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.node-desc { font-size: 11.5px; color: #8b949e; margin-top: 3px; line-height: 1.5; }
+.flow-arrow { padding: 2px 20px 2px 54px; color: #30363d; font-size: 18px; line-height: 1; pointer-events: none; }
+.flow-group { margin-top: 20px; padding: 0 20px 6px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: #3fb950; border-top: 1px solid #21262d; padding-top: 16px; }
+.detail-panel { flex: 1; overflow-y: auto; background: #0d1117; }
+.detail-header { background: #161b22; border-bottom: 1px solid #30363d; padding: 18px 28px 14px; position: sticky; top: 0; z-index: 10; }
+.detail-header .dh-title { font-size: 16px; font-weight: 700; color: #e6edf3; }
+.detail-header .dh-question { margin-top: 6px; font-size: 13px; color: #ffa657; font-weight: 600; }
+.detail-header .dh-answer { margin-top: 8px; font-size: 13px; color: #c9d1d9; line-height: 1.7; max-width: 780px; }
+.data-card { margin: 20px 28px 0; background: #161b22; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; }
+.data-card-title { background: #21262d; padding: 8px 14px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: #8b949e; display: flex; gap: 12px; align-items: center; }
+.tag { padding: 1px 6px; border-radius: 4px; font-size: 10px; }
+.tag-in { background: #1b3a5c; color: #58a6ff; }
+.tag-out { background: #1a3a24; color: #3fb950; }
+.tag-key { background: #3a2200; color: #ffa657; }
+.data-card pre { padding: 12px 16px; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px; line-height: 1.7; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+.code-section { margin: 20px 28px 0; }
+.code-section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: #8b949e; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+.code-section-title .filepath { font-family: monospace; font-size: 12px; color: #58a6ff; font-weight: 400; text-transform: none; letter-spacing: 0; }
+.code-wrap { background: #161b22; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; }
+.code-wrap pre { margin: 0; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12.5px; line-height: 1.8; overflow-x: auto; }
+.cl { display: flex; }
+.cl:hover { background: rgba(88,166,255,.04); }
+.ln { min-width: 44px; text-align: right; padding: 0 12px 0 8px; color: #484f58; user-select: none; flex-shrink: 0; }
+.lc { flex: 1; padding-right: 16px; white-space: pre; }
+.cl.hl { background: #1f2d3d; border-left: 3px solid #58a6ff; }
+.cl.hl .ln { color: #58a6ff; }
+.cl.hl-g { background: #0d2918; border-left: 3px solid #3fb950; }
+.cl.hl-g .ln { color: #3fb950; }
+.cl.hl-r { background: #2a0d0d; border-left: 3px solid #f85149; }
+.cl.hl-r .ln { color: #f85149; }
+.cl.hl-y { background: #2a1f00; border-left: 3px solid #e3b341; }
+.cl.hl-y .ln { color: #e3b341; }
+.lc .tip { display: inline-block; margin-left: 12px; padding: 1px 8px; background: #21262d; border: 1px solid #30363d; border-radius: 4px; font-size: 10.5px; color: #8b949e; white-space: normal; font-style: italic; }
+.anno-list { margin: 16px 28px 0; display: flex; flex-direction: column; gap: 10px; padding-bottom: 24px; }
+.anno-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 12px 14px; display: flex; gap: 12px; }
+.anno-card .icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+.anno-card .body strong { font-size: 13px; color: #e6edf3; display: block; margin-bottom: 4px; }
+.anno-card .body p { font-size: 12.5px; color: #c9d1d9; line-height: 1.6; }
+.anno-card .body code { background: #21262d; padding: 1px 5px; border-radius: 3px; font-family: monospace; font-size: 11.5px; color: #a5d6ff; }
+.pane { display: none; }
+.kw { color: #ff7b72; }
+.fn { color: #d2a8ff; }
+.st { color: #a5d6ff; }
+.nm { color: #79c0ff; }
+.cm { color: #6e7681; font-style: italic; }
+.bi { color: #79c0ff; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #0d1117; }
+::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <h1>evals/openclaw/ 代码数据流剖析</h1>
+  <span class="subtitle">Simple Agent Lab x ClawEvalkit 集成层 &middot; 4 modules, ~1600 lines &middot; 从 bash 命令到 result.json 的完整链路（15 nodes）</span>
+</div>
+<div class="page">
+  <nav class="flow-sidebar">
+    <div class="flow-label">一次评测的完整链路（从 bash 到 result.json）</div>
+<div class="flow-group">0. 入口：从 bash 命令到 Python 入口</div>
+<div class="flow-node active" onclick="show('bash')">
+  <div class="node-num">1</div>
+  <div class="node-title">bash 命令入口</div>
+  <div class="node-file">terminal</div>
+  <div class="node-desc">uv run python -m evals.openclaw 触发 __main__.py</div>
+</div>
+<div class="flow-arrow">&#8595;</div>
+<div class="flow-node" onclick="show('main')">
+  <div class="node-num">2</div>
+  <div class="node-title">argparse 解析 CLI 参数</div>
+  <div class="node-file">runner.py : L647-710</div>
+  <div class="node-desc">--bench / --model / --provider / --api-key-env / --sample 等</div>
+</div>
+<div class="flow-arrow">&#8595;</div>
+<div class="flow-node" onclick="show('runeval')">
+  <div class="node-num">3</div>
+  <div class="node-title">run_eval() — 调度入口</div>
+  <div class="node-file">runner.py : L562-644</div>
+  <div class="node-desc">构建 ModelConfig -> 分发到 BENCHMARK_RUNNERS[bench_key]()</div>
+</div>
+<div class="flow-arrow">&#8595;</div>
+<div class="flow-group">1. config.py — 模型配置</div>
+<div class="flow-node" onclick="show('config')">
+  <div class="node-num">4</div>
+  <div class="node-title">build_model_config()</div>
+  <div class="node-file">config.py : L93-138</div>
+  <div class="node-desc">三级 fallback 构建 ModelConfig frozen dataclass</div>
+</div>
+<div class="flow-arrow">&#8595;</div>
+<div class="flow-group">2. 任务加载</div>
+<div class="flow-node" onclick="show('load')">
+  <div class="node-num">5</div>
+  <div class="node-title">_load_clawbench_tasks()</div>
+  <div class="node-file">runner.py : L112-149</div>
+  <div class="node-desc">Glob */*/task.toml 解析 303 个 ClawBench 任务</div>
+</div>
+<div class="flow-arrow">&#8595;</div>
+<div class="flow-node" onclick="show('filter')">
+  <div class="node-num">6</div>
+  <div class="node-title">缓存过滤 + 采样</div>
+  <div class="node-file">runner.py : L453-474</div>
+  <div class="node-desc">跳过已跑过的任务，random.seed(42) 采样</div>
+</div>
+<div class="flow-arrow">&#8595;</div>
+<div class="flow-group">3. Agent 构建 + 执行</div>
+<div class="flow-node" onclick="show('azure')">
+  <div class="node-num">7</div>
+  <div class="node-title">_build_azure_agent()</div>
+  <div class="node-file">adapter.py : L157-271</div>
+  <div class="node-desc">自定义 AzureOpenAI generate 闭包，绕过 SAL Provider</div>
+</div>
+<div class="flow-arrow">&#8595;</div>
+<div class="flow-node" onclick="show('run')">
+  <div class="node-num">8</div>
+  <div class="node-title">agent.run() 内部循环</div>
+  <div class="node-file">SAL core.py : L98-198</div>
+  <div class="node-desc">generate -> tool_call -> bash执行 -> 观察输出 -> 再generate</div>
+</div>
+<div class="flow-arrow">&#8595;</div>
+<div class="flow-node" onclick="show('bashtool')">
+  <div class="node-num">9</div>
+  <div class="node-title">BashTool 执行命令</div>
+  <div class="node-file">SAL agents/bash.py : L88-310</div>
+  <div class="node-desc">subprocess.run bash -lc，capture stdout/stderr，截断超长输出</div>
+</div>
+<div class="flow-arrow">&#8595;</div>
+<div class="flow-group">4. 结果处理</div>
+<div class="flow-node" onclick="show('transcript')">
+  <div class="node-num">10</div>
+  <div class="node-title">sal_events_to_claweval_transcript()</div>
+  <div class="node-file">adapter.py : L25-91</div>
+  <div class="node-desc">SAL Event dataclass -> ClawEvalkit flat dict list</div>
+</div>
+<div class="flow-arrow">&#8595;</div>
+<div class="flow-node" onclick="show('prepare')">
+  <div class="node-num">11</div>
+  <div class="node-title">_prepare_clawbench_workspace()</div>
+  <div class="node-file">adapter.py : L664-683</div>
+  <div class="node-desc">复制 data/ 到临时 workspace + 执行 setup.sh</div>
+</div>
+<div class="flow-arrow">&#8595;</div>
+<div class="flow-node" onclick="show('instr')">
+  <div class="node-num">12</div>
+  <div class="node-title">_load_clawbench_instruction()</div>
+  <div class="node-file">adapter.py : L686-704</div>
+  <div class="node-desc">读取 instruction.md，workspace/ -> /tmp/ 绝对路径</div>
+</div>
+<div class="flow-arrow">&#8595;</div>
+<div class="flow-node" onclick="show('verify')">
+  <div class="node-num">13</div>
+  <div class="node-title">_verify_clawbench_task() — pytest</div>
+  <div class="node-file">adapter.py : L707-730</div>
+  <div class="node-desc">verify_task(task_dir, workspace) -> weighted_score</div>
+</div>
+<div class="flow-arrow">&#8595;</div>
+<div class="flow-group">5. 结果保存</div>
+<div class="flow-node" onclick="show('save')">
+  <div class="node-num">14</div>
+  <div class="node-title">保存 result.json + transcript.json</div>
+  <div class="node-file">adapter.py : L649-659</div>
+  <div class="node-desc">每个任务写入 results_dir/model/task_id/，清理临时目录</div>
+</div>
+<div class="flow-arrow">&#8595;</div>
+<div class="flow-node" onclick="show('summary')">
+  <div class="node-num">15</div>
+  <div class="node-title">汇总 score 并写 summary JSON</div>
+  <div class="node-file">runner.py : L527-549</div>
+  <div class="node-desc">mean(score)*100 -> overall，保存到 results_dir/model.json</div>
+</div>
+
+  </nav>
+  <div class="detail-panel" id="detail">
+    <div id="pane-bash" class="pane" style="display:block">
+
+<div class="detail-header">
+  <div class="dh-title">bash 命令入口 — 用户在终端敲下的命令</div>
+  <div class="dh-question">用户怎么触发评测？</div>
+  <div class="dh-answer">
+    评测通过 <code>uv run python -m evals.openclaw</code> 启动。<code>-m</code> 让 Python 把 <code>evals/openclaw/</code> 当作包执行，
+    触发 <code>evals/openclaw/__main__.py</code>，后者只有两行：<code>from .runner import main</code> + <code>main()</code>。<code>uv run</code> 自动管理虚拟环境和依赖（simple-agent-lab 需 Python 3.10+，用了 <code>TypeAlias</code>）。
+    <br><br>
+    所有脚本放在 <code>runs/</code> 目录下，内部通过 <code>set -a; source .env; set +a</code> 加载 API key 到环境变量。
+  </div>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>PinchBench 全量命令</span><span class="tag tag-in">runs/run_openclaw_pinchbench.sh</span></div>
+  <pre>cd "$(dirname "$0")/.."
+set -a; source .env; set +a
+uv run python -m evals.openclaw \
+  --bench pinchbench \
+  --model gpt-4.1-2025-04-14 \
+  --clawevalkit /Users/bytedance/Documents/github/ClawEvalkit \
+  --api-url "https://search.bytedance.net/gpt/openapi/online/v2/crawl" \
+  --api-key-env GPT_API_KEY \
+  --provider azure_openai \
+  --max-turns 10 \
+  --timeout 300 \
+  ${1:+--sample $1} \
+  2>&1 | tee docs/exp1_openclaw/assets/logs/run_pinchbench_gpt41.log</pre>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>ClawBench 两阶段命令</span><span class="tag tag-in">runs/run_openclaw_clawbench.sh</span></div>
+  <pre>set -a; source .env; set +a
+uv run python -m evals.openclaw --bench clawbench --model gpt-4.1-2025-04-14 \
+  --clawevalkit /Users/bytedance/Documents/github/ClawEvalkit --sample 5 \
+  --api-url "https://search.bytedance.net/gpt/openapi/online/v2/crawl" \
+  --api-key-env GPT_API_KEY --provider azure_openai --max-turns 15
+
+<span style="color:#6e7681"># 阶段2: 再跑 30 个（自动跳过已缓存的 5 个）</span>
+uv run python -m evals.openclaw --bench clawbench --model gpt-4.1-2025-04-14 \
+  --clawevalkit /Users/bytedance/Documents/github/ClawEvalkit --sample 30 \
+  --api-url "https://search.bytedance.net/gpt/openapi/online/v2/crawl" \
+  --api-key-env GPT_API_KEY --provider azure_openai --max-turns 15</pre>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>__main__.py — 仅两行</span><span class="tag tag-key">evals/openclaw/__main__.py</span></div>
+  <pre><span style="color:#6e7681;">Allow running as: python -m evals.openclaw</span>
+<span style="color:#ff7b72;">from</span> .runner <span style="color:#ff7b72;">import</span> main
+
+main()</pre>
+</div>
+
+<div class="anno-list">
+  <div class="anno-card"><div class="icon">🔑</div><div class="body"><strong>python -m 的触发机制</strong><p><code>-m</code> 让 Python 在 <code>evals/openclaw/</code> 下找 <code>__main__.py</code>。这个文件 import <code>runner.main()</code>，后者用 argparse 定义 CLI 参数，解析后调用 <code>run_eval()</code>（节点3）。</p></div></div>
+  <div class="anno-card"><div class="icon">🔑</div><div class="body"><strong>.env 加载方式</strong><p><code>set -a</code> 开启自动 export，<code>source .env</code> 加载本地未提交的 <code>.env</code> 里的 <code>GPT_API_KEY=<your-api-key></code> 等，<code>set +a</code> 关闭。这样 Python 的 <code>os.environ.get("GPT_API_KEY")</code> 就能读到。</p></div></div>
+  <div class="anno-card"><div class="icon">💡</div><div class="body"><strong>${1:+--sample $1} 是什么？</strong><p>Bash 的 <code>${var:+word}</code> 语法：如果 <code>$1</code> 非空则展开为 <code>--sample $1</code>，否则为空。这样 <code>./run_openclaw_pinchbench.sh 5</code> 就只跑 5 个样本，不带参数则跑全量。</p></div></div>
+</div>
+
+</div>
+<div id="pane-main" class="pane" style="display:none">
+
+<div class="detail-header">
+  <div class="dh-title">argparse 解析 — CLI 参数 -> Python kwargs</div>
+  <div class="dh-question">CLI 参数怎么变成 Python 函数参数？</div>
+  <div class="dh-answer">
+    <code>runner.py:main()</code> 用 argparse 定义了 11 个参数。<code>--bench</code> 是必选的（choices 限制为 pinchbench/agentbench/clawbench/clawbench-official）。
+    解析后的 <code>args</code> 对象被拆成 <code>run_eval()</code> 的 kwargs 传入。还支持 <code>--parallel</code>（默认 1，串行）和 <code>--force</code>（忽略缓存重跑）。
+  </div>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>argparse -> run_eval() 参数映射（11 个参数）</span><span class="tag tag-key">完整映射</span></div>
+  <pre>--bench pinchbench         -> bench_key      = <span style="color:#a5d6ff">"pinchbench"</span>
+--model gpt-4.1-2025-04-14 -> model_key     = <span style="color:#a5d6ff">"gpt-4.1-2025-04-14"</span>
+--clawevalkit /path/...     -> clawevalkit_dir= Path(...)
+--sample 5                 -> sample        = 5
+--parallel 4               -> parallel      = 4         <span style="color:#6e7681;">（默认1，串行）</span>
+--force                    -> force         = True
+--task-ids cal-001,doc-002  -> task_ids      = ["cal-001","doc-002"]
+--api-url "https://..."      -> api_url       = <span style="color:#a5d6ff">"https://search.bytedance.net/gpt/openapi/online/v2/crawl"</span>
+--api-key-env GPT_API_KEY    -> api_key_env   = <span style="color:#a5d6ff">"GPT_API_KEY"</span>
+--provider azure_openai     -> provider      = <span style="color:#a5d6ff">"azure_openai"</span>
+--max-turns 20             -> max_turns     = 20
+--timeout 300               -> timeout       = 300</pre>
+</div>
+
+<div class="code-section">
+  <div class="code-section-title">核心代码 <span class="filepath">runner.py : main() L647-710</span></div>
+  <div class="code-wrap"><pre>
+<div class="cl hl"><span class="ln">648</span><span class="lc">parser = argparse.<span class="fn">ArgumentParser</span>(...)</span></div>
+<div class="cl hl"><span class="ln">651</span><span class="lc">parser.<span class="fn">add_argument</span>(<span class="st">"--bench"</span>, required=<span class="kw">True</span>,</span></div>
+<div class="cl hl"><span class="ln">652</span><span class="lc">    choices=[<span class="st">"pinchbench"</span>,<span class="st">"agentbench"</span>,<span class="st">"clawbench"</span>,<span class="st">"clawbench-official"</span>])<span class="tip">限制为4个合法值</span></span></div>
+<div class="cl"><span class="ln">654</span><span class="lc">parser.<span class="fn">add_argument</span>(<span class="st">"--model"</span>, default=<span class="st">"claude-sonnet"</span>)</span></div>
+<div class="cl"><span class="ln">662</span><span class="lc">parser.<span class="fn">add_argument</span>(<span class="st">"--provider"</span>, default=<span class="st">"openrouter"</span>)</span></div>
+<div class="cl"><span class="ln">670</span><span class="lc">parser.<span class="fn">add_argument</span>(<span class="st">"--sample"</span>, type=<span class="bi">int</span>, default=<span class="nm">0</span>)</span></div>
+<div class="cl"><span class="ln">676</span><span class="lc">parser.<span class="fn">add_argument</span>(<span class="st">"--parallel"</span>, type=<span class="bi">int</span>, default=<span class="nm">1</span>)</span></div>
+<div class="cl hl-y"><span class="ln">691</span><span class="lc">args = parser.<span class="fn">parse_args</span>()</span></div>
+<div class="cl hl-y"><span class="ln">693</span><span class="lc">result = <span class="fn">run_eval</span>(bench_key=args.bench, model_key=args.model, ...)</span></div></pre></div>
+</div>
+
+<div class="anno-list">
+  <div class="anno-card"><div class="icon">💡</div><div class="body"><strong>--bench clawbench 和 --bench clawbench-official 是同一个 runner</strong><p>在 <code>BENCHMARK_RUNNERS</code> 字典里，两者都指向 <code>run_clawbench</code> 函数（节点3）。所以用哪个都行。</p></div></div>
+</div>
+
+</div>
+<div id="pane-runeval" class="pane" style="display:none">
+
+<div class="detail-header">
+  <div class="dh-title">run_eval() — 调度中枢</div>
+  <div class="dh-question">参数怎么分发到对应 benchmark？</div>
+  <div class="dh-answer">
+    <code>run_eval()</code> 做两件事：(1) 调 <code>build_model_config()</code> 把 CLI 参数转成 <code>ModelConfig</code> 对象（节点4）；(2) 用 <code>BENCHMARK_RUNNERS[bench_key]</code> 字典查表，分发到对应的 runner 函数。比如 <code>--bench clawbench</code> 就调 <code>run_clawbench()</code>。分发前还会打印配置信息到终端。
+  </div>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>调度流程</span><span class="tag tag-key">两步分发</span></div>
+  <pre><span style="color:#ffa657">Step 1: 构建配置</span>
+config = build_model_config(
+    model_key    = <span style="color:#a5d6ff">"gpt-4.1-2025-04-14"</span>,
+    provider    = <span style="color:#a5d6ff">"azure_openai"</span>,
+    api_url     = <span style="color:#a5d6ff">"https://search.bytedance.net/gpt/openapi/online/v2/crawl"</span>,
+    api_key_env = <span style="color:#a5d6ff">"GPT_API_KEY"</span>,
+    max_turns   = <span style="color:#79c0ff">15</span>,
+)
+<span style="color:#6e7681">-> ModelConfig(api_kind=<span style="color:#ffa657">"azure_openai"</span>)</span>
+
+<span style="color:#ffa657">Step 2: 查表分发</span>
+BENCHMARK_RUNNERS = {
+    <span style="color:#a5d6ff">"pinchbench"</span>:          run_pinchbench,      <span style="color:#6e7681;">（adapter.py run_pinchbench_task）</span>
+    <span style="color:#a5d6ff">"agentbench"</span>:         run_agentbench,
+    <span style="color:#a5d6ff">"clawbench"</span>:           run_clawbench,        <span style="color:#6e7681;">（adapter.py run_clawbench_task）</span>
+    <span style="color:#a5d6ff">"clawbench-official"</span>: run_clawbench,        <span style="color:#6e7681;">（alias）</span>
+}
+runner = BENCHMARK_RUNNERS[<span style="color:#a5d6ff">"clawbench"</span>]
+runner(model_key, config, clawevalkit_dir=..., sample=30, results_dir=...)</pre>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>分发前的终端输出</span><span class="tag tag-in">stdout</span></div>
+  <pre>[openclaw] Benchmark: clawbench
+[openclaw] Model: gpt-4.1-2025-04-14 (gpt-4.1-2025-04-14)
+[openclaw] Provider: azure_openai @ https://search.bytedance.net/gpt/openapi/online/v2/crawl
+[openclaw] Key env: GPT_API_KEY
+[openclaw] Max turns: 15, Timeout: 300s</pre>
+</div>
+
+<div class="code-section">
+  <div class="code-section-title">核心代码 <span class="filepath">runner.py : run_eval() L562-644</span></div>
+  <div class="code-wrap"><pre>
+<div class="cl hl"><span class="ln">618</span><span class="lc">config = <span class="fn">build_model_config</span>(model_key, clawevalkit_dir=..., api_url=..., provider=...)<span class="tip">节点4：构建ModelConfig</span></span></div>
+<div class="cl"><span class="ln">628</span><span class="lc"><span class="kw">print</span>(<span class="st">f"[openclaw] Provider: {config.api_kind} @ {config.api_url}"</span>)</span></div>
+<div class="cl"><span class="ln">634</span><span class="lc">runner = BENCHMARK_RUNNERS[bench_key]</span></div>
+<div class="cl hl-g"><span class="ln">635</span><span class="lc"><span class="kw">return</span> runner(model_key, config, clawevalkit_dir=..., sample=30, ...)</span></div></pre></div>
+</div>
+
+<div class="code-section">
+  <div class="code-section-title">核心代码 <span class="filepath">runner.py : run_clawbench() L395-551（runner内部流程）</span></div>
+  <div class="code-wrap"><pre>
+<div class="cl hl-y"><span class="ln">410</span><span class="lc">tasks = <span class="fn">_load_clawbench_tasks</span>(clawevalkit_dir, task_ids)<span class="tip">节点5：加载303个任务</span></span></div>
+<div class="cl hl-y"><span class="ln">440</span><span class="lc">tasks = <span class="fn">_filter_cached</span>(tasks, results_dir / model_key)<span class="tip">节点6：缓存过滤</span></span></div>
+<div class="cl hl-y"><span class="ln">473</span><span class="lc">random.<span class="fn">seed</span>(<span class="nm">42</span>); tasks = random.<span class="fn">sample</span>(tasks, sample)</span></div>
+<div class="cl"><span class="ln">480</span><span class="lc"><span class="kw">for</span> i, task <span class="kw">in</span> <span class="fn">enumerate</span>(tasks):</span></div>
+<div class="cl hl-g"><span class="ln">485</span><span class="lc">    r = <span class="fn">run_clawbench_task</span>(task, config, results_dir)  <span class="cm"># adapter.py L584</span></span></div>
+<div class="cl hl-g"><span class="ln">488</span><span class="lc">    <span class="kw">print</span>(f<span class="st">"   -> {r['status']} score={r.get('score', 0):.4f} ({elapsed:.1f}s)"</span>)</span></div>
+<div class="cl hl-y"><span class="ln">516</span><span class="lc">all_results = list(results) + cached_results</span></div>
+<div class="cl hl-y"><span class="ln">529</span><span class="lc">overall = <span class="fn">round</span>(<span class="fn">sum</span>(scores) / <span class="fn">len</span>(scores) * <span class="nm">100</span>, <span class="nm">1</span>)</span></div>
+<div class="cl hl-y"><span class="ln">541</span><span class="lc">summary_path.<span class="fn">write_text</span>(json.dumps(summary_save))<span class="tip">节点15：保存汇总</span></span></div></pre></div>
+</div>
+
+<div class="anno-list">
+  <div class="anno-card"><div class="icon">💡</div><div class="body"><strong>run_clawbench_task 被串行调用</strong><p>默认 <code>--parallel 1</code>，所以是 for 循环逐个跑。如果设 <code>--parallel 4</code>，会用 <code>ThreadPoolExecutor</code> 并行跑。但 LLM API 有 rate limit，通常串行更稳定。</p></div></div>
+</div>
+
+</div>
+<div id="pane-config" class="pane" style="display:none">
+
+<div class="detail-header">
+  <div class="dh-title">build_model_config() — 构建 ModelConfig</div>
+  <div class="dh-question">CLI 参数怎么变成 SAL 能用的配置？</div>
+  <div class="dh-answer">
+    三级 fallback：先尝试从 ClawEvalkit 的 <code>configs/models/gpt-4.1-2025-04-14.yaml</code> 加载（不存在则跳过），再用 CLI 参数直接构建。
+    返回 <code>ModelConfig</code> frozen dataclass，其中 <code>api_kind</code> 是关键字段——<code>"azure_openai"</code> 触发 adapter.py 的自定义 agent 路径（节点7），<code>"fake"</code> 触发 SAL 内置冒烟测试。
+  </div>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>OUTPUT — ModelConfig frozen dataclass</span><span class="tag tag-out">config.py L93-138</span></div>
+  <pre>ModelConfig(
+  name        = <span style="color:#a5d6ff">"gpt-4.1-2025-04-14"</span>,
+  model       = <span style="color:#a5d6ff">"gpt-4.1-2025-04-14"</span>,
+  api_url     = <span style="color:#a5d6ff">"https://search.bytedance.net/gpt/openapi/online/v2/crawl"</span>,
+  api_key_env = <span style="color:#a5d6ff">"GPT_API_KEY"</span>,
+  api_kind    = <span style="color:#ffa657">"azure_openai"</span>,              <span style="color:#6e7681;">← 决定 adapter.py 走哪条路径</span>
+  timeout     = <span style="color:#79c0ff">300</span>,
+  max_turns   = <span style="color:#79c0ff">15</span>
+)</pre>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>Provider -> api_kind 映射表</span><span class="tag tag-key">config.py L40-50</span></div>
+  <pre>CLAWEVALKIT_PROVIDER_TO_API = {
+  <span style="color:#a5d6ff">"openrouter"</span>:    <span style="color:#a5d6ff">"openai-chat"</span>,         <span style="color:#6e7681;">← Claude via OpenRouter</span>
+  <span style="color:#a5d6ff">"glm"</span>:           <span style="color:#a5d6ff">"openai-chat"</span>,
+  <span style="color:#a5d6ff">"ark"</span>:           <span style="color:#a5d6ff">"openai-chat"</span>,         <span style="color:#6e7681;">← 豆包/Seed</span>
+  <span style="color:#ffa657">"azure_openai"</span>: <span style="color:#ffa657">"azure_openai"</span>,        <span style="color:#6e7681;">← 唯一不走标准 SAL Provider 的</span>
+  <span style="color:#a5d6ff">"anthropic"</span>:     <span style="color:#a5d6ff">"anthropic-messages"</span>,
+  <span style="color:#a5d6ff">"fake"</span>:          <span style="color:#a5d6ff">"fake"</span>,                <span style="color:#6e7681;">← 冒烟测试</span>
+}</pre>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>Provider -> API Key 环境变量映射</span><span class="tag tag-key">config.py L53-63</span></div>
+  <pre>PROVIDER_KEY_ENV = {
+  <span style="color:#a5d6ff">"openrouter"</span>:    <span style="color:#a5d6ff">"OPENROUTER_API_KEY"</span>,
+  <span style="color:#a5d6ff">"azure_openai"</span>: <span style="color:#ffa657">"MODELHUB_API_KEY"</span>,   <span style="color:#6e7681;">← 但实际被 --api-key-env GPT_API_KEY 覆盖</span>
+  <span style="color:#a5d6ff">"ark"</span>:           <span style="color:#a5d6ff">"ARK_API_KEY"</span>,
+  <span style="color:#a5d6ff">"fake"</span>:          <span style="color:#a5d6ff">""</span>,                     <span style="color:#6e7681;">← 不需要 key</span>
+}</pre>
+</div>
+
+<div class="code-section">
+  <div class="code-section-title">核心代码 <span class="filepath">config.py : build_model_config() L93-138</span></div>
+  <div class="code-wrap"><pre>
+<div class="cl hl"><span class="ln">114</span><span class="lc">cfg = <span class="fn">_try_load_clawevalkit_yaml</span>(model_key, clawevalkit_dir)<span class="tip">第一步：尝试加载YAML配置</span></span></div>
+<div class="cl"><span class="ln">116</span><span class="lc"><span class="kw">if</span> cfg:</span></div>
+<div class="cl hl-y"><span class="ln">118</span><span class="lc">    <span class="kw">return</span> ModelConfig(name=model_key, model=cfg.<span class="fn">get</span>(<span class="st">"model"</span>, model_key), ...)<span class="tip">YAML存在则从中取model/api_url</span></span></div>
+<div class="cl"><span class="ln">129</span><span class="lc">ce_provider = provider <span class="kw">or</span> <span class="st">"openrouter"</span></span></div>
+<div class="cl hl-g"><span class="ln">130</span><span class="lc"><span class="kw">return</span> ModelConfig(name=model_key, model=model_key, api_kind=_get_api_kind(ce_provider), ...)<span class="tip">fallback：直接用CLI参数</span></span></div></pre></div>
+</div>
+
+</div>
+<div id="pane-load" class="pane" style="display:none">
+
+<div class="detail-header">
+  <div class="dh-title">_load_clawbench_tasks() — 从 TOML 加载 303 个任务</div>
+  <div class="dh-question">任务定义从哪里来？</div>
+  <div class="dh-answer">
+    ClawEvalkit 仓库里 <code>benchmarks/claw-bench/tasks/</code> 下有 30+ 个 domain 目录（calendar、code、data-analysis 等），
+    每个目录下有若干子目录，每个子目录里有 <code>task.toml</code>。<code>_load_clawbench_tasks()</code> 用 <code>glob("*/*/task.toml")</code> 扫描所有任务，
+    用 <code>tomllib</code>（Python 3.11+）或 <code>tomli</code>（3.10）解析 TOML，提取 id/domain/title/task_dir 等字段。
+  </div>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>ClawBench 目录结构</span><span class="tag tag-in">ClawEvalkit 仓库</span></div>
+  <pre>ClawEvalkit/benchmarks/claw-bench/tasks/
+├── calendar/
+│   ├── cal-001-create-meeting/
+│   │   ├── task.toml          <span style="color:#6e7681;">← { id="cal-001", domain="calendar", ... }</span>
+│   │   ├── instruction.md     <span style="color:#6e7681;">← 发给 agent 的任务描述</span>
+│   │   ├── environment/
+│   │   │   ├── data/           <span style="color:#6e7681;">← 输入数据（calendar.json等）</span>
+│   │   │   └── setup.sh        <span style="color:#6e7681;">← 环境初始化脚本（可选）</span>
+│   │   └── verifier/
+│   │       └── test_output.py  <span style="color:#6e7681;">← pytest 验证器（13个check）</span>
+│   └── cal-002-delete-meeting/
+├── code-assistance/
+│   ├── code-011-data-validation/
+│   └── code-014-code-generation/
+├── communication/
+├── data-analysis/
+├── bioinformatics/
+└── ...（30+ domains，共303个任务）</pre>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>OUTPUT — 303 个 task dicts</span><span class="tag tag-out">list[dict]</span></div>
+  <pre>tasks[0] = {
+  <span style="color:#a5d6ff">"id"</span>:       <span style="color:#a5d6ff">"cal-001"</span>,
+  <span style="color:#a5d6ff">"dir_name"</span>: <span style="color:#a5d6ff">"cal-001-create-meeting"</span>,
+  <span style="color:#a5d6ff">"title"</span>:    <span style="color:#a5d6ff">"Create Meeting"</span>,
+  <span style="color:#a5d6ff">"domain"</span>:   <span style="color:#a5d6ff">"calendar"</span>,
+  <span style="color:#a5d6ff">"level"</span>:    <span style="color:#79c0ff">1</span>,
+  <span style="color:#a5d6ff">"timeout"</span>:  <span style="color:#79c0ff">120</span>,
+  <span style="color:#a5d6ff">"task_dir"</span>: <span style="color:#a5d6ff">"/Users/.../ClawEvalkit/benchmarks/claw-bench/tasks/calendar/cal-001-create-meeting"</span>,
+}
+<span style="color:#6e7681;">共 303 个，覆盖 30+ domain</span></pre>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>真实 task.toml 内容（cal-002）</span><span class="tag tag-key">TOML 格式</span></div>
+  <pre>[meta]
+id = "cal-002"
+title = "Delete Meeting"
+domain = "calendar"
+level = 1
+timeout = 120
+
+[capabilities]
+required = ["file-operations", "data-manipulation"]
+optional = []
+
+[instruction]
+file = "instruction.md"</pre>
+</div>
+
+<div class="code-section">
+  <div class="code-section-title">核心代码 <span class="filepath">runner.py : _load_clawbench_tasks() L112-149</span></div>
+  <div class="code-wrap"><pre>
+<div class="cl hl"><span class="ln">121</span><span class="lc">tasks_dir = clawevalkit_dir / <span class="st">"benchmarks"</span> / <span class="st">"claw-bench"</span> / <span class="st">"tasks"</span></span></div>
+<div class="cl hl"><span class="ln">123</span><span class="lc">toml_files = <span class="fn">sorted</span>(tasks_dir.<span class="fn">glob</span>(<span class="st">"*/*/task.toml"</span>))<span class="tip">递归扫描所有domain/*/task.toml</span></span></div>
+<div class="cl"><span class="ln">126</span><span class="lc"><span class="kw">for</span> toml_path <span class="kw">in</span> toml_files:</span></div>
+<div class="cl hl-y"><span class="ln">128</span><span class="lc">    data = <span class="fn">tomllib.loads</span>(toml_path.<span class="fn">read_text</span>())</span></div>
+<div class="cl hl-y"><span class="ln">131</span><span class="lc">    tasks.<span class="fn">append</span>({<span class="st">"id"</span>: data[<span class="st">"meta"</span>][<span class="st">"id"</span>], <span class="st">"domain"</span>: data[<span class="st">"meta"</span>][<span class="st">"domain"</span>], <span class="st">"task_dir"</span>: <span class="bi">str</span>(toml_path.parent)})</span></div></pre></div>
+</div>
+
+</div>
+<div id="pane-filter" class="pane" style="display:none">
+
+<div class="detail-header">
+  <div class="dh-title">缓存过滤 + 采样 — 跳过已跑过的任务</div>
+  <div class="dh-question">怎么实现断点续跑？</div>
+  <div class="dh-answer">
+    遍历 303 个任务，对每个检查 <code>results_dir/model/task_id/result.json</code> 是否存在且 <code>status=="success"</code>。已成功的不重跑。
+    然后用 <code>random.seed(42)</code> + <code>random.sample()</code> 采样。两阶段跑法：先 sample=5 跑 5 个，再 sample=30 时自动跳过已缓存的 5 个，新增 30 个。合并后共 35 个。
+  </div>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>两阶段执行流程（实际运行）</span><span class="tag tag-key">缓存机制</span></div>
+  <pre><span style="color:#ffa657">阶段1: --sample 5</span>
+303 tasks -> 0 cached -> random.seed(42) -> 采样 5 个
+-> 执行 5 个，保存 result.json
+日志: [clawbench] 0 cached, 303 remaining
+      [clawbench] Running 5 tasks with model=gpt-4.1-2025-04-14
+
+<span style="color:#ffa657">阶段2: --sample 30</span>
+303 tasks -> 5 cached（跳过）-> 298 uncached -> random.seed(42) -> 采样 30 个
+-> 执行 30 个（不含已缓存的5个）
+日志: [clawbench] 5 cached, 298 remaining
+      [clawbench] Running 30 tasks with model=gpt-4.1-2025-04-14
+
+<span style="color:#3fb950">合并: all_results = 30 new + 5 cached = 35 个</span></pre>
+</div>
+
+<div class="code-section">
+  <div class="code-section-title">核心代码 <span class="filepath">runner.py : 缓存过滤 L453-474</span></div>
+  <div class="code-wrap"><pre>
+<div class="cl hl"><span class="ln">453</span><span class="lc"><span class="kw">if not</span> force:</span></div>
+<div class="cl"><span class="ln">454</span><span class="lc">    uncached = []</span></div>
+<div class="cl"><span class="ln">455</span><span class="lc">    <span class="kw">for</span> t <span class="kw">in</span> tasks:</span></div>
+<div class="cl hl"><span class="ln">456</span><span class="lc">        result_file = results_dir / model_key / t[<span class="st">"id"</span>] / <span class="st">"result.json"</span></span></div>
+<div class="cl hl"><span class="ln">457</span><span class="lc">        <span class="kw">if not</span> result_file.<span class="fn">exists</span>(): uncached.<span class="fn">append</span>(t)</span></div>
+<div class="cl hl-y"><span class="ln">461</span><span class="lc">        <span class="kw">if</span> cached.<span class="fn">get</span>(<span class="st">"status"</span>) != <span class="st">"success"</span>: uncached.<span class="fn">append</span>(t)<span class="tip">失败的也重跑</span></span></div>
+<div class="cl hl-g"><span class="ln">473</span><span class="lc">    random.<span class="fn">seed</span>(<span class="nm">42</span>); tasks = random.<span class="fn">sample</span>(tasks, sample)</span></div></pre></div>
+</div>
+
+<div class="code-section">
+  <div class="code-section-title">核心代码 <span class="filepath">runner.py : 合并缓存结果 L516-525</span></div>
+  <div class="code-wrap"><pre>
+<div class="cl hl"><span class="ln">516</span><span class="lc">all_results = list(results)  <span class="cm"># 本批次新跑的</span></span></div>
+<div class="cl"><span class="ln">517</span><span class="lc"><span class="kw">for</span> t_id <span class="kw">in</span> all_task_ids:</span></div>
+<div class="cl hl-y"><span class="ln">518</span><span class="lc">    cached_file = results_dir / model_key / t_id / <span class="st">"result.json"</span></span></div>
+<div class="cl hl-y"><span class="ln">519</span><span class="lc">    <span class="kw">if</span> cached_file.<span class="fn">exists</span>() <span class="kw">and not</span> any(r.<span class="fn">get</span>(<span class="st">"task_id"</span>) == t_id <span class="kw">for</span> r <span class="kw">in</span> results):</span></div>
+<div class="cl hl-y"><span class="ln">522</span><span class="lc">        cached[<span class="st">"_from_cache"</span>] = <span class="kw">True</span><span class="tip">标记为缓存结果</span></span></div>
+<div class="cl hl-y"><span class="ln">523</span><span class="lc">        all_results.<span class="fn">append</span>(cached)</span></div></pre></div>
+</div>
+
+</div>
+<div id="pane-azure" class="pane" style="display:none">
+
+<div class="detail-header">
+  <div class="dh-title">_build_azure_agent() — 构建自定义 AzureOpenAI Agent</div>
+  <div class="dh-question">SAL 不支持 AzureOpenAI，怎么绕过？</div>
+  <div class="dh-answer">
+    SAL 内置 Provider 只有 openai-chat / openai-responses / anthropic-messages / fake 四种，没有 AzureOpenAI。
+    所以手动构建 Agent：清代理环境变量 -> 创建 bash tool tuple -> 定义 generate 闭包（内部每次创建 AzureOpenAI client 调 ModelHub）-> 返回 <code>Agent(generate=azure_generate)</code>。
+    闭包内部完成完整的格式转换链：SAL Message -> LLMMessage -> OpenAI chat format -> API call -> response -> SAL Message。
+  </div>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>闭包内部的一次 generate 调用 — 完整数据转换链</span><span class="tag tag-key">6步转换</span></div>
+  <pre>azure_generate(visible: list[Message]) -> Message:
+  <span style="color:#ffa657;">①</span> messages_to_llm_messages(visible)        -> [LLMMessage, ...]
+  <span style="color:#ffa657;">②</span> tool_defs = [tool_to_llm_tool(t) for t in tools_tuple]
+     to_openai_chat_messages(llm_msgs)        -> [{"role":"user","content":[...]}, ...]
+  <span style="color:#ffa657;">③</span> AzureOpenAI().chat.completions.create()  -> ChatCompletion response
+     kwargs = {"model": "gpt-4.1-2025-04-14", "messages": [...], "tools": [...]}
+  <span style="color:#ffa657;">④</span> resp.choices[0].message.tool_calls[0].function.arguments
+     = <span style="color:#f85149;">'"{\\"command\\" : \\"ls\"}"'</span>              <span style="color:#6e7681;">← 注意这是 JSON 字符串！不是 dict</span>
+  <span style="color:#ffa657;">⑤</span> json.loads(arguments)                    -> <span style="color:#3fb950;">{"command": "ls"}</span>     <span style="color:#6e7681;">← 必须手动解析</span>
+  <span style="color:#ffa657;">⑥</span> llm_response_to_assistant_message()      -> Message(kind="thought"/"final")</pre>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>OUTPUT — 自定义 Agent 对象</span><span class="tag tag-out">Agent</span></div>
+  <pre>Agent(
+  name     = <span style="color:#a5d6ff">"bash_agent"</span>,
+  generate = azure_generate,   <span style="color:#6e7681;">← 自定义闭包，绕过 SAL Provider</span>
+  tools    = (
+    AgentTool(
+      name=<span style="color:#a5d6ff">"bash"</span>,
+      cwd=<span style="color:#a5d6ff">"/tmp/sal_clawbench_cal-002_a1b2c3/"</span>,
+      parameters={
+        "command": {"type":"string","description":"The bash command to execute."},
+        "description": {"type":"string","description":"Short active-voice description."},
+        "timeout_seconds": {"type":"number"},
+        "attach": {"type":"array","items":{"type":"string"}},
+      }
+    ),
+  )
+)</pre>
+</div>
+
+<div class="code-section">
+  <div class="code-section-title">核心代码 <span class="filepath">adapter.py : _build_azure_agent() L157-271</span></div>
+  <div class="code-wrap"><pre>
+<div class="cl hl-r"><span class="ln">192</span><span class="lc"><span class="kw">for</span> k <span class="kw">in</span> (<span class="st">"http_proxy"</span>, <span class="st">"https_proxy"</span>, ...): os.environ[k] = <span class="st">""</span><span class="tip">ModelHub内网不走代理，否则403</span></span></div>
+<div class="cl"><span class="ln">195</span><span class="lc">api_key = os.environ.<span class="fn">get</span>(config.api_key_env, <span class="st">""</span>)</span></div>
+<div class="cl hl-y"><span class="ln">201</span><span class="lc">tools_tuple = <span class="bi">tuple</span>([<span class="fn">make_bash_tool</span>(cwd=cwd)])<span class="tip">⚠️ 必须在闭包外创建，否则Python作用域问题</span></span></div>
+<div class="cl hl"><span class="ln">203</span><span class="lc"><span class="kw">def</span> <span class="fn">azure_generate</span>(visible) -> Message:</span></div>
+<div class="cl"><span class="ln">208</span><span class="lc">    llm_messages = <span class="fn">messages_to_llm_messages</span>(visible)</span></div>
+<div class="cl"><span class="ln">213</span><span class="lc">    client = AzureOpenAI(api_key=api_key, api_version=<span class="st">"2024-03-01-preview"</span>, azure_endpoint=config.api_url)</span></div>
+<div class="cl"><span class="ln">228</span><span class="lc">    resp = client.chat.completions.<span class="fn">create</span>(model=config.model, messages=oai_msgs, tools=...)</span></div>
+<div class="cl hl-r"><span class="ln">243</span><span class="lc">        arguments=<span class="fn">json.loads</span>(tc.function.arguments)<span class="tip">⚠️ AzureOpenAI返回JSON字符串，必须json.loads()转dict</span></span></div>
+<div class="cl hl-g"><span class="ln">266</span><span class="lc"><span class="kw">return</span> Agent(name=<span class="st">"bash_agent"</span>, generate=azure_generate, tools=tools_tuple)</span></div></pre></div>
+</div>
+
+<div class="anno-list">
+  <div class="anno-card"><div class="icon">⚠️</div><div class="body"><strong>tools_tuple 必须在闭包外创建</strong><p>Python 闭包捕获的是<b>变量引用</b>而非值。如果 <code>tools_tuple</code> 在 <code>azure_generate()</code> 内部创建，每次调用时 <code>tools_tuple</code> 都会被重新绑定到新 tuple，导致闭包引用不到闭包外部的 <code>tools</code> 参数。</p></div></div>
+  <div class="anno-card"><div class="icon">⚠️</div><div class="body"><strong>AzureOpenAI 返回的 arguments 是 JSON 字符串</strong><p>标准 OpenAI SDK 的 <code>function.arguments</code> 直接是 dict（Python SDK 已解析），但 AzureOpenAI SDK 保留原始 JSON 字符串。必须 <code>json.loads()</code> 转成 dict 后才能传给 SAL 的 <code>ToolCallBlock</code>。这是调试中最难发现的 bug。</p></div></div>
+  <div class="anno-card"><div class="icon">💡</div><div class="body"><strong>每个 turn 都重新创建 AzureOpenAI client</strong><p>这是有意为之——简化连接管理，避免长连接超时。由于每次调用是独立的 HTTP 请求，性能影响可忽略。</p></div></div>
+</div>
+
+</div>
+<div id="pane-run" class="pane" style="display:none">
+
+<div class="detail-header">
+  <div class="dh-title">agent.run() — SAL 核心执行循环</div>
+  <div class="dh-question">Agent 怎么执行任务？每轮循环做了什么？</div>
+  <div class="dh-answer">
+    <code>agent.run(prompt, max_turns)</code> 是 SAL 的核心循环（<code>core.py L98-198</code>），最多跑 <code>max_turns</code> 轮。
+    每轮：(1) 构建上下文（包含所有历史消息）；(2) 调 <code>agent.generate(visible)</code> 让 LLM 生成回复；
+    (3) 如果回复包含 tool_call，执行 BashTool；(4) 把 tool 结果作为新消息加入上下文；(5) 如果 LLM 回复是 "final"，退出循环。
+    本质是一个 <b>"思考 -> 行动 -> 观察" 的 ReAct 循环</b>。
+  </div>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>单轮循环的完整流程</span><span class="tag tag-key">ReAct 循环</span></div>
+  <pre><span style="color:#ffa657;">for _turn in range(max_turns):   # 最多 15 轮</span>
+
+  <span style="color:#58a6ff;">① 构建上下文</span>
+     context = build_context_view(state.active_context_messages())
+     visible = list(context.messages)     <span style="color:#6e7681;">← 包含历史：user prompt + assistant + tool_result</span>
+     yield state.turn_start()
+
+  <span style="color:#58a6ff;">② LLM 推理</span>
+     output = agent.generate(visible)     <span style="color:#6e7681;">← azure_generate() 调 GPT-4.1</span>
+     <span style="color:#6e7681;">← output = Message(kind="thought", content=(ToolCallBlock(...),))</span>
+     yield state.model_response()
+
+  <span style="color:#58a6ff;">③ 工具执行</span>
+     <span style="color:#6e7681;">if</span> output 包含 tool_call:
+         <span style="color:#6e7681;">for</span> event <span style="color:#6e7681;">in</span> dispatch_tool_calls(output, tool_by_name, state):
+             <span style="color:#6e7681;"># 调用 BashTool.execute(command="ls /tmp/...")</span>
+             <span style="color:#6e7681;"># 返回 ToolResult(content=(TextBlock("stdout: ..."),))</span>
+             yield event
+
+  <span style="color:#58a6ff;">④ 记录并判断退出</span>
+     yield state.record(output)
+     <span style="color:#6e7681;">if</span> output.kind == <span style="color:#a5d6ff;">"final"</span>: <span style="color:#6e7681;">break</span>      <span style="color:#6e7681;">← LLM 认为任务完成了</span>
+
+yield state.agent_end(reason=<span style="color:#a5d6ff;">"done"</span> | <span style="color:#a5d6ff;">"max_turns"</span>)</pre>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>真实执行轨迹（cal-002, 2轮完成）</span><span class="tag tag-out">15 个 SAL Events</span></div>
+  <pre><span style="color:#ffa657;">Turn 1:</span>
+  agent_start  <span style="color:#6e7681;">← Agent 开始运行</span>
+  turn_start   <span style="color:#6e7681;">← 第 1 轮开始</span>
+  model_request  <span style="color:#6e7681;">← visible=[user_instruction], tools=[bash]</span>
+  model_response <span style="color:#6e7681;">← GPT-4.1 返回 tool_call: jq '{meetings: ...}'</span>
+  record(assistant_message) <span style="color:#6e7681;">← 记录 LLM 的回复</span>
+  tool_execution_start  <span style="color:#6e7681;">← 开始执行 bash 命令</span>
+  tool_execution_end    <span style="color:#6e7681;">← bash 执行完毕，stdout 为空</span>
+  record(tool_result)   <span style="color:#6e7681;">← 记录工具结果到上下文</span>
+  turn_end     <span style="color:#6e7681;">← 第 1 轮结束</span>
+
+<span style="color:#ffa657;">Turn 2:</span>
+  turn_start   <span style="color:#6e7681;">← 第 2 轮开始，上下文已有 Turn 1 的工具结果</span>
+  model_request  <span style="color:#6e7681;">← visible=[instruction, assistant+tool_call, tool_result]</span>
+  model_response <span style="color:#6e7681;">← GPT-4.1 返回纯文本 kind="final"</span>
+  record(final_message) <span style="color:#6e7681;">← "The meeting has been deleted. Updated calendar saved."</span>
+  turn_end     <span style="color:#6e7681;">← 检测到 final，退出循环</span>
+  agent_end(reason=<span style="color:#a5d6ff;">"done"</span>)  <span style="color:#6e7681;">← Agent 完成任务</span>
+
+<span style="color:#6e7681;">总计：15 个 Event，2 轮，4.22 秒</span></pre>
+</div>
+
+<div class="code-section">
+  <div class="code-section-title">核心代码 <span class="filepath">SAL core.py : run() L98-198</span></div>
+  <div class="code-wrap"><pre>
+<div class="cl hl"><span class="ln">112</span><span class="lc">tool_by_name = {tool.name: tool <span class="kw">for</span> tool <span class="kw">in</span> agent.tools}</span></div>
+<div class="cl"><span class="ln">114</span><span class="lc">yield state.<span class="fn">agent_start</span>()</span></div>
+<div class="cl hl"><span class="ln">116</span><span class="lc"><span class="kw">for</span> _ <span class="kw">in</span> <span class="bi">range</span>(max_turns):<span class="tip">最多 max_turns=15 轮</span></span></div>
+<div class="cl"><span class="ln">117</span><span class="lc">    yield state.<span class="fn">turn_start</span>(agent=name)</span></div>
+<div class="cl"><span class="ln">123</span><span class="lc">    context = <span class="fn">build_context_view</span>(name, state.<span class="fn">active_context_messages</span>(), policy)</span></div>
+<div class="cl"><span class="ln">128</span><span class="lc">    visible = list(context.messages)</span></div>
+<div class="cl hl-y"><span class="ln">167</span><span class="lc">    output = agent.<span class="fn">generate</span>(visible)<span class="tip">调 azure_generate() 或 SAL 标准 generate</span></span></div>
+<div class="cl hl-y"><span class="ln">169</span><span class="lc">    yield state.<span class="fn">model_response</span>(agent=name, output_kind=output.kind, ...)</span></div>
+<div class="cl"><span class="ln">177</span><span class="lc">    yield state.<span class="fn">record</span>(output)</span></div>
+<div class="cl hl-g"><span class="ln">179</span><span class="lc">    <span class="kw">if</span> output.sender == name <span class="kw">and</span> output.kind == <span class="st">"final"</span>: final_emitted = <span class="kw">True</span><span class="tip">检测到final消息</span></span></div>
+<div class="cl hl"><span class="ln">182</span><span class="lc">    <span class="kw">if</span> tool_by_name <span class="kw">and</span> output_tool_calls:</span></div>
+<div class="cl hl"><span class="ln">184</span><span class="lc">        <span class="kw">for</span> event <span class="kw">in</span> <span class="fn">dispatch_tool_calls</span>(output, tool_by_name, state):<span class="tip">执行所有tool_call</span></span></div>
+<div class="cl"><span class="ln">193</span><span class="lc">    yield state.<span class="fn">turn_end</span>(agent=name)</span></div>
+<div class="cl hl-r"><span class="ln">195</span><span class="lc">    <span class="kw">if</span> final_emitted: <span class="kw">break</span><span class="tip">final 消息发出则退出循环</span></span></div>
+<div class="cl"><span class="ln">198</span><span class="lc">yield state.<span class="fn">agent_end</span>(reason=<span class="st">"done"</span> <span class="kw">if</span> final_emitted <span class="kw">else</span> <span style="color:#f85149;">"max_turns"</span>)</span></div></pre></div>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>OUTPUT — run_task_with_sal_agent() 返回的 result dict</span><span class="tag tag-out">adapter.py L274-382</span></div>
+  <pre>{
+  <span style="color:#a5d6ff">"status"</span>:          <span style="color:#3fb950;">"success"</span>,
+  <span style="color:#a5d6ff">"content"</span>:         <span style="color:#a5d6ff;">"The meeting with id mtg-003 has been deleted. Updated calendar saved."</span>,
+  <span style="color:#a5d6ff">"transcript"</span>:      [{<span style="color:#a5d6ff">"type"</span>: <span style="color:#a5d6ff">"message"</span>, ...}, ...],   <span style="color:#6e7681;">← 节点10 转换后</span>
+  <span style="color:#a5d6ff">"usage"</span>:           {<span style="color:#a5d6ff">"input_tokens"</span>: 1234, <span style="color:#a5d6ff">"output_tokens"</span>: 567},
+  <span style="color:#a5d6ff">"execution_time"</span>:  <span style="color:#79c0ff;">4.22</span>,
+  <span style="color:#a5d6ff">"raw_events_count"</span>:<span style="color:#79c0ff;">15</span>,                   <span style="color:#6e7681;">← 15 个 SAL Event</span>
+  <span style="color:#a5d6ff">"error"</span>:           <span style="color:#6e7681;">None</span>
+}</pre>
+</div>
+
+<div class="anno-list">
+  <div class="anno-card"><div class="icon">💡</div><div class="body"><strong>context window 限制</strong><p>每轮把所有历史消息都发给 LLM。如果一个任务跑了 15 轮，每轮产生长 bash 输出，context 会很长。SAL 有 <code>ContextPolicy</code> 控制压缩，但当前评测未启用。</p></div></div>
+  <div class="anno-card"><div class="icon">⚠️</div><div class="body"><strong>"final" vs "thought" 由谁决定？</strong><p><code>azure_generate()</code> 里：如果 LLM 回复有 <code>tool_calls</code>，kind="thought"（继续循环）；没有 tool_calls，kind="final"（退出循环）。这意味着 LLM 需要自己判断何时完成任务。</p></div></div>
+  <div class="anno-card"><div class="icon">🔑</div><div class="body"><strong>generate 是 yield 返回的，不是直接返回的</strong><p><code>run()</code> 是 generator 函数，每个 <code>yield</code> 产生一个 Event。调用方用 <code>for event in agent.run(prompt):</code> 逐个消费。所有 Event 同时被 <code>state</code> 记录。</p></div></div>
+</div>
+
+</div>
+<div id="pane-bashtool" class="pane" style="display:none">
+
+<div class="detail-header">
+  <div class="dh-title">BashTool — bash 命令的实际执行</div>
+  <div class="dh-question">Agent 的 bash 工具具体怎么执行命令？</div>
+  <div class="dh-answer">
+    SAL 的 BashTool（<code>agents/bash.py</code>）是 Agent 唯一的工具。当 LLM 返回 <code>ToolCallBlock(name="bash", arguments={"command": "ls"})</code> 时，
+    SAL 的 <code>dispatch_tool_calls()</code> 调用 <code>BashTool.execute()</code>，后者用 <code>subprocess.run(["bash", "-lc", command], cwd=workspace, capture_output=True)</code> 执行命令。
+    捕获 stdout/stderr，截断超长输出（max_output_chars=4000），返回 <code>ToolResult</code>。
+  </div>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>BashTool 的 schema（发给 LLM 的工具描述）</span><span class="tag tag-key">JSON Schema</span></div>
+  <pre>{
+  "name": <span style="color:#a5d6ff;">"bash"</span>,
+  "parameters": {
+    "type": "object",
+    "properties": {
+      <span style="color:#a5d6ff;">"command"</span>:          {"type": "string", "description": "The bash command to execute."},
+      <span style="color:#a5d6ff;">"description"</span>:      {"type": "string", "description": "Short active-voice description."},
+      <span style="color:#a5d6ff;">"timeout_seconds"</span>: {"type": "number", "description": "Optional timeout (max 60s)"},
+      <span style="color:#a5d6ff;">"attach"</span>:          {"type": "array",  "description": "Optional file paths for images"}
+    },
+    "required": ["command", "description"]
+  }
+}</pre>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>execute() 执行流程</span><span class="tag tag-in">agents/bash.py L88-141</span></div>
+  <pre><span style="color:#ffa657;">①</span> 检查 abort 信号                    <span style="color:#6e7681;">（未使用）</span>
+<span style="color:#ffa657;">②</span> 阻塞危险 sleep 命令               <span style="color:#6e7681;">（sleep >= 2s 被禁止，防卡死）</span>
+<span style="color:#ffa657;">③</span> 解析 timeout                     <span style="color:#6e7681;">（默认10s，最大60s）</span>
+<span style="color:#ffa657;">④</span> subprocess.run(["bash","-lc", command])
+       cwd = /tmp/sal_clawbench_cal-002_xxx/     <span style="color:#6e7681;">（agent 的 workspace）</span>
+       capture_output=True, timeout=timeout, check=False
+<span style="color:#ffa657;">⑤</span> 截断超长输出                    <span style="color:#6e7681;">（budget_text: 保留头尾各一半）</span>
+<span style="color:#ffa657;">⑥</span> 智能解释退出码                   <span style="color:#6e7681;">（grep exit 1 = "no match"，不是错误）</span>
+<span style="color:#ffa657;">⑦</span> 返回 ToolResult(content=TextBlock("$ command\nstdout: ..."))</pre>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>真实执行记录（cal-002 第 1 轮）</span><span class="tag tag-out">ToolResult</span></div>
+  <pre><span style="color:#a5d6ff;">LLM 输出的命令:</span>
+  jq '{meetings: [.meetings[] | select(.id != "mtg-003") ]}'
+    /private/var/folders/.../sal_clawbench_cal-002_0ak8gmrp/calendar.json
+    > /private/var/folders/.../sal_clawbench_cal-002_0ak8gmrp/updated_calendar.json
+
+<span style="color:#a5d6ff;">BashTool 返回的 ToolResult:</span>
+  ToolResult(
+    content = (TextBlock(
+      text = "$ jq '{meetings: [.meetings[] | select(.id != \"mtg-003\") ]}' ...\n"
+            "Done. Command completed with no output."
+    ),),
+    is_error = False,
+    exit_code = 0,
+    elapsed_seconds = 0.3,
+  )
+
+<span style="color:#6e7681;">这个 ToolResult 被 SAL 记录为 tool_result 消息，加入下一轮的 visible context</span></pre>
+</div>
+
+<div class="code-section">
+  <div class="code-section-title">核心代码 <span class="filepath">SAL agents/bash.py : run_bash() L201-236</span></div>
+  <div class="code-wrap"><pre>
+<div class="cl hl"><span class="ln">201</span><span class="lc">completed = subprocess.<span class="fn">run</span>(</span></div>
+<div class="cl hl"><span class="ln">202</span><span class="lc">    [<span class="st">"bash"</span>, <span class="st">"-lc"</span>, command],<span class="tip">-lc 加载 login shell 环境（PATH等）</span></span></div>
+<div class="cl hl"><span class="ln">203</span><span class="lc">    cwd=root,<span class="tip">root = workspace 目录</span></span></div>
+<div class="cl hl"><span class="ln">204</span><span class="lc">    capture_output=<span class="kw">True</span>,</span></div>
+<div class="cl hl"><span class="ln">205</span><span class="lc">    timeout=timeout_seconds,</span></div>
+<div class="cl hl-y"><span class="ln">206</span><span class="lc">    check=<span class="kw">False</span>,<span class="tip">非0退出码不抛异常，交给 interpret_command_result 处理</span></span></div>
+<div class="cl"><span class="ln">210</span><span class="lc">)</span></div>
+<div class="cl"><span class="ln">215</span><span class="lc"><span class="kw">except</span> subprocess.TimeoutExpired <span class="kw">as</span> e:</span></div>
+<div class="cl hl-r"><span class="ln">216</span><span class="lc">    stderr += f<span class="st">"\nCommand timed out after {timeout_seconds}s"</span><span class="tip">超时处理</span></span></div>
+<div class="cl hl-g"><span class="ln">232</span><span class="lc"><span class="kw">return</span> <span class="fn">bash_execution_to_tool_result</span>(execution)<span class="tip">转为 SAL ToolResult</span></span></div></pre></div>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>智能退出码解释</span><span class="tag tag-key">agents/bash.py L287-310</span></div>
+  <pre>interpret_command_result(exit_code, command):
+  grep / rg  exit 1  -> <span style="color:#a5d6ff;">"no matches found"</span>           <span style="color:#6e7681;">（不是错误，是正常结果）</span>
+  find        exit 1  -> <span style="color:#a5d6ff;">"some directories inaccessible"</span>
+  diff        exit 1  -> <span style="color:#a5d6ff;">"files differ"</span>
+  test / [    exit 1  -> <span style="color:#a5d6ff;">"condition is false"</span>
+  其他         exit 0  -> <span style="color:#3fb950;">OK</span>
+  其他         exit N  -> <span style="color:#f85149;">f"exit code {N}"</span>             <span style="color:#6e7681;">（标记为 is_error=True）</span></pre>
+</div>
+
+<div class="anno-list">
+  <div class="anno-card"><div class="icon">⚠️</div><div class="body"><strong>sleep >= 2s 被禁止</strong><p>BashTool 检测命令中的 <code>sleep 2</code>、<code>sleep 10</code> 等模式并拒绝执行。这是为了防止 agent 意外卡死评测。但评测任务中有些 setup.sh 可能用 sleep，此时通过 <code>setup.sh</code> 单独执行（不经过 BashTool）绕过此限制。</p></div></div>
+  <div class="anno-card"><div class="icon">💡</div><div class="body"><strong>output 截断策略</strong><p>当 stdout 超过 4000 字符时，<code>budget_text()</code> 保留头尾各一半，中间插入 <code>[...truncated...]</code> 标记。这样 LLM 能看到命令开头和结尾的输出，不会完全丢失上下文。</p></div></div>
+  <div class="anno-card"><div class="icon">🔑</div><div class="body"><strong>cwd = workspace 是关键</strong><p>BashTool 的 <code>cwd</code> 被设置为 <code>/tmp/sal_clawbench_xxx/</code>，所以 agent 执行的所有相对路径命令都作用在这个临时目录下。任务结束后 <code>shutil.rmtree()</code> 清理。</p></div></div>
+</div>
+
+</div>
+<div id="pane-transcript" class="pane" style="display:none">
+
+<div class="detail-header">
+  <div class="dh-title">sal_events_to_claweval_transcript() — 格式转换</div>
+  <div class="dh-question">SAL 的事件格式怎么变成 ClawEvalkit 能用的？</div>
+  <div class="dh-answer">
+    SAL 的 <code>agent.run()</code> 产生的是 SAL Event dataclass（<code>MessageEvent</code>、<code>ToolExecutionStartEvent</code>、<code>ToolExecutionEndEvent</code> 等，有 <code>kind</code> 字段）。
+    ClawEvalkit 的评分函数期望 flat dict list。这里逐个 event 转换：message -> {"type":"message"}，tool_execution_start -> {"type":"tool_call"}，
+    tool_execution_end -> {"type":"tool_result"}。转换后的 transcript 传给 PinchBench 的 <code>grade()</code>（节点13 verify）。
+  </div>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>SAL Event -> ClawEvalkit dict 对照</span><span class="tag tag-key">协议翻译（adapter.py L25-91）</span></div>
+  <pre><span style="color:#ffa657;">SAL Event:</span>  MessageEvent(kind="message", message=Message(role="assistant", content=(TextBlock("..."), ToolCallBlock(name="bash", arguments={"command":"ls"}))))
+<span style="color:#3fb950;">transcript:</span> {"type":"message", "message":{"role":"assistant", "content":[{"type":"text","text":"..."},{"type":"toolCall","name":"bash","arguments":{"command":"ls"},"id":"call_xxx"}]}}
+
+<span style="color:#ffa657;">SAL Event:</span>  ToolExecutionStartEvent(kind="tool_execution_start", tool_name="bash")
+<span style="color:#3fb950;">transcript:</span> {"type":"tool_call", "name":"bash", "params":{}}
+
+<span style="color:#ffa657;">SAL Event:</span>  ToolExecutionEndEvent(kind="tool_execution_end", partial=Partial(content=TextBlock("$ ls\nstdout: file1.txt")))
+<span style="color:#3fb950;">transcript:</span> {"type":"tool_result", "result":"$ ls\nstdout: file1.txt"}</pre>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>真实 transcript.json（cal-002，5 条记录）</span><span class="tag tag-out">实际输出</span></div>
+  <pre>[
+  {<span style="color:#a5d6ff;">"type"</span>: <span style="color:#a5d6ff;">"message"</span>, <span style="color:#a5d6ff;">"message"</span>: {<span style="color:#a5d6ff;">"role"</span>: <span style="color:#a5d6ff;">"assistant"</span>, <span style="color:#a5d6ff;">"content"</span>: [
+    {<span style="color:#a5d6ff;">"type"</span>: <span style="color:#a5d6ff;">"toolCall"</span>, <span style="color:#a5d6ff;">"name"</span>: <span style="color:#a5d6ff;">"bash"</span>, <span style="color:#a5d6ff;">"arguments"</span>: {<span style="color:#a5d6ff;">"command"</span>: <span style="color:#a5d6ff;">"jq '{meetings: [...}' ..."</span>, <span style="color:#a5d6ff;">"id"</span>: <span style="color:#a5d6ff;">"call_VFyi2jX5DDB7Fd2Eoe22jY6c"</span>}
+  ]}},
+  {<span style="color:#a5d6ff;">"type"</span>: <span style="color:#a5d6ff;">"tool_call"</span>, <span style="color:#a5d6ff;">"name"</span>: <span style="color:#a5d6ff;">"bash"</span>, <span style="color:#a5d6ff;">"params"</span>: {}},
+  {<span style="color:#a5d6ff;">"type"</span>: <span style="color:#a5d6ff;">"tool_result"</span>, <span style="color:#a5d6ff;">"result"</span>: <span style="color:#a5d6ff;">""</span>},
+  {<span style="color:#a5d6ff;">"type"</span>: <span style="color:#a5d6ff;">"message"</span>, <span style="color:#a5d6ff;">"message"</span>: {<span style="color:#a5d6ff;">"role"</span>: <span style="color:#a5d6ff;">"user"</span>, <span style="color:#a5d6ff;">"content"</span>: [
+    {<span style="color:#a5d6ff;">"type"</span>: <span style="color:#a5d6ff;">"toolResult"</span>, <span style="color:#a5d6ff;">"content"</span>: [<span style="color:#a5d6ff;">"$ jq ...\nDone. Command completed with no output."</span>], <span style="color:#a5d6ff;">"tool_call_id"</span>: <span style="color:#a5d6ff;">"call_VFyi2jX5DDB7Fd2Eoe22jY6c"</span>}
+  ]}},
+  {<span style="color:#a5d6ff;">"type"</span>: <span style="color:#a5d6ff;">"message"</span>, <span style="color:#a5d6ff;">"message"</span>: {<span style="color:#a5d6ff;">"role"</span>: <span style="color:#a5d6ff;">"assistant"</span>, <span style="color:#a5d6ff;">"content"</span>: [
+    {<span style="color:#a5d6ff;">"type"</span>: <span style="color:#a5d6ff;">"text"</span>, <span style="color:#a5d6ff;">"text"</span>: <span style="color:#a5d6ff;">"The meeting with id mtg-003 has been deleted..."</span>}
+  ]}}
+]</pre>
+</div>
+
+<div class="code-section">
+  <div class="code-section-title">核心代码 <span class="filepath">adapter.py : sal_events_to_claweval_transcript() L25-91</span></div>
+  <div class="code-wrap"><pre>
+<div class="cl"><span class="ln">43</span><span class="lc"><span class="kw">for</span> event <span class="kw">in</span> events:</span></div>
+<div class="cl"><span class="ln">46</span><span class="lc">    etype = <span class="fn">getattr</span>(event, <span class="st">"event_type"</span>, <span class="kw">None</span>) <span class="kw">or</span> <span class="fn">getattr</span>(event, <span class="st">"kind"</span>, <span class="kw">None</span>)</span></div>
+<div class="cl hl"><span class="ln">51</span><span class="lc">    <span class="kw">if</span> etype == <span class="st">"message"</span>:</span></div>
+<div class="cl hl"><span class="ln">55</span><span class="lc">        transcript.<span class="fn">append</span>({<span class="st">"type"</span>: <span class="st">"message"</span>, <span class="st">"message"</span>: {<span class="st">"role"</span>: msg.role, <span class="st">"content"</span>: <span class="fn">_message_content_to_list</span>(msg)}})</span></div>
+<div class="cl hl-y"><span class="ln">66</span><span class="lc">    <span class="kw">elif</span> etype == <span class="st">"tool_execution_start"</span>:</span></div>
+<div class="cl hl-y"><span class="ln">72</span><span class="lc">        transcript.<span class="fn">append</span>({<span class="st">"type"</span>: <span class="st">"tool_call"</span>, <span class="st">"name"</span>: <span class="fn">getattr</span>(event, <span class="st">"tool_name"</span>, <span class="st">"unknown"</span>), <span class="st">"params"</span>: {}})</span></div>
+<div class="cl hl-g"><span class="ln">76</span><span class="lc">    <span class="kw">elif</span> etype == <span class="st">"tool_execution_end"</span>:</span></div>
+<div class="cl hl-g"><span class="ln">86</span><span class="lc">        transcript.<span class="fn">append</span>({<span class="st">"type"</span>: <span class="st">"tool_result"</span>, <span class="st">"result"</span>: result_content})</span></div></pre></div>
+</div>
+
+</div>
+<div id="pane-prepare" class="pane" style="display:none">
+
+<div class="detail-header">
+  <div class="dh-title">_prepare_clawbench_workspace() — 准备隔离环境</div>
+  <div class="dh-question">每个任务的运行环境怎么隔离？</div>
+  <div class="dh-answer">
+    在 <code>run_clawbench_task()</code> 开头（adapter.py L612），用 <code>tempfile.mkdtemp(prefix="sal_clawbench_")</code> 创建临时目录。
+    然后 <code>_prepare_clawbench_workspace(task_dir, workspace)</code> 把 <code>task_dir/environment/data/</code> 下的所有文件复制进去（输入数据），
+    如果有 <code>setup.sh</code> 则执行它初始化环境。Agent 在这个隔离 workspace 里执行，不会影响原始数据。
+    任务结束后在 finally 块中 <code>shutil.rmtree(workspace)</code> 清理。
+  </div>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>workspace 隔离示例（cal-002）</span><span class="tag tag-in">临时目录生命周期</span></div>
+  <pre><span style="color:#ffa657;">1. 创建临时目录</span>
+   tempfile.mkdtemp(prefix="sal_clawbench_cal-002_")
+   -> <span style="color:#a5d6ff;">/tmp/sal_clawbench_cal-002_0ak8gmrp/</span>
+
+<span style="color:#ffa657;">2. 复制输入数据</span>
+   shutil.copytree(task_dir/environment/data/*, workspace/)
+   workspace/
+   ├── .gitkeep                          <span style="color:#6e7681;">（来自 environment/data/）</span>
+   └── calendar.json                     <span style="color:#6e7681;">（来自 environment/data/，输入数据）</span>
+
+<span style="color:#ffa657;">3. 执行 setup.sh（如果存在）</span>
+   subprocess.run(["bash", "setup.sh", workspace_path])
+
+<span style="color:#ffa657;">4. Agent 在此 workspace 执行</span>
+   <span style="color:#6e7681;">（Agent 的 BashTool cwd 指向此目录）</span>
+
+<span style="color:#ffa657;">5. Agent 执行后新增的文件</span>
+   workspace/
+   ├── .gitkeep
+   ├── calendar.json
+   └── updated_calendar.json             <span style="color:#3fb950;">（agent 创建的输出）</span>
+
+<span style="color:#f85149;">6. 清理（finally 块）</span>
+   shutil.rmtree(workspace)              <span style="color:#6e7681;">（无论成功失败都清理）</span></pre>
+</div>
+
+<div class="code-section">
+  <div class="code-section-title">核心代码 <span class="filepath">adapter.py : _prepare_clawbench_workspace() L664-683</span></div>
+  <div class="code-wrap"><pre>
+<div class="cl hl"><span class="ln">665</span><span class="lc">data_dir = task_dir / <span class="st">"environment"</span> / <span class="st">"data"</span></span></div>
+<div class="cl hl"><span class="ln">666</span><span class="lc"><span class="kw">if</span> data_dir.<span class="fn">exists</span>():</span></div>
+<div class="cl"><span class="ln">667</span><span class="lc">    <span class="kw">for</span> src <span class="kw">in</span> data_dir.<span class="fn">iterdir</span>():</span></div>
+<div class="cl hl-y"><span class="ln">668</span><span class="lc">        <span class="kw">if</span> src.is_file(): shutil.<span class="fn">copy2</span>(src, workspace / src.name)</span></div>
+<div class="cl hl-y"><span class="ln">671</span><span class="lc">        <span class="kw">elif</span> src.is_dir(): shutil.<span class="fn">copytree</span>(src, workspace / src.name, dirs_exist_ok=<span class="kw">True</span>)</span></div>
+<div class="cl"><span class="ln">674</span><span class="lc">setup_sh = task_dir / <span class="st">"environment"</span> / <span class="st">"setup.sh"</span></span></div>
+<div class="cl hl-g"><span class="ln">676</span><span class="lc"><span class="kw">if</span> setup_sh.<span class="fn">exists</span>():</span></div>
+<div class="cl hl-g"><span class="ln">677</span><span class="lc">    subprocess.<span class="fn">run</span>([<span class="st">"bash"</span>, <span class="st">str</span>(setup_sh), <span class="str">str</span>(workspace.<span class="fn">resolve</span>())], ...)<span class="tip">独立执行，不经过BashTool</span></span></div></pre></div>
+</div>
+
+<div class="code-section">
+  <div class="code-section-title">核心代码 <span class="filepath">adapter.py : run_clawbench_task() L584-661（完整流程）</span></div>
+  <div class="code-wrap"><pre>
+<div class="cl hl"><span class="ln">612</span><span class="lc">workspace = Path(<span class="fn">tempfile.mkdtemp</span>(prefix=f<span class="st">"sal_clawbench_{tid}_"</span>))<span class="tip">创建隔离临时目录</span></span></div>
+<div class="cl hl"><span class="ln">615</span><span class="lc"><span class="fn">_prepare_clawbench_workspace</span>(task_dir, workspace)<span class="tip">复制 data/ + 执行 setup.sh</span></span></div>
+<div class="cl hl-y"><span class="ln">617</span><span class="lc">instruction = <span class="fn">_load_clawbench_instruction</span>(task_dir, task, workspace)<span class="tip">节点12：路径替换</span></span></div>
+<div class="cl hl-y"><span class="ln">618</span><span class="lc">agent_result = <span class="fn">run_task_with_sal_agent</span>(prompt=instruction, config=config, cwd=workspace)<span class="tip">节点8：Agent执行</span></span></div>
+<div class="cl hl-g"><span class="ln">631</span><span class="lc">verify_result = <span class="fn">_verify_clawbench_task</span>(task_dir, workspace)<span class="tip">节点13：pytest评分</span></span></div>
+<div class="cl"><span class="ln">637</span><span class="lc">result[<span class="st">"workspace_files"</span>] = [str(p.<span class="fn">relative_to</span>(workspace)) <span class="kw">for</span> p <span class="kw">in</span> workspace.<span class="fn">rglob</span>(<span class="st">"*"</span>) <span class="kw">if</span> p.is_file()]</span></div>
+<div class="cl"><span class="ln">649</span><span class="lc"><span class="kw">finally</span>:  <span class="cm"># 无论如何都保存结果并清理</span></span></div>
+<div class="cl hl-r"><span class="ln">659</span><span class="lc">    shutil.<span class="fn">rmtree</span>(workspace, ignore_errors=<span class="kw">True</span>)<span class="tip">清理临时目录</span></span></div></pre></div>
+</div>
+
+</div>
+<div id="pane-instr" class="pane" style="display:none">
+
+<div class="detail-header">
+  <div class="dh-title">_load_clawbench_instruction() — 路径替换</div>
+  <div class="dh-question">指令里的路径怎么适配临时目录？</div>
+  <div class="dh-answer">
+    ClawEvalkit 的 instruction.md 里写的是 <code>"workspace/calendar.json"</code> 相对路径（假设 ClawEvalkit 自己的 agent 在 workspace 下运行）。
+    但我们的临时目录是 <code>/tmp/sal_clawbench_xxx/</code>。这里把 <code>"workspace/"</code> 替换成临时目录的绝对路径，
+    并追加 IMPORTANT 提示：所有输出文件必须写到这个绝对路径下。这样 Agent 就知道往哪写输出文件。
+  </div>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>路径替换示例（cal-002）</span><span class="tag tag-key">workspace/ -> /tmp/.../</span></div>
+  <pre><span style="color:#f85149;">原始 instruction.md:</span>
+  "Delete the meeting with ID 'mtg-003' from workspace/calendar.json.
+   Save the updated calendar to workspace/updated_calendar.json."
+
+<span style="color:#3fb950;">替换后（实际发给 Agent 的 prompt）:</span>
+  "IMPORTANT: Write every required output file under this absolute
+   workspace path: /tmp/sal_clawbench_cal-002_0ak8gmrp/
+   Do not write outputs into the repository or any other directory.
+   Use bash commands when useful, and create valid files that match the
+   requested schema exactly.
+
+   Delete the meeting with ID 'mtg-003' from
+   /tmp/sal_clawbench_cal-002_0ak8gmrp/calendar.json.
+   Save the updated calendar to /tmp/sal_clawbench_cal-002_0ak8gmrp/updated_calendar.json."</pre>
+</div>
+
+<div class="code-section">
+  <div class="code-section-title">核心代码 <span class="filepath">adapter.py : _load_clawbench_instruction() L686-704</span></div>
+  <div class="code-wrap"><pre>
+<div class="cl hl"><span class="ln">689</span><span class="lc">instruction = instruction_path.<span class="fn">read_text</span>(encoding=<span class="st">"utf-8"</span>)</span></div>
+<div class="cl hl"><span class="ln">693</span><span class="lc">abs_workspace = <span class="bi">str</span>(workspace.<span class="fn">resolve</span>())</span></div>
+<div class="cl hl-y"><span class="ln">694</span><span class="lc">instruction = instruction.<span class="fn">replace</span>(<span class="st">"workspace/"</span>, f<span class="st">"{abs_workspace}/"</span>)<span class="tip">相对路径 -> 绝对路径</span></span></div>
+<div class="cl hl-y"><span class="ln">695</span><span class="lc">instruction = instruction.<span class="fn">replace</span>(<span class="st">"`workspace/"</span>, f<span class="st">"`{abs_workspace}/"</span>)</span></div>
+<div class="cl hl-g"><span class="ln">697</span><span class="lc"><span class="kw">return</span> (<span class="st">"IMPORTANT: Write every required output file under this absolute "</span></span></div>
+<div class="cl hl-g"><span class="ln">698</span><span class="lc">    f<span class="st">"workspace path: {abs_workspace}/\n"</span></span></div>
+<div class="cl hl-g"><span class="ln">699</span><span class="lc">    <span class="st">"Do not write outputs into the repository or any other directory.\n"</span></span></div>
+<div class="cl hl-g"><span class="ln">703</span><span class="lc">    f<span class="st">"{instruction}"</span>)</span></div></pre></div>
+</div>
+
+<div class="anno-list">
+  <div class="anno-card"><div class="icon">💡</div><div class="body"><strong>为什么要在 prompt 前追加 IMPORTANT？</strong><p>SAL 的 BashTool 的 cwd 已经设为 workspace 目录，但 LLM 有时会用绝对路径或错误路径。追加 IMPORTANT 提示确保 LLM 明确知道输出目录的绝对路径，避免写到 /tmp/ 的其他位置或当前工作目录。</p></div></div>
+</div>
+
+</div>
+<div id="pane-verify" class="pane" style="display:none">
+
+<div class="detail-header">
+  <div class="dh-title">_verify_clawbench_task() — pytest 评分</div>
+  <div class="dh-question">怎么知道 agent 做对了没？</div>
+  <div class="dh-answer">
+    Agent 执行完毕后，调 <code>claw_bench.core.verifier.verify_task(task_dir, workspace)</code>。
+    这个函数在 agent 的 workspace 上运行 <code>verifier/test_output.py</code> 里的 pytest 测试。
+    每个 test function 检查一个 aspect（文件是否存在、内容是否正确、JSON schema 是否合法等）。
+    返回 passed/weighted_score/checks_passed/checks_total。
+  </div>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>pytest verifier 返回值（cal-002，满分）</span><span class="tag tag-out">13/13 全通过</span></div>
+  <pre>verification.passed          = <span style="color:#3fb950;">True</span>
+verification.weighted_score  = <span style="color:#79c0ff;">1.0</span>
+verification.checks_passed    = <span style="color:#79c0ff;">13</span>       <span style="color:#6e7681;">（13/13 全通过）</span>
+verification.checks_total     = <span style="color:#79c0ff;">13</span>
+verification.details = <span style="color:#a5d6ff;">"passed: ...13 tests all passed..."</span></pre>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>失败案例（code-011, 29/30 通过）</span><span class="tag tag-out">score=0.9667</span></div>
+  <pre>verification.passed          = <span style="color:#f85149;">False</span>
+verification.weighted_score  = <span style="color:#79c0ff;">0.9667</span>
+verification.checks_passed    = <span style="color:#79c0ff;">29</span>
+verification.checks_total     = <span style="color:#79c0ff;">30</span>
+<span style="color:#f85149;">failed: .../test_output.py::test_no_extraneous_files</span>   <span style="color:#6e7681;">（agent 留下了 __pycache__/）</span></pre>
+</div>
+
+<div class="code-section">
+  <div class="code-section-title">核心代码 <span class="filepath">adapter.py : _verify_clawbench_task() L707-730</span></div>
+  <div class="code-wrap"><pre>
+<div class="cl hl"><span class="ln">711</span><span class="lc">bench_dir = task_dir.parents[<span class="nm">2</span>]</span></div>
+<div class="cl hl"><span class="ln">712</span><span class="lc">src_dir = bench_dir / <span class="st">"src"</span></span></div>
+<div class="cl"><span class="ln">714</span><span class="lc"><span class="kw">if</span> <span class="bi">str</span>(src_dir) <span class="kw">not in</span> sys.path: sys.path.<span class="fn">insert</span>(<span class="nm">0</span>, <span class="bi">str</span>(src_dir))</span></div>
+<div class="cl hl-y"><span class="ln">716</span><span class="lc"><span class="kw">from</span> claw_bench.core.verifier <span class="kw">import</span> verify_task</span></div>
+<div class="cl hl-y"><span class="ln">718</span><span class="lc">verification = <span class="fn">verify_task</span>(task_dir, workspace)</span></div>
+<div class="cl hl-g"><span class="ln">719</span><span class="lc">score = verification.weighted_score</span></div>
+<div class="cl"><span class="ln">720</span><span class="lc"><span class="kw">if</span> score <span class="kw">is</span> <span class="kw">None</span>:</span></div>
+<div class="cl"><span class="ln">721</span><span class="lc">    score = verification.checks_passed / <span class="fn">max</span>(verification.checks_total, <span class="nm">1</span>)<span class="tip">fallback: 简单通过率</span></span></div></pre></div>
+</div>
+
+<div class="anno-list">
+  <div class="anno-card"><div class="icon">💡</div><div class="body"><strong>weighted_score vs 简单通过率</strong><p><code>weighted_score</code> 是 ClawEvalkit 内部计算的加权分数（不同 test 有不同权重）。如果返回 None（某些旧版本），则 fallback 为 <code>checks_passed / checks_total</code>。</p></div></div>
+  <div class="anno-card"><div class="icon">⚠️</div><div class="body"><strong>常见失败原因</strong><p><code>test_no_extraneous_files</code>：agent 执行后留下了 <code>__pycache__/</code>、<code>.pyc</code> 等临时文件。<code>test_no_placeholder_values</code>：agent 在输出中留下了 "TODO"、"placeholder" 等占位符。<code>test_output_not_excessively_large</code>：输出文件超过了大小限制。</p></div></div>
+</div>
+
+</div>
+<div id="pane-save" class="pane" style="display:none">
+
+<div class="detail-header">
+  <div class="dh-title">保存 result.json + transcript.json</div>
+  <div class="dh-question">数据存在哪里？</div>
+  <div class="dh-answer">
+    每个任务执行完后（无论成功失败），在 <code>run_clawbench_task()</code> 的 finally 块中保存两个文件到 <code>results_dir/model/task_id/</code>：
+    <code>result.json</code>（status/score/checks_passed/checks_total/execution_time/workspace_files）和 <code>transcript.json</code>（完整的 agent 交互记录， ClawEvalkit 格式）。
+    然后用 <code>shutil.rmtree(workspace)</code> 清理临时目录。这些文件是后续 Dashboard 可视化和数据分析的数据源。
+  </div>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>磁盘上的最终产物</span><span class="tag tag-key">results 目录结构</span></div>
+  <pre>evals/openclaw/results/
+├── clawbench/
+│   └── gpt-4.1-2025-04-14/       <span style="color:#6e7681;">← model_key 作为子目录</span>
+│       ├── cal-002/
+│       │   ├── result.json         <span style="color:#6e7681;">← 评测结果（score, passed, details）</span>
+│       │   └── transcript.json     <span style="color:#6e7681;">← 完整 agent trace（ClawEvalkit格式）</span>
+│       ├── cal-003/
+│       │   ├── result.json
+│       │   └── transcript.json
+│       ├── code-011/
+│       │   ├── result.json
+│       │   └── transcript.json
+│       ├── ...（共 35 个任务目录）
+│       └── <span style="color:#ffa657;">gpt-4.1-2025-04-14.json</span>  <span style="color:#6e7681;">← 汇总 JSON（节点15）</span>
+├── gpt-4.1-2025-04-14/            <span style="color:#6e7681;">← PinchBench 结果（23个任务）</span>
+│   ├── task_00_sanity/
+│   │   ├── result.json
+│   │   └── transcript.json
+│   └── ...（共 23 个任务目录）
+└── gpt-4.1-2025-04-14.json       <span style="color:#6e7681;">← PinchBench 汇总 JSON</span></pre>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>真实 result.json 内容（cal-002）</span><span class="tag tag-out">完整字段</span></div>
+  <pre>{
+  <span style="color:#a5d6ff">"task_id"</span>:           <span style="color:#a5d6ff;">"cal-002"</span>,
+  <span style="color:#a5d6ff">"dir_name"</span>:          <span style="color:#a5d6ff;">"cal-002-delete-meeting"</span>,
+  <span style="color:#a5d6ff">"domain"</span>:            <span style="color:#a5d6ff;">"calendar"</span>,
+  <span style="color:#a5d6ff">"model_key"</span>:         <span style="color:#a5d6ff;">"gpt-4.1-2025-04-14"</span>,
+  <span style="color:#a5d6ff">"status"</span>:            <span style="color:#3fb950;">"success"</span>,
+  <span style="color:#a5d6ff">"passed"</span>:            <span style="color:#3fb950;">true</span>,
+  <span style="color:#a5d6ff">"score"</span>:             <span style="color:#79c0ff;">1.0</span>,
+  <span style="color:#a5d6ff;">"checks_total"</span>:      <span style="color:#79c0ff;">13</span>,
+  <span style="color:#a5d6ff;">"checks_passed"</span>:    <span style="color:#79c0ff;">13</span>,
+  <span style="color:#a5d6ff">"details"</span>:           <span style="color:#a5d6ff;">"passed: .../test_output_file_exists\npassed: .../test_meeting_count\n..."</span>,
+  <span style="color:#a5d6ff;">"error"</span>:             <span style="color:#6e7681;">null</span>,
+  <span style="color:#a5d6ff;">"execution_time"</span>:   <span style="color:#79c0ff;">4.22</span>,
+  <span style="color:#a5d6ff;">"raw_events_count"</span>:  <span style="color:#79c0ff;">15</span>,
+  <span style="color:#a5d6ff;">"workspace_files"</span>:   [<span style="color:#a5d6ff;">".gitkeep"</span>, <span style="color:#a5d6ff;">"calendar.json"</span>, <span style="color:#a5d6ff;">"updated_calendar.json"</span>]
+}</pre>
+</div>
+
+<div class="code-section">
+  <div class="code-section-title">核心代码 <span class="filepath">adapter.py : finally 块 L649-659</span></div>
+  <div class="code-wrap"><pre>
+<div class="cl"><span class="ln">648</span><span class="lc">    <span class="kw">finally</span>:</span></div>
+<div class="cl hl"><span class="ln">649</span><span class="lc">        task_output_dir = results_dir / config.name / tid</span></div>
+<div class="cl hl"><span class="ln">650</span><span class="lc">        task_output_dir.<span class="fn">mkdir</span>(parents=<span class="kw">True</span>, exist_ok=<span class="kw">True</span>)</span></div>
+<div class="cl hl-y"><span class="ln">651</span><span class="lc">        (task_output_dir / <span class="st">"result.json"</span>).<span class="fn">write_text</span>(json.dumps(result, indent=<span class="nm">2</span>))<span class="tip">保存评测结果</span></span></div>
+<div class="cl hl-y"><span class="ln">655</span><span class="lc">        (task_output_dir / <span class="st">"transcript.json"</span>).<span class="fn">write_text</span>(json.dumps(transcript, indent=<span class="nm">2</span>))<span class="tip">保存完整trace</span></span></div>
+<div class="cl hl-r"><span class="ln">659</span><span class="lc">        shutil.<span class="fn">rmtree</span>(workspace, ignore_errors=<span class="kw">True</span>)<span class="tip">清理临时目录</span></span></div></pre></div>
+</div>
+
+<div class="anno-list">
+  <div class="anno-card"><div class="icon">💡</div><div class="body"><strong>finally 块保证数据不丢失</strong><p>即使 agent 执行抛异常（如 API 超时、workspace 权限问题），finally 块仍然会保存已有的 result（status="error"）和 transcript。这保证了评测数据完整性——不会有"跑了但没记录"的情况。</p></div></div>
+</div>
+
+</div>
+<div id="pane-summary" class="pane" style="display:none">
+
+<div class="detail-header">
+  <div class="dh-title">汇总 score — 写 summary JSON + 打印</div>
+  <div class="dh-question">最终分数怎么算的？</div>
+  <div class="dh-answer">
+    在 <code>run_clawbench()</code> 最后（runner.py L527-549），合并本批次结果 + 缓存结果后，
+    筛选 <code>status=="success"</code> 的任务，算 <code>mean(score)*100</code> 作为 overall score。
+    保存到 <code>results_dir/model.json</code>（不含每个任务的 details，只有汇总数字），打印到终端。
+    同时构建包含 details 的完整 summary 返回给调用方。
+  </div>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>ClawBench 汇总 JSON（写入磁盘的精简版）</span><span class="tag tag-out">results/clawbench/gpt-4.1-2025-04-14.json</span></div>
+  <pre>{
+  <span style="color:#a5d6ff">"model"</span>:        <span style="color:#a5d6ff;">"gpt-4.1-2025-04-14"</span>,
+  <span style="color:#a5d6ff">"score"</span>:        <span style="color:#79c0ff;">78.9</span>,                  <span style="color:#6e7681;">← mean(score) * 100</span>
+  <span style="color:#a5d6ff">"passed"</span>:        <span style="color:#79c0ff;">22</span>,                   <span style="color:#6e7681;">← passed=True 的任务数</span>
+  <span style="color:#a5d6ff">"scored"</span>:       <span style="color:#79c0ff;">35</span>,                   <span style="color:#6e7681;">← status=success 的任务数</span>
+  <span style="color:#a5d6ff">"total"</span>:        <span style="color:#79c0ff;">303</span>,                  <span style="color:#6e7681;">← ClawBench 全量任务数</span>
+  <span style="color:#a5d6ff">"pending"</span>:       <span style="color:#79c0ff;">268</span>,                  <span style="color:#6e7681;">← 303 - 35 = 还没跑的</span>
+  <span style="color:#a5d6ff">"result_count"</span>:  <span style="color:#79c0ff;">35</span>                    <span style="color:#6e7681;">← 本轮实际结果数</span>
+}</pre>
+</div>
+
+<div class="data-card">
+  <div class="data-card-title"><span>终端最终输出</span><span class="tag tag-in">stdout</span></div>
+  <pre>[openclaw] Benchmark: clawbench
+[openclaw] Model: gpt-4.1-2025-04-14 (gpt-4.1-2025-04-14)
+[openclaw] Provider: azure_openai @ https://search.bytedance.net/gpt/openapi/online/v2/crawl
+[openclaw] Key env: GPT_API_KEY
+[openclaw] Max turns: 15, Timeout: 300s
+[clawbench] 5 cached, 298 remaining
+[clawbench] Running 30 tasks with model=gpt-4.1-2025-04-14
+[clawbench] (1/30) comm-010 [communication]
+[clawbench]   -> success score=0.9630 (23.4s)
+[clawbench] (2/30) bio-004-phylogenetic [bioinformatics]
+[clawbench]   -> success score=0.0000 (14.3s)
+...
+[clawbench] (30/30) doc-006 [document-editing]
+[clawbench]   -> success score=1.0000 (12.8s)
+[clawbench] Summary saved to .../results/clawbench/gpt-4.1-2025-04-14.json
+<span style="color:#3fb950;">[clawbench] Score: 78.9 (35/303)</span></pre>
+</div>
+
+<div class="code-section">
+  <div class="code-section-title">核心代码 <span class="filepath">runner.py : L527-549</span></div>
+  <div class="code-wrap"><pre>
+<div class="cl hl"><span class="ln">527</span><span class="lc">scored = [r <span class="kw">for</span> r <span class="kw">in</span> all_results <span class="kw">if</span> r.<span class="fn">get</span>(<span class="st">"status"</span>) == <span class="st">"success"</span>]<span class="tip">只统计成功执行的任务</span></span></div>
+<div class="cl hl"><span class="ln">528</span><span class="lc">scores = [r.<span class="fn">get</span>(<span class="st">"score"</span>, <span class="nm">0.0</span>) <span class="kw">for</span> r <span class="kw">in</span> scored]</span></div>
+<div class="cl hl-y"><span class="ln">529</span><span class="lc">overall = <span class="fn">round</span>(<span class="fn">sum</span>(scores) / <span class="fn">len</span>(scores) * <span class="nm">100</span>, <span class="nm">1</span>) <span class="kw">if</span> scores <span class="kw">else</span> <span class="nm">0</span><span class="tip">分数 = 所有success任务的平均score * 100</span></span></div>
+<div class="cl"><span class="ln">531</span><span class="lc">summary = {</span></div>
+<div class="cl"><span class="ln">532</span><span class="lc">    <span class="st">"model"</span>: model_key,</span></div>
+<div class="cl"><span class="ln">533</span><span class="lc">    <span class="st">"score"</span>: overall,</span></div>
+<div class="cl"><span class="ln">534</span><span class="lc">    <span class="st">"passed"</span>: <span class="fn">sum</span>(<span class="nm">1</span> <span class="kw">for</span> r <span class="kw">in</span> all_results <span class="kw">if</span> r.<span class="fn">get</span>(<span class="st">"passed"</span>)),</span></div>
+<div class="cl"><span class="ln">535</span><span class="lc">    <span class="st">"scored"</span>: <span class="fn">len</span>(scored),</span></div>
+<div class="cl"><span class="ln">536</span><span class="lc">    <span class="st">"total"</span>: <span class="fn">len</span>(all_task_ids),</span></div>
+<div class="cl"><span class="ln">537</span><span class="lc">    <span class="st">"pending"</span>: <span class="fn">len</span>(all_task_ids) - <span class="fn">len</span>(all_results),</span></div>
+<div class="cl"><span class="ln">538</span><span class="lc">    <span class="st">"details"</span>: all_results,   <span style="color:#6e7681;">← 完整详情（不写入磁盘）</span></span></div>
+<div class="cl"><span class="ln">539</span><span class="lc">}</span></div>
+<div class="cl hl-g"><span class="ln">543</span><span class="lc">summary_save = {k: v <span class="kw">for</span> k, v <span class="kw">in</span> summary.<span class="fn">items</span>() <span class="kw">if</span> k != <span class="st">"details"</span>}<span class="tip">去掉details再写入磁盘</span></span></div>
+<div class="cl hl-g"><span class="ln">545</span><span class="lc">summary_path.<span class="fn">write_text</span>(json.dumps(summary_save, indent=<span class="nm">2</span>, ensure_ascii=<span class="kw">False</span>))</span></div>
+<div class="cl hl-g"><span class="ln">548</span><span class="lc"><span class="kw">print</span>(f<span class="st">"[clawbench] Score: {overall} ({len(scores)}/{len(all_task_ids)})"</span>)</span></div></pre></div>
+</div>
+
+<div class="anno-list">
+  <div class="anno-card"><div class="icon">💡</div><div class="body"><strong>score vs passed 的区别</strong><p><code>score</code> 是 pytest verifier 返回的 <code>weighted_score</code>（0-1 浮点数），乘 100 后变成百分比。<code>passed</code> 是 <code>verification.passed == True</code> 的任务数（即所有 check 都通过）。一个任务可以 passed=False 但 score>0（比如 29/30 checks 通过）。</p></div></div>
+  <div class="anno-card"><div class="icon">💡</div><div class="body"><strong>为什么 details 不写入磁盘？</strong><p>details 包含每个任务的完整 result dict（含长字符串 details 字段）。35 个任务的 summary JSON 带约 50KB details，单独的 result.json 总计约 35KB。写入磁盘的精简版只有 6 个字段，方便快速查看。</p></div></div>
+</div>
+
+</div>
+
+  </div>
+</div>
+<script>
+function show(id) {
+  document.querySelectorAll('.pane').forEach(p => p.style.display = 'none');
+  document.getElementById('pane-' + id).style.display = 'block';
+  document.querySelectorAll('.flow-node').forEach(n => n.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+  document.getElementById('detail').scrollTop = 0;
+}
+</script>
+</body>
+</html>

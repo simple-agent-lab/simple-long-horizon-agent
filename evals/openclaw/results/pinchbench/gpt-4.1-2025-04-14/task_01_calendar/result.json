@@ -1,0 +1,17 @@
+{
+  "task_id": "task_01_calendar",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "scores": {
+    "file_created": 1.0,
+    "attendee_present": 1.0,
+    "title_correct": 1.0,
+    "description_present": 1.0,
+    "time_correct": 1.0,
+    "date_correct": 1.0
+  },
+  "mean": 1.0,
+  "error": null,
+  "execution_time": 16.45,
+  "raw_events_count": 31
+}

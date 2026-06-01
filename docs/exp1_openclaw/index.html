@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Exp1: Simple Agent Lab × ClawEvalkit</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;line-height:1.6}
+
+.header{background:linear-gradient(135deg,#1e293b 0%,#0f172a 60%);border-bottom:1px solid #334155;padding:40px 48px 36px}
+.header h1{font-size:26px;color:#f8fafc;margin-bottom:6px}
+.header .subtitle{color:#94a3b8;font-size:14px;margin-bottom:16px}
+.header .meta{display:flex;gap:20px;flex-wrap:wrap}
+.header .tag{padding:4px 12px;border-radius:6px;font-size:12px;font-weight:600;border:1px solid #475569;color:#94a3b8;background:#1e293b}
+
+.content{max-width:960px;margin:0 auto;padding:32px 48px 64px}
+
+/* Experiment timeline */
+.timeline{margin-bottom:36px}
+.timeline h2{font-size:16px;color:#f1f5f9;margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid #1e293b}
+.timeline-item{display:flex;gap:16px;margin-bottom:16px;align-items:flex-start}
+.timeline-dot{width:10px;height:10px;border-radius:50%;margin-top:6px;flex-shrink:0}
+.timeline-body{flex:1}
+.timeline-body h3{font-size:14px;color:#e2e8f0;margin-bottom:2px}
+.timeline-body p{font-size:12px;color:#94a3b8}
+
+/* Card grid */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(400px,1fr));gap:16px;margin-top:24px}
+.card{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:24px;transition:border-color .2s,transform .15s;cursor:pointer;text-decoration:none;color:inherit;display:block}
+.card:hover{border-color:#60a5fa;transform:translateY(-2px)}
+.card .card-icon{font-size:28px;margin-bottom:12px}
+.card h3{font-size:16px;color:#f1f5f9;margin-bottom:6px}
+.card .desc{font-size:13px;color:#94a3b8;margin-bottom:14px;line-height:1.5}
+.card .tags{display:flex;gap:6px;flex-wrap:wrap}
+.card .tag{padding:2px 8px;border-radius:4px;font-size:11px;background:#0f172a;color:#64748b;border:1px solid #1e293b}
+.card .tag.highlight{color:#60a5fa;border-color:#1e3a5f}
+
+.section-title{font-size:16px;color:#f1f5f9;margin-bottom:4px;margin-top:32px}
+.section-desc{font-size:13px;color:#64748b;margin-bottom:12px}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Exp1: Simple Agent Lab × ClawEvalkit</h1>
+  <div class="subtitle">复用 SAL Bash Agent 作为执行引擎，适配 ClawEvalkit 的多种 benchmark 评分系统，实现"换 agent 不换评测框架"</div>
+  <div class="meta">
+    <span class="tag">3 Benchmarks</span>
+    <span class="tag">58 Tasks Evaluated</span>
+    <span class="tag">4 Modules / ~1600 Lines</span>
+    <span class="tag">Model: GPT-4.1</span>
+  </div>
+</div>
+
+<div class="content">
+
+<!-- Timeline -->
+<div class="timeline">
+  <h2>实验推进历程</h2>
+
+  <div class="timeline-item">
+    <div class="timeline-dot" style="background:#6366f1"></div>
+    <div class="timeline-body">
+      <h3>Round 1: 架构分析与集成实现</h3>
+      <p>分析 SAL 源码结构，设计 SAL Event → ClawEvalkit transcript 格式桥接层。实现 PinchBench + AgentBench 适配，4/4 冒烟测试通过（fake provider）。</p>
+    </div>
+  </div>
+
+  <div class="timeline-item">
+    <div class="timeline-dot" style="background:#a855f7"></div>
+    <div class="timeline-body">
+      <h3>Round 2: AzureOpenAI 集成 + PinchBench 真实评测</h3>
+      <p>为字节 ModelHub 创建自定义 AzureOpenAI agent。跑通 PinchBench 全量 23 tasks，总分 60.0%，10 个满分任务。</p>
+    </div>
+  </div>
+
+  <div class="timeline-item">
+    <div class="timeline-dot" style="background:#10b981"></div>
+    <div class="timeline-body">
+      <h3>Round 3: ClawBench Official 集成（303 tasks）</h3>
+      <p>接入 ClawBench 303-task benchmark（pytest verifier）。评测 35 tasks，22/35 通过（62.9%），加权平均分 78.9%，覆盖 17 个 domain。</p>
+    </div>
+  </div>
+</div>
+
+<!-- Evaluation Dashboards -->
+<div class="section-title">评测 Dashboard</div>
+<div class="section-desc">每个 benchmark 的完整 trace 可视化，包含每步 agent 行为、评分详情、任务分类</div>
+<div class="grid">
+
+  <a class="card" href="pinchbench_dashboard.html">
+    <div class="card-icon" style="color:#a855f7">&#9733;</div>
+    <h3>PinchBench Dashboard</h3>
+    <div class="desc">PinchBench 全量 23 个任务的 agent trace 可视化。总分 60.0%，包含 Overview / Scores / Details / Perfect / Partial / Failed 六个维度。</div>
+    <div class="tags">
+      <span class="tag">23 Tasks</span>
+      <span class="tag">Score: 60.0%</span>
+      <span class="tag">10 Perfect</span>
+      <span class="tag">Grade-based</span>
+    </div>
+  </a>
+
+  <a class="card" href="clawbench_dashboard.html">
+    <div class="card-icon" style="color:#10b981">&#9733;</div>
+    <h3>ClawBench Dashboard</h3>
+    <div class="desc">ClawBench 35 个任务的 agent trace 可视化。22/35 pytest 通过（62.9%），加权平均 78.9%，覆盖 17 个 domain（calendar / code / data-analysis 等）。</div>
+    <div class="tags">
+      <span class="tag">35 Tasks</span>
+      <span class="tag">Score: 78.9%</span>
+      <span class="tag">22 Passed</span>
+      <span class="tag">17 Domains</span>
+      <span class="tag">Pytest Verifier</span>
+    </div>
+  </a>
+
+</div>
+
+<!-- Source Code -->
+<div class="section-title">源码与代码剖析</div>
+<div class="section-desc">源码解析与逐函数代码审查</div>
+<div class="grid">
+
+  <a class="card" href="openclaw_code.html">
+    <div class="card-icon" style="color:#60a5fa">&#128736;</div>
+    <h3>evals/openclaw/ 代码剖析</h3>
+    <div class="desc">集成层 4 个模块（config / adapter / runner / test）的逐函数代码分析。包含 3 条数据流图（PinchBench / ClawBench / AzureOpenAI）、7 个 Code Review findings（3 Good / 3 Warn / 1 Bad）。</div>
+    <div class="tags">
+      <span class="tag">4 Modules</span>
+      <span class="tag">~1600 Lines</span>
+      <span class="tag">3 Data Flows</span>
+      <span class="tag">7 Reviews</span>
+    </div>
+  </a>
+
+  <a class="card" href="sal_intro.html">
+    <div class="card-icon" style="color:#6366f1">&#128218;</div>
+    <h3>SAL 源码解析</h3>
+    <div class="desc">Simple Agent Lab 上游框架的源码可视化分析。解析 SAL 的核心抽象：Agent / Message / State / ContextView / run() 协议，以及 Bash Agent 的实现模式。</div>
+    <div class="tags">
+      <span class="tag">Round 1 产物</span>
+      <span class="tag">Framework Intro</span>
+    </div>
+  </a>
+
+</div>
+
+</div>
+</body>
+</html>

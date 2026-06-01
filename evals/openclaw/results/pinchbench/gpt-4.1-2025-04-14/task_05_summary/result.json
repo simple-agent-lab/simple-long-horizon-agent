@@ -1,0 +1,10 @@
+{
+  "task_id": "task_05_summary",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "scores": {},
+  "mean": 1.0,
+  "error": null,
+  "execution_time": 13.46,
+  "raw_events_count": 23
+}

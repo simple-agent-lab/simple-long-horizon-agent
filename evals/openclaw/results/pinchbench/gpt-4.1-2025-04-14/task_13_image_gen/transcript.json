@@ -1,0 +1,56 @@
+[
+  {
+    "type": "message",
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "toolCall",
+          "name": "bash",
+          "arguments": {
+            "command": "python3 -c \"from PIL import Image, ImageDraw, ImageFont; img = Image.new('RGB', (512, 512), (210, 180, 140)); draw = ImageDraw.Draw(img); draw.rectangle([0,340,512,512], fill=(120,80,50)); draw.ellipse([188,180,324,320], fill=(200,220,240), outline=(100,150,230), width=8); draw.rectangle([238,320,274,370], fill=(170,210,230)); draw.rectangle([214,370,298,410], fill=(230,230,230)); draw.rectangle([230,410,282,430], fill=(100,100,130)); draw.rectangle([120,380,180,420], fill=(180,220,230)); draw.rectangle([332,380,392,420], fill=(180,220,230)); draw.rectangle([274,320,294,400], fill=(200,220,240)); draw.line([260,320,260,300], fill=(100,150,230), width=8); draw.ellipse([250,290,270,310], fill=(230,240,255), outline=(100,150,230), width=3); draw.rectangle([240,180,272,220], fill=(100,100,130)); draw.ellipse([220,195,232,207], fill=(30,30,30)); draw.ellipse([260,195,272,207], fill=(30,30,30)); draw.rectangle([214,220,298,260], fill=(240,220,180)); draw.text((218,235), 'BOOK', fill=(120,80,50)); draw.rectangle([60,80,140,130], fill=(140,90,40)); draw.rectangle([372,80,452,130], fill=(140,90,40)); draw.text((72,97), 'COFFEE', fill=(210,180,140)); draw.text((384,97), 'COFFEE', fill=(210,180,140)); img.save('robot_cafe.png')\"",
+            "description": "Generate an image of a friendly robot sitting in a cozy coffee shop, reading a book and save as robot_cafe.png."
+          },
+          "id": "call_AJTy7zXvbiTsRpIiaj2PAYnf"
+        }
+      ]
+    }
+  },
+  {
+    "type": "tool_call",
+    "name": "bash",
+    "params": {}
+  },
+  {
+    "type": "tool_result",
+    "result": ""
+  },
+  {
+    "type": "message",
+    "message": {
+      "role": "user",
+      "content": [
+        {
+          "type": "toolResult",
+          "content": [
+            "$ python3 -c \"from PIL import Image, ImageDraw, ImageFont; img = Image.new('RGB', (512, 512), (210, 180, 140)); draw = ImageDraw.Draw(img); draw.rectangle([0,340,512,512], fill=(120,80,50)); draw.ellipse([188,180,324,320], fill=(200,220,240), outline=(100,150,230), width=8); draw.rectangle([238,320,274,370], fill=(170,210,230)); draw.rectangle([214,370,298,410], fill=(230,230,230)); draw.rectangle([230,410,282,430], fill=(100,100,130)); draw.rectangle([120,380,180,420], fill=(180,220,230)); draw.rectangle([332,380,392,420], fill=(180,220,230)); draw.rectangle([274,320,294,400], fill=(200,220,240)); draw.line([260,320,260,300], fill=(100,150,230), width=8); draw.ellipse([250,290,270,310], fill=(230,240,255), outline=(100,150,230), width=3); draw.rectangle([240,180,272,220], fill=(100,100,130)); draw.ellipse([220,195,232,207], fill=(30,30,30)); draw.ellipse([260,195,272,207], fill=(30,30,30)); draw.rectangle([214,220,298,260], fill=(240,220,180)); draw.text((218,235), 'BOOK', fill=(120,80,50)); draw.rectangle([60,80,140,130], fill=(140,90,40)); draw.rectangle([372,80,452,130], fill=(140,90,40)); draw.text((72,97), 'COFFEE', fill=(210,180,140)); draw.text((384,97), 'COFFEE', fill=(210,180,140)); img.save('robot_cafe.png')\"\nDone. Command completed with no output."
+          ],
+          "tool_call_id": "call_AJTy7zXvbiTsRpIiaj2PAYnf",
+          "tool_name": "bash"
+        }
+      ]
+    }
+  },
+  {
+    "type": "message",
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "The image of a friendly robot sitting in a cozy coffee shop, reading a book, has been generated and saved as \"robot_cafe.png\" in the current directory. If you'd like to view or use the image, let me know!"
+        }
+      ]
+    }
+  }
+]

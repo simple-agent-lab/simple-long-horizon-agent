@@ -1,0 +1,17 @@
+{
+  "task_id": "task_13_image_gen",
+  "model_key": "gpt-4.1-2025-04-14",
+  "status": "success",
+  "scores": {
+    "used_image_tool": 0.0,
+    "prompt_has_robot": 0.0,
+    "prompt_has_cafe": 0.0,
+    "prompt_has_book": 0.0,
+    "file_saved": 1.0,
+    "confirmed_generation": 1.0
+  },
+  "mean": 0.3333,
+  "error": null,
+  "execution_time": 8.34,
+  "raw_events_count": 15
+}

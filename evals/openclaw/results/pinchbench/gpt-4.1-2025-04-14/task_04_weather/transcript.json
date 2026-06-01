@@ -1,0 +1,14 @@
+[
+  {
+    "type": "message",
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "Here’s a simple Python script called `weather.py` that fetches weather data for San Francisco using the wttr.in API and prints a summary:\n\n```python\nimport requests\n\ndef get_weather_summary(city=\"San Francisco\"):\n    url = f\"https://wttr.in/{city}?format=3\"\n    try:\n        response = requests.get(url)\n        response.raise_for_status()\n        print(\"Weather Summary:\", response.text)\n    except requests.RequestException as e:\n        print(\"Error fetching weather data:\", e)\n\nif __name__ == \"__main__\":\n    get_weather_summary()\n```\n\n**Instructions:**\n- Save this code as `weather.py`\n- Run it with:  \n  `python weather.py`\n\n**What it does:**  \nIt prints a one-line summary, like:  \n`San Francisco: +20°C Partly cloudy`\n\nIf you want a more detailed summary, let me know!"
+        }
+      ]
+    }
+  }
+]
