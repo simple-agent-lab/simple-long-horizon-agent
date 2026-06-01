@@ -10,7 +10,8 @@ locally or against a cloud backend:
 - `ContainerBackend` (*where compute runs*): `LocalDockerBackend` (today) →
   remote / k8s later.
 - `ArtifactStore` (*where bytes live*): `LocalDirStore` (bind mount, today) →
-  `HostHttpStore` (batteries-included, no third-party middleware) → `S3Store`.
+  `HostHttpStore` (batteries-included, no third-party middleware) → an object
+  store (S3/GCS) later.
 
 Inputs, the result, and the live trajectory all flow through the one
 `ArtifactStore`; there is no separate transport or trace sink. Drive one
@@ -57,7 +58,6 @@ from .stores import (
     HostHttpStore,
     HttpArtifactClient,
     LocalDirStore,
-    S3Store,
     container_store_from_env,
 )
 
@@ -85,7 +85,6 @@ __all__ = [
     "RunOutcome",
     "RunPaths",
     "RunSpec",
-    "S3Store",
     "Suite",
     "bootstrap_script",
     "build_command",

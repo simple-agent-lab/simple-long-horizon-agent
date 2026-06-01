@@ -76,7 +76,7 @@ run_suite_instance(
     suite=MySuite(),
     instance=instance,
     backend=backend,
-    store=LocalDirStore(run_root),       # remote daemon: HostHttpStore (no S3) / S3Store
+    store=LocalDirStore(run_root),       # remote daemon: HostHttpStore (no middleware)
     run_root=Path("evals/out/mysuite"),
     run_id="run-1",
     provider_env={"OPENAI_MODEL": "...", "OPENAI_AUTH_TOKEN": "..."},
@@ -116,7 +116,7 @@ else:
 | | `RemoteDockerBackend` | remote daemon; **host-pull**, so the worker needs no reverse reachability |
 | **Store** (*where bytes live*) | `LocalDirStore` | single machine (bind mount, zero-copy) |
 | | `HostHttpStore` | remote daemon **when the worker can reach the host** (worker-push, no middleware) |
-| | `S3Store` *(stub)* | host may go offline between submit and fetch |
+| | object store (future) | host may go offline between submit and fetch — a future `ArtifactStore`, none ships yet |
 
 **Matching backend to your network reality.** Multi-machine runs differ by which
 way connections can be opened:
@@ -131,8 +131,8 @@ way connections can be opened:
   reachability. Live trace is host-pull: pass `live_poll_interval_s=2` to have
   the host pull `out/trajectory.jsonl` on a cadence into local `evals/out/` for
   the viewer.
-- **Neither can reach the other / host may go offline**: `S3Store` (stub) — both
-  sides talk only to the bucket.
+- **Neither can reach the other / host may go offline**: a future object-store
+  `ArtifactStore` (S3/GCS) — both sides talk only to the bucket. Not yet shipped.
 
 The fast inner loop while writing a suite is `LocalProcessBackend` + a fake
 provider — it runs the *exact* container half, no image build:
@@ -275,7 +275,7 @@ The demo and tests use a throwaway `tempfile` dir to avoid leaving artifacts; us
 **Caveat — non-local stores.** The viewer scans a *local* directory, so it tails
 runs only when artifacts land on the local filesystem: `LocalDirStore` (bind
 mount) and `LocalProcessBackend` write straight to `evals/out/`, so live tail
-works. With `HostHttpStore` / `S3Store` (remote daemon) the bytes live elsewhere;
+works. With `HostHttpStore` (or a future object store) the bytes live elsewhere;
 point the viewer at wherever the host store persists them, or inspect after
 `collect_outputs` brings them back. Local single-machine development — the common
 path — is fully live.

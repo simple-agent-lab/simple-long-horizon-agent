@@ -12,7 +12,8 @@ cloud backend without touching suites or `run_suite_instance`:
 - `ArtifactStore` — *where bytes live*: one keyed store that carries inputs,
   the result, and the live trajectory, in both directions. `LocalDirStore`
   (bind mount) and `HostHttpStore` (a batteries-included stdlib server, no
-  third-party middleware) ship today; `S3Store` is the production stub.
+  third-party middleware) ship today; an object store (S3/GCS) is a future
+  addition behind the same protocol.
 
 There is deliberately no separate "transport" or "trace sink": staging inputs,
 collecting outputs, and pushing the live trace are all just `put`/`get` on the
@@ -69,7 +70,7 @@ class ContainerBinding:
 
     `mounts` are docker-style bind mounts (used by `LocalDirStore`); `env` are
     environment variables the in-container runner reads to reconstruct the
-    container-side store (used by `HostHttpStore` / `S3Store`). A store returns
+    container-side store (used by `HostHttpStore` / a future object store). A store returns
     one or the other (or both); the backend applies whatever is present.
     `add_hosts` maps hostnames to IPs (e.g. ``host-gateway``) so a container can
     reach a host-run store on Linux.

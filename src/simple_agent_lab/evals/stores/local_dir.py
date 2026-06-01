@@ -3,7 +3,7 @@
 The per-instance run directory is bind-mounted into the container, so host and
 container `get`/`put` the same files with zero copy and the lowest-latency live
 trace. Assumes the Docker daemon shares this filesystem; for a remote daemon use
-`HostHttpStore` (no third-party middleware) or `S3Store`.
+`HostHttpStore` (no third-party middleware).
 """
 
 from __future__ import annotations

@@ -81,7 +81,8 @@ the framework and is parameterized over **two orthogonal seams**, each a
      directory; the container reads/writes over HTTP. This is "bind mount over
      the network": it works across a **remote daemon with no third-party
      middleware**, which keeps the teaching path runnable out of the box.
-   - `S3Store` — object store for fully decoupled runs (documented stub).
+   - an object store (S3/GCS) for fully decoupled runs — a future `ArtifactStore`;
+     none ships today.
 
    "Container pushes its live trace" is preserved: it is just `put` of the
    trajectory key (a file write under `LocalDirStore`, an HTTP POST under
@@ -143,8 +144,8 @@ scripts at `run_suite_instance` + the generic runner and deleting the
 The patch helpers are already the single source of truth in the wheel
 (`evals/swebench/patch_extract.py` is now a re-export shim); the SWE-bench task
 text is briefly duplicated in the container half until the legacy runner is
-deleted. `evaluate_predictions.py` (scoring) stays untouched. `S3Store` remains
-a documented stub until a concrete cloud target lands.
+deleted. `evaluate_predictions.py` (scoring) stays untouched. An object-store
+`ArtifactStore` (S3/GCS) is left for a concrete cloud target; none ships today.
 
 ## Consequences
 
@@ -154,7 +155,7 @@ a documented stub until a concrete cloud target lands.
   way connections open: worker→host reachable → `HostHttpStore` (worker-push, no
   middleware); only host→worker reachable (NAT, the common case) →
   `RemoteDockerBackend` (host-pull, worker needs no inbound reachability);
-  neither / host may go offline → `S3Store`. The suite and runner are unchanged
+  neither / host may go offline → a future object-store store. The suite and runner are unchanged
   across all three.
 - ADR 0011's "adapter, not framework" guidance is **superseded** for the
   containerized case. Its core principles survive: the runtime core still knows
@@ -237,9 +238,10 @@ seam rather than forcing an architecture change:
 
 1. **Artifact movement → store-push, not host-pull.** `put_archive`/`get_archive`
    against a specific container is a docker-ism; pods are scheduled to arbitrary
-   nodes and may be evicted. So k8s pairs with `S3Store` (or an in-cluster HTTP
-   store) where the pod pushes artifacts out — exactly what the `ArtifactStore`
-   seam exists to swap. `S3Store` is already a stub.
+   nodes and may be evicted. So k8s pairs with an object-store store (S3/GCS) or
+   an in-cluster HTTP store where the pod pushes artifacts out — exactly what the
+   `ArtifactStore` seam exists to swap. Such a store is a future addition behind
+   the existing protocol; none ships today.
 2. **Registry becomes mandatory** (pods schedule anywhere), where for plain
    Docker it was an optimization.
 3. **Lifecycle leans to submit/poll.** A simple `K8sBackend` can watch-until-done
@@ -283,8 +285,8 @@ then, keep the one suite.
 - **Keep `ArtifactTransport` + `TraceSink` as separate seams.** Rejected — they
   answer the same question ("how do bytes move host↔container") on one axis;
   collapsing them into one `ArtifactStore` removes a whole concept and makes the
-  storage backend (`LocalDir` / `HostHttp` / `S3`) a single implementation point
-  instead of two.
+  storage backend (`LocalDir` / `HostHttp` / a future object store) a single
+  implementation point instead of two.
 - **Make every store copy bytes (drop bind mount).** Rejected — `LocalDirStore`
   bind mount gives zero-copy artifacts and the lowest-latency live trace
   locally; it stays the default while `HostHttpStore` is the no-middleware

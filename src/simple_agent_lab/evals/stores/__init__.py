@@ -3,7 +3,9 @@
 - `LocalDirStore` — bind-mount default, single machine.
 - `HostHttpStore` / `HttpArtifactClient` — host runs a stdlib HTTP store; works
   across a remote daemon with no third-party middleware.
-- `S3Store` — production stub for fully decoupled runs.
+
+An object-store store (S3/GCS) for fully decoupled runs is a future addition —
+just another `ArtifactStore` (ADR 0017); none ships today.
 
 `container_store_from_env` reconstructs the container-side store from the env
 the host's `ContainerBinding` set.
@@ -15,7 +17,6 @@ import os
 
 from .host_http import HostHttpStore, HttpArtifactClient
 from .local_dir import LocalDirStore
-from .s3 import S3Store
 
 
 def container_store_from_env(env: dict[str, str] | None = None):
@@ -36,6 +37,5 @@ __all__ = [
     "HostHttpStore",
     "HttpArtifactClient",
     "LocalDirStore",
-    "S3Store",
     "container_store_from_env",
 ]

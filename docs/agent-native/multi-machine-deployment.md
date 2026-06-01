@@ -172,7 +172,7 @@ Three properties fall out of the existing design, for free:
 | --- | --- | --- |
 | host→worker only (NAT; the common case) | `RemoteDockerBackend` (host-pull) | host `LocalDirStore` (the aggregation point) |
 | worker can reach host | same | `HostHttpStore` (worker push; no middleware) |
-| neither / host may go offline / k8s | `RemoteDockerBackend` or `K8sBackend` | `S3Store` |
+| neither / host may go offline / k8s | `RemoteDockerBackend` or `K8sBackend` | a future object-store `ArtifactStore` (S3/GCS) |
 
 ## Kubernetes (future)
 
@@ -180,8 +180,8 @@ k8s is compatible without touching `run_dataset` / the suites / the stores: it i
 **one more `ContainerBackend`** (`K8sBackend.run(spec, store, binding)` submits a
 Job built from `spec`, waits, returns a `RunOutcome`). What k8s changes is which
 *store* and image policy you pair it with, not the architecture — see ADR 0017's
-"Future direction: Kubernetes" for the details (artifacts move via `S3Store`/an
-in-cluster HTTP store rather than host-pull, because directly tar-ing a specific
+"Future direction: Kubernetes" for the details (artifacts move via a future
+object store / in-cluster HTTP store rather than host-pull, because directly tar-ing a specific
 container is a docker-ism; a registry becomes mandatory; and a submit/poll
 lifecycle fits better than a blocking wait). None of this requires changing the
 seams today — only continuing to keep Docker types out of the `ContainerBackend`
