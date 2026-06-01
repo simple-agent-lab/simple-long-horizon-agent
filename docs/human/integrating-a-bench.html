@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Integrating a benchmark · Simple Agent Lab</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1d212b; --ink: #e6e8ee;
+    --muted: #9aa3b2; --line: #2a2f3a; --accent: #6ea8fe; --accent2: #7ee2b8;
+    --warn: #f0b86e; --code: #0b0d11; --chip: #232838;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 48px 24px 96px; }
+  header h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: -0.02em; }
+  header p.sub { color: var(--muted); margin: 0 0 28px; font-size: 17px; }
+  h2 { font-size: 21px; margin: 44px 0 14px; letter-spacing: -0.01em; }
+  h3 { font-size: 16px; margin: 0 0 4px; }
+  p { margin: 0 0 14px; }
+  a { color: var(--accent); }
+  code, pre { font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; }
+  code { background: var(--chip); padding: 1px 6px; border-radius: 5px; font-size: 13.5px; }
+  pre {
+    background: var(--code); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px 18px; overflow-x: auto; font-size: 13px; line-height: 1.55; margin: 0;
+  }
+  pre .c { color: #6b7385; }     /* comment */
+  pre .k { color: var(--accent); }  /* keyword */
+  pre .s { color: var(--accent2); } /* string */
+  pre .d { color: var(--warn); }    /* def name */
+  .lede {
+    background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    border-radius: 10px; padding: 16px 18px; margin: 0 0 8px;
+  }
+  .lede b { color: #fff; }
+
+  /* the two-halves diagram */
+  .halves { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 18px 0 8px; }
+  .half { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+  .half h3 { color: var(--accent); font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
+  .half ul { margin: 0; padding-left: 18px; }
+  .half li { margin: 6px 0; }
+  .half .where { color: var(--muted); font-size: 13px; margin-top: 12px; }
+  @media (max-width: 720px) { .halves { grid-template-columns: 1fr; } }
+
+  /* numbered steps */
+  .step { display: grid; grid-template-columns: 40px 1fr; gap: 16px; margin: 18px 0; align-items: start; }
+  .num {
+    width: 40px; height: 40px; border-radius: 50%; background: var(--accent);
+    color: #08111f; font-weight: 700; font-size: 17px; display: grid; place-items: center;
+  }
+  .step.opt .num { background: var(--chip); color: var(--muted); border: 1px solid var(--line); }
+  .body { min-width: 0; }
+  .body .ttl { font-weight: 600; font-size: 17px; margin-bottom: 6px; }
+  .body .ttl .file { color: var(--muted); font-weight: 400; font-size: 13.5px; }
+  .tag { display: inline-block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+         padding: 2px 8px; border-radius: 999px; margin-left: 8px; vertical-align: middle; }
+  .tag.req { background: #2b3a55; color: var(--accent); }
+  .tag.opt { background: #2e2a1f; color: var(--warn); }
+
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 4px; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+  td code { font-size: 12.5px; }
+
+  .flow { background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin: 16px 0; }
+  .flow pre { background: transparent; border: none; padding: 0; color: var(--ink); font-size: 12.5px; }
+
+  .callout { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin: 14px 0; }
+  .callout .h { color: var(--warn); font-weight: 600; margin-bottom: 4px; }
+  .muted { color: var(--muted); }
+  footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); padding-top: 16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Integrating a benchmark</h1>
+  <p class="sub">The standard way to add a new Docker-based eval suite to this framework.</p>
+</header>
+
+<div class="lede">
+  <p style="margin:0">The framework already owns the hard, generic parts: the container
+  lifecycle, the Python bootstrap, the run-directory layout, moving bytes in and out,
+  concurrency, and host-reentrant batches. <b>You write two small halves and register
+  them.</b> You do <b>not</b> modify the benchmark image, and you do <b>not</b> copy the
+  agent into it — it is installed when the container starts.</p>
+</div>
+
+<h2>The shape of an integration</h2>
+<p>A benchmark is fundamentally two programs that meet at a shared artifact store: a
+<b>host half</b> that decides how to launch each instance and how to read the result, and
+a <b>container half</b> that runs inside the image and does the actual task. You implement
+both; everything between them is the framework.</p>
+
+<div class="halves">
+  <div class="half">
+    <h3>Host half — a <code>Suite</code></h3>
+    <ul>
+      <li><code>name</code> &amp; <code>container_module</code> — identity + dotted path to the container half</li>
+      <li><code>container_plan(instance)</code> — image, workdir, shell, entrypoint, <code>cap_add</code> as <i>data</i> (no <code>if</code>-branching)</li>
+      <li><code>sanitize_instance(instance)</code> — drop the gold/answer fields before the agent sees it</li>
+      <li><code>prediction_record(instance, …, result)</code> — shape the scorer-facing row</li>
+    </ul>
+    <div class="where">lives under <code>evals/&lt;name&gt;/suite.py</code> · may use heavy deps (datasets, docker)</div>
+  </div>
+  <div class="half">
+    <h3>Container half — two functions</h3>
+    <ul>
+      <li><code>build_task(instance, *, workdir)</code> — turn the instance into the agent's task</li>
+      <li><code>extract_result(workspace, instance, *, context)</code> — read the run's product (e.g. a <code>git diff</code>)</li>
+      <li class="muted">optional <code>prepare(...)</code> — pre-run setup, fed back as <code>context</code></li>
+      <li class="muted">optional <code>agent_spec()</code> / <code>build_agent(...)</code> — choose/customize the agent</li>
+    </ul>
+    <div class="where">ships in the wheel at <code>simple_agent_lab/evals/suites/&lt;name&gt;/</code> · stdlib + installed runtime only</div>
+  </div>
+</div>
+
+<h2>The five steps</h2>
+
+<div class="step">
+  <div class="num">1</div>
+  <div class="body">
+    <div class="ttl">Write the container half <span class="tag req">required</span>
+      <span class="file">— src/simple_agent_lab/evals/suites/&lt;name&gt;/container.py</span></div>
+    <p>The code that runs <i>inside</i> the image. It imports only the standard library and
+    the installed <code>simple_agent_lab</code> runtime, because the benchmark image has
+    nothing else.</p>
+<pre><span class="c"># build_task: instance dict -> the model-visible task</span>
+<span class="k">def</span> <span class="d">build_task</span>(instance, *, workdir):
+    <span class="k">return</span> <span class="s">f"Fix this bug in {workdir}:\n{instance['problem_statement']}"</span>
+
+<span class="c"># extract_result: read the agent's effect on the workspace (not its chat)</span>
+<span class="c"># Declare *, context even if unused — that's how prepare()'s output reaches you.</span>
+<span class="k">def</span> <span class="d">extract_result</span>(workspace, instance, *, context=<span class="k">None</span>):
+    <span class="k">return</span> {<span class="s">"model_patch"</span>: git_diff(workspace)}</pre>
+  </div>
+</div>
+
+<div class="step">
+  <div class="num">2</div>
+  <div class="body">
+    <div class="ttl">Write the host half <span class="tag req">required</span>
+      <span class="file">— evals/&lt;name&gt;/suite.py</span></div>
+    <p>A class satisfying the <code>Suite</code> protocol. The per-instance differences
+    (which image, where the repo lives, what capabilities the tests need) are expressed
+    as <b>data</b> in <code>container_plan</code> — never as branches in the runner.</p>
+<pre><span class="k">class</span> <span class="d">MyBenchSuite</span>:
+    name = <span class="s">"mybench"</span>
+    container_module = <span class="s">"simple_agent_lab.evals.suites.mybench.container"</span>
+
+    <span class="k">def</span> <span class="d">container_plan</span>(self, instance):
+        <span class="k">return</span> ContainerPlan(image=instance[<span class="s">"image"</span>], workdir=<span class="s">"/repo"</span>,
+                             cap_add=(<span class="s">"SYS_PTRACE"</span>,))   <span class="c"># caps the tests need</span>
+    <span class="k">def</span> <span class="d">sanitize_instance</span>(self, instance):
+        <span class="k">return</span> {k: v <span class="k">for</span> k, v <span class="k">in</span> instance.items() <span class="k">if</span> k != <span class="s">"gold_patch"</span>}
+    <span class="k">def</span> <span class="d">prediction_record</span>(self, instance, *, model_name, result):
+        <span class="k">return</span> {<span class="s">"instance_id"</span>: instance[<span class="s">"instance_id"</span>], <span class="s">"model_patch"</span>: result[<span class="s">"model_patch"</span>]}</pre>
+  </div>
+</div>
+
+<div class="step">
+  <div class="num">3</div>
+  <div class="body">
+    <div class="ttl">Provide a dataset loader <span class="tag req">required</span>
+      <span class="file">— any function returning an iterable of instance dicts</span></div>
+    <p>"The whole dataset" is just a stream of dicts, each with an <code>instance_id</code>.
+    Load them however you like — HuggingFace, JSONL, an API. This is a plain function, not
+    a framework interface.</p>
+<pre><span class="k">def</span> <span class="d">load_instances</span>(split=<span class="s">"test"</span>):
+    <span class="k">for</span> row <span class="k">in</span> load_dataset(<span class="s">"my/dataset"</span>, split=split):
+        <span class="k">yield</span> <span class="d">dict</span>(row)   <span class="c"># must contain instance_id + whatever your Suite reads</span></pre>
+  </div>
+</div>
+
+<div class="step">
+  <div class="num">4</div>
+  <div class="body">
+    <div class="ttl">Run it <span class="tag req">required</span></div>
+    <p>Develop in-process (no Docker, debuggable), then deploy by swapping one argument —
+    the suite code does not change.</p>
+<pre><span class="k">from</span> simple_agent_lab.evals <span class="k">import</span> run_dataset, LocalDockerBackend, LocalDirStore
+
+run_dataset(
+    suite=MyBenchSuite(),
+    instances=load_instances(<span class="s">"test"</span>),
+    backend=LocalDockerBackend(),        <span class="c"># or LocalProcessBackend() for local dev</span>
+    store=LocalDirStore(<span class="s">"evals/out/mybench"</span>),
+    run_root=<span class="s">"evals/out/mybench"</span>, run_id=<span class="s">"run-1"</span>,
+    concurrency=8, provider=<span class="s">"openai"</span>, provider_env={...},
+)</pre>
+  </div>
+</div>
+
+<div class="step opt">
+  <div class="num">5</div>
+  <div class="body">
+    <div class="ttl">Wire up outputs &amp; tests <span class="tag opt">convention</span></div>
+    <p>An <code>evals/out/&lt;name&gt;/README.md</code> documenting the output layout, a
+    <code>runs/run_&lt;name&gt;.sh</code> convenience runner, and unit tests that exercise the
+    suite with <b>no Docker</b> — drive it with the in-memory <code>FakeBackend</code>, or
+    run the real container half in-process with <code>LocalProcessBackend</code> and the
+    deterministic <code>fake</code> provider.</p>
+  </div>
+</div>
+
+<h2>What the framework does between your two halves</h2>
+<p>You never write any of this — it is the same for every benchmark:</p>
+<div class="flow">
+<pre>HOST                              STORE                 CONTAINER (your image)
+container_plan() ── launch shape
+sanitize_instance() ─ write ───▶ input/instance.json
+start container ───────────────────────────────────▶  bootstrap: pip install runner
+  (wait)                                                build_task()  ← your code
+                                                        run the agent loop
+                                 trajectory.jsonl ◀──     (model calls + bash edits)
+                                 out/result.json  ◀──   extract_result()  ← your code
+read result ◀── prediction_record() ─▶ out/prediction.jsonl</pre>
+</div>
+<p class="muted">Scoring is a separate, official step: a clean container applies each
+<code>prediction.jsonl</code> patch and runs the benchmark's tests. The framework produces
+patches; it never decides correctness.</p>
+
+<h2>Where each piece goes</h2>
+<table>
+  <tr><th>Piece</th><th>Location</th><th>Why there</th></tr>
+  <tr><td>Host half (<code>Suite</code>)</td><td><code>evals/&lt;name&gt;/suite.py</code></td><td>May pull heavy deps (datasets, docker); kept out of the core package</td></tr>
+  <tr><td>Container half</td><td><code>simple_agent_lab/evals/suites/&lt;name&gt;/</code></td><td>Ships in the wheel so the container imports it with zero file copying</td></tr>
+  <tr><td>Dataset loader</td><td>your choice</td><td>Just a function; loading is orthogonal to running one instance</td></tr>
+  <tr><td>Output docs + runner</td><td><code>evals/out/&lt;name&gt;/</code>, <code>runs/</code></td><td>Repeatable layout convention across suites</td></tr>
+</table>
+
+<h2>Common pitfalls</h2>
+<table>
+  <tr><th>Pitfall</th><th>Fix</th></tr>
+  <tr><td>Forgetting <code>cap_add</code> in <code>container_plan</code></td><td>Capability-dependent tests fail with confusing errors — pull caps from the image's spec.</td></tr>
+  <tr><td>Omitting <code>*, context</code> on <code>extract_result</code></td><td><code>prepare()</code>'s setup never reaches extraction → wrong product.</td></tr>
+  <tr><td>Heavy imports in the container half</td><td>It fails to import inside the image — keep it stdlib + the installed wheel.</td></tr>
+  <tr><td>Putting <code>if dataset == …</code> in the runner</td><td>Express the difference as <code>ContainerPlan</code> data instead.</td></tr>
+</table>
+
+<footer>
+  Simple Agent Lab — containerized eval framework. This page is self-contained; for the
+  authoritative API and decisions, see the eval framework code and ADR&nbsp;0017 in the repo.
+</footer>
+</div>
+</body>
+</html>
