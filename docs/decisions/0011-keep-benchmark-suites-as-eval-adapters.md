@@ -2,7 +2,14 @@
 
 ## Status
 
-Accepted
+Accepted. Superseded for the containerized case by ADR 0017 (generic
+containerized eval framework): the host launcher described below
+(`containerized_agent.py` / `in_container_runner.py`) has since been replaced by
+`SwebenchSuite` + `run_suite_instance`, with shared host helpers in
+`evals/swebench/harness.py`. The file names in this record are kept as the
+historical "before" state. Its core principles still hold (raw trajectories are
+fact records, the runtime core stays Docker/dataset-free, scoring is a separate
+path).
 
 ## Context
 

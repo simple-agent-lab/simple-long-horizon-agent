@@ -1,11 +1,10 @@
 """SWE-bench as a `Suite` (ADR 0017) — the reference driver case.
 
 This is the *host half*: it maps SWE-bench Verified and SWE-bench Pro onto one
-`Suite` whose `container_plan` carries the per-suite differences as **data**
+`Suite` whose `launch_spec` carries the per-suite differences as **data**
 (image, workdir, shell, entrypoint) instead of the runner branching on
-``is_swebench_pro_instance(...)``. It delegates to the existing, battle-tested
-image/launch helpers in `containerized_agent` so behavior is unchanged and
-`evaluate_predictions.py` (scoring) is untouched.
+``is_swebench_pro_instance(...)``. It delegates to the shared image/launch
+helpers in `harness` so behavior is consistent across the run entry and scoring.
 
 The *container half* (``build_task`` / ``prepare`` / ``extract_result``) ships
 in the wheel at ``simple_agent_lab.evals.suites.swebench.container`` and is
@@ -19,10 +18,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from simple_agent_lab.evals.protocols import ContainerPlan
+from simple_agent_lab.evals.protocols import LaunchSpec
 
-from . import containerized_agent as ca
-from . import in_container_runner as icr
+from . import harness
 
 
 class SwebenchSuite:
@@ -36,13 +34,14 @@ class SwebenchSuite:
     def __init__(
         self,
         *,
-        dataset_name: str = ca.DEFAULT_DATASET,
+        dataset_name: str = harness.DEFAULT_DATASET,
         namespace: str = "swebench",
         instance_image_tag: str = "latest",
         env_image_tag: str = "latest",
-        dockerhub_username: str = ca.DEFAULT_PRO_DOCKERHUB_USERNAME,
+        dockerhub_username: str = harness.DEFAULT_PRO_DOCKERHUB_USERNAME,
         platform: str = "",
         network_mode: str = "",
+        in_env_scoring: bool = False,
     ) -> None:
         self.dataset_name = dataset_name
         self.namespace = namespace
@@ -51,10 +50,17 @@ class SwebenchSuite:
         self.dockerhub_username = dockerhub_username
         self.platform = platform
         self.network_mode = network_mode
+        # Where scoring runs (ADR 0020). Default: score separately with the
+        # official harness (`evaluate_predictions.py`) — re-scorable, parity by
+        # definition. Set `in_env_scoring=True` to also stage the official eval
+        # script as `eval_inputs`, which turns on the container-half ``evaluate``
+        # hook so the run scores itself in place (grade host-side with
+        # `evaluate_predictions.reuse_eval_row`).
+        self.in_env_scoring = in_env_scoring
 
-    def container_plan(self, instance: Mapping[str, Any]) -> ContainerPlan:
+    def launch_spec(self, instance: Mapping[str, Any]) -> LaunchSpec:
         record = dict(instance)
-        image = ca.docker_image_for_instance(
+        image = harness.docker_image_for_instance(
             record,
             dataset_name=self.dataset_name,
             namespace=self.namespace,
@@ -62,15 +68,17 @@ class SwebenchSuite:
             env_image_tag=self.env_image_tag,
             dockerhub_username=self.dockerhub_username,
         )
-        workdir = ca.resolve_workdir("", record, dataset_name=self.dataset_name)
+        workdir = harness.resolve_workdir("", record, dataset_name=self.dataset_name)
         # Pro images set /bin/bash as ENTRYPOINT and use /bin/sh; Verified
         # images run bash -lc with the image default entrypoint.
-        shell = tuple(ca.docker_run_command("", record, dataset_name=self.dataset_name))
+        shell = tuple(
+            harness.docker_run_command("", record, dataset_name=self.dataset_name)
+        )
         shell = shell[:-1] if shell and shell[-1] == "" else shell
-        entrypoint = ca.container_entrypoint_override(
+        entrypoint = harness.container_entrypoint_override(
             record, dataset_name=self.dataset_name
         ).get("entrypoint")
-        return ContainerPlan(
+        return LaunchSpec(
             image=image,
             workdir=workdir,
             shell=shell,
@@ -83,14 +91,14 @@ class SwebenchSuite:
     def _cap_add(self, record: dict[str, Any]) -> tuple[str, ...]:
         """Capabilities the SWE-bench test spec requests (e.g. SYS_PTRACE).
 
-        Legacy `run_containerized_agent` passed these from the instance's test
-        spec ``run_args``; Pro images carry none. Without this the container
-        starts under-privileged and capability-dependent test steps fail.
+        These come from the instance's test spec ``run_args``; Pro images carry
+        none. Without this the container starts under-privileged and
+        capability-dependent test steps fail.
         """
 
-        if ca.is_swebench_pro_instance(record, dataset_name=self.dataset_name):
+        if harness.is_swebench_pro_instance(record, dataset_name=self.dataset_name):
             return ()
-        spec = ca._make_swebench_test_spec(
+        spec = harness._make_swebench_test_spec(
             record,
             namespace=self.namespace,
             instance_image_tag=self.instance_image_tag,
@@ -99,19 +107,34 @@ class SwebenchSuite:
         run_args = spec.docker_specs.get("run_args", {}) or {}
         return tuple(run_args.get("cap_add", []) or [])
 
-    def sanitize_instance(self, instance: Mapping[str, Any]) -> dict[str, Any]:
-        return ca.sanitized_instance(dict(instance))
+    def task_input(self, instance: Mapping[str, Any]) -> dict[str, Any]:
+        return harness.sanitized_instance(dict(instance))
 
-    def prediction_record(
-        self,
-        instance: Mapping[str, Any],
-        *,
-        model_name: str,
-        result: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        return icr.prediction_record(
-            str(instance["instance_id"]),
-            model_name,
-            str(result.get("model_patch", "")),
-            dataset_name=self.dataset_name,
+    def eval_inputs(self, instance: Mapping[str, Any]) -> dict[str, Any] | None:
+        """Gold scoring inputs for in-environment scoring (agent never sees them).
+
+        Staging these is the toggle for the container-half ``evaluate`` hook: the
+        host generates the official eval script from ``make_test_spec`` and stages
+        it (under EVAL_KEY) so the hook runs the *official* script for parity.
+        Returns ``None`` unless ``in_env_scoring`` is set, and only for
+        Verified-style instances (Pro scores via the separate harness). Without
+        it, score separately with `evaluate_predictions.py`.
+        """
+
+        if not self.in_env_scoring:
+            return None
+        record = dict(instance)
+        if harness.is_swebench_pro_instance(record, dataset_name=self.dataset_name):
+            return None
+        spec = harness._make_swebench_test_spec(
+            record,
+            namespace=self.namespace,
+            instance_image_tag=self.instance_image_tag,
+            env_image_tag=self.env_image_tag,
         )
+        return {
+            "instance_id": str(record.get("instance_id") or ""),
+            "eval_script": spec.eval_script,
+            "fail_to_pass": record.get("FAIL_TO_PASS") or record.get("fail_to_pass"),
+            "pass_to_pass": record.get("PASS_TO_PASS") or record.get("pass_to_pass"),
+        }

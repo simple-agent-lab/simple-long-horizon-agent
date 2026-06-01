@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the containerized agent on SWE-bench Pro.
+# Run the agent on SWE-bench Pro through the Suite framework (ADR 0017).
 #
 # Usage:
 #   bash runs/run_swebench_pro.sh                                            # default instance
@@ -12,6 +12,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source runs/_python.sh
+source runs/_swebench_uv.sh
 
 DATASET="ScaleAI/SWE-bench_Pro"
 SPLIT="test"
@@ -163,25 +164,19 @@ run_container() {
   local instance_json="$1"
   local instance_id="$2"
   shift 2
-  "${PYTHON[@]}" evals/swebench/containerized_agent.py \
+  "${PYTHON[@]}" runs/run_swebench_suite.py "$instance_id" \
     --instance-json "$instance_json" \
-    --instance-id "$instance_id" \
     --dataset-name "$DATASET" \
-    --split "$SPLIT" \
-    --model-name "$MODEL_NAME" \
     --provider openai \
     --dotenv .env \
     --max-turns "$MAX_TURNS" \
     --run-id "$RUN_ID" \
     --run-root "$CONTAINER_RUN_ROOT" \
     --wheelhouse "$WHEELHOUSE" \
+    --uv-binary "$SWEBENCH_UV_BIN" \
     --network-mode host \
     --force \
     "$@"
-}
-
-safe_part() {
-  printf '%s' "$1" | sed 's/[^a-zA-Z0-9_.-]/_/g'
 }
 
 running_jobs() {
@@ -191,16 +186,10 @@ running_jobs() {
 collect_predictions() {
   mkdir -p "$PREDICTION_DIR"
   local pred_out="${PREDICTION_DIR}/${RUN_ID}_predictions.jsonl"
-  : > "$pred_out"
-  for instance_id in "${INSTANCE_IDS[@]}"; do
-    local safe_id
-    safe_id="$(safe_part "$instance_id")"
-    local pred_file="${CONTAINER_RUN_ROOT}/${RUN_ID}/${safe_id}/out/prediction.jsonl"
-    if [ -f "$pred_file" ]; then
-      cat "$pred_file" >> "$pred_out"
-    fi
-  done
-  echo "Predictions: $pred_out"
+  "${PYTHON[@]}" evals/swebench/evaluate_predictions.py --collect-predictions \
+    --run-root "$CONTAINER_RUN_ROOT" --run-id "$RUN_ID" \
+    --dataset-name "$DATASET" --model-name "$MODEL_NAME" \
+    --predictions "$pred_out"
 }
 
 if [ "$RUN_ALL" -eq 1 ]; then
@@ -211,9 +200,10 @@ if [ "$RUN_ALL" -eq 1 ]; then
   echo "Parallel: $PARALLEL"
   echo ""
 
-  echo "Preparing wheelhouse once before launching batch..."
+  echo "Preparing wheelhouse and Linux uv once before launching batch..."
+  swebench_ensure_linux_uv
   "${PYTHON[@]}" - <<'PY'
-from evals.swebench.containerized_agent import DEFAULT_PRO_WHEELHOUSE, prepare_wheelhouse
+from evals.swebench.harness import DEFAULT_PRO_WHEELHOUSE, prepare_wheelhouse
 prepare_wheelhouse(DEFAULT_PRO_WHEELHOUSE)
 PY
 
@@ -247,6 +237,7 @@ else
   INSTANCE_JSON="$(fetch_one_instance "${INSTANCE_IDS[0]}")"
   echo "=== SWE-bench Pro: ${INSTANCE_IDS[0]:0:40}... ==="
   echo "Run ID: $RUN_ID"
+  swebench_ensure_linux_uv
   run_container "$INSTANCE_JSON" "${INSTANCE_IDS[0]}" --prepare-wheelhouse
   collect_predictions
   echo "Outputs: ${CONTAINER_RUN_ROOT}/${RUN_ID}/"

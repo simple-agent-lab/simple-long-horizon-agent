@@ -1,7 +1,7 @@
 """Generic containerized eval framework (ADR 0017).
 
-Add a benchmark suite by implementing a small `Suite` (host half: image +
-launch shape, instance sanitization, prediction shape) and a container module
+Add a benchmark suite by implementing a small `Suite` (host half: launch shape
++ the agent-visible task input) and a container module
 (``build_task`` + ``extract_result``). The framework supplies the container
 lifecycle, the Python/uv bootstrap, the run-directory convention, and the one
 artifact seam — parameterized over two swappable axes so the same suite runs
@@ -30,6 +30,7 @@ from .backends import (
 )
 from .batch import reconcile_dataset, submit_dataset
 from .protocols import (
+    EVAL_KEY,
     INSTANCE_KEY,
     RESULT_KEY,
     TRACE_KEY,
@@ -37,8 +38,8 @@ from .protocols import (
     ArtifactStore,
     ContainerBackend,
     ContainerBinding,
-    ContainerPlan,
     ContainerTask,
+    LaunchSpec,
     RunArtifacts,
     RunHandle,
     RunOutcome,
@@ -57,6 +58,7 @@ from .stores import HostHttpStore, LocalDirStore
 # but are kept out of the top-level facade so "what do I import from
 # simple_agent_lab.evals" reads as the user surface, not the plumbing.
 __all__ = [
+    "EVAL_KEY",
     "INSTANCE_KEY",
     "RESULT_KEY",
     "TRACE_KEY",
@@ -64,12 +66,12 @@ __all__ = [
     "ArtifactStore",
     "ContainerBackend",
     "ContainerBinding",
-    "ContainerPlan",
     "ContainerTask",
     "DatasetReport",
     "FakeBackend",
     "InstanceResult",
     "HostHttpStore",
+    "LaunchSpec",
     "LocalDirStore",
     "LocalDockerBackend",
     "LocalProcessBackend",

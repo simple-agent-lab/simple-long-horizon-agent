@@ -66,6 +66,7 @@ from ...messages import (
 from . import TOOL_RESULT_VISUAL_CAPTION, capture_request, sdk_dump
 from ..stream import register_adapter
 from ..types import (
+    RAW_ARGUMENTS_KEY,
     LLMMessage,
     LLMRequest,
     LLMResponse,
@@ -143,7 +144,7 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         try:
             arguments = json.loads(args_str) if args_str else {}
         except json.JSONDecodeError:
-            arguments = {"_raw_arguments": args_str}
+            arguments = {RAW_ARGUMENTS_KEY: args_str}
         tool_calls.append(
             ToolCallBlock(
                 id=getattr(tool_call, "id", ""), name=name, arguments=arguments

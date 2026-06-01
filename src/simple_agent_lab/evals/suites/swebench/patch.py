@@ -4,9 +4,8 @@ The filtering rules mirror SWALM's SWE task patch collection rules, but this
 adapter writes them to `.git/info/exclude` so the generated ignore block itself
 does not become part of the model patch.
 
-This is the canonical copy, shipped in the wheel so the in-container runner can
-use it without copying files in. The legacy ``evals/swebench/patch_extract.py``
-re-exports from here.
+Shipped in the wheel so the in-container runner can use it without copying files
+in. The SWE-bench container half imports it directly from here.
 """
 
 from __future__ import annotations

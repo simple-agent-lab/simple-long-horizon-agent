@@ -10,6 +10,13 @@ SWE-bench-specific and runs *inside* the image:
 - `prepare(workspace, instance)` — optional pre-run setup: snapshot a baseline
   commit and install generated-file ignore rules so the diff stays clean. Its
   return value is threaded back into `extract_result` as `context`.
+- `apply_oracle(workspace, instance)` — optional: apply the gold patch instead
+  of running a model, for the framework's deterministic oracle self-check.
+- `evaluate(workspace, instance, *, context)` — optional: in-environment scoring
+  (ADR 0020). Runs the host-staged official eval script in the run environment
+  and captures its log into ``result.json``; the host turns that into a verdict
+  via `evaluate_predictions.reuse_eval_row` (the official grader needs the gold
+  test spec, which lives host-side).
 - `agent_spec()` — optional: the SWE-bench prompt/role and the bash vs
   bash_task flavor (from the ``AGENT_FLAVOR`` env var).
 
@@ -22,6 +29,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -132,6 +140,36 @@ def prepare(workspace: Path, instance: Mapping[str, Any]) -> dict[str, Any]:
     return {"language": language, "baseline_commit": baseline}
 
 
+def apply_oracle(workspace: Path, instance: Mapping[str, Any]) -> None:
+    """Apply the gold solution patch — the reference ("oracle") solution.
+
+    Used by the framework's oracle run mode (no model) to validate that the
+    suite is wired correctly: after this, `extract_result` should reproduce the
+    gold patch. Applies only the solution `patch`, never `test_patch` (the agent
+    is never asked to write tests). Raises on a missing/failed patch so a broken
+    oracle instance fails loudly instead of silently producing an empty diff.
+    """
+
+    workspace = Path(workspace)
+    patch_text = str(instance.get("patch") or "")
+    if not patch_text.strip():
+        raise ValueError("oracle run needs a non-empty 'patch' (gold) field")
+    if not patch_text.endswith("\n"):
+        patch_text += "\n"
+    result = subprocess.run(
+        ["git", "apply", "--whitespace=nowarn", "-"],
+        cwd=workspace,
+        input=patch_text,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"oracle git apply failed in {workspace}: {result.stderr.strip()}"
+        )
+
+
 def extract_result(
     workspace: Path,
     instance: Mapping[str, Any],
@@ -145,6 +183,50 @@ def extract_result(
     language = str(context.get("language") or instance_language(record))
     commit = context.get("baseline_commit") or instance_base_commit(record)
     return {"model_patch": git_diff(Path(workspace), language=language, commit=commit)}
+
+
+def evaluate(
+    workspace: Path,
+    instance: Mapping[str, Any],
+    *,
+    context: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Score in the run environment: run the *official* eval script (ADR 0020).
+
+    The host staged the official eval script (generated from ``make_test_spec``)
+    under EVAL_KEY; the generic runner threads it in as ``context["eval"]`` and
+    only calls this hook when that gold is present. We run that exact script
+    against the workspace the agent already edited — no fresh container — and
+    capture its combined log into ``result.json`` (``eval_log``). Grading is done
+    host-side by `evaluate_predictions.reuse_eval_row` via the official
+    ``swebench`` grader (which needs the full test spec), so the verdict is
+    parity-grade; capturing the official log here is what makes that grading
+    trustable. Returns ``resolved: False`` with a diagnostic ``status`` when no
+    eval script was staged, rather than crashing the run.
+    """
+
+    eval_script = str((context or {}).get("eval", {}).get("eval_script") or "")
+    if not eval_script.strip():
+        return {"resolved": False, "status": "no_eval_inputs"}
+
+    script_path = Path(workspace) / "_sal_eval.sh"
+    text = eval_script if eval_script.endswith("\n") else eval_script + "\n"
+    script_path.write_text(text, encoding="utf-8")
+    try:
+        proc = subprocess.run(
+            ["/bin/bash", str(script_path)],
+            cwd=str(workspace),
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    finally:
+        script_path.unlink(missing_ok=True)
+    return {
+        "status": "eval_script_ran",
+        "eval_log": (proc.stdout or "") + (proc.stderr or ""),
+        "eval_exit_code": proc.returncode,
+    }
 
 
 def _optional(value: Any) -> str:

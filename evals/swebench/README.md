@@ -2,18 +2,27 @@
 
 This directory is the first scene-level evaluation suite adapter.
 
-The adapter keeps the existing Simple Agent Lab split:
+The adapter maps SWE-bench onto the generic `Suite` protocol (ADR 0017):
 
-- `containerized_agent.py` starts the SWE-bench instance container and runs the
-  Simple Agent Lab runner inside it.
-- `in_container_runner.py` records what happened and writes the official
-  SWE-bench prediction JSONL shape from inside the container. Incremental
-  traces for the host viewer use the live-trace helpers in
-  `simple_agent_lab.trajectory` — see `docs/agent-native/docker-live-trace.md`.
-- `patch_extract.py` collects the final `model_patch` while filtering generated
-  files.
-- `evaluate_predictions.py` runs or normalizes the official SWE-bench harness
-  result into `EvalResult` records.
+- `suite.py` defines `SwebenchSuite`, mapping SWE-bench Verified and SWE-bench
+  Pro onto one `Suite` whose per-suite differences (image, workdir, shell,
+  entrypoint) ride along as `launch_spec` data. The agent runs through
+  `run_suite_instance(SwebenchSuite, LocalDockerBackend, LocalDirStore)` — the
+  same primitive every suite uses; there is no bespoke launcher.
+- `harness.py` holds the host-side helpers the suite and the run entry share:
+  image/launch resolution (via `make_test_spec`), SWE-bench Pro detection and
+  Docker Hub image naming, instance loading, dotenv + provider environment, the
+  offline wheelhouse build, and official prediction shaping.
+- The in-container agent loop and patch extraction ship in the wheel
+  (`simple_agent_lab.evals.in_container` and
+  `simple_agent_lab.evals.suites.swebench`): the SWE-bench container half builds
+  the task, records the trajectory, and writes `result.json` with the final
+  `model_patch` (filtering generated files). Incremental traces for the host
+  viewer use the live-trace helpers in `simple_agent_lab.trajectory` — see
+  `docs/agent-native/docker-live-trace.md`.
+- `evaluate_predictions.py` collects per-run `result.json` files into an official
+  predictions JSONL (`--collect-predictions`) and runs or normalizes the official
+  SWE-bench harness result into `EvalResult` records.
 - Training/export flows should build from shared trajectory records after eval
   labels exist.
 
@@ -37,7 +46,7 @@ API_KIND=openai-chat
 EOF
 
 # 4. Fetch an instance, build images, and run the agent
-bash runs/run_swebench_container.sh sympy__sympy-23824
+bash runs/run_swebench_suite.sh sympy__sympy-23824
 ```
 
 ## Docker Setup
@@ -68,7 +77,7 @@ Set the Docker socket for all subsequent commands:
 export DOCKER_HOST=unix://$HOME/.colima/default/docker.sock
 ```
 
-`runs/run_swebench_container.sh` also probes
+`runs/run_swebench_suite.sh` also probes
 `~/.docker/run/docker.sock` (Docker Desktop) and the Colima socket above when
 `DOCKER_HOST` is unset, so headless invocations from CI or chat sessions reach
 the right daemon without an explicit export.
@@ -160,7 +169,7 @@ On macOS arm64 with Colima + Rosetta, the base image must be built via the
 `runs/setup_swebench_docker.sh` handles this automatically.
 
 After building, tag the instance image for the `swebench` namespace that
-`containerized_agent.py` expects:
+`SwebenchSuite` expects (the `--namespace` it passes to `make_test_spec`):
 
 ```bash
 docker tag sweb.eval.x86_64.sympy__sympy-23824:latest \
@@ -178,25 +187,25 @@ focused unit-smoke checks for the containerized adapter (also covered by
 ```bash
 uv run python -m unittest \
   tests.unit.test_swebench_patch_extract \
-  tests.unit.test_swebench_containerized_agent \
+  tests.unit.test_swebench_harness \
   tests.unit.test_swebench_evaluate_predictions
 ```
 
-## Containerized Agent
+## Running the Agent
 
-SWE-bench patch generation runs inside the SWE-bench instance container. The
-host launcher mounts a run directory and optional wheelhouse, copies in the
-small eval runner from `evals/`, installs the `simple-agent-lab` wheel, passes
-model environment variables, and collects `prediction.jsonl` plus
-`trajectory.jsonl`.
+SWE-bench patch generation runs inside the SWE-bench instance container, driven
+through the generic `Suite` framework: `run_suite_instance(SwebenchSuite,
+LocalDockerBackend, LocalDirStore)` mounts a run directory and optional
+wheelhouse, installs the `simple-agent-lab` wheel, passes model environment
+variables, and collects `result.json` plus `trajectory.jsonl`.
 
 From the agent's point of view, `/testbed` is a normal local repository and the
-bash tool is the normal local bash tool. The eval runner stays outside `src/`;
-the installed wheel supplies the runtime modules.
+bash tool is the normal local bash tool. The runtime modules come from the
+installed wheel, not from `src/`.
 
-The runner collects `model_patch` from a staged git diff after installing
-SWALM-style generated-file ignore rules in `.git/info/exclude`; this keeps
-build artifacts such as `build/`, `dist/`, `node_modules/`, and compiled
+The container half collects `model_patch` from a staged git diff after
+installing SWALM-style generated-file ignore rules in `.git/info/exclude`; this
+keeps build artifacts such as `build/`, `dist/`, `node_modules/`, and compiled
 language outputs out of the prediction without adding a `.gitignore` change to
 the patch.
 
@@ -205,17 +214,16 @@ Prepare provider wheels once on the host:
 ```bash
 uv run python - <<'PY'
 from pathlib import Path
-from evals.swebench.containerized_agent import prepare_wheelhouse
+from evals.swebench.harness import prepare_wheelhouse
 prepare_wheelhouse(Path("evals/out/swebench/wheelhouse/cp311-manylinux"))
 PY
 ```
 
-The container launcher refreshes the local `simple-agent-lab` wheel every time
-it mounts a wheelhouse. This keeps cached third-party wheels reusable while
-preventing the container from installing an older build of the current checkout.
-If you see an import error for a symbol that exists in `src/simple_agent_lab/`,
-rerun the container command; the launcher should rebuild the project wheel
-before starting Docker.
+The run entry refreshes the local `simple-agent-lab` wheel every time it mounts
+a wheelhouse. This keeps cached third-party wheels reusable while preventing the
+container from installing an older build of the current checkout. If you see an
+import error for a symbol that exists in `src/simple_agent_lab/`, rerun the
+command; the run entry rebuilds the project wheel before starting Docker.
 
 The core runtime and normal CI do not require Docker or SWE-bench. To run the
 containerized SWE-bench adapters, install the optional SWE-bench dependencies in
@@ -237,7 +245,7 @@ API_KIND=openai-chat
 
 `OPENAI_BASE_URL` is optional. `API_KIND` is optional and defaults to
 `openai-chat`; set it to `openai-responses` to use the OpenAI Responses API.
-The launcher also passes `NO_PROXY` and `no_proxy` through when they exist.
+The run entry also passes `NO_PROXY` and `no_proxy` through when they exist.
 
 The recommended entry points are the run scripts. With no instance argument,
 each script runs a small default instance. Passing one instance id runs that
@@ -259,41 +267,47 @@ uses `evals/out/swebench/`; SWE-bench Pro uses the sibling
 `evals/out/swebench_pro/`. Each root has `instance_<id>.jsonl` caches,
 `wheelhouse/` provider wheels, and `<run-id>/<instance-id>/` per-instance run
 outputs. When instance records are not cached, the scripts fetch HuggingFace
-rows with the `datasets` package from `uv sync --extra swebench`.
+rows with the `datasets` package from `uv sync --extra swebench`. On macOS the
+scripts also fetch a static Linux `uv` once (cached under `evals/out/uv-linux/`)
+so the container can build its Python 3.11 venv.
 
-The lower-level launcher is still useful when you already have a prepared
-instance JSONL and want full control over arguments:
+For a single instance with full control over arguments, call the run entry
+directly on an already-prepared instance JSONL:
 
 ```bash
-uv run python evals/swebench/containerized_agent.py \
+bash runs/run_swebench_suite.sh sympy__sympy-23824
+# or, equivalently:
+uv run python runs/run_swebench_suite.py sympy__sympy-23824 \
   --instance-json evals/out/swebench/instance_sympy__sympy-23824.jsonl \
-  --instance-id sympy__sympy-23824 \
   --dataset-name princeton-nlp/SWE-bench_Verified \
-  --split test \
-  --model-name simple-agent-lab-local \
-  --provider openai \
-  --api-kind openai-chat \
-  --dotenv .env \
-  --max-turns 20 \
-  --run-id my-run \
-  --network-mode host \
-  --force
+  --provider openai --api-kind openai-chat --dotenv .env \
+  --max-turns 20 --run-id my-run --agent-flavor bash \
+  --network-mode host --force
 ```
 
-Or use the convenience script:
+Add `--in-env-scoring` to also run the official eval script in the run
+environment via the container-half `evaluate` hook (graded host-side with
+`evaluate_predictions.reuse_eval_row`); see ADR 0020.
 
-```bash
-bash runs/run_swebench_container.sh sympy__sympy-23824
-```
-
-Outputs land under
-`evals/out/swebench/<run-id>/<instance-id>/out/`:
+Outputs land under `evals/out/swebench/<run-id>/<instance-id>/out/`:
 
 - `trajectory.jsonl`: full agent trajectory (messages, events, model turns).
-- `prediction.jsonl`: SWE-bench prediction record with `model_patch`.
+- `result.json`: the run's `model_patch` (plus the in-environment verdict when
+  `--in-env-scoring` is set).
 
-The official judge should still run in a separate clean container using the
-generated `prediction.jsonl`.
+The official judge runs in a separate clean container. First collect the per-run
+`result.json` files into an official predictions JSONL (the batch scripts do
+this for you via `collect_predictions`):
+
+```bash
+uv run python evals/swebench/evaluate_predictions.py --collect-predictions \
+  --run-root evals/out/swebench --run-id my-run \
+  --dataset-name princeton-nlp/SWE-bench_Verified \
+  --model-name simple-agent-lab \
+  --predictions evals/out/swebench/my-run_predictions.jsonl
+```
+
+then grade that file with the official harness (see below).
 
 ## Official Harness
 
@@ -372,5 +386,5 @@ collection.
 | `rosetta error: failed to open elf` during `docker build` | Rosetta + BuildKit overlay incompatibility | Use `runs/setup_swebench_docker.sh` (builds base via `docker run` + `docker commit`) |
 | `CondaHTTPError: HTTP 000 CONNECTION FAILED` | Container has no network | Check `colima status`; restart with `colima start` |
 | `exit code 255` from Miniconda installer | QEMU x86_64 emulation failure | Switch to Rosetta: `colima start --vm-type vz --vz-rosetta` |
-| `Missing SWE-bench image swebench/sweb.eval...` | Namespace mismatch between built images and `containerized_agent.py` | Pass matching `--namespace` or re-tag images (convenience scripts handle this) |
+| `Missing SWE-bench image swebench/sweb.eval...` | Namespace mismatch between built images and `SwebenchSuite` | Pass matching `--namespace` or re-tag images (convenience scripts handle this) |
 | `OPENAI_AUTH_TOKEN` / `OPENAI_MODEL` missing | `.env` not configured | Create `.env` with provider credentials (see above) |

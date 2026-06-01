@@ -21,12 +21,15 @@ import os
 import stat
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
@@ -431,6 +434,60 @@ def eval_results_for_predictions(
     return results
 
 
+def parity_mismatches(
+    separate_rows: list[dict[str, Any]],
+    reuse_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Compare official "separate" rows to "reuse" rows; list resolved disagreements.
+
+    The hard parity requirement (ADR 0019): the in-environment "reuse" verdict
+    must match the official harness. Empty list == parity holds for this sample.
+    Keyed on ``metrics.instance_id`` (falls back to ``trace_id``).
+    """
+
+    def by_id(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+        out: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            metrics = row.get("metrics") or {}
+            key = str(metrics.get("instance_id") or row.get("trace_id") or "")
+            out[key] = row
+        return out
+
+    sep, rse = by_id(separate_rows), by_id(reuse_rows)
+    mismatches: list[dict[str, Any]] = []
+    for instance_id in sorted(set(sep) | set(rse)):
+        a, b = sep.get(instance_id), rse.get(instance_id)
+        if a is None or b is None or a.get("passed") != b.get("passed"):
+            mismatches.append(
+                {
+                    "instance_id": instance_id,
+                    "separate_passed": None if a is None else a.get("passed"),
+                    "reuse_passed": None if b is None else b.get("passed"),
+                }
+            )
+    return mismatches
+
+
+def eval_rows_from_official(
+    predictions: list[dict[str, Any]],
+    official_results: dict[str, dict[str, Any]],
+    *,
+    allow_missing_reports: bool = True,
+) -> list[dict[str, Any]]:
+    """Importable core: predictions + official harness results -> eval-result rows.
+
+    The pure normalize step shared by the official CLI path (`--run-official`)
+    and the in-environment "reuse" path (`reuse_eval_row`). Routing both through
+    this one mapping is what makes their rows byte-identical and the reuse
+    verdict trustable against the official harness (parity gate; ADR 0020).
+    """
+
+    results = eval_results_for_predictions(
+        predictions, official_results, allow_missing_reports=allow_missing_reports
+    )
+    return [eval_result_record(result) for result in results]
+
+
 def eval_result_from_official(
     prediction: dict[str, Any],
     official: dict[str, Any],
@@ -473,6 +530,177 @@ def eval_result_from_official(
             "report_source": official.get("report_source"),
         },
     )
+
+
+def reuse_eval_row(
+    instance: Mapping[str, Any],
+    result: Mapping[str, Any],
+    *,
+    dataset_name: str = DEFAULT_DATASET,
+    model_name: str = "simple-agent-lab",
+    namespace: str = "swebench",
+    instance_image_tag: str = "latest",
+    env_image_tag: str = "latest",
+) -> dict[str, Any]:
+    """Grade one in-environment ("reuse") run into an eval-result row.
+
+    SWE-bench's in-environment scoring (the container-half ``evaluate`` hook) runs
+    the official eval script where the agent ran and merges into ``result.json``
+    either an explicit verdict (``resolved``) or the official log (``eval_log``).
+    Full grading needs the ``swebench`` grader plus the gold test spec, which live
+    host-side — so this small helper does the last step here. It routes through
+    the *same* `eval_result_from_official` mapping as ``--run-official``, so the
+    rows are interchangeable and the parity gate (`parity_mismatches`) can
+    cross-check the reuse verdict against the official harness (ADR 0020).
+    """
+
+    from evals.swebench import harness
+
+    instance_id = str(instance.get("instance_id") or "")
+    prediction = harness.prediction_record(
+        instance_id,
+        model_name,
+        str(result.get("model_patch", "")),
+        dataset_name=dataset_name,
+    )
+    if result.get("resolved") is not None:
+        official = _official_from_verdict(result)
+    elif result.get("eval_log") is not None:
+        official = _grade_reuse_log(
+            instance,
+            result,
+            namespace=namespace,
+            instance_image_tag=instance_image_tag,
+            env_image_tag=env_image_tag,
+        )
+    else:
+        official = {
+            "resolved": False,
+            "status": "no_reuse_verdict",
+            "report_source": "in-environment reuse (no verdict)",
+        }
+    return eval_result_record(eval_result_from_official(prediction, official))
+
+
+def _official_from_verdict(result: Mapping[str, Any]) -> dict[str, Any]:
+    """Map a self-grading bench's explicit verdict into the official-results shape."""
+
+    resolved = bool(result.get("resolved"))
+    return {
+        "resolved": resolved,
+        "status": str(
+            result.get("status") or ("resolved" if resolved else "unresolved")
+        ),
+        "tests_status": result.get("tests_status"),
+        "patch_successfully_applied": result.get("patch_successfully_applied"),
+        "report_source": result.get("report_source") or "in-environment reuse",
+    }
+
+
+def _grade_reuse_log(
+    instance: Mapping[str, Any],
+    result: Mapping[str, Any],
+    *,
+    namespace: str,
+    instance_image_tag: str,
+    env_image_tag: str,
+) -> dict[str, Any]:
+    """Grade the captured official eval log host-side with the official grader."""
+
+    from evals.swebench import harness
+
+    try:
+        from swebench.harness.grading import get_eval_report
+    except Exception as exc:  # noqa: BLE001 — surface as an unresolved diagnostic
+        return {
+            "resolved": False,
+            "status": f"swebench_unavailable: {exc}",
+            "report_source": "in-environment reuse (host grading)",
+        }
+
+    instance_id = str(instance.get("instance_id") or "")
+    spec = harness._make_swebench_test_spec(
+        dict(instance),
+        namespace=namespace,
+        instance_image_tag=instance_image_tag,
+        env_image_tag=env_image_tag,
+    )
+    with tempfile.TemporaryDirectory(prefix="sal-reuse-grade-") as tmp:
+        log_path = Path(tmp) / "eval.log"
+        log_path.write_text(str(result.get("eval_log") or ""), encoding="utf-8")
+        prediction = {
+            "instance_id": instance_id,
+            "model_patch": str(result.get("model_patch", "")),
+        }
+        report = get_eval_report(
+            spec, prediction, str(log_path), include_tests_status=True
+        )
+    instance_report = report.get(instance_id, {})
+    resolved = bool(instance_report.get("resolved"))
+    return {
+        "resolved": resolved,
+        "status": "resolved" if resolved else "unresolved",
+        "tests_status": instance_report.get("tests_status"),
+        "patch_successfully_applied": instance_report.get(
+            "patch_successfully_applied"
+        ),
+        "report_source": "in-environment reuse (official eval script + grader)",
+    }
+
+
+def predictions_from_run_dirs(
+    run_root: str | Path,
+    *,
+    run_id: str | None = None,
+    model_name: str = "simple-agent-lab-containerized",
+    dataset_name: str = DEFAULT_DATASET,
+) -> list[dict[str, Any]]:
+    """Shape generic run dirs into official SWE-bench prediction records.
+
+    Generic runs write ``<run-root>/<run-id>/<instance-id>/out/result.json`` with
+    ``{"model_patch": ...}``. The official harness instead wants a predictions
+    JSONL keyed by instance id + model name. This rebuilds that record via
+    `harness.prediction_record` (so Verified and Pro shapes stay correct), taking
+    the instance id from the staged ``input/instance.json`` (falling back to the
+    run-dir name). Empty-patch runs are kept — the harness counts them unresolved,
+    so totals match the launched set. With ``run_id`` only that run is collected;
+    without it, every run under ``run_root``.
+    """
+
+    from evals.swebench import harness
+
+    root = Path(run_root)
+    search = (root / run_id).glob("*") if run_id else root.glob("*/*")
+    predictions: list[dict[str, Any]] = []
+    for run_dir in sorted(p for p in search if p.is_dir()):
+        result_path = run_dir / "out" / "result.json"
+        if not result_path.is_file():
+            continue
+        result = json.loads(result_path.read_text(encoding="utf-8") or "{}")
+        predictions.append(
+            harness.prediction_record(
+                _instance_id_for_run_dir(run_dir),
+                model_name,
+                str(result.get("model_patch", "")),
+                dataset_name=dataset_name,
+            )
+        )
+    return predictions
+
+
+def _instance_id_for_run_dir(run_dir: Path) -> str:
+    """Read the instance id from the staged input, else use the run-dir name."""
+
+    instance_json = run_dir / "input" / "instance.json"
+    if instance_json.is_file():
+        try:
+            record = json.loads(instance_json.read_text(encoding="utf-8") or "{}")
+        except json.JSONDecodeError:
+            record = {}
+        instance_id = str(record.get("instance_id") or "")
+        if instance_id:
+            return instance_id
+    return run_dir.name
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -555,6 +783,38 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Write missing-report eval rows for local adapter smoke tests.",
     )
+    parser.add_argument(
+        "--verify-parity",
+        action="store_true",
+        help=(
+            "Parity gate (ADR 0019): cross-check the official 'separate' rows "
+            "against a 'reuse' eval-result JSONL (--reuse-results) and exit "
+            "non-zero on any resolved disagreement."
+        ),
+    )
+    parser.add_argument(
+        "--reuse-results",
+        help="Eval-result JSONL produced by the 'reuse' topology (for --verify-parity).",
+    )
+    parser.add_argument(
+        "--collect-predictions",
+        action="store_true",
+        help=(
+            "Shape generic run dirs "
+            "(<run-root>/<run-id>/<instance>/out/result.json) into an official "
+            "predictions JSONL at --predictions, then exit. Feed that file to a "
+            "later --run-official run."
+        ),
+    )
+    parser.add_argument(
+        "--run-root",
+        help="Run root for --collect-predictions (e.g. evals/out/swebench).",
+    )
+    parser.add_argument(
+        "--model-name",
+        default="simple-agent-lab-containerized",
+        help="model_name_or_path label written into collected predictions.",
+    )
     return parser
 
 
@@ -578,6 +838,28 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
+    # Collect generic run dirs into a predictions JSONL, then exit. This bridges
+    # the run phase (result.json per instance) to the official-harness scoring
+    # phase (a predictions file), replacing the per-run prediction.jsonl the
+    # legacy launcher used to write.
+    if args.collect_predictions:
+        if not args.run_root:
+            raise SystemExit("--collect-predictions requires --run-root PATH")
+        run_id = None if args.run_id == DEFAULT_RUN_ID else args.run_id
+        predictions = predictions_from_run_dirs(
+            args.run_root,
+            run_id=run_id,
+            model_name=args.model_name,
+            dataset_name=args.dataset_name,
+        )
+        write_jsonl(args.predictions, predictions)
+        empty = sum(
+            1 for p in predictions if not (p.get("model_patch") or p.get("patch"))
+        )
+        suffix = f" ({empty} with an empty patch)" if empty else ""
+        print(f"wrote {len(predictions)} predictions to {args.predictions}{suffix}")
+        return
+
     # Run official harness if requested
     if args.run_official:
         if args.pro:
@@ -587,19 +869,32 @@ def main() -> None:
 
     predictions = load_predictions(args.predictions)
     official_results = load_official_results(args)
-    results = eval_results_for_predictions(
+    rows = eval_rows_from_official(
         predictions,
         official_results,
         allow_missing_reports=args.allow_missing_reports,
     )
-    write_jsonl(args.jsonl, [eval_result_record(result) for result in results])
+    write_jsonl(args.jsonl, rows)
 
-    print(f"wrote {len(results)} SWE-bench eval results to {args.jsonl}")
-    for result in results:
-        status = "pass" if result.passed else "fail"
+    print(f"wrote {len(rows)} SWE-bench eval results to {args.jsonl}")
+    for row in rows:
+        status = "pass" if row.get("passed") else "fail"
         print(
-            f"{result.trace_id}: {status} score={result.score} reason={result.reason}"
+            f"{row.get('trace_id')}: {status} score={row.get('score')} "
+            f"reason={row.get('reason')}"
         )
+
+    if args.verify_parity:
+        if not args.reuse_results:
+            raise SystemExit("--verify-parity requires --reuse-results PATH")
+        reuse_rows = [dict(record) for record in read_jsonl(Path(args.reuse_results))]
+        mismatches = parity_mismatches(rows, reuse_rows)
+        if mismatches:
+            raise SystemExit(
+                "Parity gate FAILED: reuse verdicts disagree with the official "
+                f"harness for {len(mismatches)} instance(s): {mismatches}"
+            )
+        print(f"parity gate PASSED: reuse == separate on {len(rows)} instance(s)")
 
 
 def _is_pro_eval_results_map(data: Any) -> bool:

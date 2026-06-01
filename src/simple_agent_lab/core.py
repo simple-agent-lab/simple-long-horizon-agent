@@ -34,6 +34,7 @@ from .context_view import (
 from .llm import messages_to_llm_messages
 from .messages import (
     AssistantMessage,
+    ContentInput,
     Message,
     ToolCallBlock,
     ToolResultBlock,
@@ -79,12 +80,16 @@ class Agent:
 
     def run(
         self,
-        task: str,
+        task: ContentInput,
         *,
         max_turns: int = 10,
         abort: AbortFlag = lambda: False,
     ) -> tuple[State, Iterator[Event]]:
         """Drive this agent on `task` until it emits a final message.
+
+        `task` is `str` or a sequence of content blocks (`ContentInput`), so a
+        multimodal task (text + `ImageBlock`) is seeded the same way as plain
+        text — the message layer normalizes both to content blocks.
 
         Returns `(state, events)`. Caller iterates `events` to advance the
         loop and inspects `state` for the message/event history. Callers

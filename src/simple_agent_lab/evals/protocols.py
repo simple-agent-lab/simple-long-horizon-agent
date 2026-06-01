@@ -20,8 +20,8 @@ collecting outputs, and pushing the live trace are all just `put`/`get` on the
 one `ArtifactStore`. The live trajectory is simply an artifact key that gets
 re-`put` on a cadence.
 
-A `Suite` supplies only the suite-specific bits. Its *host half* (image and
-launch shape, instance sanitization, prediction shape) lives behind this
+A `Suite` supplies only the suite-specific bits. Its *host half* (launch shape
+and the agent-visible task input) lives behind this
 protocol; its *container half* — `build_task` / `extract_result` — is referenced
 by `container_module` and imported by the in-container runner.
 """
@@ -33,26 +33,37 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
+from ..messages import ContentInput
+
 # Fixed artifact keys the framework and the in-container runner agree on. Keys
 # are relative to one instance's run directory, so a store bound to that dir
 # (or a bind mount of it) resolves them identically on host and container.
-INSTANCE_KEY = "input/instance.json"  # host puts, container gets
+INSTANCE_KEY = "input/instance.json"  # host puts (sanitized), container gets
+EVAL_KEY = "input/eval.json"  # host puts (gold scoring inputs), container `evaluate` gets
 RESULT_KEY = "out/result.json"  # container puts (raw extract_result), host gets
 TRACE_KEY = "out/trajectory.jsonl"  # container re-puts on a cadence = live trace
 
 
 @dataclass(frozen=True)
-class ContainerPlan:
+class LaunchSpec:
     """Suite-resolved, backend-agnostic launch shape for one instance.
 
-    Captures exactly the values the SWE-bench launcher currently forks on via
-    `is_swebench_pro_instance(...)`, so a suite expresses them as data instead
+    Captures the per-instance launch values that would otherwise make the runner
+    fork on suite-specific conditions, so a suite expresses them as data instead
     of the runner branching on them.
 
-    - `entrypoint`: `""` clears an image `ENTRYPOINT` (Pro images set one);
+    - `entrypoint`: `""` clears an image `ENTRYPOINT` (some images set one);
       `None` keeps the image default.
     - `shell`: the argv prefix the bootstrap script is passed to, e.g.
       `("bash", "-lc")` vs `("/bin/sh", "-lc")`.
+    - `cap_add`: extra Linux capabilities for the container (docker `--cap-add`).
+      Docker drops most caps by default; some suites' test steps need specific
+      ones (e.g. `SYS_PTRACE`, used by ptrace/strace/gdb-style tooling). A suite
+      resolves the set its image requires; the default `()` adds none.
+    - `network_mode`: passed straight through to Docker (`--network`); `None`
+      leaves it unset (Docker's default `bridge`). Common values: `"host"`,
+      `"none"` (offline/sandboxed), `"bridge"`, `"container:<name|id>"`, or a
+      custom network name. Not validated here — bad values fail at create time.
     """
 
     image: str
@@ -83,12 +94,18 @@ class ContainerBinding:
 
 @dataclass(frozen=True)
 class RunArtifacts:
-    """What one instance run produced. Pure data; safe to log."""
+    """What one instance run produced. Pure data; safe to log.
+
+    The run phase produces the raw `extract_result` product (``out/result.json``)
+    and the trajectory. A suite that scores in the run environment (the optional
+    container-half ``evaluate`` hook) merges its verdict into the same
+    ``out/result.json``; otherwise scoring is a follow-up run (an agent judge) or
+    an external oracle (the official harness).
+    """
 
     instance_id: str
     run_dir: Path
     trajectory_path: Path
-    prediction_path: Path
     status_code: int
     logs: str = ""
 
@@ -127,20 +144,24 @@ class Suite(Protocol):
     name: str
     container_module: str
 
-    def container_plan(self, instance: Mapping[str, Any]) -> ContainerPlan: ...
+    def launch_spec(self, instance: Mapping[str, Any]) -> LaunchSpec: ...
 
-    def sanitize_instance(self, instance: Mapping[str, Any]) -> dict[str, Any]:
-        """Drop gold/private fields before the record is shown to the agent."""
+    def task_input(self, instance: Mapping[str, Any]) -> dict[str, Any]:
+        """The agent-visible task input: gold/private fields dropped before the
+        record is shown to the agent. The host stages it under
+        ``input/instance.json`` (INSTANCE_KEY); the gold counterpart the agent
+        must not see goes through the optional ``eval_inputs``."""
         ...
 
-    def prediction_record(
-        self,
-        instance: Mapping[str, Any],
-        *,
-        model_name: str,
-        result: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        """Shape the suite's scorer-facing prediction row from `extract_result`."""
+    def eval_inputs(self, instance: Mapping[str, Any]) -> Mapping[str, Any] | None:
+        """Gold/private data the in-environment ``evaluate`` hook needs (e.g. the
+        official eval script + expected tests, or the expected answer) but the
+        agent must not see. The host stages it under ``input/eval.json``
+        (EVAL_KEY) — separate from the agent-visible ``input/instance.json`` —
+        and the generic runner threads it into the container-half ``evaluate``
+        hook as ``context["eval"]``, which is what turns the hook on. Return
+        ``None`` to score elsewhere (a follow-up agent-judge run or the official
+        harness) instead of in the run environment."""
         ...
 
 
@@ -151,11 +172,31 @@ class ContainerTask(Protocol):
     Documentation of the duck-typed surface the in-container runner imports by
     `Suite.container_module`. ``build_task`` and ``extract_result`` are the two
     functions a new suite must write; ``prepare`` (pre-run setup, threaded into
-    ``extract_result`` as ``context``), ``agent_spec``, and ``build_agent`` are
+    ``extract_result`` as ``context``), ``apply_oracle`` (apply the reference
+    solution for the model-free oracle self-check), ``evaluate`` (score in the
+    run environment — see below), ``agent_spec``, and ``build_agent`` are
     optional.
+
+    Optional ``evaluate(workspace, instance, *, context)`` scores in the run
+    environment: after ``extract_result``, the generic runner calls it when the
+    suite staged ``eval_inputs`` (available as ``context["eval"]``) and merges
+    its returned verdict into ``out/result.json``. It is environment-neutral —
+    the generic runner is driven by both `LocalProcessBackend` (in-process) and
+    container backends, so ``evaluate`` runs wherever the run ran, with no Docker
+    assumption. A suite that scores elsewhere (a follow-up agent-judge run or the
+    official harness) simply omits it.
     """
 
-    def build_task(self, instance: Mapping[str, Any], *, workdir: str) -> str: ...
+    def build_task(
+        self, instance: Mapping[str, Any], *, workdir: str
+    ) -> ContentInput:
+        """Build the model-visible task: `str`, or content blocks for multimodal.
+
+        Returning a sequence of content blocks (text + `ImageBlock`) lets a suite
+        feed images alongside text; a plain `str` is the common case and is
+        normalized to a single text block.
+        """
+        ...
 
     def extract_result(
         self,
@@ -189,7 +230,7 @@ class RunSpec:
     suite_name: str
     container_module: str
     instance_id: str
-    plan: ContainerPlan
+    launch_spec: LaunchSpec
     max_turns: int
     provider: str  # "openai" | "fake"
     api_kind: str

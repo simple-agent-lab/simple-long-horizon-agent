@@ -38,7 +38,7 @@ from .protocols import (
     RunSpec,
     Suite,
 )
-from .runner import _shape_prediction, container_name, prepare_run_directory
+from .runner import _stage_eval_inputs, container_name, prepare_run_directory
 
 # Batch manifest lives at the batch root (run_root/<run_id>), above per-instance
 # dirs, so one reload finds every handle.
@@ -83,7 +83,6 @@ def submit_dataset(
     store: ArtifactStore,
     run_root: Path,
     run_id: str,
-    model_name: str = "simple-agent-lab",
     provider: str = "openai",
     api_kind: str = "openai-chat",
     max_turns: int = 75,
@@ -112,7 +111,7 @@ def submit_dataset(
     manifest: list[dict[str, Any]] = []
     for instance in instances:
         instance_id = str(instance["instance_id"])
-        plan = suite.container_plan(instance)
+        launch_spec = suite.launch_spec(instance)
         paths = prepare_run_directory(
             run_root=run_root, run_id=run_id, instance_id=instance_id
         )
@@ -121,19 +120,20 @@ def submit_dataset(
             INSTANCE_KEY,
             (
                 json.dumps(
-                    suite.sanitize_instance(instance),
+                    suite.task_input(instance),
                     ensure_ascii=False,
                     sort_keys=True,
                 )
                 + "\n"
             ).encode("utf-8"),
         )
+        _stage_eval_inputs(suite, instance, bound)
         binding = bound.container_binding()
         spec = RunSpec(
             suite_name=suite.name,
             container_module=suite.container_module,
             instance_id=instance_id,
-            plan=plan,
+            launch_spec=launch_spec,
             max_turns=max_turns,
             provider=provider,
             api_kind=api_kind,
@@ -143,7 +143,7 @@ def submit_dataset(
             run_name=container_name(suite.name, instance_id, run_id),
         )
         handle = backend.submit(spec, store=bound, binding=binding)
-        # Pin the run_dir so reconcile can shape the prediction without re-deriving.
+        # Pin the run_dir so reconcile can locate the result without re-deriving.
         handle = RunHandle(
             backend_kind=handle.backend_kind,
             ref=handle.ref,
@@ -151,7 +151,6 @@ def submit_dataset(
             extra={
                 **dict(handle.extra),
                 "instance_id": instance_id,
-                "model_name": model_name,
             },
         )
         handles.append(handle)
@@ -170,7 +169,6 @@ def reconcile_dataset(
     store: ArtifactStore,
     run_root: Path,
     run_id: str,
-    instances_by_id: Mapping[str, Mapping[str, Any]] | None = None,
     poll_interval_s: float = 5.0,
     timeout_s: float | None = None,
     on_result: Callable[[InstanceResult], None] | None = None,
@@ -179,9 +177,9 @@ def reconcile_dataset(
     """Reload a submitted batch's manifest and poll every run to completion.
 
     Safe to call from a fresh process: it reads the handles from the store, not
-    from memory. For each finished run it shapes ``prediction.jsonl`` via
-    `suite.prediction_record` (needs the instance record — pass `instances_by_id`,
-    or it falls back to the sanitized `input/instance.json` written at submit).
+    from memory. A run is done when its ``out/result.json`` exists (the single
+    decoupling artifact); reconcile only confirms the result landed and reports
+    where artifacts are. Any follow-up scoring reads ``out/result.json`` back.
     """
 
     if not hasattr(backend, "poll"):
@@ -211,11 +209,9 @@ def reconcile_dataset(
                     continue
             instance_id = str(handle.extra.get("instance_id") or ref)
             result = _finish(
-                suite=suite,
                 store=store,
                 handle=handle,
                 instance_id=instance_id,
-                instances_by_id=instances_by_id,
                 status_code=outcome.status_code,
             )
             done[ref] = result
@@ -245,50 +241,22 @@ def reconcile_dataset(
 
 def _finish(
     *,
-    suite: Suite,
     store: ArtifactStore,
     handle: RunHandle,
     instance_id: str,
-    instances_by_id: Mapping[str, Mapping[str, Any]] | None,
     status_code: int,
 ) -> InstanceResult:
     run_dir = Path(handle.run_dir)
-    bound = store.bind(run_dir)
-    instance: Mapping[str, Any]
-    if instances_by_id and instance_id in instances_by_id:
-        instance = instances_by_id[instance_id]
-    else:
-        # The instance record may be missing/unreachable (submit crashed before
-        # writing it, or a store that can't reach this run_dir). Record that as a
-        # per-instance error instead of letting it abort the whole reconcile loop.
-        try:
-            instance = json.loads(bound.get(INSTANCE_KEY).decode("utf-8"))
-        except (FileNotFoundError, OSError, ValueError) as exc:
-            return InstanceResult(
-                instance_id=instance_id,
-                artifacts=None,
-                error=f"cannot load instance record: {type(exc).__name__}: {exc}",
-                attempts=1,
-            )
-
     # Artifact paths follow the same keys as the blocking path (ADR 0016), so
-    # they track TRACE_KEY/RESULT_KEY rather than re-hardcoding the layout.
+    # they track TRACE_KEY rather than re-hardcoding the layout. ``result.json``
+    # is the decoupling artifact; any follow-up scoring reads it back.
     trajectory_path = run_dir / TRACE_KEY
-    prediction_path = run_dir / "out" / "prediction.jsonl"
-    _shape_prediction(
-        suite=suite,
-        instance=instance,
-        model_name=str(handle.extra.get("model_name") or "simple-agent-lab"),
-        store=bound,
-        prediction_path=prediction_path,
-    )
     has_result = _has_result(store, handle.run_dir)
 
     artifacts = RunArtifacts(
         instance_id=instance_id,
         run_dir=run_dir,
         trajectory_path=trajectory_path,
-        prediction_path=prediction_path,
         status_code=status_code,
         logs="",
     )

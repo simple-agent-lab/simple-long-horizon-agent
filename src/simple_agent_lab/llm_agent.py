@@ -24,7 +24,7 @@ from .llm.bridge import (
     tool_to_llm_tool,
 )
 from .llm.provider import Provider as LLMProvider
-from .llm.stream import complete as llm_complete
+from .llm.retry import complete_with_tool_call_retry
 from .llm.types import LLMRequest
 from .messages import Message
 from .tools import AgentTool
@@ -48,6 +48,12 @@ def make_llm_agent(
     the system prompt and translate tools onto the wire). The factory
     threads them through both layers in one place so callers don't have
     to repeat themselves.
+
+    Two recoverable hiccups are retried here by default
+    (`complete_with_tool_call_retry`, which layers `complete_with_retry`):
+    transient provider throttling (TPM / rate-limit / 429) and a malformed
+    tool call in the model's own output. Every LLM-backed agent gets both
+    without each caller re-wrapping `generate`.
     """
     tools_tuple = tuple(tools)
 
@@ -59,7 +65,7 @@ def make_llm_agent(
             system_prompt=system_prompt or role or None,
             extra=dict(request_extra or {}),
         )
-        response = llm_complete(request)
+        response = complete_with_tool_call_retry(request)
         kind = "final" if response.stop_reason == "end_turn" else "step"
         return llm_response_to_assistant_message(
             response,

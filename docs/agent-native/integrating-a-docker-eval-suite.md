@@ -13,8 +13,8 @@ Read when: adding a containerized benchmark. Skip for non-containerized checks
 ## The contract in one paragraph
 
 A suite is **two halves plus a registration**. The *host half* — a `Suite` under
-`evals/<name>/suite.py` — says which image to run, sanitizes the instance, and
-shapes the scorer row. The *container half* — a module shipped in the wheel at
+`evals/<name>/suite.py` — says which image to run, hides gold from the agent, and
+(optionally) stages gold for in-environment scoring. The *container half* — a module shipped in the wheel at
 `src/simple_agent_lab/evals/suites/<name>/` — says how to turn one instance into
 an agent task and how to read the run's product back out. The framework supplies
 everything else (container lifecycle, Python/uv bootstrap, the run-directory
@@ -66,20 +66,27 @@ Create `evals/<name>/suite.py` with a class satisfying the `Suite` protocol:
 
 - `name: str` and `container_module: str` (the dotted path from Step 1, e.g.
   `"simple_agent_lab.evals.suites.<name>.container"`).
-- `container_plan(instance) -> ContainerPlan` — **all per-instance launch
+- `launch_spec(instance) -> LaunchSpec` — **all per-instance launch
   differences as data**: `image`, `workdir`, `shell`, `entrypoint`, `platform`,
   `network_mode`, and **`cap_add`** (capabilities the image's tests need, e.g.
   `("SYS_PTRACE",)` — easy to forget; an under-privileged container fails
   capability-dependent steps). No `if`-branching belongs in the runner; express
   variants here.
-- `sanitize_instance(instance) -> dict` — drop gold/private fields before the
+- `task_input(instance) -> dict` — drop gold/private fields before the
   agent sees the record (it is what gets written to `input/instance.json`).
-- `prediction_record(instance, *, model_name, result) -> dict` — shape the
-  scorer-facing row from `extract_result`'s product.
+- `eval_inputs(instance) -> Mapping | None` — gold/private scoring inputs staged
+  under `input/eval.json` (EVAL_KEY, kept out of the agent-visible instance) for
+  the container half's `evaluate` hook. **Staging gold is the toggle** that turns
+  in-environment scoring on; **return `None`** to score elsewhere (a follow-up
+  run or the official harness). There is no `scorer()` method and no separate
+  score driver (ADR 0020): in-environment scoring is the `evaluate` hook, whose
+  verdict is merged into `out/result.json`. See
+  [`evals/README.md`](../../evals/README.md#scoring).
 
 The host half may use heavy deps (the official harness, docker-py) — they stay
 out of the core package because this file lives under `evals/`. Reference:
-`evals/swebench/suite.py`.
+`evals/swebench/suite.py` (+ `evals/swebench/evaluate_predictions.py` for the
+official harness and the `reuse_eval_row` host-grading helper).
 
 ## Step 3 — run it
 
@@ -117,17 +124,21 @@ both and the backend×store selection table.
 Cover the suite in `tests/unit/` with **no Docker and no network**:
 
 - `FakeBackend` — drive `run_suite_instance` / `run_dataset` to check
-  orchestration (sanitization, prediction shaping, store wiring).
+  orchestration (sanitization, store wiring).
 - `LocalProcessBackend` + `provider="fake"` — run the *real* container half
-  (`build_task` → loop → `extract_result`) in-process against a temp workspace,
-  exactly as `tests/unit/test_evals_framework.py` does for SWE-bench.
+  (`build_task` → loop → `extract_result`, plus the `evaluate` hook when gold is
+  staged) in-process against a temp workspace, exactly as
+  `tests/unit/test_evals_framework.py` does for SWE-bench and the in-env scoring
+  test.
 
 ## Checklist
 
 - [ ] `container.py`: `build_task`, `extract_result(..., *, context=None)`;
-      optional `prepare` / `agent_spec`; **stdlib + wheel imports only**.
-- [ ] `suite.py`: `name`, `container_module`, `container_plan` (incl. `cap_add`),
-      `sanitize_instance`, `prediction_record`.
+      optional `prepare` / `agent_spec` / `evaluate` (in-env scoring);
+      **stdlib + wheel imports only**.
+- [ ] `suite.py`: `name`, `container_module`, `launch_spec` (incl. `cap_add`),
+      `task_input`, `eval_inputs()` (return `None` to score elsewhere; non-`None`
+      stages gold and turns the `evaluate` hook on).
 - [ ] Image is reachable by the daemon (built locally / pulled from a registry —
       `LocalDockerBackend(pull=...)` controls the policy).
 - [ ] Container can reach the model API; if running offline, a wheelhouse is
@@ -137,7 +148,7 @@ Cover the suite in `tests/unit/` with **no Docker and no network**:
 
 ## Common pitfalls
 
-- **Forgetting `cap_add`** in `container_plan` → capability-dependent tests fail
+- **Forgetting `cap_add`** in `launch_spec` → capability-dependent tests fail
   with confusing errors. Pull it from the image's test spec.
 - **Omitting `*, context` on `extract_result`** → `prepare()`'s baseline/setup
   never reaches extraction, so the product is computed against the wrong state
@@ -145,7 +156,7 @@ Cover the suite in `tests/unit/` with **no Docker and no network**:
 - **Heavy imports in the container half** → it fails to import inside the image.
   Keep it stdlib + the installed wheel; put harness/docker deps in the host half.
 - **Putting `if dataset == ...` branching in the runner** → instead express the
-  difference as `ContainerPlan` data in `container_plan`.
+  difference as `LaunchSpec` data in `launch_spec`.
 - **Expecting the trajectory viewer to tail a remote run** → it tails local
   files; with a remote daemon use host-pull or point it where artifacts land
   (see deployment doc).

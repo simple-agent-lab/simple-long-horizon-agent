@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
+from ..messages import ContentInput
 from ..protocols import Event
 from .jsonl import write_jsonl_atomic
 from .run_trace import SCHEMA, RunTrace, run_trace_from_state, trace_record
@@ -315,7 +316,7 @@ class LiveTraceSession:
 
 def run_agent_with_live_trace(
     agent: "Agent",
-    task: str,
+    task: ContentInput,
     trace_path: str | Path,
     *,
     trace_meta: TraceMeta,

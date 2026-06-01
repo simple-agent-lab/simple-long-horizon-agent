@@ -28,6 +28,12 @@ from .bridge import (
     messages_to_llm_messages,
     tool_to_llm_tool,
 )
+from .retry import (
+    complete_with_retry,
+    complete_with_tool_call_retry,
+    invalid_tool_call_reasons,
+    is_retryable_llm_error,
+)
 from .stream import complete, iter_stream, register_adapter
 from .types import (
     ContentBlock,
@@ -70,6 +76,10 @@ __all__ = [
     "ToolCallBlock",
     "ToolResultBlock",
     "complete",
+    "complete_with_retry",
+    "complete_with_tool_call_retry",
+    "invalid_tool_call_reasons",
+    "is_retryable_llm_error",
     "iter_stream",
     "llm_message",
     "llm_response_to_assistant_message",

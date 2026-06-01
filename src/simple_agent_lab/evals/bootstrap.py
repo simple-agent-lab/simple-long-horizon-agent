@@ -7,10 +7,8 @@ the ``simple-agent-lab`` wheel (from a mounted wheelhouse when offline), then
 exec the runner. Only the final runner invocation differs per suite, so that is
 passed in as `runner_argv`.
 
-This is the generic half of the existing
-``containerized_agent.build_runner_command``; suites contribute only
-`runner_argv` (and, via `ContainerPlan.shell`, the argv prefix this script is
-handed to).
+Suites contribute only `runner_argv` (and, via `LaunchSpec.shell`, the argv
+prefix this script is handed to); everything else here is suite-agnostic.
 """
 
 from __future__ import annotations

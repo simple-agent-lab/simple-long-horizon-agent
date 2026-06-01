@@ -3,18 +3,23 @@
 This module is what runs *inside* the eval container, invoked as
 ``python -m simple_agent_lab.evals.in_container`` (it ships in the wheel, so
 nothing is copied in). It imports the suite's container half by dotted path
-(`Suite.container_module`), builds the agent, drives the loop with rate-limit
-retry, and reads/writes everything through one `ArtifactStore`:
+(`Suite.container_module`), builds the agent, drives the loop, and reads/writes
+everything through one `ArtifactStore` (the agent's `generate` retries transient
+provider throttling on its own — see `simple_agent_lab.llm.retry`):
 
 - reads the sanitized instance from ``input/instance.json``,
 - re-writes ``out/trajectory.jsonl`` on a cadence (the live trace push),
 - writes the raw `extract_result` product to ``out/result.json``.
 
-The host (`run_suite_instance`) shapes ``prediction.jsonl`` from the result.
-Everything here is suite-agnostic: a new benchmark supplies only ``build_task``
-/ ``extract_result`` (and optional ``prepare`` / ``agent_spec`` / ``build_agent``)
-in its container module. Nothing about SWE-bench, datasets, or patches lives
-here.
+``out/result.json`` is the single decoupling artifact. A suite that scores in
+the run environment may expose an optional ``evaluate(workspace, instance, *,
+context)``; when the suite staged ``eval_inputs`` (gold, threaded in as
+``context["eval"]``) the runner calls it and merges its verdict into the result
+here. Otherwise scoring is a follow-up run or an external oracle reading
+``out/result.json``. Everything here is suite-agnostic: a new benchmark supplies only
+``build_task`` / ``extract_result`` (and optional ``prepare`` / ``evaluate`` /
+``agent_spec`` / ``build_agent``) in its container module. Nothing about
+SWE-bench, datasets, or patches lives here.
 """
 
 from __future__ import annotations
@@ -24,7 +29,6 @@ import importlib
 import inspect
 import json
 import os
-import sys
 import time
 from collections.abc import Mapping
 from pathlib import Path
@@ -45,14 +49,9 @@ __all__ = [
     "main",
     "provider_from_env",
     "run_in_container",
-    "with_llm_retry",
 ]
 
 TRACE_FLUSH_INTERVAL_S = 2.0
-
-LLM_RETRY_MAX_ATTEMPTS = 20
-LLM_RETRY_INITIAL_DELAY_S = 4.0
-LLM_RETRY_MAX_DELAY_S = 60.0
 
 # Env contract for the OpenAI-compatible provider, shared by every suite.
 OPENAI_MODEL_ENV = "OPENAI_MODEL"
@@ -100,6 +99,26 @@ def build_agent(
     )
 
 
+def _run_oracle(module: ModuleType, *, workdir: Path, instance: Mapping[str, Any]) -> None:
+    """Apply the suite's reference ("oracle") solution instead of running a model.
+
+    Oracle mode is a deterministic, model-free check that a suite is wired
+    correctly: the container half supplies ``apply_oracle(workspace, instance)``
+    that lands the known-good solution in the workspace, after which
+    ``extract_result`` should reproduce the gold product. A suite that does not
+    expose ``apply_oracle`` cannot be oracle-checked, which is an explicit error
+    rather than a silent no-op.
+    """
+
+    apply_oracle = getattr(module, "apply_oracle", None)
+    if not callable(apply_oracle):
+        raise RuntimeError(
+            f"oracle run needs apply_oracle(workspace, instance) in "
+            f"{module.__name__!r}; none found."
+        )
+    apply_oracle(workdir, instance)
+
+
 def _resolve_agent(
     module: ModuleType,
     *,
@@ -122,55 +141,6 @@ def _resolve_agent(
     return build_agent(
         spec=spec, provider=provider, cwd=cwd, request_extra=request_extra
     )
-
-
-# --------------------------------------------------------------------------- #
-# Rate-limit retry (generic; provider-throttling is suite-independent)
-# --------------------------------------------------------------------------- #
-def is_retryable_llm_error(exc: BaseException) -> bool:
-    text = f"{type(exc).__name__}: {exc}".casefold()
-    return any(
-        marker in text
-        for marker in (
-            "tpm",
-            "tokens per minute",
-            "rate limit",
-            "rate_limit",
-            "too many requests",
-            "429",
-        )
-    )
-
-
-def with_llm_retry(
-    generate: Callable[..., Any],
-    *,
-    max_attempts: int = LLM_RETRY_MAX_ATTEMPTS,
-    initial_delay_s: float = LLM_RETRY_INITIAL_DELAY_S,
-    max_delay_s: float = LLM_RETRY_MAX_DELAY_S,
-    sleep_fn: Callable[[float], None] = time.sleep,
-) -> Callable[..., Any]:
-    """Retry transient provider throttling so long runs survive TPM limits."""
-
-    def wrapped(visible: list[Any]) -> Any:
-        delay = initial_delay_s
-        for attempt in range(1, max_attempts + 1):
-            try:
-                return generate(visible)
-            except Exception as exc:
-                if attempt >= max_attempts or not is_retryable_llm_error(exc):
-                    raise
-                print(
-                    f"LLM retryable error {attempt}/{max_attempts}; "
-                    f"retry in {delay:g}s: {type(exc).__name__}: {exc}",
-                    file=sys.stderr,
-                    flush=True,
-                )
-                sleep_fn(delay)
-                delay = min(delay * 2, max_delay_s)
-        raise RuntimeError("unreachable LLM retry state")
-
-    return wrapped
 
 
 # --------------------------------------------------------------------------- #
@@ -227,7 +197,7 @@ def run_in_container(
     *,
     instance: Mapping[str, Any],
     container_module: str,
-    provider: Provider,
+    provider: Provider | None,
     workdir: Path,
     max_turns: int,
     store: ArtifactStore,
@@ -236,12 +206,17 @@ def run_in_container(
     suite_name: str,
     request_extra: Mapping[str, Any] | None = None,
     flush_interval_s: float = TRACE_FLUSH_INTERVAL_S,
+    oracle: bool = False,
 ) -> tuple[dict[str, Any], State]:
-    """Drive one instance: build task → run agent → extract result.
+    """Drive one instance: build task → run agent (or oracle) → extract result.
 
     Reads nothing from `store` (the caller passes the loaded `instance`); writes
     the live trajectory to ``out/trajectory.jsonl`` on a cadence and the raw
     `extract_result` product to ``out/result.json``. Returns both.
+
+    When `oracle` is set, the agent loop is replaced by the suite's
+    ``apply_oracle`` (the reference solution); `provider` is unused and may be
+    ``None``. This is the deterministic, model-free suite self-check.
     """
 
     module = importlib.import_module(container_module)
@@ -259,12 +234,6 @@ def run_in_container(
         context = dict(prepare(workdir, instance) or {})
 
     task = tasks.build_task(instance, workdir=str(workdir))
-    agent = _resolve_agent(
-        module, provider=provider, cwd=workdir, request_extra=request_extra
-    )
-    agent.generate = with_llm_retry(agent.generate)
-    state, events = agent.run(task, max_turns=max_turns)
-
     instance_id = str(instance.get("instance_id", "?"))
 
     def trace_bytes(*, in_progress: bool) -> bytes:
@@ -276,6 +245,7 @@ def run_in_container(
                 "suite": suite_name,
                 "instance_id": instance_id,
                 "in_progress": in_progress,
+                "oracle": oracle,
                 "result_keys": sorted(state.data.get("result", {})),
             },
         )
@@ -283,26 +253,68 @@ def run_in_container(
             "utf-8"
         )
 
-    last = 0.0
-    for _ in events:
-        now = time.monotonic()
-        if now - last >= flush_interval_s:
-            store.put(TRACE_KEY, trace_bytes(in_progress=True))
-            last = now
+    if oracle:
+        # No model, no turns: apply the reference solution, then extract.
+        _run_oracle(module, workdir=workdir, instance=instance)
+        state = State(task=task)
+    else:
+        if provider is None:
+            raise SystemExit("a Provider is required unless oracle=True")
+        agent = _resolve_agent(
+            module, provider=provider, cwd=workdir, request_extra=request_extra
+        )
+        state, events = agent.run(task, max_turns=max_turns)
+        last = 0.0
+        for _ in events:
+            now = time.monotonic()
+            if now - last >= flush_interval_s:
+                store.put(TRACE_KEY, trace_bytes(in_progress=True))
+                last = now
 
     extract = tasks.extract_result
-    extract_kwargs = (
-        {"context": context}
-        if "context" in inspect.signature(extract).parameters
-        else {}
-    )
-    result = dict(extract(workdir, instance, **extract_kwargs))
+    result = dict(extract(workdir, instance, **_context_kwargs(extract, context)))
+
+    # Optional in-environment scoring: a suite that scores where the run ran
+    # exposes ``evaluate(workspace, instance, *, context)`` and stages gold via
+    # ``eval_inputs`` (the host writes it under EVAL_KEY). Staged gold is the
+    # toggle — present gold means score here and merge the verdict into the
+    # result; absent means score elsewhere (a follow-up run or external oracle).
+    # Environment-neutral: this runs in-process or in-container, wherever the run
+    # ran.
+    evaluate = getattr(module, "evaluate", None)
+    eval_inputs = _load_eval_inputs(store)
+    if callable(evaluate) and eval_inputs:
+        eval_context = {**context, "eval": eval_inputs}
+        verdict = evaluate(workdir, instance, **_context_kwargs(evaluate, eval_context))
+        if verdict:
+            result.update(dict(verdict))
+
     state.data["result"] = result
     store.put(
         RESULT_KEY, (json.dumps(result, ensure_ascii=False) + "\n").encode("utf-8")
     )
     store.put(TRACE_KEY, trace_bytes(in_progress=False))
     return result, state
+
+
+def _context_kwargs(
+    fn: Callable[..., Any], context: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Pass ``context`` only to hooks that declare it (keeps the surface optional)."""
+
+    return {"context": context} if "context" in inspect.signature(fn).parameters else {}
+
+
+def _load_eval_inputs(store: ArtifactStore) -> dict[str, Any]:
+    """Read the host-staged gold scoring inputs (EVAL_KEY), or {} if none."""
+
+    from .protocols import EVAL_KEY
+
+    try:
+        raw = store.get(EVAL_KEY)
+    except (FileNotFoundError, OSError):
+        return {}
+    return json.loads(raw.decode("utf-8") or "{}")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -312,7 +324,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--instance-id", required=True)
     parser.add_argument("--workdir", default="/testbed")
     parser.add_argument("--max-turns", type=int, default=75)
-    parser.add_argument("--provider", choices=["fake", "openai"], default="openai")
+    parser.add_argument(
+        "--provider", choices=["fake", "openai", "oracle"], default="openai"
+    )
     parser.add_argument(
         "--api-kind",
         choices=API_KIND_CHOICES,
@@ -324,7 +338,12 @@ def main(argv: list[str] | None = None) -> None:
 
     store = container_store_from_env()
     instance = json.loads(store.get(INSTANCE_KEY).decode("utf-8"))
-    provider = provider_from_env(kind=args.provider, api_kind=args.api_kind)
+    oracle = args.provider == "oracle"
+    provider = (
+        None
+        if oracle
+        else provider_from_env(kind=args.provider, api_kind=args.api_kind)
+    )
     run_in_container(
         instance=instance,
         container_module=args.container_module,
@@ -336,6 +355,7 @@ def main(argv: list[str] | None = None) -> None:
         producer=f"suite:{args.suite_name}",
         suite_name=args.suite_name,
         request_extra=request_extra_from_env() if args.provider == "openai" else {},
+        oracle=oracle,
     )
     print(f"wrote result + trajectory for {args.instance_id} via artifact store")
 

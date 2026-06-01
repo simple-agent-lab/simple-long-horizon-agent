@@ -1,10 +1,10 @@
 """Generic orchestration for one eval instance.
 
 `run_suite_instance(...)` wires a `Suite` + `ContainerBackend` + `ArtifactStore`
-together: it resolves the launch plan, seeds the instance into the store, hands a
-`RunSpec` to the backend, and shapes the prediction from the result. It has no
+together: it resolves the launch spec, seeds the instance into the store, hands a
+`RunSpec` to the backend, and collects the result. It has no
 `if pro:` branches and makes no Docker calls of its own — the suite supplies the
-plan as data, and the backend owns the run.
+launch spec as data, and the backend owns the run.
 
 The *same* call runs locally or across machines by swapping the backend:
 `LocalProcessBackend` (in-process, no Docker — local dev) /
@@ -31,7 +31,6 @@ from typing import Any
 from .bootstrap import bootstrap_script
 from .protocols import (
     INSTANCE_KEY,
-    RESULT_KEY,
     TRACE_KEY,
     ArtifactStore,
     ContainerBackend,
@@ -120,7 +119,7 @@ def build_command(spec: RunSpec) -> tuple[str, ...]:
         "--instance-id",
         spec.instance_id,
         "--workdir",
-        spec.plan.workdir,
+        spec.launch_spec.workdir,
         "--max-turns",
         str(spec.max_turns),
         "--provider",
@@ -133,7 +132,7 @@ def build_command(spec: RunSpec) -> tuple[str, ...]:
         install=spec.install,
         wheelhouse_mount=spec.wheelhouse_mount,
     )
-    return tuple(spec.plan.shell) + (script,)
+    return tuple(spec.launch_spec.shell) + (script,)
 
 
 def run_suite_instance(
@@ -144,7 +143,6 @@ def run_suite_instance(
     store: ArtifactStore,
     run_root: Path,
     run_id: str,
-    model_name: str = "simple-agent-lab",
     provider: str = "openai",
     api_kind: str = "openai-chat",
     max_turns: int = 75,
@@ -155,37 +153,41 @@ def run_suite_instance(
 ) -> RunArtifacts:
     """Run one instance and return where its artifacts landed.
 
-    The sanitized instance is written through `store` under ``input/``; the
-    backend runs the suite's container half (reading that instance, writing
-    ``out/result.json`` + ``out/trajectory.jsonl`` through the same store). After
-    the run the scorer-facing ``out/prediction.jsonl`` is shaped from the result
-    via `suite.prediction_record`, so prediction formatting stays host-side with
-    the rest of the suite config.
+    The agent-visible task input is written through `store` under ``input/``;
+    the backend runs the suite's container half (reading that instance, writing
+    ``out/result.json`` + ``out/trajectory.jsonl`` through the same store).
+    ``out/result.json`` is the raw `extract_result` product; when the suite
+    scores in the run environment (the container-half ``evaluate`` hook, enabled
+    by staging ``eval_inputs``) its verdict is merged into that same file.
+    Otherwise scoring is a follow-up run (an agent judge) or an external oracle
+    (the official harness reading ``out/result.json``).
     """
 
     instance_id = str(instance["instance_id"])
-    plan = suite.container_plan(instance)
+    launch_spec = suite.launch_spec(instance)
     paths = prepare_run_directory(
         run_root=run_root, run_id=run_id, instance_id=instance_id
     )
 
+    # The agent must never see gold/private fields, so they are stripped here.
+    # Oracle mode is the trusted exception: it *applies* the reference solution,
+    # so it needs the unredacted record (e.g. the gold patch) in the store.
+    record = (
+        dict(instance) if provider == "oracle" else suite.task_input(instance)
+    )
     bound = store.bind(paths.root)
     bound.put(
         INSTANCE_KEY,
-        (
-            json.dumps(
-                suite.sanitize_instance(instance), ensure_ascii=False, sort_keys=True
-            )
-            + "\n"
-        ).encode("utf-8"),
+        (json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8"),
     )
+    _stage_eval_inputs(suite, instance, bound)
     binding = bound.container_binding()
 
     spec = RunSpec(
         suite_name=suite.name,
         container_module=suite.container_module,
         instance_id=instance_id,
-        plan=plan,
+        launch_spec=launch_spec,
         max_turns=max_turns,
         provider=provider,
         api_kind=api_kind,
@@ -197,40 +199,33 @@ def run_suite_instance(
     outcome = backend.run(spec, store=bound, binding=binding)
     bound.collect_outputs()
 
-    _shape_prediction(
-        suite=suite,
-        instance=instance,
-        model_name=model_name,
-        store=bound,
-        prediction_path=paths.prediction_jsonl,
-    )
-
     return RunArtifacts(
         instance_id=instance_id,
         run_dir=paths.root,
         trajectory_path=paths.trajectory_jsonl,
-        prediction_path=paths.prediction_jsonl,
         status_code=outcome.status_code,
         logs=outcome.logs,
     )
 
 
-def _shape_prediction(
-    *,
-    suite: Suite,
-    instance: Mapping[str, Any],
-    model_name: str,
-    store: ArtifactStore,
-    prediction_path: Path,
+def _stage_eval_inputs(
+    suite: Suite, instance: Mapping[str, Any], bound: ArtifactStore
 ) -> None:
-    """Write ``prediction.jsonl`` from the container's result, if present."""
+    """Stage gold scoring inputs (the "reuse" topology) under EVAL_KEY, if any.
 
-    try:
-        raw = store.get(RESULT_KEY)
-    except (FileNotFoundError, OSError):
+    A suite's ``eval_inputs(instance)`` hands the run environment what its
+    container-half ``evaluate`` needs (e.g. the official eval script) without
+    putting it in the agent-visible instance. Written to a separate key so
+    ``task_input`` still governs what the agent sees. ``eval_inputs`` returns
+    ``None`` for the "separate" topology, in which case nothing is staged.
+    """
+
+    from .protocols import EVAL_KEY
+
+    payload = suite.eval_inputs(instance)
+    if not payload:
         return
-    result = json.loads(raw.decode("utf-8") or "{}")
-    prediction = suite.prediction_record(instance, model_name=model_name, result=result)
-    prediction_path.write_text(
-        json.dumps(prediction, ensure_ascii=False) + "\n", encoding="utf-8"
+    bound.put(
+        EVAL_KEY,
+        (json.dumps(dict(payload), ensure_ascii=False) + "\n").encode("utf-8"),
     )

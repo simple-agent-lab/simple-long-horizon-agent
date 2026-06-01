@@ -18,12 +18,13 @@ from typing import Any, Mapping
 from unittest import mock
 
 from simple_agent_lab.evals import (
+    EVAL_KEY,
     INSTANCE_KEY,
     RESULT_KEY,
     TRACE_KEY,
-    ContainerPlan,
     FakeBackend,
     HostHttpStore,
+    LaunchSpec,
     LocalDirStore,
     LocalProcessBackend,
     RunOutcome,
@@ -45,20 +46,14 @@ class _DemoSuite:
     name = "demo"
     container_module = "demo.container"
 
-    def container_plan(self, instance: Mapping[str, Any]) -> ContainerPlan:
-        return ContainerPlan(image="demo:latest", workdir="/work")
+    def launch_spec(self, instance: Mapping[str, Any]) -> LaunchSpec:
+        return LaunchSpec(image="demo:latest", workdir="/work")
 
-    def sanitize_instance(self, instance: Mapping[str, Any]) -> dict[str, Any]:
+    def task_input(self, instance: Mapping[str, Any]) -> dict[str, Any]:
         return {k: v for k, v in instance.items() if k != "gold"}
 
-    def prediction_record(
-        self, instance: Mapping[str, Any], *, model_name: str, result: Mapping[str, Any]
-    ) -> dict[str, Any]:
-        return {
-            "instance_id": str(instance["instance_id"]),
-            "model_name_or_path": model_name,
-            "answer": result.get("answer", ""),
-        }
+    def eval_inputs(self, instance: Mapping[str, Any]) -> Mapping[str, Any] | None:
+        return None
 
 
 def _simulate(answer: str):
@@ -88,7 +83,6 @@ class OrchestrationTest(unittest.TestCase):
                 store=LocalDirStore(root),
                 run_root=root,
                 run_id="run-x",
-                model_name="m",
                 provider="fake",
             )
             # The backend received a structured spec, not a shell command.
@@ -101,16 +95,17 @@ class OrchestrationTest(unittest.TestCase):
             )
             self.assertNotIn("gold", written)  # sanitized through the store
 
-            prediction = json.loads(artifacts.prediction_path.read_text())
-            self.assertEqual(prediction["answer"], "42")
-            self.assertEqual(prediction["model_name_or_path"], "m")
+            # A run produces result.json (+ trajectory); nothing else is shaped.
+            self.assertFalse((artifacts.run_dir / "out" / "prediction.jsonl").exists())
+            result = json.loads((artifacts.run_dir / RESULT_KEY).read_text())
+            self.assertEqual(result["answer"], "42")
 
     def test_build_command_targets_the_generic_runner(self) -> None:
         spec = RunSpec(
             suite_name="s",
             container_module="m",
             instance_id="i",
-            plan=ContainerPlan(image="img", workdir="/w"),
+            launch_spec=LaunchSpec(image="img", workdir="/w"),
             max_turns=5,
             provider="fake",
             api_kind="openai-chat",
@@ -155,20 +150,14 @@ class _SwebenchLikeSuite:
     name = "swebench"
     container_module = SWEBENCH_CONTAINER
 
-    def container_plan(self, instance: Mapping[str, Any]) -> ContainerPlan:
-        return ContainerPlan(image="(in-process)", workdir="(in-process)")
+    def launch_spec(self, instance: Mapping[str, Any]) -> LaunchSpec:
+        return LaunchSpec(image="(in-process)", workdir="(in-process)")
 
-    def sanitize_instance(self, instance: Mapping[str, Any]) -> dict[str, Any]:
+    def task_input(self, instance: Mapping[str, Any]) -> dict[str, Any]:
         return dict(instance)
 
-    def prediction_record(
-        self, instance: Mapping[str, Any], *, model_name: str, result: Mapping[str, Any]
-    ) -> dict[str, Any]:
-        return {
-            "instance_id": str(instance["instance_id"]),
-            "model_name_or_path": model_name,
-            "model_patch": result.get("model_patch", ""),
-        }
+    def eval_inputs(self, instance: Mapping[str, Any]) -> Mapping[str, Any] | None:
+        return None
 
 
 class LocalProcessBackendTest(unittest.TestCase):
@@ -217,8 +206,103 @@ class LocalProcessBackendTest(unittest.TestCase):
             trace = json.loads(bound.get(TRACE_KEY).decode("utf-8"))
             self.assertEqual(trace["meta"]["suite"], "swebench")
             self.assertFalse(trace["meta"]["in_progress"])
-            prediction = json.loads(artifacts.prediction_path.read_text())
-            self.assertIn("model_patch", prediction)
+
+    def test_oracle_run_reproduces_gold_patch(self) -> None:
+        """Oracle mode applies the gold patch (no model) and extract reproduces it.
+
+        This is the suite self-check the integration doc prescribes: a tiny
+        self-contained instance + its gold `patch`, driven in-process with
+        `provider="oracle"`, must yield a `model_patch` equal to the gold change.
+        No Docker, no network, no LLM — just the real container half end to end.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "testbed"
+            repo.mkdir()
+
+            def git(*args: str) -> str:
+                return subprocess.run(
+                    ["git", *args], cwd=repo, check=True, capture_output=True, text=True
+                ).stdout
+
+            git("init")
+            git("config", "user.email", "t@example.invalid")
+            git("config", "user.name", "T")
+            git("config", "commit.gpgsign", "false")
+            (repo / "app.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+            git("add", "-A")
+            git("commit", "-m", "base")
+
+            # Build a real gold patch, then revert so the oracle has to re-apply it.
+            (repo / "app.py").write_text("def f():\n    return 2\n", encoding="utf-8")
+            gold_patch = git("diff")
+            git("checkout", "--", "app.py")
+            self.assertIn("return 2", gold_patch)
+
+            root = Path(tmp) / "runs"
+            store = LocalDirStore(root)
+            instance = {
+                "instance_id": "demo__repo-oracle",
+                "problem_statement": "Make f return 2.",
+                "language": "python",
+                "patch": gold_patch,  # gold/private — kept only for oracle mode
+            }
+            artifacts = run_suite_instance(
+                suite=_SwebenchLikeSuite(),
+                instance=instance,
+                backend=LocalProcessBackend(workspace=repo),
+                store=store,
+                run_root=root,
+                run_id="oracle",
+                provider="oracle",  # no model: apply the reference solution
+            )
+
+            self.assertEqual(artifacts.status_code, 0)
+            bound = store.bind(artifacts.run_dir)
+            result = json.loads(bound.get(RESULT_KEY).decode("utf-8"))
+            self.assertIn("return 2", result["model_patch"])
+            # Oracle mode keeps the gold field in the stored instance (trusted).
+            stored = json.loads(
+                (artifacts.run_dir / "input" / "instance.json").read_text()
+            )
+            self.assertIn("patch", stored)
+            # The trajectory marks the run as oracle.
+            trace = json.loads(bound.get(TRACE_KEY).decode("utf-8"))
+            self.assertTrue(trace["meta"]["oracle"])
+
+    def test_oracle_without_apply_hook_fails_clearly(self) -> None:
+        """A suite whose container half has no apply_oracle errors, not no-ops."""
+
+        import sys
+        import types
+
+        # A real, importable container module that lacks apply_oracle.
+        mod_name = "sal_test_nooracle_container"
+        mod = types.ModuleType(mod_name)
+        mod.build_task = lambda instance, *, workdir: "noop task"  # type: ignore[attr-defined]
+        mod.extract_result = (  # type: ignore[attr-defined]
+            lambda workspace, instance, *, context=None: {"model_patch": ""}
+        )
+        sys.modules[mod_name] = mod
+        self.addCleanup(lambda: sys.modules.pop(mod_name, None))
+
+        class _NoOracleSuite(_DemoSuite):
+            container_module = mod_name
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            instance = {"instance_id": "demo-1", "problem": "p"}
+            artifacts = run_suite_instance(
+                suite=_NoOracleSuite(),
+                instance=instance,
+                backend=LocalProcessBackend(),
+                store=LocalDirStore(root),
+                run_root=root,
+                run_id="oracle",
+                provider="oracle",
+            )
+            self.assertEqual(artifacts.status_code, 1)  # surfaced as a failed run
+            self.assertIn("apply_oracle", artifacts.logs)
 
     def test_workspace_factory_isolates_concurrent_runs(self) -> None:
         """A workspace factory gives each run its own dir, so concurrency is safe."""
@@ -254,6 +338,97 @@ class LocalProcessBackendTest(unittest.TestCase):
             # Each run materialized its own workspace dir.
             for n in range(5):
                 self.assertTrue((ws_base / f"i-{n}").is_dir())
+
+
+class InEnvScoringTest(unittest.TestCase):
+    """In-environment scoring: the container-half `evaluate` hook writes the
+    verdict into result.json during the run, gated on staged `eval_inputs`
+    (ADR 0020). No separate scoring driver."""
+
+    @staticmethod
+    def _reuse_module() -> str:
+        """Register a throwaway container module whose `evaluate` grades gold."""
+
+        import sys
+        import types
+
+        mod_name = "sal_test_reuse_container"
+        mod = types.ModuleType(mod_name)
+        mod.build_task = lambda instance, *, workdir: "noop"  # type: ignore[attr-defined]
+        mod.extract_result = (  # type: ignore[attr-defined]
+            lambda workspace, instance, *, context=None: {"answer": "solved"}
+        )
+
+        def _evaluate(workspace, instance, *, context=None):  # type: ignore[no-untyped-def]
+            # The host staged gold inputs under EVAL_KEY → context["eval"].
+            staged = (context or {}).get("eval") or {}
+            return {"resolved": staged.get("expected") == "solved"}
+
+        mod.evaluate = _evaluate  # type: ignore[attr-defined]
+        sys.modules[mod_name] = mod
+        return mod_name
+
+    def test_evaluate_hook_merges_verdict_into_result(self) -> None:
+        import sys
+
+        mod_name = self._reuse_module()
+        self.addCleanup(lambda: sys.modules.pop(mod_name, None))
+
+        class _ReuseSuite(_DemoSuite):
+            container_module = mod_name
+
+            def eval_inputs(self, instance):  # type: ignore[no-untyped-def]
+                return {"expected": "solved"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            artifacts = run_suite_instance(
+                suite=_ReuseSuite(),
+                instance={"instance_id": "r-0", "gold": "solved"},
+                backend=LocalProcessBackend(),
+                store=LocalDirStore(root),
+                run_root=root,
+                run_id="reuse",
+                provider="fake",
+                max_turns=1,
+            )
+            # Gold was staged privately (EVAL_KEY), not in the agent's instance.
+            staged = json.loads((artifacts.run_dir / EVAL_KEY).read_text())
+            self.assertEqual(staged["expected"], "solved")
+            agent_view = json.loads((artifacts.run_dir / INSTANCE_KEY).read_text())
+            self.assertNotIn("gold", agent_view)
+            # The evaluate hook merged its verdict into result.json — the verdict
+            # lives next to the product, so there is no second phase to run.
+            result = json.loads((artifacts.run_dir / RESULT_KEY).read_text())
+            self.assertTrue(result["resolved"])
+            self.assertEqual(result["answer"], "solved")
+
+    def test_hook_is_skipped_without_staged_eval_inputs(self) -> None:
+        import sys
+
+        mod_name = self._reuse_module()
+        self.addCleanup(lambda: sys.modules.pop(mod_name, None))
+
+        class _NoGoldSuite(_DemoSuite):
+            container_module = mod_name
+            # eval_inputs inherited from _DemoSuite returns None → no staged gold.
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            artifacts = run_suite_instance(
+                suite=_NoGoldSuite(),
+                instance={"instance_id": "r-1"},
+                backend=LocalProcessBackend(),
+                store=LocalDirStore(root),
+                run_root=root,
+                run_id="nogold",
+                provider="fake",
+                max_turns=1,
+            )
+            result = json.loads((artifacts.run_dir / RESULT_KEY).read_text())
+            # No gold staged → the hook never ran → only the raw product remains.
+            self.assertNotIn("resolved", result)
+            self.assertEqual(result["answer"], "solved")
 
 
 class RunDatasetTest(unittest.TestCase):
@@ -339,7 +514,6 @@ class SubmitReconcileTest(unittest.TestCase):
                 store=LocalDirStore(root),
                 run_root=root,
                 run_id="batch",
-                model_name="m",
                 provider="fake",
             )
             # The manifest is on disk; nothing else carried over.
@@ -359,11 +533,12 @@ class SubmitReconcileTest(unittest.TestCase):
 
             self.assertEqual(report.summary(), {"total": 4, "ok": 4, "failed": 0})
             self.assertEqual(len(seen), 4)
-            # Predictions were shaped from each run's result.json during reconcile.
+            # result.json is the decoupling artifact: a fresh process can read
+            # each run's product back without re-running.
             for r in report.results:
-                prediction = json.loads(r.artifacts.prediction_path.read_text())
-                self.assertEqual(prediction["answer"], "42")
-                self.assertEqual(prediction["model_name_or_path"], "m")
+                assert r.artifacts is not None  # reconcile completed every run
+                result = json.loads((r.artifacts.run_dir / RESULT_KEY).read_text())
+                self.assertEqual(result["answer"], "42")
 
     def test_reconcile_waits_on_pending_runs(self) -> None:
         from simple_agent_lab.evals import reconcile_dataset, submit_dataset
@@ -481,16 +656,19 @@ class SubmitReconcileTest(unittest.TestCase):
             )
         self.assertEqual(report.summary(), {"total": 1, "ok": 1, "failed": 0})
 
-    def test_finish_records_error_when_instance_record_missing(self) -> None:
-        """A missing input/instance.json is a per-instance error, not a batch crash."""
+    def test_reconcile_completes_off_result_without_instance_record(self) -> None:
+        """Reconcile keys completion on result.json — decoupled from the instance.
+
+        The run/score split (ADR 0019) means reconcile no longer needs the
+        instance record; a missing input/instance.json does not fail a run whose
+        result.json landed. The instance re-enters only at the score phase.
+        """
         from simple_agent_lab.evals import reconcile_dataset, submit_dataset
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             submit_dataset(
                 suite=_DemoSuite(),
-                # _simulate writes result+trace but the instance.json is written by
-                # submit_dataset itself; delete it to simulate a partial submit.
                 instances=[{"instance_id": "x"}],
                 backend=FakeBackend(on_run=_simulate("ok")),
                 store=LocalDirStore(root),
@@ -507,9 +685,8 @@ class SubmitReconcileTest(unittest.TestCase):
                 run_id="b",
                 poll_interval_s=0,
             )
-            # One result, marked failed with an error — not an exception.
-            self.assertEqual(report.summary(), {"total": 1, "ok": 0, "failed": 1})
-            self.assertIn("cannot load instance record", report.results[0].error)
+            # The result is present, so the run is done regardless of the instance.
+            self.assertEqual(report.summary(), {"total": 1, "ok": 1, "failed": 0})
 
     def test_reconcile_floors_the_idle_wait(self) -> None:
         """poll_interval_s=0 must not busy-spin: the loop sleeps a real floor."""
@@ -610,6 +787,67 @@ class ReviewFixesTest(unittest.TestCase):
             docker_local._require_docker()
         self.assertIn("swebench", str(ctx.exception))
 
+    def test_wheelhouse_and_uv_are_bind_mounted_read_only(self) -> None:
+        """The offline path: a host wheelhouse + uv binary become read-only mounts
+        at the in-container find-links path and /tmp/uv, beside the store mount."""
+        from simple_agent_lab.evals.backends.docker_local import (
+            UV_CONTAINER_PATH,
+            with_local_mounts,
+        )
+        from simple_agent_lab.evals.protocols import ContainerBinding
+
+        with tempfile.TemporaryDirectory() as tmp:
+            wheelhouse = Path(tmp) / "wheelhouse"
+            wheelhouse.mkdir()
+            uv = Path(tmp) / "uv"
+            uv.write_bytes(b"#!/bin/sh\n")
+            store_mount = {"/host/run": {"bind": "/agent/run", "mode": "rw"}}
+
+            bound = with_local_mounts(
+                ContainerBinding(mounts=dict(store_mount), env={"SAL_STORE": "localdir"}),
+                wheelhouse=wheelhouse,
+                wheelhouse_mount="/agent/wheelhouse",
+                uv_binary=uv,
+            )
+
+        # The store's mount and env are preserved alongside the new mounts.
+        self.assertEqual(bound.mounts["/host/run"], store_mount["/host/run"])
+        self.assertEqual(bound.env, {"SAL_STORE": "localdir"})
+        self.assertEqual(
+            bound.mounts[str(wheelhouse.resolve())],
+            {"bind": "/agent/wheelhouse", "mode": "ro"},
+        )
+        self.assertEqual(
+            bound.mounts[str(uv.resolve())],
+            {"bind": UV_CONTAINER_PATH, "mode": "ro"},
+        )
+
+    def test_wheelhouse_without_mount_path_fails_clearly(self) -> None:
+        """A wheelhouse with no in-container find-links path is a misconfiguration."""
+        from simple_agent_lab.evals.backends.docker_local import with_local_mounts
+        from simple_agent_lab.evals.protocols import ContainerBinding
+
+        with self.assertRaises(ValueError) as ctx:
+            with_local_mounts(
+                ContainerBinding(),
+                wheelhouse="/some/wheelhouse",
+                wheelhouse_mount=None,
+                uv_binary=None,
+            )
+        self.assertIn("wheelhouse_mount", str(ctx.exception))
+
+    def test_no_offline_inputs_leaves_binding_untouched(self) -> None:
+        from simple_agent_lab.evals.backends.docker_local import with_local_mounts
+        from simple_agent_lab.evals.protocols import ContainerBinding
+
+        binding = ContainerBinding(mounts={"/host/run": {"bind": "/agent/run", "mode": "rw"}})
+        self.assertIs(
+            with_local_mounts(
+                binding, wheelhouse=None, wheelhouse_mount="/agent/wheelhouse", uv_binary=None
+            ),
+            binding,
+        )
+
 
 class _FakeRemoteContainer:
     """Stand-in for a docker-py container: tar in (put), local FS, tar out (get)."""
@@ -695,14 +933,14 @@ class SwebenchSuiteDriverTest(unittest.TestCase):
             "repo": "acme/widget",
             "dockerhub_tag": "acme.widget-abc123",
         }
-        plan = suite.container_plan(instance)
-        self.assertEqual(plan.workdir, "/app")
-        self.assertEqual(plan.shell, ("/bin/sh", "-lc"))
-        self.assertEqual(plan.entrypoint, "")
-        self.assertIn("sweap-images", plan.image)
+        launch_spec = suite.launch_spec(instance)
+        self.assertEqual(launch_spec.workdir, "/app")
+        self.assertEqual(launch_spec.shell, ("/bin/sh", "-lc"))
+        self.assertEqual(launch_spec.entrypoint, "")
+        self.assertIn("sweap-images", launch_spec.image)
         # Pro images carry no test-spec caps (Verified ones come from the spec,
         # which needs the swebench harness installed — not asserted here).
-        self.assertEqual(plan.cap_add, ())
+        self.assertEqual(launch_spec.cap_add, ())
 
 
 class SafePartTest(unittest.TestCase):
@@ -726,7 +964,7 @@ class CreateKwargsTest(unittest.TestCase):
             suite_name="s",
             container_module="m",
             instance_id="i",
-            plan=ContainerPlan(
+            launch_spec=LaunchSpec(
                 image="img", workdir="/w", cap_add=("SYS_PTRACE",), entrypoint=""
             ),
             max_turns=3,
@@ -743,7 +981,7 @@ class CreateKwargsTest(unittest.TestCase):
         kwargs = _create_kwargs(spec, binding, user="root", environment={"X": "1"})
         self.assertEqual(kwargs["image"], "img")
         self.assertEqual(kwargs["name"], "run-1")
-        self.assertEqual(kwargs["cap_add"], ["SYS_PTRACE"])  # plan cap_add plumbed
+        self.assertEqual(kwargs["cap_add"], ["SYS_PTRACE"])  # launch_spec cap_add plumbed
         self.assertEqual(
             kwargs["volumes"], {"/host": {"bind": "/agent/run", "mode": "rw"}}
         )

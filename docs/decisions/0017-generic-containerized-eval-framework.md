@@ -2,7 +2,10 @@
 
 ## Status
 
-Proposed
+Accepted. The legacy launcher cutover is complete: `containerized_agent.py` and
+`in_container_runner.py` are deleted, the production run scripts drive
+`run_suite_instance` + the generic runner, and the reusable host helpers live in
+`evals/swebench/harness.py`.
 
 ## Context
 
@@ -99,8 +102,8 @@ Docker calls of its own.
 A containerized eval is fundamentally two programs. The split is made explicit:
 
 - **Host half** (`Suite`, runs where the orchestrator runs): resolve the image
-  and launch shape (`container_plan`), drop gold/private fields
-  (`sanitize_instance`), and shape the prediction record (`prediction_record`).
+  and launch shape (`launch_spec`), drop gold/private fields
+  (`task_input`), and shape the prediction record (`prediction_record`).
   Lives next to the suite's adapter under `evals/<suite>/`, where heavy host-only
   deps (docker, the official harness) stay out of the core package.
 - **Container half** (referenced by `Suite.container_module`, runs inside the
@@ -138,19 +141,22 @@ batteries-included store), and the SWE-bench container half runs through the
 generic runner with the fake provider on a hermetic git repo — so the "one Suite
 + two functions" shape is exercised, not just asserted.
 
-What remains is **retiring the legacy launcher**: pointing the production run
-scripts at `run_suite_instance` + the generic runner and deleting the
-`is_swebench_pro` branches from `containerized_agent.py` / `in_container_runner.py`.
-The patch helpers are already the single source of truth in the wheel
-(`evals/swebench/patch_extract.py` is now a re-export shim); the SWE-bench task
-text is briefly duplicated in the container half until the legacy runner is
-deleted. `evaluate_predictions.py` (scoring) stays untouched. An object-store
-`ArtifactStore` (S3/GCS) is left for a concrete cloud target; none ships today.
+The legacy launcher cutover is **done**: the production run scripts
+(`run_swebench_suite.sh`, `run_swebench_verified.sh`, `run_swebench_pro.sh`)
+drive `run_suite_instance` + the generic runner, `containerized_agent.py` and
+`in_container_runner.py` are deleted, and the reusable, suite-agnostic host
+helpers (image/launch resolution, wheelhouse, instance loading, env, prediction
+shaping) live in `evals/swebench/harness.py`. The patch helpers are the single
+source of truth in the wheel (`simple_agent_lab.evals.suites.swebench.patch`).
+`evaluate_predictions.py` (scoring) gained a `--collect-predictions` mode that
+shapes per-run `result.json` files into an official predictions JSONL. An
+object-store `ArtifactStore` (S3/GCS) is left for a concrete cloud target; none
+ships today.
 
 ## Consequences
 
 - A new Docker benchmark is "implement `Suite` + a container module," not "copy
-  `containerized_agent.py` and edit the branches."
+  a bespoke host launcher and edit the branches."
 - The cloud story has explicit seams along two orthogonal axes, chosen by which
   way connections open: worker→host reachable → `HostHttpStore` (worker-push, no
   middleware); only host→worker reachable (NAT, the common case) →
@@ -228,7 +234,7 @@ concurrent runs than the thread pool.
 
 k8s is compatible without changing `run_dataset`, the suites, or the stores: it
 is **one more `ContainerBackend`**. A `K8sBackend.run(spec, store, binding)`
-translates `spec` into a Job manifest (`image=spec.plan.image`,
+translates `spec` into a Job manifest (`image=spec.launch_spec.image`,
 `command=build_command(spec)`, env from `spec.provider_env` + `binding.env`),
 submits it, waits, and returns a `RunOutcome`. Everything above the backend seam
 is untouched.
@@ -258,10 +264,10 @@ all consumable by k8s).
 
 SWE-bench Verified and Pro are served today by one `SwebenchSuite` that selects
 per-variant launch shape and prediction format by `is_swebench_pro_instance(...)`
-(delegated to the legacy `containerized_agent` helpers). Because `Suite` is a
+(delegated to the shared `harness` helpers). Because `Suite` is a
 protocol, a family's variants *may* instead be **separate branch-free suite
 classes** — `SwebenchVerifiedSuite` / `SwebenchProSuite`, each owning its own
-`container_plan` and `prediction_record` with no `is_pro` flag, optionally
+`launch_spec` and `prediction_record` with no `is_pro` flag, optionally
 sharing the container half (`container_module`) and only diverging it if a
 variant's task text ever needs to. Selecting the variant becomes choosing the
 class, which is more in line with "variant is a type, not a runtime branch."

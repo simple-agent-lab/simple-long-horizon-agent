@@ -17,8 +17,11 @@ the run's `ArtifactStore`, so this backend never copies files itself.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
+from ..bootstrap import UV_CONTAINER_PATH
 from ..protocols import (
     ArtifactStore,
     ContainerBinding,
@@ -95,7 +98,7 @@ def start_container(
     Any failure there also triggers the remove-on-failure cleanup.
     """
 
-    _ensure_image(client, spec.plan.image, spec.plan.platform or None, pull)
+    _ensure_image(client, spec.launch_spec.image, spec.launch_spec.platform or None, pull)
     create_kwargs = _create_kwargs(spec, binding, user=user, environment=environment)
     container = client.containers.create(**create_kwargs)
     try:
@@ -117,6 +120,46 @@ def exit_status(state: Mapping[str, Any]) -> int:
     return int(raw_code) if isinstance(raw_code, int) else 1
 
 
+def with_local_mounts(
+    binding: ContainerBinding,
+    *,
+    wheelhouse: str | Path | None,
+    wheelhouse_mount: str | None,
+    uv_binary: str | Path | None,
+) -> ContainerBinding:
+    """Add read-only bind mounts for the offline wheelhouse and an optional uv.
+
+    `LocalDockerBackend` assumes a shared filesystem (the same assumption as
+    `LocalDirStore`'s bind mount), so the offline-install path is wired by
+    bind-mounting the host wheelhouse at the container's ``wheelhouse_mount`` —
+    the ``pip install --no-index --find-links`` directory the bootstrap uses.
+    A ``uv`` binary can be mounted at ``/tmp/uv`` (the bootstrap probes there
+    first) so images that ship neither ``uv`` nor a Python 3.11 can still build
+    the agent venv the wheels target. Both are read-only; the container never
+    writes back to them.
+    """
+
+    extra: dict[str, dict[str, str]] = {}
+    if wheelhouse:
+        if not wheelhouse_mount:
+            raise ValueError(
+                "LocalDockerBackend(wheelhouse=...) needs the run's "
+                "wheelhouse_mount (the in-container --find-links path) to be set"
+            )
+        extra[str(Path(wheelhouse).resolve())] = {
+            "bind": wheelhouse_mount,
+            "mode": "ro",
+        }
+    if uv_binary:
+        extra[str(Path(uv_binary).resolve())] = {
+            "bind": UV_CONTAINER_PATH,
+            "mode": "ro",
+        }
+    if not extra:
+        return binding
+    return replace(binding, mounts={**binding.mounts, **extra})
+
+
 class LocalDockerBackend:
     """Run a spec as a container on the local (or DOCKER_HOST) daemon.
 
@@ -124,6 +167,12 @@ class LocalDockerBackend:
     pull only when absent), ``"always"``, or ``"never"``. docker-py's ``create``
     does not auto-pull (unlike ``run``), so without this a missing image would
     raise ``ImageNotFound`` on first use.
+
+    `wheelhouse`: host directory of wheels for an offline install. When set it is
+    bind-mounted read-only at the run's ``wheelhouse_mount`` so the container's
+    bootstrap installs ``simple-agent-lab`` with ``--no-index --find-links`` (no
+    PyPI). `uv_binary`: host path to a Linux ``uv`` binary, bind-mounted at
+    ``/tmp/uv``, for images whose own Python predates the wheels' 3.11 target.
     """
 
     def __init__(
@@ -132,10 +181,14 @@ class LocalDockerBackend:
         user: str = "root",
         keep_container: bool = False,
         pull: str = "missing",
+        wheelhouse: str | Path | None = None,
+        uv_binary: str | Path | None = None,
     ) -> None:
         self.user = user
         self.keep_container = keep_container
         self.pull = pull
+        self.wheelhouse = wheelhouse
+        self.uv_binary = uv_binary
 
     def _client(self) -> Any:
         return _require_docker().from_env()
@@ -151,6 +204,12 @@ class LocalDockerBackend:
 
         del store  # the container reaches the store via `binding` (mounts/env)
         client = self._client()
+        binding = with_local_mounts(
+            binding,
+            wheelhouse=self.wheelhouse,
+            wheelhouse_mount=spec.wheelhouse_mount,
+            uv_binary=self.uv_binary,
+        )
         start_container(
             client,
             spec,
@@ -229,24 +288,24 @@ def _create_kwargs(
     user: str,
     environment: dict[str, str],
 ) -> dict[str, Any]:
-    """Assemble docker-py create() kwargs from a plan + binding (shared by backends)."""
+    """Assemble docker-py create() kwargs from a launch spec + binding (shared by backends)."""
 
     kwargs: dict[str, Any] = {
-        "image": spec.plan.image,
+        "image": spec.launch_spec.image,
         "name": spec.run_name,
         "user": user,
         "detach": True,
         "command": list(build_command(spec)),
         "environment": environment,
         "volumes": {k: dict(v) for k, v in binding.mounts.items()},
-        "cap_add": list(spec.plan.cap_add),
+        "cap_add": list(spec.launch_spec.cap_add),
     }
     if binding.add_hosts:
         kwargs["extra_hosts"] = dict(binding.add_hosts)
-    if spec.plan.entrypoint is not None:
-        kwargs["entrypoint"] = spec.plan.entrypoint
-    if spec.plan.platform:
-        kwargs["platform"] = spec.plan.platform
-    if spec.plan.network_mode:
-        kwargs["network_mode"] = spec.plan.network_mode
+    if spec.launch_spec.entrypoint is not None:
+        kwargs["entrypoint"] = spec.launch_spec.entrypoint
+    if spec.launch_spec.platform:
+        kwargs["platform"] = spec.launch_spec.platform
+    if spec.launch_spec.network_mode:
+        kwargs["network_mode"] = spec.launch_spec.network_mode
     return kwargs

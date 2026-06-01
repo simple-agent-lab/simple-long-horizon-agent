@@ -14,11 +14,11 @@ The first suite example is the local SWE-bench adapter smoke check:
 ```bash
 uv run python -m unittest \
   tests.unit.test_swebench_patch_extract \
-  tests.unit.test_swebench_containerized_agent \
+  tests.unit.test_swebench_harness \
   tests.unit.test_swebench_evaluate_predictions
 ```
 
-That script runs the focused patch extraction, containerized-agent, and
+That script runs the focused patch extraction, host-helper, and
 prediction-evaluation unit tests without installing SWE-bench or running
 Docker.
 
@@ -40,16 +40,18 @@ the container lifecycle, the Python/uv bootstrap, the run-directory convention,
 and the one artifact seam, so a new Docker benchmark only implements what is
 genuinely suite-specific:
 
-1. A **host half** — a `Suite` (3 methods + 2 attributes), under
-   `evals/<suite>/suite.py`:
+1. A **host half** — a `Suite` (3 methods + 2 attributes),
+   under `evals/<suite>/suite.py`:
 
-   - `container_plan(instance)` -> `ContainerPlan` (image, workdir, shell,
+   - `launch_spec(instance)` -> `LaunchSpec` (image, workdir, shell,
      entrypoint as *data* — no `if`-branching in the runner).
-   - `sanitize_instance(instance)` — drop gold/private fields before the agent
+   - `task_input(instance)` — drop gold/private fields before the agent
      sees the record.
-   - `prediction_record(instance, *, model_name, result)` — shape the
-     scorer-facing row from the container's result.
    - `name` and `container_module` (dotted path to the container half).
+   - `eval_inputs(instance)` -> `Mapping | None` — gold/private scoring inputs
+     staged for the container half's `evaluate` hook (under EVAL_KEY, never shown
+     to the agent), or `None` to score elsewhere. Staging gold is the toggle that
+     turns the in-environment `evaluate` hook on; see [Scoring](#scoring) below.
 
 2. A **container half** — a module exposing `build_task(instance, *, workdir)`
    and `extract_result(workspace, instance)` (the "product", e.g. a `git diff`).
@@ -88,13 +90,16 @@ run, just in this process — fast iteration and a debugger during development �
 then deploy containerized by swapping the backend. The execution environment is
 the only real difference: a container's workspace + toolchain come from the
 image; in-process you pass a local `workspace`. See
-`examples/agent_judge/demo.py` for a candidate → agent-judge pipeline built this
+`examples/bench_suite/demo.py` for a candidate → agent-judge pipeline built this
 way (plain Python over the shared store, no pipeline abstraction).
 
 Inputs, the result, and the live trajectory all flow through the one `store`:
-the host writes `input/instance.json`, the container writes `out/result.json`
-and re-`put`s `out/trajectory.jsonl` on a cadence (the live trace), and the host
-shapes `out/prediction.jsonl` from the result via `prediction_record`.
+the host writes `input/instance.json`, and the container writes `out/result.json`
+(the raw `extract_result` product) and re-`put`s `out/trajectory.jsonl` on a
+cadence (the live trace). `result.json` is the single decoupling artifact; when a
+suite scores in the run environment (the `evaluate` hook) its verdict is merged
+into the same `result.json`, otherwise scoring is a follow-up run or the official
+harness (see [Scoring](#scoring)).
 
 The same suite runs against a remote daemon by swapping `backend` / `store` —
 both are `Protocol`s, so the suite and runner do not change. `HostHttpStore`
@@ -151,7 +156,7 @@ art = run_suite_instance(
     run_id="dev",
     provider="fake",          # deterministic; no network. Use "openai" for a real model.
 )
-# art.run_dir / out/{result.json, trajectory.jsonl, prediction.jsonl}
+# art.run_dir / out/{result.json, trajectory.jsonl}  (result.json also carries the in-env verdict, if any)
 ```
 
 Then deploy by changing one argument — `backend=LocalDockerBackend()` (and, for
@@ -233,13 +238,57 @@ How re-entry works: `submit_dataset` writes a manifest of serializable
 container starts**, so a crash mid-submit still records every already-started
 container (no orphans) — and each container writes its own `result.json` as it
 finishes. `reconcile_dataset` reloads that manifest from the store (not from
-memory), polls each handle, and shapes `prediction.jsonl` from each
-`result.json`. It tolerates a daemon that no longer reports a container (already
-collected, or polled by another process): a `result.json` on disk is taken as
-the terminal truth, so reconcile never deadlocks and is safe to run repeatedly /
-from a different machine. This is the eval-side of the "submit + poll" lifecycle
-distributed frameworks use; only detaching backends provide `submit`/`poll`
-(`LocalProcessBackend` cannot outlive the host and is run-only).
+memory) and polls each handle; a run is done when its `result.json` exists.
+It tolerates a daemon that no longer reports a container (already collected, or
+polled by another process): a `result.json` on disk is taken as the terminal
+truth, so reconcile never deadlocks and is safe to run repeatedly / from a
+different machine. Scoring is the `evaluate` hook or a follow-up run (below). This is the eval-side of
+the "submit + poll" lifecycle distributed frameworks use; only detaching backends
+provide `submit`/`poll` (`LocalProcessBackend` cannot outlive the host and is
+run-only).
+
+### Scoring
+
+There is no separate scoring driver: scoring is expressed through the run
+primitive (ADR 0020). A run produces `out/result.json`, and scoring takes one of
+three shapes depending on where it belongs:
+
+- **In the run environment — the `evaluate` hook.** The container half exposes an
+  optional `evaluate(workspace, instance, *, context)`; when the suite stages gold
+  via `eval_inputs` (threaded in as `context["eval"]`), the generic runner calls
+  it and merges its verdict into the same `result.json`. This rides on
+  `run_suite_instance`, so it reuses the run's retry / `submit`-`reconcile` /
+  backend portability and runs wherever the run ran (in-process or in-container).
+  No second phase — the verdict lives next to the product.
+
+  ```python
+  from simple_agent_lab.evals import run_dataset, LocalDirStore
+
+  report = run_dataset(suite=suite, instances=dataset, ...)  # verdict already in result.json
+  store = LocalDirStore(run_root)
+  for r in report.results:
+      result = json.loads(store.bind(r.artifacts.run_dir).get("out/result.json"))
+      ...  # read result["passed"] / result["score"]; aggregate in plain Python
+  ```
+
+- **Score elsewhere — a follow-up run.** An agent judge (or rubric judge) is just
+  another `Suite` run, wired to the candidate's `result.json` through the shared
+  store. Same primitive, no bespoke scoring API. See
+  `examples/bench_suite/demo.py`.
+
+- **Official-harness parity — a standalone CLI.** SWE-bench's authoritative
+  scorer is the official harness, run verbatim by `evals/swebench/evaluate_predictions.py`
+  (it is not a framework seam). For the in-environment path, the host turns the
+  captured official eval log into a verdict row with
+  `evaluate_predictions.reuse_eval_row` (the `swebench` grader + gold test spec
+  live host-side). Both route through the same `eval_result_from_official`
+  mapping, so rows are interchangeable and the parity gate
+  (`evaluate_predictions.py --verify-parity` / `parity_mismatches`) cross-checks
+  the in-environment verdict against the official harness.
+
+For SWE-bench, enable in-environment scoring with
+`SwebenchSuite(in_env_scoring=True)` (stages the official eval script as
+`eval_inputs`); the default scores separately with `evaluate_predictions.py`.
 
 ### Live trace + the trace viewer
 
@@ -286,8 +335,8 @@ Because every run reads/writes through one `ArtifactStore`, a run is a node and
 the store is the bus — so a multi-stage flow is just plain Python: run a
 candidate, read its `result.json` / `trajectory.jsonl` from the store, feed them
 as the instance of a second (judge) run. No pipeline abstraction. See
-`examples/agent_judge/demo.py` for a candidate → agent-judge example that runs
-two real agent loops in-process (`uv run python -m examples.agent_judge.demo`).
+`examples/bench_suite/demo.py` for a candidate → agent-judge example that runs
+two real agent loops in-process (`uv run python -m examples.bench_suite.demo`).
 
 Evals should help answer:
 

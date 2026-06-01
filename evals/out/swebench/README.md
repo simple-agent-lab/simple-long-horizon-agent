@@ -23,7 +23,7 @@ evals/out/swebench/
 
 ```bash
 # Quick smoke run on a single instance
-bash runs/run_swebench_container.sh sympy__sympy-23824
+bash runs/run_swebench_suite.sh sympy__sympy-23824
 
 # Batch runs
 bash runs/run_swebench_verified.sh --all --parallel 4

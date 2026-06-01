@@ -7,7 +7,7 @@ fast iteration, a debugger, no image build. Switch to `LocalDockerBackend()` (or
 a remote backend) with no other code change to run it containerized.
 
 The genuine difference is the execution environment, not the code: a container
-gets its workspace + toolchain from the image (`plan.workdir`, e.g. `/testbed`);
+gets its workspace + toolchain from the image (`launch_spec.workdir`, e.g. `/testbed`);
 in-process you supply a local `workspace` directory. Heavy suites (SWE-bench)
 still need their image; light suites and judges run in-process directly.
 """
@@ -83,8 +83,13 @@ class LocalProcessBackend:
         )  # in-process uses the bound store object directly, no env round-trip
 
         instance = json.loads(store.get(INSTANCE_KEY).decode("utf-8"))
-        provider = provider_from_env(
-            kind=spec.provider, api_kind=spec.api_kind, env=spec.provider_env
+        oracle = spec.provider == "oracle"
+        provider = (
+            None
+            if oracle
+            else provider_from_env(
+                kind=spec.provider, api_kind=spec.api_kind, env=spec.provider_env
+            )
         )
         workdir = self._resolve_workspace(spec)
         request_extra = (
@@ -104,6 +109,7 @@ class LocalProcessBackend:
                 producer=f"suite:{spec.suite_name}",
                 suite_name=spec.suite_name,
                 request_extra=request_extra,
+                oracle=oracle,
             )
         except Exception as exc:  # surface as a nonzero status, like a container
             return RunOutcome(status_code=1, logs=f"{type(exc).__name__}: {exc}")

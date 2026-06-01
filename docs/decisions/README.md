@@ -23,10 +23,13 @@ Use [0000-template.md](0000-template.md) for new records. Number accepted decisi
 - [ADR 0014: Tool Results Are Content Blocks, Not a Separate Message Role](0014-tool-result-as-content-block.md)
 - [ADR 0015: Three-Layer Trace Architecture — Event, Span, Training](0015-three-layer-trace-event-span-training.md)
 - [ADR 0016: Eval Output Directory Convention](0016-eval-output-directory-convention.md)
+- [ADR 0020: Collapse the Scorer Seam into the Run Primitive](0020-collapse-scorer-seam-into-run-primitive.md) — amends ADR 0019 and ADR 0017, builds on ADR 0018
 
 ## Proposed
 
 - [ADR 0017: Generic Containerized Eval Framework](0017-generic-containerized-eval-framework.md) — supersedes ADR 0011 for containerized suites
+- [ADR 0018: Oracle Run Mode for Suite Self-Check](0018-oracle-run-mode-for-suite-self-check.md) — builds on ADR 0017
+- [ADR 0019: Scorer Seam and Per-Suite Scoring Topology](0019-scorer-seam-and-scoring-topology.md) — amends ADR 0017, builds on ADR 0018, amended by ADR 0020
 
 ## Withdrawn
 
