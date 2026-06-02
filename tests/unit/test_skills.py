@@ -1,0 +1,112 @@
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+
+from simple_agent_lab.skills.discovery import (
+    BUNDLED_LIBRARY_DIR,
+    SkillMetadata,
+    SkillRoot,
+    default_skill_roots,
+    discover_skills,
+    load_skill_from_file,
+    parse_frontmatter,
+)
+
+
+def _write_skill(root: Path, name: str, description: str = "does a thing") -> Path:
+    skill_dir = root / name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    body = (
+        f"---\nname: {name}\ndescription: {description}\n---\n"
+        f"# {name}\nDo the {name} workflow.\n"
+    )
+    (skill_dir / "SKILL.md").write_text(body, encoding="utf-8")
+    return skill_dir / "SKILL.md"
+
+
+class DiscoveryTest(unittest.TestCase):
+    def test_parse_frontmatter_reads_name_and_description(self) -> None:
+        fm, body = parse_frontmatter(
+            "---\nname: pdf-tools\ndescription: rotate PDFs\n---\nbody here\n"
+        )
+        self.assertEqual(fm["name"], "pdf-tools")
+        self.assertEqual(fm["description"], "rotate PDFs")
+        self.assertEqual(body, "body here\n")
+
+    def test_parse_frontmatter_without_frontmatter_returns_empty(self) -> None:
+        fm, body = parse_frontmatter("no frontmatter here")
+        self.assertEqual(fm, {})
+        self.assertEqual(body, "no frontmatter here")
+
+    def test_load_skill_skips_missing_description(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "x" / "SKILL.md"
+            path.parent.mkdir(parents=True)
+            path.write_text("---\nname: x\n---\nbody\n", encoding="utf-8")
+            self.assertIsNone(load_skill_from_file(str(path), "repo"))
+
+    def test_load_skill_returns_metadata_with_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            md = _write_skill(Path(tmp), "alpha")
+            skill = load_skill_from_file(str(md), "repo")
+        assert skill is not None
+        self.assertEqual(skill.name, "alpha")
+        self.assertEqual(skill.scope, "repo")
+        self.assertTrue(skill.path_to_skill_md.endswith("alpha/SKILL.md"))
+        self.assertTrue(skill.base_dir.endswith("alpha"))
+
+    def test_read_body_loads_lazily(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            md = _write_skill(Path(tmp), "beta")
+            skill = load_skill_from_file(str(md), "repo")
+            assert skill is not None
+            self.assertIn("beta workflow", skill.read_body())
+
+    def test_discover_finds_skills_under_roots(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "skills"
+            _write_skill(root, "one")
+            _write_skill(root, "two")
+            skills = discover_skills([SkillRoot(str(root), "repo")])
+        self.assertEqual(sorted(s.name for s in skills), ["one", "two"])
+
+    def test_discover_dedups_and_resolves_collisions_by_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp) / "repo"
+            user_root = Path(tmp) / "user"
+            _write_skill(repo_root, "dup", description="repo version")
+            _write_skill(user_root, "dup", description="user version")
+            skills = discover_skills(
+                [SkillRoot(str(user_root), "user"), SkillRoot(str(repo_root), "repo")]
+            )
+        self.assertEqual(len(skills), 1)
+        # repo outranks user, so the repo description wins.
+        self.assertEqual(skills[0].description, "repo version")
+
+    def test_default_roots_include_bundled_library_first(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            roots = default_skill_roots(tmp, home=tmp)
+        self.assertEqual(roots[0].path, BUNDLED_LIBRARY_DIR)
+        self.assertEqual(roots[0].scope, "bundled")
+        scopes = {r.scope for r in roots}
+        self.assertEqual(scopes, {"bundled", "repo", "user"})
+
+    def test_default_roots_walk_up_to_git_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / ".git").mkdir()
+            nested = base / "a" / "b"
+            nested.mkdir(parents=True)
+            roots = default_skill_roots(str(nested), home=tmp)
+        repo_paths = [r.path for r in roots if r.scope == "repo"]
+        # Walks up from nested through the git root, then stops.
+        self.assertTrue(any(p.endswith("a/b/.agents/skills") for p in repo_paths))
+        self.assertTrue(
+            any(p.endswith(str(base / ".agents/skills")) for p in repo_paths)
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()
