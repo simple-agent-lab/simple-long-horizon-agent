@@ -1,7 +1,7 @@
 """The visible edge that wires skills into a run.
 
 ``run_with_skills`` is the skills analogue of ``Agent.run``: it builds the
-``State``, records the menu and any ``$mention`` skill bodies *before* the
+``State``, records the menu and any ``/mention`` skill bodies *before* the
 task (so they are present at the first sample), seeds the task, and drives the
 existing ``core.run`` loop. Recording up front — rather than mutating context
 mid-flight — keeps every message the model sees visible in ``state.events``,
@@ -97,7 +97,7 @@ def run_with_skills(
     Pass a filtered ``skills=`` list (and/or ``preload`` of names) to scope
     skills per agent — there are no per-agent directories. ``preload`` names
     have their full bodies injected up front (like Claude Code's subagent
-    ``skills:`` field), in addition to any ``$mention`` in the task. A
+    ``skills:`` field), in addition to any ``/mention`` in the task. A
     ``/no-skills`` directive disables the whole layer for this run. ``agent`` is
     expected to already carry a ``read`` tool (to load skill content) and a
     ``bash`` tool (to run skill scripts).

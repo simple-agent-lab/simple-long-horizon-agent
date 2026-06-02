@@ -173,21 +173,30 @@ class DirectivesTest(unittest.TestCase):
         self.assertEqual(d.cleaned_task, "do the thing please")
 
     def test_mention_resolves_known_skill(self) -> None:
-        d = parse_skill_directives("use $alpha to do it", {"alpha", "beta"})
+        d = parse_skill_directives("use /alpha to do it", {"alpha", "beta"})
         self.assertEqual(d.mentions, ("alpha",))
-        # The $mention stays in the task text (the model sees it, per Codex).
-        self.assertIn("$alpha", d.cleaned_task)
+        # The /mention stays in the task text (the model sees it too).
+        self.assertIn("/alpha", d.cleaned_task)
 
     def test_unknown_mention_ignored(self) -> None:
-        d = parse_skill_directives("use $nope", {"alpha"})
+        d = parse_skill_directives("use /nope", {"alpha"})
         self.assertEqual(d.mentions, ())
 
-    def test_env_var_lookalike_ignored(self) -> None:
-        d = parse_skill_directives("echo $PATH and $HOME", {"alpha"})
+    def test_path_lookalike_ignored(self) -> None:
+        # A real filesystem path is not a skill mention: inner segments are not
+        # at a token boundary, and the first segment is not a known skill.
+        d = parse_skill_directives("edit /usr/bin/python now", {"alpha"})
+        self.assertEqual(d.mentions, ())
+
+    def test_no_skills_token_is_not_a_mention(self) -> None:
+        # `/no-skills` is reserved: even if a skill were named "no-skills" the
+        # control directive wins (and it disables skills anyway).
+        d = parse_skill_directives("/no-skills do it", {"no-skills"})
+        self.assertFalse(d.skills_enabled)
         self.assertEqual(d.mentions, ())
 
     def test_duplicate_mentions_collapse(self) -> None:
-        d = parse_skill_directives("$alpha then $alpha again", {"alpha"})
+        d = parse_skill_directives("/alpha then /alpha again", {"alpha"})
         self.assertEqual(d.mentions, ("alpha",))
 
     def test_returns_skill_directives_type(self) -> None:
@@ -244,7 +253,7 @@ class RunWithSkillsTest(unittest.TestCase):
         agent = make_bash_agent(provider=FAKE_PROVIDER, cwd=str(FIXTURES))
         state, events = run_with_skills(
             agent,
-            "use $echo-fixture to echo hello",
+            "use /echo-fixture to echo hello",
             roots=self._fixture_roots(),
             max_turns=3,
         )

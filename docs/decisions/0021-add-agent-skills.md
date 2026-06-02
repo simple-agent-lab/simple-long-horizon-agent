@@ -30,12 +30,12 @@ We needed a shape that fits Simple Agent Lab's small, inspectable runtime
 2. **Skills live at a visible edge, not in core.** For interactive/CLI use,
    `run_with_skills` (`src/simple_agent_lab/skills/runtime.py`) builds the
    `State`, records the `<skills_instructions>` menu (a system message) and any
-   `$mention` / `preload` bodies (context messages) before the task, then calls
+   `/mention` / `preload` bodies (context messages) before the task, then calls
    the unchanged `core.run`. This mirrors how `task_tool` injects context.
 
 3. **On by default, `/no-skills` to disable.** Discovery + menu + injection run
    automatically. The only "/" surface is a directive parser handling
-   `/no-skills` (disable) and `$name` (explicit mention) — not a general
+   `/no-skills` (disable) and `/name` (explicit mention) — not a general
    slash-command framework.
 
 4. **Bundled library ships empty.** A `skills/library/` directory ships in the
