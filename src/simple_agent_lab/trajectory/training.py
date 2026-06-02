@@ -62,7 +62,7 @@ def model_turns_from_events(
         if isinstance(event, ModelRequestEvent):
             model_call_index += 1
             pending = _PendingTurn(
-                agent=str(event.agent or ""),
+                agent=event.agent,
                 input_messages=event.llm_payload,
                 tools=event.tools,
                 request_event_index=event.index,
@@ -76,13 +76,12 @@ def model_turns_from_events(
         message = event.message
         if message.role != "assistant":
             continue
-        agent = pending.agent or message.sender
-        if message.sender != agent:
+        if message.sender != pending.agent:
             continue
         turns.append(
             ModelTurn(
                 step_id=f"{trace_id}.model{model_call_index}",
-                agent=agent,
+                agent=pending.agent,
                 input_messages=json_safe(pending.input_messages),
                 output_message=json_safe(message),
                 tools=json_safe(pending.tools),

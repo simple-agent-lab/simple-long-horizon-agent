@@ -61,7 +61,7 @@ class AgentStartEvent(_BaseEvent):
 
 # Why an agent's run loop stopped. Closed set so static checkers catch
 # typos and consumers can match exhaustively (same rationale as
-# `MessageKind` / `StopReason`); the loop in `core.run_agent` is the sole
+# `MessageKind` / `StopReason`); the loop in `core.run` is the sole
 # producer.
 #   "done"           — the agent emitted a `kind="final"` message
 #   "max_turns"      — the turn budget ran out before a final message

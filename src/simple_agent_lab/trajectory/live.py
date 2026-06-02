@@ -350,16 +350,9 @@ def run_agent_with_live_trace(
     finally:
         session.stop(final_flush=False)
     if build_final_record is not None:
-        record = build_final_record(state)
+        write_jsonl_atomic(trace_path, [build_final_record(state)])
     else:
-        trace = run_trace_from_state(
-            state=state,
-            trace_id=trace_meta.trace_id,
-            producer=trace_meta.producer,
-            meta=_resolve_meta(meta_fn),
-        )
-        record = trace_record(trace)
-    write_jsonl_atomic(trace_path, [record])
+        write_canonical_trace(trace_path, state=state, trace_meta=trace_meta)
     return state, collected
 
 

@@ -283,15 +283,11 @@ class AssistantMessage:
 
     @property
     def thinking(self) -> tuple[ThinkingBlock, ...]:
-        return tuple(
-            block for block in self.content if isinstance(block, ThinkingBlock)
-        )
+        return thinking_blocks_of(self.content)
 
     @property
     def tool_calls(self) -> tuple[ToolCallBlock, ...]:
-        return tuple(
-            block for block in self.content if isinstance(block, ToolCallBlock)
-        )
+        return tool_calls_of(self.content)
 
 
 Message: TypeAlias = UserMessage | SystemMessage | AssistantMessage

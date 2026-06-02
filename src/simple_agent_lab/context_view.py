@@ -26,6 +26,7 @@ from .messages import (
     AssistantMessage,
     ImageBlock,
     Message,
+    MessageContent,
     MessageKind,
     TextBlock,
     TokenUsage,
@@ -278,18 +279,14 @@ def effective_token_budget(
     return max(0, context_window - output_reserve - safety_buffer)
 
 
-def _content_chars(content: object) -> int:
-    if isinstance(content, str):
-        return len(content)
-    if isinstance(content, tuple):
-        total = 0
-        for block in content:
-            if isinstance(block, TextBlock):
-                total += len(block.text)
-            elif isinstance(block, ImageBlock):
-                total += IMAGE_CHAR_ESTIMATE
-        return total
-    return len(str(content))
+def _content_chars(content: MessageContent) -> int:
+    total = 0
+    for block in content:
+        if isinstance(block, TextBlock):
+            total += len(block.text)
+        elif isinstance(block, ImageBlock):
+            total += IMAGE_CHAR_ESTIMATE
+    return total
 
 
 def _has_usage(usage: TokenUsage | None) -> bool:

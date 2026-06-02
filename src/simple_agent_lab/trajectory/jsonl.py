@@ -12,7 +12,7 @@ import os
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 
 def json_safe(value: Any) -> Any:
@@ -62,20 +62,29 @@ def _skip_whitespace(text: str, idx: int, length: int) -> int:
     return idx
 
 
+def _dump_records(f: TextIO, records: Iterable[Mapping[str, Any]]) -> None:
+    """Write each record as pretty-printed JSON followed by a newline.
+
+    The single source of truth for the on-disk shape shared by
+    :func:`write_jsonl` and :func:`write_jsonl_atomic`.
+    """
+    for record in records:
+        f.write(
+            json.dumps(
+                json_safe(record),
+                ensure_ascii=False,
+                sort_keys=True,
+                indent=2,
+            )
+        )
+        f.write("\n")
+
+
 def write_jsonl(path: str | Path, records: Iterable[Mapping[str, Any]]) -> None:
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w", encoding="utf-8") as f:
-        for record in records:
-            f.write(
-                json.dumps(
-                    json_safe(record),
-                    ensure_ascii=False,
-                    sort_keys=True,
-                    indent=2,
-                )
-            )
-            f.write("\n")
+        _dump_records(f, records)
 
 
 def write_jsonl_atomic(
@@ -95,16 +104,7 @@ def write_jsonl_atomic(
     tmp = out.with_name(f"{out.name}.part")
     try:
         with tmp.open("w", encoding="utf-8") as f:
-            for record in records:
-                f.write(
-                    json.dumps(
-                        json_safe(record),
-                        ensure_ascii=False,
-                        sort_keys=True,
-                        indent=2,
-                    )
-                )
-                f.write("\n")
+            _dump_records(f, records)
             f.flush()
             try:
                 os.fsync(f.fileno())
