@@ -34,11 +34,11 @@
 - ✅ 4.2 恢复外部状态两类思路：**A 事先存快照**（docker commit/git commit/btrfs/tar 每步存）vs **B 事后重建**（啥都不存，从 baseline 重放记录的工具调用）
 - ✅ 4.3 「每步 git commit」属 A 的一种，硬伤不是「难看」而是：SWE-bench 用 `git diff baseline` 抽 model_patch，狂打 commit **污染/搅乱这个抽取**，把「调试机制」和「被测产物」混在一起
 
-## 阶段 5：replay-to-rebuild（B 方案）
-- ⬜ 5.1 recorded_tool_calls / replay_side_effects
-- ⬜ 5.2 为什么串行重放、为什么忽略 execution_mode
-- ⬜ 5.3 on_fork 钩子：为什么让 resume 保持「中立」
-- ⬜ 5.4 确定性的坑（时钟/随机/网络）
+## 阶段 5：replay-to-rebuild（B 方案）✅
+- ✅ 5.1 recorded_tool_calls（从消息拍平工具调用）/ replay_side_effects（重新执行它们，只为副作用）
+- ✅ 5.2 **串行 + 按记录顺序 + 无视 execution_mode**：因副作用常有依赖（cd→写、checkout→改），串行重放最安全；并行会引入竞态。（execution_mode 字面上 trace 没存，但 tools 传进来读得到，是刻意忽略）
+- ✅ 5.3 on_fork 钩子让 resume **中立**：分离关注点，resume 是通用重放引擎不懂 docker/git；倒回策略由调用者插（纯内存/rebuild/git reset 同一个 resume）
+- ✅ 5.4 确定性极限：**保顺序，不保内容**。命令读 $RANDOM/时钟/网络 → 重跑结果不同，重建非逐字节复刻。调试够用；严格复现需固定时钟/env/录制响应
 
 ## 阶段 6：eval 侧胶水 + 反序列化基石
 - ⬜ 6.1 trace_record 原来是单向的，需要 state_from_trace_record
