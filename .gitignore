@@ -38,6 +38,10 @@ docs/reference-architectures/*
 !docs/reference-architectures/README.md
 !docs/reference-architectures/template.md
 
+# Superpowers process artifacts (implementation plans, brainstorms) — local
+# scratch only. The durable commitment lands in an ADR under docs/decisions/.
+docs/superpowers/
+
 # uv
 # (commit uv.lock; ignore the local cache only)
 
