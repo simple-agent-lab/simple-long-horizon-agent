@@ -174,7 +174,7 @@ def provider_from_env(
             if api_kind == "openai-responses"
             else None
         ),
-        default_temperature=0.0,
+        default_temperature=1.0,
     )
 
 
