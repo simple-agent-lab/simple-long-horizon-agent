@@ -26,6 +26,11 @@ from .jsonl import (
     write_jsonl,
     write_jsonl_atomic,
 )
+from .load import (
+    event_from_dict,
+    message_from_dict,
+    state_from_trace_record,
+)
 from .live import (
     LIVE_TRACE_PATH_ENV,
     IncrementalTraceWriter,
@@ -65,8 +70,11 @@ __all__ = [
     "Span",
     "TraceMeta",
     "default_stderr_flush_error",
+    "event_from_dict",
     "event_record",
     "json_safe",
+    "message_from_dict",
+    "state_from_trace_record",
     "live_trace_path_from_env",
     "merge_sub_agent_spans",
     "model_turns_from_events",

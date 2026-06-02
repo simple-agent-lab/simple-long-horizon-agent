@@ -15,6 +15,7 @@ from .replay import (
     recorded_tool_calls,
     replay_side_effects,
     resume,
+    resume_from_trace_record,
 )
 from .state import State
 from .llm_agent import make_llm_agent
@@ -155,6 +156,7 @@ __all__ = [
     "recorded_tool_calls",
     "replay_side_effects",
     "resume",
+    "resume_from_trace_record",
     "ModelTurn",
     "RunTrace",
     "Span",

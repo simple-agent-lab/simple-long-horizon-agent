@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 
 from simple_agent_lab import (
@@ -220,6 +221,35 @@ class ReplaySideEffectsTest(unittest.TestCase):
 
         self.assertEqual(seen_lengths, [3])  # task + step + tool-result
         self.assertEqual(fs, {"a"})
+
+    def test_resume_from_trace_record_rebuilds_from_disk(self) -> None:
+        from simple_agent_lab import resume_from_trace_record
+        from simple_agent_lab.trajectory import run_trace_from_state, trace_record
+
+        state, fs, tool = self._run_with_two_touches()
+        # A persisted trace, round-tripped through JSON like a real jsonl line.
+        record = json.loads(
+            json.dumps(
+                trace_record(
+                    run_trace_from_state(state=state, trace_id="t", producer="p")
+                )
+            )
+        )
+
+        # Fresh environment: nothing exists, no in-memory State retained.
+        fs.clear()
+        replay_agent = Agent("writer", _ToolThenFinalAgent([]), tools=(tool,))
+        forked, events = resume_from_trace_record(
+            replay_agent,
+            record,
+            4,
+            on_fork=lambda s: replay_side_effects(s.messages, [tool]),
+        )
+        _drain(events)
+
+        self.assertEqual(fs, {"a", "b"})  # rebuilt from the recorded calls
+        final = next(m for m in reversed(forked.messages) if m.kind == "final")
+        self.assertEqual(message_text(final), "done")
 
 
 if __name__ == "__main__":

@@ -388,6 +388,7 @@ class CoreTest(unittest.TestCase):
             "recorded_tool_calls",
             "replay_side_effects",
             "resume",
+            "resume_from_trace_record",
             "run",
             "run_trace_from_state",
             "spans_from_events",

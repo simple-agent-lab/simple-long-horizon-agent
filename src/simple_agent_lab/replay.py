@@ -145,6 +145,39 @@ def replay_side_effects(
     ]
 
 
+def resume_from_trace_record(
+    agent: Agent,
+    record: dict,
+    message_index: int,
+    *,
+    max_turns: int = 10,
+    abort: AbortFlag = lambda: False,
+    replace_tail: Message | None = None,
+    on_fork: Callable[[State], None] | None = None,
+) -> tuple[State, Iterator[Event]]:
+    """Rebuild a `State` from a persisted trace `record`, then `resume`.
+
+    `record` is a `trace_record` dict (one line of a ``trajectory.jsonl``);
+    this deserializes it via `state_from_trace_record` and forwards to
+    `resume`, so a run can be replayed from disk without keeping the original
+    in-memory `State`. See `resume` for the keyword arguments.
+    """
+    # Imported lazily so the core replay surface does not depend on the
+    # trajectory (serialization) package.
+    from .trajectory.load import state_from_trace_record
+
+    state = state_from_trace_record(record)
+    return resume(
+        agent,
+        state,
+        message_index,
+        max_turns=max_turns,
+        abort=abort,
+        replace_tail=replace_tail,
+        on_fork=on_fork,
+    )
+
+
 def resume(
     agent: Agent,
     state: State,
