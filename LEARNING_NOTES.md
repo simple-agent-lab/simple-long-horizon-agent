@@ -29,10 +29,10 @@
   - **fork 选在 task/tool_result 边界**：因为 run() 下一步是 generate()（轮到模型），无缝接上；run() 没脑子不回头检查（软约定，责任在调用者）。选错点：fake provider 静默跳语义；真实 API 会因「tool_use 没跟 tool_result」400 拒绝
   - **原 State 永不改动**（新建+dataclasses.replace 拷贝事件）：好处=能从同一点反复 fork 出独立分支，A/B 对比互不污染
 
-## 阶段 4：容器副作用问题
-- ⬜ 4.1 为什么内存 fork 不够：文件系统不会被倒回
-- ⬜ 4.2 恢复外部状态的两类思路：快照 vs 重建
-- ⬜ 4.3 为什么「每步 git commit」不行（污染 testbed 历史 → 影响 SWE-bench 的 git diff 抽 patch）
+## 阶段 4：容器副作用问题 ✅
+- ✅ 4.1 内存 fork 倒回了「对话」，但**文件系统没倒回**（fork 回第4条，/testbed 里的文件还停在旧状态）→ 困难分支的根
+- ✅ 4.2 恢复外部状态两类思路：**A 事先存快照**（docker commit/git commit/btrfs/tar 每步存）vs **B 事后重建**（啥都不存，从 baseline 重放记录的工具调用）
+- ✅ 4.3 「每步 git commit」属 A 的一种，硬伤不是「难看」而是：SWE-bench 用 `git diff baseline` 抽 model_patch，狂打 commit **污染/搅乱这个抽取**，把「调试机制」和「被测产物」混在一起
 
 ## 阶段 5：replay-to-rebuild（B 方案）
 - ⬜ 5.1 recorded_tool_calls / replay_side_effects
