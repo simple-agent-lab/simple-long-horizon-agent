@@ -22,10 +22,12 @@
 - ✅ 2.4 => fork = 切一段 events + 新建 State，几乎免费
 - ✅ 关键坑（=1.4/3.1）：events≠messages。事件流里混着 turn/model_request/tool_execution 等记账事件；24 事件可能只有 6 条消息。**消息号必须经 message_event_indices 翻译成事件下标**，不能 events[:N]。fork(state,k)=events[:translate(k)+1]
 
-## 阶段 3：内存版 replay 方案
-- ⬜ 3.1 fork_at_message / resume / message_event_indices
-- ⬜ 3.2 edit-and-continue（replace_tail）
-- ⬜ 3.3 设计决策：以 message 为「位置」、在 user/tool-result 边界 fork、原 State 不可变、resume 开头有新的 AgentStartEvent
+## 阶段 3：内存版 replay 方案 ✅
+- ✅ 3.1 fork_at_message / resume / message_event_indices（消息号→事件下标翻译，见阶段2）
+- ✅ 3.2 edit-and-continue（replace_tail）：切到第 i 条并**替换**它再续跑 → 改一处看后果（改 tool_result / 改模型上轮输出）
+- ✅ 3.3 设计决策：
+  - **fork 选在 task/tool_result 边界**：因为 run() 下一步是 generate()（轮到模型），无缝接上；run() 没脑子不回头检查（软约定，责任在调用者）。选错点：fake provider 静默跳语义；真实 API 会因「tool_use 没跟 tool_result」400 拒绝
+  - **原 State 永不改动**（新建+dataclasses.replace 拷贝事件）：好处=能从同一点反复 fork 出独立分支，A/B 对比互不污染
 
 ## 阶段 4：容器副作用问题
 - ⬜ 4.1 为什么内存 fork 不够：文件系统不会被倒回
