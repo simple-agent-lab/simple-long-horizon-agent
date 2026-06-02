@@ -149,5 +149,50 @@ class PromptMenuTest(unittest.TestCase):
         self.assertIsNone(skills_menu_message([], target="agent"))
 
 
+from simple_agent_lab.skills.directives import (  # noqa: E402
+    SkillDirectives,
+    parse_skill_directives,
+)
+
+
+class DirectivesTest(unittest.TestCase):
+    def test_plain_task_keeps_skills_enabled(self) -> None:
+        d = parse_skill_directives("fix the bug in parser.py", {"alpha"})
+        self.assertTrue(d.skills_enabled)
+        self.assertEqual(d.mentions, ())
+        self.assertEqual(d.cleaned_task, "fix the bug in parser.py")
+
+    def test_no_skills_directive_disables_and_is_stripped(self) -> None:
+        d = parse_skill_directives("/no-skills just answer directly", set())
+        self.assertFalse(d.skills_enabled)
+        self.assertEqual(d.cleaned_task, "just answer directly")
+
+    def test_no_skills_directive_mid_text(self) -> None:
+        d = parse_skill_directives("do the thing /no-skills please", set())
+        self.assertFalse(d.skills_enabled)
+        self.assertEqual(d.cleaned_task, "do the thing please")
+
+    def test_mention_resolves_known_skill(self) -> None:
+        d = parse_skill_directives("use $alpha to do it", {"alpha", "beta"})
+        self.assertEqual(d.mentions, ("alpha",))
+        # The $mention stays in the task text (the model sees it, per Codex).
+        self.assertIn("$alpha", d.cleaned_task)
+
+    def test_unknown_mention_ignored(self) -> None:
+        d = parse_skill_directives("use $nope", {"alpha"})
+        self.assertEqual(d.mentions, ())
+
+    def test_env_var_lookalike_ignored(self) -> None:
+        d = parse_skill_directives("echo $PATH and $HOME", {"alpha"})
+        self.assertEqual(d.mentions, ())
+
+    def test_duplicate_mentions_collapse(self) -> None:
+        d = parse_skill_directives("$alpha then $alpha again", {"alpha"})
+        self.assertEqual(d.mentions, ("alpha",))
+
+    def test_returns_skill_directives_type(self) -> None:
+        self.assertIsInstance(parse_skill_directives("x", set()), SkillDirectives)
+
+
 if __name__ == "__main__":
     unittest.main()
