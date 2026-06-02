@@ -321,5 +321,58 @@ class PackagingTest(unittest.TestCase):
         self.assertTrue((Path(BUNDLED_LIBRARY_DIR) / "README.md").is_file())
 
 
+import sys  # noqa: E402
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+class SwebenchFlavorTest(unittest.TestCase):
+    def setUp(self) -> None:
+        if str(REPO_ROOT) not in sys.path:
+            sys.path.insert(0, str(REPO_ROOT))
+
+    def test_bash_skills_in_flavor_choices(self) -> None:
+        from evals.swebench import harness
+
+        self.assertIn("bash_skills", harness.AGENT_FLAVOR_CHOICES)
+
+    def test_build_bash_skills_agent_has_read_and_bash_tools(self) -> None:
+        from simple_agent_lab.evals.in_container import build_agent
+        from simple_agent_lab.evals.protocols import AgentSpec
+
+        agent = build_agent(
+            spec=AgentSpec(name="x", flavor="bash_skills"),
+            provider=FAKE_PROVIDER,
+            cwd=Path("."),
+        )
+        tool_names = {t.name for t in agent.tools}
+        self.assertIn("bash", tool_names)
+        self.assertIn("read", tool_names)
+
+    def test_skills_system_prompt_folds_in_discovered_menu(self) -> None:
+        from simple_agent_lab.evals.in_container import skills_system_prompt
+
+        with tempfile.TemporaryDirectory() as tmp:
+            skill_root = Path(tmp) / ".agents" / "skills" / "demo"
+            skill_root.mkdir(parents=True)
+            (skill_root / "SKILL.md").write_text(
+                "---\nname: demo\ndescription: a demo skill\n---\nbody\n",
+                encoding="utf-8",
+            )
+            prompt = skills_system_prompt("BASE", cwd=Path(tmp), home=tmp)
+        # The benchmark path has no per-turn message seam; the discovered menu
+        # rides the agent's system prompt instead.
+        self.assertTrue(prompt.startswith("BASE"))
+        self.assertIn("<skills_instructions>", prompt)
+        self.assertIn("demo: a demo skill", prompt)
+
+    def test_skills_system_prompt_unchanged_when_no_skills(self) -> None:
+        from simple_agent_lab.evals.in_container import skills_system_prompt
+
+        with tempfile.TemporaryDirectory() as tmp:
+            prompt = skills_system_prompt("BASE", cwd=Path(tmp), home=tmp)
+        self.assertEqual(prompt, "BASE")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -39,7 +39,15 @@ from ..agents.bash import make_bash_agent
 from ..agents.bash_task import make_bash_task_agent
 from ..core import Agent
 from ..llm import ApiKind, Provider
+from ..llm_agent import make_llm_agent
+from ..skills import (
+    default_skill_roots,
+    discover_skills,
+    render_skills_instructions,
+)
 from ..state import State
+from ..tools.bash import make_bash_tool
+from ..tools.read import make_read_tool
 from ..trajectory import run_trace_from_state, trace_record
 from .protocols import RESULT_KEY, TRACE_KEY, AgentSpec, ArtifactStore, ContainerTask
 from .stores import container_store_from_env
@@ -67,6 +75,26 @@ DEFAULT_RESPONSES_MAX_OUTPUT_TOKENS = 32768
 # --------------------------------------------------------------------------- #
 # Agent construction (suite-tunable via agent_spec or a full build_agent hook)
 # --------------------------------------------------------------------------- #
+def skills_system_prompt(
+    base_prompt: str, *, cwd: Path, home: str | None = None
+) -> str:
+    """Fold the discovered skills menu into a system prompt (or return it as-is).
+
+    The benchmark path drives the agent through the generic ``agent.run`` (it has
+    no per-turn message seam to record a menu into), so the ``<skills_instructions>``
+    menu rides the system prompt instead — the same content
+    ``run_with_skills`` records as a system message in the interactive edge. When
+    no skill is discovered the prompt is unchanged, so an empty bundled library
+    leaves the baseline untouched.
+    """
+
+    skills = discover_skills(default_skill_roots(str(cwd), home))
+    menu = render_skills_instructions(skills)
+    if not menu:
+        return base_prompt
+    return f"{base_prompt}\n\n{menu}" if base_prompt else menu
+
+
 def build_agent(
     *,
     spec: AgentSpec,
@@ -94,8 +122,22 @@ def build_agent(
             system_prompt=spec.system_prompt,
             request_extra=request_extra,
         )
+    if spec.flavor == "bash_skills":
+        # bash + read, with agent skills discovered under `cwd` and advertised
+        # in the system prompt; the model loads a skill by reading its SKILL.md
+        # and runs its scripts via bash (ADR 0021).
+        return make_llm_agent(
+            name=spec.name,
+            provider=provider,
+            role=spec.role,
+            tools=[make_bash_tool(cwd=cwd), make_read_tool(cwd=cwd)],
+            system_prompt=skills_system_prompt(spec.system_prompt, cwd=cwd),
+            target="user",
+            request_extra=request_extra,
+        )
     raise SystemExit(
-        f"Unsupported agent flavor {spec.flavor!r}; expected 'bash' or 'bash_task'."
+        f"Unsupported agent flavor {spec.flavor!r}; "
+        "expected 'bash', 'bash_task', or 'bash_skills'."
     )
 
 

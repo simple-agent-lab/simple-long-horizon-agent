@@ -17,8 +17,10 @@ SWE-bench-specific and runs *inside* the image:
   and captures its log into ``result.json``; the host turns that into a verdict
   via `evaluate_predictions.reuse_eval_row` (the official grader needs the gold
   test spec, which lives host-side).
-- `agent_spec()` — optional: the SWE-bench prompt/role and the bash vs
-  bash_task flavor (from the ``AGENT_FLAVOR`` env var).
+- `agent_spec()` — optional: the SWE-bench prompt/role and the agent flavor
+  (``bash`` | ``bash_task`` | ``bash_skills``, from the ``AGENT_FLAVOR`` env
+  var). ``bash_skills`` adds the ``read`` tool and advertises any discovered
+  agent skills in the system prompt (ADR 0021).
 
 It imports only the standard library and the installed wheel (`agents`,
 `evals.protocols`, and the sibling `patch` module), so it works inside any
@@ -65,7 +67,11 @@ AGENT_SYSTEM_PROMPT = (
 
 
 def agent_spec() -> AgentSpec:
-    """SWE-bench agent config; flavor from ``AGENT_FLAVOR`` (bash | bash_task)."""
+    """SWE-bench agent config; flavor from ``AGENT_FLAVOR``.
+
+    ``bash`` | ``bash_task`` | ``bash_skills`` — the generic ``build_agent``
+    resolves the flavor; ``bash_skills`` adds ``read`` + the discovered skills
+    menu (ADR 0021)."""
 
     flavor = os.environ.get(AGENT_FLAVOR_ENV, "bash").strip() or "bash"
     system_prompt = AGENT_SYSTEM_PROMPT
