@@ -30,7 +30,7 @@ import inspect
 import json
 import os
 import time
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, cast
@@ -238,28 +238,13 @@ def run_in_container(
 
     task = tasks.build_task(instance, workdir=str(workdir))
     instance_id = str(instance.get("instance_id", "?"))
-
-    def trace_bytes(*, in_progress: bool) -> bytes:
-        trace = run_trace_from_state(
-            state=state,
-            trace_id=trace_id,
-            producer=producer,
-            meta={
-                "suite": suite_name,
-                "instance_id": instance_id,
-                "in_progress": in_progress,
-                "oracle": oracle,
-                "result_keys": sorted(state.data.get("result", {})),
-            },
-        )
-        return (json.dumps(trace_record(trace), ensure_ascii=False) + "\n").encode(
-            "utf-8"
-        )
+    meta_base = {"suite": suite_name, "instance_id": instance_id, "oracle": oracle}
 
     if oracle:
         # No model, no turns: apply the reference solution, then extract.
         _run_oracle(module, workdir=workdir, instance=instance)
         state = State(task=task)
+        events: Iterable[Any] = ()
     else:
         if provider is None:
             raise SystemExit("a Provider is required unless oracle=True")
@@ -267,12 +252,13 @@ def run_in_container(
             module, provider=provider, cwd=workdir, request_extra=request_extra
         )
         state, events = agent.run(task, max_turns=max_turns)
-        last = 0.0
-        for _ in events:
-            now = time.monotonic()
-            if now - last >= flush_interval_s:
-                store.put(TRACE_KEY, trace_bytes(in_progress=True))
-                last = now
+
+    trace_bytes = _live_trace_bytes(
+        state, trace_id=trace_id, producer=producer, meta_base=meta_base
+    )
+    _drain_with_live_trace(
+        events, store=store, trace_bytes=trace_bytes, flush_interval_s=flush_interval_s
+    )
 
     result = _finalize_run(
         module=module,
@@ -330,6 +316,56 @@ def _finalize_run(
     )
     store.put(TRACE_KEY, trace_bytes(in_progress=False))
     return result
+
+
+def _live_trace_bytes(
+    state: State,
+    *,
+    trace_id: str,
+    producer: str,
+    meta_base: Mapping[str, Any],
+) -> Callable[..., bytes]:
+    """Build the ``trace_bytes(in_progress=...)`` serializer for a live trace.
+
+    `meta_base` carries the run-shape-specific fields (e.g. ``oracle`` for a
+    fresh run, ``resumed_from_message`` for a replay); ``in_progress`` and the
+    live ``result_keys`` are stamped per call. Shared by `run_in_container`
+    and `resume_in_container` so the trace record shape stays identical.
+    """
+
+    def trace_bytes(*, in_progress: bool) -> bytes:
+        trace = run_trace_from_state(
+            state=state,
+            trace_id=trace_id,
+            producer=producer,
+            meta={
+                **meta_base,
+                "in_progress": in_progress,
+                "result_keys": sorted(state.data.get("result", {})),
+            },
+        )
+        return (json.dumps(trace_record(trace), ensure_ascii=False) + "\n").encode(
+            "utf-8"
+        )
+
+    return trace_bytes
+
+
+def _drain_with_live_trace(
+    events: Iterable[Any],
+    *,
+    store: ArtifactStore,
+    trace_bytes: Callable[..., bytes],
+    flush_interval_s: float,
+) -> None:
+    """Consume the agent event stream, flushing the live trace on a cadence."""
+
+    last = 0.0
+    for _ in events:
+        now = time.monotonic()
+        if now - last >= flush_interval_s:
+            store.put(TRACE_KEY, trace_bytes(in_progress=True))
+            last = now
 
 
 def resume_in_container(
@@ -397,29 +433,19 @@ def resume_in_container(
         on_fork=on_fork,
     )
 
-    def trace_bytes(*, in_progress: bool) -> bytes:
-        trace = run_trace_from_state(
-            state=state,
-            trace_id=trace_id,
-            producer=producer,
-            meta={
-                "suite": suite_name,
-                "instance_id": instance_id,
-                "in_progress": in_progress,
-                "resumed_from_message": fork_message_index,
-                "result_keys": sorted(state.data.get("result", {})),
-            },
-        )
-        return (json.dumps(trace_record(trace), ensure_ascii=False) + "\n").encode(
-            "utf-8"
-        )
-
-    last = 0.0
-    for _ in events:
-        now = time.monotonic()
-        if now - last >= flush_interval_s:
-            store.put(TRACE_KEY, trace_bytes(in_progress=True))
-            last = now
+    trace_bytes = _live_trace_bytes(
+        state,
+        trace_id=trace_id,
+        producer=producer,
+        meta_base={
+            "suite": suite_name,
+            "instance_id": instance_id,
+            "resumed_from_message": fork_message_index,
+        },
+    )
+    _drain_with_live_trace(
+        events, store=store, trace_bytes=trace_bytes, flush_interval_s=flush_interval_s
+    )
 
     result = _finalize_run(
         module=module,
