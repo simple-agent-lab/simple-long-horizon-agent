@@ -108,5 +108,46 @@ class DiscoveryTest(unittest.TestCase):
         )
 
 
+from simple_agent_lab.skills.prompt import (  # noqa: E402
+    SKILLS_HOW_TO_USE,
+    render_skills_instructions,
+    skills_menu_message,
+)
+
+
+class PromptMenuTest(unittest.TestCase):
+    def _skill(self, name: str) -> SkillMetadata:
+        return SkillMetadata(
+            name=name,
+            description=f"{name} description",
+            path_to_skill_md=f"/abs/{name}/SKILL.md",
+            base_dir=f"/abs/{name}",
+            scope="repo",
+        )
+
+    def test_render_empty_when_no_skills(self) -> None:
+        self.assertEqual(render_skills_instructions([]), "")
+
+    def test_render_lists_each_skill_with_path(self) -> None:
+        block = render_skills_instructions([self._skill("alpha"), self._skill("beta")])
+        self.assertIn("<skills_instructions>", block)
+        self.assertIn("</skills_instructions>", block)
+        self.assertIn("- alpha: alpha description (file: /abs/alpha/SKILL.md)", block)
+        self.assertIn("- beta: beta description (file: /abs/beta/SKILL.md)", block)
+        self.assertIn("### How to use skills", block)
+        self.assertIn(SKILLS_HOW_TO_USE.strip().splitlines()[0], block)
+
+    def test_menu_message_is_a_system_message(self) -> None:
+        msg = skills_menu_message([self._skill("alpha")], target="agent")
+        assert msg is not None
+        self.assertEqual(msg.role, "system")
+        self.assertEqual(msg.kind, "system")
+        self.assertEqual(msg.target, "agent")
+        self.assertIn("alpha description", msg.content[0].text)
+
+    def test_menu_message_none_when_no_skills(self) -> None:
+        self.assertIsNone(skills_menu_message([], target="agent"))
+
+
 if __name__ == "__main__":
     unittest.main()
