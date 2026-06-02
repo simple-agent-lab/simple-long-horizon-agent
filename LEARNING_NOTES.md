@@ -47,9 +47,9 @@
 - ✅ 6.4 往返幂等：序列化→反序列化→再序列化，断言两次相等 → 漏还原任何字段都会暴露（强校验）
 - ✅ 6.5 ty 修复：tool_result content 只收 visible 块（专门 _visible_block_from_dict 拒 thinking/tool_call）；sidecar dict 要 cast 成 MessageSidecar。为过 CI 的 ty check src
 
-## 阶段 7：真实 Docker 验证
-- ⬜ 7.1 跨容器证明（#2 全新 /testbed 被重建）
-- ⬜ 7.2 对照组（关掉 rebuild 只剩 gamma）为什么是关键证据
+## 阶段 7：真实 Docker 验证 ✅
+- ✅ 7.1 跨容器证明：3 个独立容器（hostname 不同、各自全新 /testbed）。#2 从空 /testbed 重建 alpha+beta→续写 gamma。单测是「单进程删目录」模拟，Docker 用真·独立容器坐实「从 baseline 起新容器」场景
+- ✅ 7.2 对照组 #3（rebuild 关→只剩 gamma）= 控制变量实验：把 alpha/beta 精确归因到 replay_side_effects，排除「agent 自己又造」「/testbed 没清干净」等其它解释。没有对照组，#2 的成功不构成证明
 
 ## 阶段 8：更广背景 + DinD 的坑
 - ⬜ 8.1 这件事为什么重要、影响什么
