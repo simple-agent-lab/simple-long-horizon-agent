@@ -306,5 +306,20 @@ class RunWithSkillsTest(unittest.TestCase):
         self.assertNotIn("<files>\nSKILL.md", text)
 
 
+class PackagingTest(unittest.TestCase):
+    def test_top_level_reexports(self) -> None:
+        import simple_agent_lab as sal
+
+        self.assertTrue(hasattr(sal, "run_with_skills"))
+        self.assertTrue(hasattr(sal, "discover_skills"))
+        self.assertTrue(hasattr(sal, "make_read_tool"))
+
+    def test_bundled_library_dir_exists(self) -> None:
+        from simple_agent_lab.skills.discovery import BUNDLED_LIBRARY_DIR
+
+        self.assertTrue(Path(BUNDLED_LIBRARY_DIR).is_dir())
+        self.assertTrue((Path(BUNDLED_LIBRARY_DIR) / "README.md").is_file())
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -61,3 +61,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/simple_agent_lab"]
+# The bundled skill library (src/simple_agent_lab/skills/library) ships as
+# package data: hatchling includes the non-Python files (README.md and any
+# SKILL.md/scripts added later) because they live inside the package tree.
+artifacts = ["src/simple_agent_lab/skills/library/**"]
