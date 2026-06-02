@@ -77,9 +77,7 @@ def make_read_tool(
                 details={"path": str(path), "kind": "directory"},
             )
         if not path.is_file():
-            return text_result(
-                f"No such file or directory: {raw_path}", is_error=True
-            )
+            return text_result(f"No such file or directory: {raw_path}", is_error=True)
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError as exc:

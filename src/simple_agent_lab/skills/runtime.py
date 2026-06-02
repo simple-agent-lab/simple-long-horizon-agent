@@ -64,9 +64,7 @@ def _skill_file_manifest(base_dir: str) -> str:
     entries: list[str] = []
     for root, dirnames, filenames in os.walk(base_dir):
         dirnames[:] = sorted(d for d in dirnames if not d.startswith("."))
-        depth = (
-            os.path.relpath(root, base_dir).count(os.sep) if root != base_dir else 0
-        )
+        depth = os.path.relpath(root, base_dir).count(os.sep) if root != base_dir else 0
         if depth >= SKILL_MANIFEST_MAX_DEPTH:
             dirnames[:] = []
         for filename in sorted(filenames):
