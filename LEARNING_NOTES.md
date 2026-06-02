@@ -40,12 +40,12 @@
 - ✅ 5.3 on_fork 钩子让 resume **中立**：分离关注点，resume 是通用重放引擎不懂 docker/git；倒回策略由调用者插（纯内存/rebuild/git reset 同一个 resume）
 - ✅ 5.4 确定性极限：**保顺序，不保内容**。命令读 $RANDOM/时钟/网络 → 重跑结果不同，重建非逐字节复刻。调试够用；严格复现需固定时钟/env/录制响应
 
-## 阶段 6：eval 侧胶水 + 反序列化基石
-- ⬜ 6.1 trace_record 原来是单向的，需要 state_from_trace_record
-- ⬜ 6.2 为什么只重建 events 就够（messages 由 __post_init__ 重算）
-- ⬜ 6.3 resume_in_container 的流程
-- ⬜ 6.4 往返幂等测试为什么是强校验
-- ⬜ 6.5 ty 类型修复（visible blocks、sidecar cast）
+## 阶段 6：eval 侧胶水 + 反序列化基石 ✅
+- ✅ 6.1 trace_record 原是单向 State→JSON；需逆操作 state_from_trace_record（基石）
+- ✅ 6.2 **只反序列化 events**；State.__post_init__ 从 events 重算 messages/快照（阶段2红利）→ trace 里 messages 镜像直接忽略，events 是唯一真相源（MessageEvent 里就装着 message）
+- ✅ 6.3 resume_in_container 流程：prepare(重置baseline)→重建State→fork+on_fork=replay_side_effects(重建FS)→resume→finalize(抽result/写trajectory)；finalize 与 run_in_container 共用 _finalize_run
+- ✅ 6.4 往返幂等：序列化→反序列化→再序列化，断言两次相等 → 漏还原任何字段都会暴露（强校验）
+- ✅ 6.5 ty 修复：tool_result content 只收 visible 块（专门 _visible_block_from_dict 拒 thinking/tool_call）；sidecar dict 要 cast 成 MessageSidecar。为过 CI 的 ty check src
 
 ## 阶段 7：真实 Docker 验证
 - ⬜ 7.1 跨容器证明（#2 全新 /testbed 被重建）
