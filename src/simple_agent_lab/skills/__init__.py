@@ -18,13 +18,27 @@ from .discovery import (
     load_skill_from_file,
     parse_frontmatter,
 )
+from .directives import SkillDirectives, parse_skill_directives
+from .prompt import (
+    SKILLS_HOW_TO_USE,
+    render_skills_instructions,
+    skills_menu_message,
+)
+from .runtime import run_with_skills, skill_body_messages
 
 __all__ = [
     "BUNDLED_LIBRARY_DIR",
     "SkillMetadata",
     "SkillRoot",
+    "SkillDirectives",
+    "SKILLS_HOW_TO_USE",
     "default_skill_roots",
     "discover_skills",
     "load_skill_from_file",
     "parse_frontmatter",
+    "parse_skill_directives",
+    "render_skills_instructions",
+    "skills_menu_message",
+    "run_with_skills",
+    "skill_body_messages",
 ]

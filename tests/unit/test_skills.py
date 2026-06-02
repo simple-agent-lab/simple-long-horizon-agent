@@ -194,5 +194,117 @@ class DirectivesTest(unittest.TestCase):
         self.assertIsInstance(parse_skill_directives("x", set()), SkillDirectives)
 
 
+from simple_agent_lab.agents.bash import make_bash_agent  # noqa: E402
+from simple_agent_lab.llm import Provider  # noqa: E402
+from simple_agent_lab.skills.runtime import (  # noqa: E402
+    run_with_skills,
+    skill_body_messages,
+)
+
+FAKE_PROVIDER = Provider(id="fake", api="fake", model="fake-model")
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "skills"
+
+
+class RunWithSkillsTest(unittest.TestCase):
+    def _fixture_roots(self) -> list[SkillRoot]:
+        return [SkillRoot(str(FIXTURES), "repo")]
+
+    def test_skill_body_messages_wrap_body(self) -> None:
+        skills = discover_skills(self._fixture_roots())
+        msgs = skill_body_messages(skills, target="agent")
+        self.assertEqual(len(msgs), 1)
+        self.assertEqual(msgs[0].role, "user")
+        self.assertEqual(msgs[0].kind, "context")
+        text = msgs[0].content[0].text
+        self.assertIn("<skill>", text)
+        self.assertIn("<name>echo-fixture</name>", text)
+        self.assertIn("To echo text", text)
+
+    def test_menu_is_recorded_before_task(self) -> None:
+        agent = make_bash_agent(provider=FAKE_PROVIDER, cwd=str(FIXTURES))
+        state, events = run_with_skills(
+            agent,
+            "echo the word hello",
+            roots=self._fixture_roots(),
+            max_turns=3,
+        )
+        for _ in events:
+            pass
+        kinds = [m.kind for m in state.messages]
+        self.assertIn("system", kinds)
+        menu = next(m for m in state.messages if m.kind == "system")
+        self.assertIn("echo-fixture", menu.content[0].text)
+        # Menu precedes the task message.
+        self.assertLess(
+            state.messages.index(menu),
+            next(i for i, m in enumerate(state.messages) if m.kind == "task"),
+        )
+
+    def test_mention_injects_body_before_task(self) -> None:
+        agent = make_bash_agent(provider=FAKE_PROVIDER, cwd=str(FIXTURES))
+        state, events = run_with_skills(
+            agent,
+            "use $echo-fixture to echo hello",
+            roots=self._fixture_roots(),
+            max_turns=3,
+        )
+        for _ in events:
+            pass
+        context_msgs = [m for m in state.messages if m.kind == "context"]
+        self.assertTrue(context_msgs)
+        self.assertIn("<name>echo-fixture</name>", context_msgs[0].content[0].text)
+
+    def test_no_skills_directive_suppresses_everything(self) -> None:
+        agent = make_bash_agent(provider=FAKE_PROVIDER, cwd=str(FIXTURES))
+        state, events = run_with_skills(
+            agent,
+            "/no-skills just echo hello",
+            roots=self._fixture_roots(),
+            max_turns=3,
+        )
+        for _ in events:
+            pass
+        self.assertNotIn(
+            "system", [m.kind for m in state.messages if m.sender == "skills"]
+        )
+        self.assertFalse([m for m in state.messages if m.kind == "context"])
+        task = next(m for m in state.messages if m.kind == "task")
+        self.assertEqual(task.content[0].text, "just echo hello")
+
+    def test_no_skills_when_no_skills_discovered(self) -> None:
+        with tempfile.TemporaryDirectory() as empty:
+            agent = make_bash_agent(provider=FAKE_PROVIDER, cwd=empty)
+            state, events = run_with_skills(
+                agent, "do something", roots=[SkillRoot(empty, "repo")], max_turns=3
+            )
+            for _ in events:
+                pass
+            self.assertNotIn("system", [m.kind for m in state.messages])
+            self.assertNotIn("context", [m.kind for m in state.messages])
+
+    def test_preload_injects_body_without_mention(self) -> None:
+        agent = make_bash_agent(provider=FAKE_PROVIDER, cwd=str(FIXTURES))
+        state, events = run_with_skills(
+            agent,
+            "echo hello",  # no $mention
+            roots=self._fixture_roots(),
+            preload=["echo-fixture"],
+            max_turns=3,
+        )
+        for _ in events:
+            pass
+        context_msgs = [m for m in state.messages if m.kind == "context"]
+        self.assertTrue(context_msgs)
+        self.assertIn("<name>echo-fixture</name>", context_msgs[0].content[0].text)
+
+    def test_injected_body_includes_file_manifest(self) -> None:
+        skills = discover_skills(self._fixture_roots())
+        text = skill_body_messages(skills, target="agent")[0].content[0].text
+        self.assertIn("<files>", text)
+        # The fixture bundles scripts/echo.py; SKILL.md itself is excluded.
+        self.assertIn("scripts/echo.py", text)
+        self.assertNotIn("<files>\nSKILL.md", text)
+
+
 if __name__ == "__main__":
     unittest.main()
