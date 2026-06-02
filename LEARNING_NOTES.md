@@ -15,11 +15,12 @@
   - 困难分支还叠第二层：重新执行 ≠ 当时结果（$RANDOM/时钟/网络 = 确定性问题）
 - ✅ 1.4 「位置」= 消息序列里的一个点（细节留到阶段 3：event vs message）
 
-## 阶段 2：为什么 simple-agent-lab 天然适合做这件事（架构洞察）
-- ⬜ 2.1 State 是 append-only 的事件日志
-- ⬜ 2.2 run() 在「轮与轮之间」是无状态的：每轮从 messages 重建上下文
-- ⬜ 2.3 State.__post_init__ 能从 events 重建快照
-- ⬜ 2.4 => fork = 切一段 events + 新建 State，几乎免费
+## 阶段 2：为什么 simple-agent-lab 天然适合做这件事（架构洞察）✅
+- ✅ 2.1 State 是 append-only 的事件日志
+- ✅ 2.2 run() 在「轮与轮之间」是无状态的：每轮从 messages 重建上下文 → run() 分不清「自然历史」和「切出来的前缀」，所以一行不用改
+- ✅ 2.3 State.__post_init__ 能从 events 重建快照（messages/active context）
+- ✅ 2.4 => fork = 切一段 events + 新建 State，几乎免费
+- ✅ 关键坑（=1.4/3.1）：events≠messages。事件流里混着 turn/model_request/tool_execution 等记账事件；24 事件可能只有 6 条消息。**消息号必须经 message_event_indices 翻译成事件下标**，不能 events[:N]。fork(state,k)=events[:translate(k)+1]
 
 ## 阶段 3：内存版 replay 方案
 - ⬜ 3.1 fork_at_message / resume / message_event_indices
