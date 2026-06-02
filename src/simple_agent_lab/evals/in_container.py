@@ -30,7 +30,7 @@ import inspect
 import json
 import os
 import time
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, cast
@@ -48,6 +48,7 @@ __all__ = [
     "build_agent",
     "main",
     "provider_from_env",
+    "resume_in_container",
     "run_in_container",
 ]
 
@@ -237,28 +238,13 @@ def run_in_container(
 
     task = tasks.build_task(instance, workdir=str(workdir))
     instance_id = str(instance.get("instance_id", "?"))
-
-    def trace_bytes(*, in_progress: bool) -> bytes:
-        trace = run_trace_from_state(
-            state=state,
-            trace_id=trace_id,
-            producer=producer,
-            meta={
-                "suite": suite_name,
-                "instance_id": instance_id,
-                "in_progress": in_progress,
-                "oracle": oracle,
-                "result_keys": sorted(state.data.get("result", {})),
-            },
-        )
-        return (json.dumps(trace_record(trace), ensure_ascii=False) + "\n").encode(
-            "utf-8"
-        )
+    meta_base = {"suite": suite_name, "instance_id": instance_id, "oracle": oracle}
 
     if oracle:
         # No model, no turns: apply the reference solution, then extract.
         _run_oracle(module, workdir=workdir, instance=instance)
         state = State(task=task)
+        events: Iterable[Any] = ()
     else:
         if provider is None:
             raise SystemExit("a Provider is required unless oracle=True")
@@ -266,12 +252,45 @@ def run_in_container(
             module, provider=provider, cwd=workdir, request_extra=request_extra
         )
         state, events = agent.run(task, max_turns=max_turns)
-        last = 0.0
-        for _ in events:
-            now = time.monotonic()
-            if now - last >= flush_interval_s:
-                store.put(TRACE_KEY, trace_bytes(in_progress=True))
-                last = now
+
+    trace_bytes = _live_trace_bytes(
+        state, trace_id=trace_id, producer=producer, meta_base=meta_base
+    )
+    _drain_with_live_trace(
+        events, store=store, trace_bytes=trace_bytes, flush_interval_s=flush_interval_s
+    )
+
+    result = _finalize_run(
+        module=module,
+        tasks=tasks,
+        state=state,
+        workdir=workdir,
+        instance=instance,
+        context=context,
+        store=store,
+        trace_bytes=trace_bytes,
+    )
+    return result, state
+
+
+def _finalize_run(
+    *,
+    module: ModuleType,
+    tasks: ContainerTask,
+    state: State,
+    workdir: Path,
+    instance: Mapping[str, Any],
+    context: Mapping[str, Any],
+    store: ArtifactStore,
+    trace_bytes: Callable[..., bytes],
+) -> dict[str, Any]:
+    """Extract the result, run optional in-env scoring, persist result + trace.
+
+    Shared tail for both a fresh run (`run_in_container`) and a resumed
+    replay (`resume_in_container`): once the agent loop has populated
+    `state`, the product is derived from the workspace the same way
+    regardless of how the loop got there.
+    """
 
     extract = tasks.extract_result
     result = dict(extract(workdir, instance, **_context_kwargs(extract, context)))
@@ -296,6 +315,148 @@ def run_in_container(
         RESULT_KEY, (json.dumps(result, ensure_ascii=False) + "\n").encode("utf-8")
     )
     store.put(TRACE_KEY, trace_bytes(in_progress=False))
+    return result
+
+
+def _live_trace_bytes(
+    state: State,
+    *,
+    trace_id: str,
+    producer: str,
+    meta_base: Mapping[str, Any],
+) -> Callable[..., bytes]:
+    """Build the ``trace_bytes(in_progress=...)`` serializer for a live trace.
+
+    `meta_base` carries the run-shape-specific fields (e.g. ``oracle`` for a
+    fresh run, ``resumed_from_message`` for a replay); ``in_progress`` and the
+    live ``result_keys`` are stamped per call. Shared by `run_in_container`
+    and `resume_in_container` so the trace record shape stays identical.
+    """
+
+    def trace_bytes(*, in_progress: bool) -> bytes:
+        trace = run_trace_from_state(
+            state=state,
+            trace_id=trace_id,
+            producer=producer,
+            meta={
+                **meta_base,
+                "in_progress": in_progress,
+                "result_keys": sorted(state.data.get("result", {})),
+            },
+        )
+        return (json.dumps(trace_record(trace), ensure_ascii=False) + "\n").encode(
+            "utf-8"
+        )
+
+    return trace_bytes
+
+
+def _drain_with_live_trace(
+    events: Iterable[Any],
+    *,
+    store: ArtifactStore,
+    trace_bytes: Callable[..., bytes],
+    flush_interval_s: float,
+) -> None:
+    """Consume the agent event stream, flushing the live trace on a cadence."""
+
+    last = 0.0
+    for _ in events:
+        now = time.monotonic()
+        if now - last >= flush_interval_s:
+            store.put(TRACE_KEY, trace_bytes(in_progress=True))
+            last = now
+
+
+def resume_in_container(
+    *,
+    prior_trace: Mapping[str, Any],
+    fork_message_index: int,
+    instance: Mapping[str, Any],
+    container_module: str,
+    provider: Provider,
+    workdir: Path,
+    max_turns: int,
+    store: ArtifactStore,
+    trace_id: str,
+    producer: str,
+    suite_name: str,
+    request_extra: Mapping[str, Any] | None = None,
+    flush_interval_s: float = TRACE_FLUSH_INTERVAL_S,
+    rebuild_side_effects: bool = True,
+) -> tuple[dict[str, Any], State]:
+    """Replay one instance from `fork_message_index` of a prior trace.
+
+    The "rebuild, don't snapshot" path (replay-to-rebuild): this assumes a
+    **fresh** environment at the suite's baseline (a container booted from the
+    run's baseline image, or a freshly checked-out workspace), then —
+
+    1. runs the suite's ``prepare`` hook so the workspace matches the original
+       run's starting point (checkout, baseline commit, ignore rules);
+    2. rebuilds the agent's `State` from `prior_trace` and forks it at
+       `fork_message_index`;
+    3. when `rebuild_side_effects` is set, re-executes the tool calls recorded
+       in the kept prefix (via `simple_agent_lab.replay.replay_side_effects`)
+       so the workspace's filesystem reaches the fork point without any stored
+       per-step snapshot — and without adding commits to the testbed history;
+    4. resumes the model loop from there, writing the new trajectory on the
+       same cadence as a fresh run.
+
+    Fork at a tool-result / task boundary (not mid-turn) so every recorded
+    call's effect had been applied by that point — see `replay_side_effects`.
+    """
+
+    from ..replay import replay_side_effects, resume_from_trace_record
+
+    module = importlib.import_module(container_module)
+    tasks = cast(ContainerTask, module)
+
+    context: dict[str, Any] = {}
+    prepare = getattr(module, "prepare", None)
+    if callable(prepare):
+        context = dict(prepare(workdir, instance) or {})
+
+    agent = _resolve_agent(
+        module, provider=provider, cwd=workdir, request_extra=request_extra
+    )
+    instance_id = str(instance.get("instance_id", "?"))
+
+    def on_fork(forked: State) -> None:
+        if rebuild_side_effects:
+            replay_side_effects(forked.messages, agent.tools)
+
+    state, events = resume_from_trace_record(
+        agent,
+        dict(prior_trace),
+        fork_message_index,
+        max_turns=max_turns,
+        on_fork=on_fork,
+    )
+
+    trace_bytes = _live_trace_bytes(
+        state,
+        trace_id=trace_id,
+        producer=producer,
+        meta_base={
+            "suite": suite_name,
+            "instance_id": instance_id,
+            "resumed_from_message": fork_message_index,
+        },
+    )
+    _drain_with_live_trace(
+        events, store=store, trace_bytes=trace_bytes, flush_interval_s=flush_interval_s
+    )
+
+    result = _finalize_run(
+        module=module,
+        tasks=tasks,
+        state=state,
+        workdir=workdir,
+        instance=instance,
+        context=context,
+        store=store,
+        trace_bytes=trace_bytes,
+    )
     return result, state
 
 
