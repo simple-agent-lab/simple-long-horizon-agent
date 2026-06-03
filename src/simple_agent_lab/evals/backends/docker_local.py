@@ -49,6 +49,7 @@ except ImportError:  # pragma: no cover - exercised only without the extra
     pass
 
 BACKEND_KIND = "local-docker"
+DEFAULT_DOCKER_TIMEOUT_S = 300.0
 
 
 def _require_docker() -> Any:
@@ -194,15 +195,17 @@ class LocalDockerBackend:
         pull: str = "missing",
         wheelhouse: str | Path | None = None,
         uv_binary: str | Path | None = None,
+        docker_timeout_s: float = DEFAULT_DOCKER_TIMEOUT_S,
     ) -> None:
         self.user = user
         self.keep_container = keep_container
         self.pull = pull
         self.wheelhouse = wheelhouse
         self.uv_binary = uv_binary
+        self.docker_timeout_s = docker_timeout_s
 
     def _client(self) -> Any:
-        return _require_docker().from_env()
+        return _require_docker().from_env(timeout=self.docker_timeout_s)
 
     def submit(
         self,

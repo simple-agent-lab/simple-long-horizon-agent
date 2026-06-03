@@ -855,6 +855,43 @@ class ReviewFixesTest(unittest.TestCase):
             binding,
         )
 
+    def test_local_docker_backend_sets_client_timeout(self) -> None:
+        from types import SimpleNamespace
+
+        from simple_agent_lab.evals.backends import docker_local
+        from simple_agent_lab.evals.backends.docker_local import LocalDockerBackend
+
+        fake_client = object()
+        fake_docker = SimpleNamespace(from_env=mock.Mock(return_value=fake_client))
+        with mock.patch.object(docker_local, "docker", fake_docker):
+            client = LocalDockerBackend(docker_timeout_s=180.0)._client()
+
+        self.assertIs(client, fake_client)
+        fake_docker.from_env.assert_called_once_with(timeout=180.0)
+
+    def test_remote_docker_backend_sets_client_timeout(self) -> None:
+        from types import SimpleNamespace
+
+        from simple_agent_lab.evals.backends import remote_docker
+
+        fake_client = SimpleNamespace()
+        fake_docker = SimpleNamespace(
+            DockerClient=mock.Mock(return_value=fake_client),
+            from_env=mock.Mock(return_value=fake_client),
+        )
+
+        with mock.patch.object(
+            remote_docker, "_require_docker", return_value=fake_docker
+        ):
+            Remote = remote_docker.RemoteDockerBackend
+            Remote(base_url="ssh://worker", docker_timeout_s=240.0)._client()
+            Remote(docker_timeout_s=120.0)._client()
+
+        fake_docker.DockerClient.assert_called_once_with(
+            base_url="ssh://worker", timeout=240.0
+        )
+        fake_docker.from_env.assert_called_once_with(timeout=120.0)
+
     def test_start_container_removes_created_container_on_timeout(self) -> None:
         """A Docker SDK timeout after create() must not leave a named container."""
         from types import SimpleNamespace

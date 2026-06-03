@@ -37,6 +37,9 @@ from simple_agent_lab.evals import (  # noqa: E402
     LocalDockerBackend,
     run_suite_instance,
 )
+from simple_agent_lab.evals.backends.docker_local import (  # noqa: E402
+    DEFAULT_DOCKER_TIMEOUT_S,
+)
 from simple_agent_lab.evals.runner import container_name  # noqa: E402
 
 
@@ -77,6 +80,15 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-root", default=None)
     parser.add_argument("--wheelhouse", default=None)
     parser.add_argument("--uv-binary", default=harness.DEFAULT_UV_BINARY)
+    parser.add_argument(
+        "--docker-timeout-seconds",
+        type=float,
+        default=DEFAULT_DOCKER_TIMEOUT_S,
+        help=(
+            "Docker SDK HTTP timeout in seconds for daemon calls such as "
+            "pull/create/start/wait."
+        ),
+    )
     parser.add_argument("--prepare-wheelhouse", action="store_true")
     parser.add_argument("--in-env-scoring", action="store_true")
     parser.add_argument("--keep-container", action="store_true")
@@ -138,6 +150,7 @@ def main() -> None:
         keep_container=args.keep_container,
         wheelhouse=wheelhouse,
         uv_binary=args.uv_binary or None,
+        docker_timeout_s=args.docker_timeout_seconds,
     )
 
     name = container_name(suite.name, args.instance_id, args.run_id)
@@ -150,6 +163,7 @@ def main() -> None:
     print(f"    run-id:     {args.run_id}")
     print(f"    agent:      {args.agent_flavor}")
     print(f"    container:  {name}")
+    print(f"    docker api timeout: {args.docker_timeout_seconds:g}s")
     print("")
 
     result = run_suite_instance(
@@ -182,7 +196,7 @@ def _force_remove(name: str) -> None:
 
     import docker
 
-    client = docker.from_env()
+    client = docker.from_env(timeout=DEFAULT_DOCKER_TIMEOUT_S)
     existing = harness._get_container(client, name)
     if existing is not None:
         existing.remove(force=True)
