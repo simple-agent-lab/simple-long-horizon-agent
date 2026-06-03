@@ -21,18 +21,29 @@ evals/out/
 │           └── out/
 │               ├── trajectory.jsonl   ← three-layer trace (events, spans, model_turns)
 │               └── prediction.jsonl   ← SWE-bench prediction with model_patch
-└── swebench_pro/                      ← SWE-bench Pro suite outputs
+├── swebench_pro/                      ← SWE-bench Pro suite outputs
+│   ├── README.md
+│   ├── instance_<id>.jsonl
+│   ├── wheelhouse/
+│   │   └── cp311-manylinux/*.whl
+│   └── <run-id>/
+│       └── <instance-id>/
+│           ├── input/
+│           │   └── instance.json
+│           └── out/
+│               ├── trajectory.jsonl
+│               └── prediction.jsonl
+└── gdpval/                            ← GDPVal solver outputs
     ├── README.md
     ├── instance_<id>.jsonl
-    ├── wheelhouse/
-    │   └── cp311-manylinux/*.whl
     └── <run-id>/
-        └── <instance-id>/
+        └── <task-id>/
             ├── input/
             │   └── instance.json
             └── out/
+                ├── result.json        ← workspace manifest and archive metadata
                 ├── trajectory.jsonl
-                └── prediction.jsonl
+                └── workspace.tar.gz
 ```
 
 Each benchmark suite gets its own subdirectory under `evals/out/`, matching
@@ -51,6 +62,7 @@ bash runs/run_swebench_suite.sh sympy__sympy-23824
 Outputs land under `swebench/<run-id>/<instance-id>/out/`.
 SWE-bench Pro outputs use the same layout under
 `swebench_pro/<run-id>/<instance-id>/out/`.
+GDPVal solver outputs land under `gdpval/<run-id>/<task-id>/out/`.
 
 ## Adding a New Benchmark
 

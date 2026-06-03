@@ -13,6 +13,7 @@ bash runs/run_bash_agent_demo.sh
 bash runs/run_swebench_verified.sh
 bash runs/run_swebench_pro.sh
 bash runs/eval_swebench.sh
+bash runs/run_gdpval.sh
 ```
 
 `runs/run_ci.sh` mirrors the GitHub Actions workflow at
@@ -87,3 +88,18 @@ bash runs/eval_swebench.sh --pro --predictions evals/out/swebench_pro/swebench_p
 
 See `evals/swebench/README.md` for detailed Docker setup, macOS arm64
 workarounds, and troubleshooting.
+
+## GDPVal
+
+The GDPVal runner drives the first-version `tool-call-context-managed` solver
+and collects workspace artifacts. Add `--judge` to run the first-version
+rubric-only follow-up judge and write `judge_summary.jsonl` /
+`judge_summary.json` beside the solver run.
+
+```bash
+uv run --with datasets python runs/run_gdpval.py --limit 10
+uv run --with datasets python runs/run_gdpval.py --limit 10 --judge
+uv run python runs/run_gdpval.py path/to/gdpval.jsonl --task-ids <task-id>
+```
+
+See `evals/gdpval/README.md` for input fields and artifact layout.

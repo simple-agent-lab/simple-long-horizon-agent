@@ -135,7 +135,7 @@ class LLMRequest:
     system_prompt: str | None = None
     temperature: float | None = None  # None → use provider.default_temperature
     max_tokens: int | None = None
-    timeout_seconds: float | None = 60.0
+    timeout_seconds: float | None = 600.0
     extra: dict[str, Any] = field(
         default_factory=dict
     )  # provider-specific request options
