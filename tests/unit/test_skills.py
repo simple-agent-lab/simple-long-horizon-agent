@@ -376,10 +376,23 @@ class SwebenchFlavorTest(unittest.TestCase):
         self.assertIn("demo: a demo skill", prompt)
 
     def test_skills_system_prompt_unchanged_when_no_skills(self) -> None:
+        from unittest import mock
+
         from simple_agent_lab.evals.in_container import skills_system_prompt
 
+        # Isolate all three discovery scopes so "no skills" is actually true:
+        # project (cwd) and user (home) point at empty temp dirs, and the
+        # always-scanned bundled library is redirected to an empty dir too.
+        # Without the bundled patch this test silently depends on the shipped
+        # library being empty.
         with tempfile.TemporaryDirectory() as tmp:
-            prompt = skills_system_prompt("BASE", cwd=Path(tmp), home=tmp)
+            empty_library = Path(tmp) / "empty-library"
+            empty_library.mkdir()
+            with mock.patch(
+                "simple_agent_lab.skills.discovery.BUNDLED_LIBRARY_DIR",
+                str(empty_library),
+            ):
+                prompt = skills_system_prompt("BASE", cwd=Path(tmp), home=tmp)
         self.assertEqual(prompt, "BASE")
 
 
