@@ -91,6 +91,14 @@ from .tools import (
     text_result,
     tool_result_text,
 )
+from .tools.read import make_read_tool
+from .skills import (
+    SkillMetadata,
+    SkillRoot,
+    discover_skills,
+    render_skills_instructions,
+    run_with_skills,
+)
 
 __all__ = [
     "Agent",
@@ -167,4 +175,10 @@ __all__ = [
     "ToolUpdateFn",
     "text_result",
     "tool_result_text",
+    "make_read_tool",
+    "SkillMetadata",
+    "SkillRoot",
+    "discover_skills",
+    "render_skills_instructions",
+    "run_with_skills",
 ]

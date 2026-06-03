@@ -62,6 +62,7 @@ MODULE_ZONES = {
     "evals": PERIPHERAL,
     "mcp": PERIPHERAL,
     "tui_gateway": PERIPHERAL,
+    "skills": PERIPHERAL,
 }
 
 # External (third-party) top-level package -> the only internal path prefix
@@ -244,7 +245,15 @@ def lint_file(path: Path) -> list[Violation]:
 
 
 def package_files() -> list[Path]:
-    return sorted(p for p in PACKAGE_ROOT.rglob("*.py") if "__pycache__" not in p.parts)
+    # The bundled skill library (skills/library/) ships third-party reference
+    # scripts the agent reads and runs in a sandbox; they are shipped assets,
+    # not part of this package's import graph, so they are not architecture-linted.
+    library = PACKAGE_ROOT / "skills" / "library"
+    return sorted(
+        p
+        for p in PACKAGE_ROOT.rglob("*.py")
+        if "__pycache__" not in p.parts and library not in p.parents
+    )
 
 
 def main() -> int:

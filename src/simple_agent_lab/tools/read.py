@@ -9,6 +9,11 @@ file from the local workspace and returns model-visible content:
   the model can keep reading instead of guessing.
 * Images (PNG, JPEG, GIF, WebP) are inlined as `ImageBlock`s so a
   vision-capable model can see them, paired with a short text note.
+* Directories return a shallow listing instead of an error. Skills load by
+  *reading*: the model opens a directory to see which `scripts/`,
+  `references/`, and schema files a skill bundles, then reads the specific
+  files it needs. The generous text budget keeps a real `SKILL.md` readable
+  without the aggressive truncation the bash tool applies.
 
 This mirrors `bash.py`: a `make_read_tool(...)` factory returns an `AgentTool`,
 the structured truncation accounting lives in a frozen dataclass, and the
@@ -43,6 +48,11 @@ READ_TOOL_NAME = "read"
 DEFAULT_MAX_LINES = 2000
 DEFAULT_MAX_BYTES = 50 * 1024  # 50 KiB
 DEFAULT_MAX_ATTACH_BYTES = 5 * 1024 * 1024  # 5 MiB per inlined image
+
+# Directory listings stay shallow so a skill's layout is cheap to scan without
+# dumping a deep tree into context.
+DEFAULT_READ_DIR_MAX_ENTRIES = 200
+DEFAULT_READ_DIR_MAX_DEPTH = 2
 
 _IMAGE_MIME_BY_SUFFIX: dict[str, str] = {
     ".png": "image/png",
@@ -132,7 +142,9 @@ def make_read_tool(
             f"For text files, output is truncated to {max_lines} lines or "
             f"{max_bytes // 1024}KB (whichever is hit first). Use offset/limit "
             "for large files; when you need the full file, continue with "
-            "offset until complete. Prefer this over `cat`/`sed`."
+            "offset until complete. If `path` is a directory, returns a listing "
+            "of the files inside it (use this to see a skill's scripts/ and "
+            "references/ before loading them). Prefer this over `cat`/`sed`."
         ),
         parameters={
             "type": "object",
@@ -170,8 +182,9 @@ def read_file(
 ) -> ToolResult:
     """Read `raw_path` and return a model-visible `ToolResult`.
 
-    Resolves relative paths against `root`, splits text on the image/text
-    boundary by file extension, and applies head truncation to text reads.
+    Resolves relative paths against `root`, lists directories so a skill's
+    layout is visible, splits text on the image/text boundary by file
+    extension, and applies head truncation to text reads.
     """
 
     base = Path(root or ".").resolve()
@@ -184,10 +197,16 @@ def read_file(
         return text_result(f"Could not resolve path {raw_path!r}: {exc}", is_error=True)
 
     if not path.exists():
-        return text_result(f"File not found: {raw_path}", is_error=True)
+        return text_result(f"No such file or directory: {raw_path}", is_error=True)
     if path.is_dir():
-        return text_result(
-            f"Path is a directory, not a file: {raw_path}", is_error=True
+        listing = _render_directory(
+            path,
+            max_entries=DEFAULT_READ_DIR_MAX_ENTRIES,
+            max_depth=DEFAULT_READ_DIR_MAX_DEPTH,
+        )
+        return ToolResult(
+            content=(TextBlock(listing),),
+            details={"path": str(path), "kind": "directory"},
         )
 
     mime = _IMAGE_MIME_BY_SUFFIX.get(path.suffix.lower())
@@ -396,6 +415,27 @@ def _read_image(
         content=content,
         details={"path": raw_path, "mime_type": mime, "size_bytes": size},
     )
+
+
+def _render_directory(path: Path, *, max_entries: int, max_depth: int) -> str:
+    """Shallow, sorted listing of a directory's files. Skips dotfiles and
+    caps depth/entries so the model can see a skill's layout cheaply."""
+
+    entries: list[str] = []
+    for child in sorted(path.rglob("*")):
+        rel = child.relative_to(path)
+        if len(rel.parts) > max_depth:
+            continue
+        if any(part.startswith(".") for part in rel.parts):
+            continue
+        suffix = "/" if child.is_dir() else ""
+        entries.append(f"{rel.as_posix()}{suffix}")
+        if len(entries) >= max_entries:
+            entries.append(f"... [truncated to {max_entries} entries] ...")
+            break
+    if not entries:
+        return f"(empty directory: {path})"
+    return f"Files under {path}:\n" + "\n".join(entries)
 
 
 def _split_lines_for_counting(content: str) -> list[str]:

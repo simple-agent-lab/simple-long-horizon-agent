@@ -126,7 +126,7 @@ class AgentSpec:
     name: str = "agent"
     role: str = ""
     system_prompt: str = ""
-    flavor: str = "bash"  # "bash" | "bash_task"
+    flavor: str = "bash"  # "bash" | "bash_task" | "bash_skills"
 
 
 @runtime_checkable

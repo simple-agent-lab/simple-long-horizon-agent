@@ -12,6 +12,7 @@ from simple_agent_lab.messages import ImageBlock
 from simple_agent_lab.tools.read import (
     DEFAULT_MAX_BYTES,
     DEFAULT_MAX_LINES,
+    READ_TOOL_NAME,
     format_size,
     make_read_tool,
     truncate_head,
@@ -89,14 +90,23 @@ class ReadToolTest(unittest.TestCase):
             result = _execute(make_read_tool(cwd=tmp), {"path": "nope.txt"})
 
         self.assertTrue(result.is_error)
-        self.assertIn("File not found", tool_result_text(result))
+        self.assertIn("No such file or directory", tool_result_text(result))
 
-    def test_directory_path_is_an_error(self) -> None:
+    def test_directory_path_returns_a_listing(self) -> None:
+        # Skills are read by browsing: reading a directory lists its files so
+        # the model can see a skill's scripts/ and references/ before loading.
         with tempfile.TemporaryDirectory() as tmp:
-            result = _execute(make_read_tool(cwd=tmp), {"path": "."})
+            skill = Path(tmp) / "s"
+            (skill / "scripts").mkdir(parents=True)
+            (skill / "SKILL.md").write_text("x", encoding="utf-8")
+            (skill / "scripts" / "run.py").write_text("y", encoding="utf-8")
+            result = _execute(make_read_tool(cwd=tmp), {"path": "s"})
 
-        self.assertTrue(result.is_error)
-        self.assertIn("directory", tool_result_text(result))
+        text = tool_result_text(result)
+        self.assertFalse(result.is_error)
+        self.assertIn("SKILL.md", text)
+        self.assertIn("scripts/run.py", text)
+        self.assertEqual(result.details["kind"], "directory")
 
     def test_missing_path_argument_is_an_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -153,9 +163,17 @@ class ReadToolTest(unittest.TestCase):
         self.assertIn("Image omitted", tool_result_text(result))
         self.assertFalse(any(isinstance(b, ImageBlock) for b in result.content))
 
+    def test_budget_is_more_generous_than_bash(self) -> None:
+        from simple_agent_lab.tools.bash import DEFAULT_BASH_MAX_OUTPUT_CHARS
+
+        # The read tool exists partly so a real SKILL.md is not mangled by the
+        # bash tool's aggressive truncation, so its byte budget must be larger.
+        self.assertGreater(DEFAULT_MAX_BYTES, DEFAULT_BASH_MAX_OUTPUT_CHARS)
+
     def test_read_tool_schema_is_strict(self) -> None:
         tool = make_read_tool(cwd=".")
 
+        self.assertEqual(tool.name, READ_TOOL_NAME)
         self.assertEqual(tool.parameters["required"], ["path"])
         self.assertFalse(tool.parameters["additionalProperties"])
         self.assertEqual(tool.execution_mode, "parallel")

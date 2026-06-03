@@ -9,7 +9,7 @@ cap_add) and the wheelhouse/uv mounts come from the shared `harness` helpers tha
 Usage (host with Docker + a built SWE-bench image):
 
     uv run python runs/run_swebench_suite.py <instance-id> \
-        [--max-turns N] [--run-id ID] [--agent-flavor bash|bash_task] \
+        [--max-turns N] [--run-id ID] [--agent-flavor bash|bash_task|bash_skills] \
         [--in-env-scoring] [--force]
 
 Reads OPENAI_MODEL / OPENAI_AUTH_TOKEN (and optional OPENAI_BASE_URL) from .env.
