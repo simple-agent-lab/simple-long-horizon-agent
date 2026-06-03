@@ -855,6 +855,140 @@ class ReviewFixesTest(unittest.TestCase):
             binding,
         )
 
+    def test_start_container_removes_created_container_on_timeout(self) -> None:
+        """A Docker SDK timeout after create() must not leave a named container."""
+        from types import SimpleNamespace
+
+        from simple_agent_lab.evals.backends import docker_local
+        from simple_agent_lab.evals.backends.docker_local import start_container
+        from simple_agent_lab.evals.protocols import ContainerBinding
+
+        class FakeImageNotFound(Exception):
+            pass
+
+        class FakeAPIError(Exception):
+            pass
+
+        class FakeStartTimeout(Exception):
+            pass
+
+        class FakeImages:
+            def get(self, image: str) -> object:
+                return object()
+
+        class FakeContainer:
+            def __init__(self) -> None:
+                self.removed = False
+
+            def start(self) -> None:
+                raise FakeStartTimeout("start timed out")
+
+            def remove(self, *, force: bool) -> None:
+                self.removed = force
+
+        class FakeContainers:
+            def __init__(self) -> None:
+                self.created = FakeContainer()
+
+            def create(self, **kwargs: Any) -> FakeContainer:
+                return self.created
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.images = FakeImages()
+                self.containers = FakeContainers()
+
+        client = FakeClient()
+        spec = RunSpec(
+            suite_name="s",
+            container_module="m",
+            instance_id="i",
+            launch_spec=LaunchSpec(image="img", workdir="/w"),
+            max_turns=1,
+            provider="fake",
+            api_kind="openai-chat",
+            run_name="run-1",
+        )
+
+        fake_docker = SimpleNamespace(
+            errors=SimpleNamespace(
+                ImageNotFound=FakeImageNotFound,
+                APIError=FakeAPIError,
+            )
+        )
+        with mock.patch.object(docker_local, "docker", fake_docker):
+            with self.assertRaises(FakeStartTimeout):
+                start_container(
+                    client,
+                    spec,
+                    ContainerBinding(),
+                    user="root",
+                    pull="missing",
+                    environment={},
+                )
+        self.assertTrue(client.containers.created.removed)
+
+    def test_local_docker_run_removes_container_when_wait_times_out(self) -> None:
+        """A blocking run timeout after submit() must force-remove the container."""
+        from types import SimpleNamespace
+
+        from simple_agent_lab.evals.backends import docker_local
+        from simple_agent_lab.evals.backends.docker_local import LocalDockerBackend
+        from simple_agent_lab.evals.protocols import ContainerBinding
+        from simple_agent_lab.evals.protocols import RunHandle
+
+        class FakeNotFound(Exception):
+            pass
+
+        class FakeWaitTimeout(Exception):
+            pass
+
+        class FakeContainer:
+            def __init__(self) -> None:
+                self.removed = False
+
+            def wait(self) -> object:
+                raise FakeWaitTimeout("wait timed out")
+
+            def remove(self, *, force: bool) -> None:
+                self.removed = force
+
+        class FakeContainers:
+            def __init__(self, container: FakeContainer) -> None:
+                self.container = container
+
+            def get(self, name: str) -> FakeContainer:
+                return self.container
+
+        class FakeClient:
+            def __init__(self, container: FakeContainer) -> None:
+                self.containers = FakeContainers(container)
+
+        container = FakeContainer()
+        backend = LocalDockerBackend()
+        backend.submit = mock.Mock(
+            return_value=RunHandle(backend_kind="local-docker", ref="run-1", run_dir="")
+        )
+        backend._client = mock.Mock(return_value=FakeClient(container))
+        spec = RunSpec(
+            suite_name="s",
+            container_module="m",
+            instance_id="i",
+            launch_spec=LaunchSpec(image="img", workdir="/w"),
+            max_turns=1,
+            provider="fake",
+            api_kind="openai-chat",
+            run_name="run-1",
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = LocalDirStore(Path(tmp)).bind(Path(tmp) / "run")
+            fake_docker = SimpleNamespace(errors=SimpleNamespace(NotFound=FakeNotFound))
+            with mock.patch.object(docker_local, "docker", fake_docker):
+                with self.assertRaises(FakeWaitTimeout):
+                    backend.run(spec, store=store, binding=ContainerBinding())
+        self.assertTrue(container.removed)
+
 
 class _FakeRemoteContainer:
     """Stand-in for a docker-py container: tar in (put), local FS, tar out (get)."""
