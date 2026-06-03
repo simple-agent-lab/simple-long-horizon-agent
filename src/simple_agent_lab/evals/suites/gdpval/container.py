@@ -1,8 +1,8 @@
 """GDPVal container half for the Simple Agent Lab eval framework.
 
-First-version scope: run the solver only, with a no-web context-managed
-tool-call agent, and collect the workspace deliverables. It intentionally does
-not import or call swalm.
+First-version scope: run the solver only, with a no-web tool-call agent, and
+collect the workspace deliverables. It intentionally does not import or call
+swalm.
 """
 
 from __future__ import annotations
@@ -15,22 +15,14 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from simple_agent_lab.compression import SummarizeStrategy, ToolCompactStrategy
-from simple_agent_lab.context_view import ContextPolicy
 from simple_agent_lab.core import Agent
 from simple_agent_lab.evals.stores import container_store_from_env
 from simple_agent_lab.llm.provider import Provider
 from simple_agent_lab.llm_agent import make_llm_agent
 
 from .assets import write_reference_files
-from .prompts import (
-    GDPVAL_CONTEXT_MANAGED_SYSTEM_PROMPT,
-    GDPVAL_SUMMARY_SYSTEM_PROMPT,
-)
+from .prompts import GDPVAL_SYSTEM_PROMPT
 from .tools import make_gdpval_tools
-
-CONTEXT_THRESHOLD_TOKENS = 120_000
-KEEP_RECENT_MESSAGES = 12
 
 
 def build_agent(
@@ -39,39 +31,17 @@ def build_agent(
     cwd: Path,
     request_extra: Mapping[str, Any] | None = None,
 ) -> Agent:
-    """Build the first-version GDPVal context-managed solver."""
+    """Build the first-version GDPVal solver."""
 
     workdir = Path(cwd)
     reference_dir = _reference_dir_for(workdir)
-    compressor = make_llm_agent(
-        name="gdpval_summarizer",
-        provider=provider,
-        system_prompt=GDPVAL_SUMMARY_SYSTEM_PROMPT,
-        target="gdpval_solver",
-        request_extra=request_extra,
-    )
-    policy = ContextPolicy(
-        strategies=(
-            ToolCompactStrategy(
-                threshold_tokens=CONTEXT_THRESHOLD_TOKENS,
-                keep_recent_exchanges=2,
-                preview_chars=800,
-            ),
-            SummarizeStrategy(
-                compressor=compressor,
-                threshold_tokens=CONTEXT_THRESHOLD_TOKENS,
-                keep_recent=KEEP_RECENT_MESSAGES,
-            ),
-        )
-    )
     return make_llm_agent(
         name="gdpval_solver",
         provider=provider,
         role="Complete GDPVal tasks by creating deliverables in WORKDIR.",
         tools=make_gdpval_tools(workdir=workdir, reference_dir=reference_dir),
-        system_prompt=GDPVAL_CONTEXT_MANAGED_SYSTEM_PROMPT,
+        system_prompt=GDPVAL_SYSTEM_PROMPT,
         target="user",
-        context_policy=policy,
         request_extra=request_extra,
     )
 

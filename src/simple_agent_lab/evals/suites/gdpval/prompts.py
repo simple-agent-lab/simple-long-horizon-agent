@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from textwrap import dedent
 
-GDPVAL_CONTEXT_MANAGED_SYSTEM_PROMPT = dedent(
+GDPVAL_SYSTEM_PROMPT = dedent(
     """\
     You are a long-horizon task agent operating in a sandboxed workspace.
 
@@ -40,24 +40,5 @@ GDPVAL_CONTEXT_MANAGED_SYSTEM_PROMPT = dedent(
     - When the task is complete, send a normal assistant message with no tool calls.
     - The final message must start with "Final answer:".
     - Mention the absolute paths of any generated files and a brief summary of what was completed or verified.
-    """
-)
-
-GDPVAL_SUMMARY_SYSTEM_PROMPT = (
-    "You are a context handoff summarizer. Return only a concise plain-text "
-    "summary. Do not continue the task, do not call tools, and do not include "
-    "a final answer."
-)
-
-GDPVAL_SUMMARY_INSTRUCTION = dedent(
-    """\
-    Create a compact handoff summary for another model that will continue this GDPVal task.
-
-    Include:
-    - Current progress, completed work, and key decisions
-    - Deliverables already created or still missing
-    - Important evidence, file paths, cached artifacts, and extracted facts
-    - Failed or low-yield paths that should not be retried without new evidence
-    - Concrete next steps toward completion and verification
     """
 )

@@ -91,10 +91,10 @@ workarounds, and troubleshooting.
 
 ## GDPVal
 
-The GDPVal runner drives the first-version `tool-call-context-managed` solver
-and collects workspace artifacts. Add `--judge` to run the first-version
-rubric-only follow-up judge and write `judge_summary.jsonl` /
-`judge_summary.json` beside the solver run.
+The GDPVal runner drives a first-version plain tool-calling solver and collects
+workspace artifacts. Add `--judge` to run the first-version rubric-only
+follow-up judge and write `judge_summary.jsonl` / `judge_summary.json` beside
+the solver run.
 
 ```bash
 uv run --with datasets python runs/run_gdpval.py --limit 10

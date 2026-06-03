@@ -5,7 +5,10 @@ This is a first-version GDPVal integration for Simple Agent Lab.
 Scope:
 
 - Solver by default, with optional first-version rubric judge via `--judge`.
-- Agent mode: `tool-call-context-managed` only.
+- Agent: a plain Simple Agent Lab `make_llm_agent` tool-calling agent.
+- GDPVal source mode: rows are normalized for the `tool-call-context-managed`
+  setting, but this integration does not add a custom summarizer or context
+  compression layer.
 - Runtime dependency: standard library plus the installed `simple-agent-lab`
   wheel. The implementation does not import `swalm`.
 - Tool surface: local file/read/search/write/edit/bash/todo tools. Web tools

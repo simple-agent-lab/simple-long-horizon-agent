@@ -17,8 +17,6 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from simple_agent_lab.compression import SummarizeStrategy, ToolCompactStrategy
-from simple_agent_lab.context_view import ContextPolicy
 from simple_agent_lab.core import Agent
 from simple_agent_lab.llm.provider import Provider
 from simple_agent_lab.llm_agent import make_llm_agent
@@ -29,8 +27,6 @@ from .judge_scoring import normalize_rubrics, parse_judge_payload, score_judgmen
 from .tools import make_gdpval_tools
 
 JUDGE_RESULT_FILE = "_gdpval_judge_result.json"
-CONTEXT_THRESHOLD_TOKENS = 120_000
-KEEP_RECENT_MESSAGES = 12
 
 
 def build_agent(
@@ -43,30 +39,6 @@ def build_agent(
 
     workdir = Path(cwd)
     input_dir = _input_dir_for(workdir)
-    compressor = make_llm_agent(
-        name="gdpval_judge_summarizer",
-        provider=provider,
-        system_prompt=(
-            "Summarize the judge's prior file inspections and scoring state. "
-            "Preserve concrete evidence, filenames, and rubric decisions."
-        ),
-        target="gdpval_judge",
-        request_extra=request_extra,
-    )
-    policy = ContextPolicy(
-        strategies=(
-            ToolCompactStrategy(
-                threshold_tokens=CONTEXT_THRESHOLD_TOKENS,
-                keep_recent_exchanges=2,
-                preview_chars=800,
-            ),
-            SummarizeStrategy(
-                compressor=compressor,
-                threshold_tokens=CONTEXT_THRESHOLD_TOKENS,
-                keep_recent=KEEP_RECENT_MESSAGES,
-            ),
-        )
-    )
     return make_llm_agent(
         name="gdpval_judge",
         provider=provider,
@@ -74,7 +46,6 @@ def build_agent(
         tools=make_gdpval_tools(workdir=workdir, reference_dir=input_dir),
         system_prompt=GDPVAL_JUDGE_SYSTEM_PROMPT,
         target="user",
-        context_policy=policy,
         request_extra=request_extra,
     )
 

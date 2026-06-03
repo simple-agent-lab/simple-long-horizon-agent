@@ -37,8 +37,8 @@ _GOLD_KEYS = {
 class GdpvalSuite:
     """Solver-only GDPVal suite.
 
-    First-version scope: run the context-managed tool-call solver and collect
-    workspace artifacts. Judge scoring is intentionally left out.
+    First-version scope: run a plain tool-call solver and collect workspace
+    artifacts. Judge scoring is intentionally left out.
     """
 
     name = "gdpval"

@@ -27,6 +27,7 @@ from simple_agent_lab.evals.suites.gdpval.judge_scoring import (
     score_judgment,
 )
 from simple_agent_lab.evals.suites.gdpval.tools import make_gdpval_tools
+from simple_agent_lab.llm.provider import Provider
 from simple_agent_lab.tools import tool_result_text
 
 
@@ -252,6 +253,16 @@ class GdpvalSuiteTest(unittest.TestCase):
             self.assertEqual(result["files"][0]["relative_path"], "answer.txt")
             self.assertGreater(result["workspace_archive_bytes"], 0)
             self.assertTrue(Path(result["workspace_archive_path"]).is_file())
+
+    def test_gdpval_agents_do_not_install_custom_context_policy(self) -> None:
+        provider = Provider(id="fake", api="fake", model="fake-model")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            solver = container.build_agent(provider=provider, cwd=root / "solver")
+            judge = judge_container.build_agent(provider=provider, cwd=root / "judge")
+
+        self.assertIsNone(solver.context_policy)
+        self.assertIsNone(judge.context_policy)
 
     def test_judge_scoring_normalizes_rubrics_and_weighted_score(self) -> None:
         rubrics = json.dumps(
