@@ -31,7 +31,7 @@ from .context_view import (
     ContextPolicy,
     build_context_view,
 )
-from .llm import messages_to_llm_messages
+from .llm import llm_message, messages_to_llm_messages
 from .messages import (
     AssistantMessage,
     ContentInput,
@@ -73,6 +73,11 @@ class Agent:
     # has no effect on the in-flight loop.
     tools: tuple[AgentTool, ...] = ()
     context_policy: ContextPolicy | None = None
+    # The system prompt `generate` actually sends to the model. Closed over
+    # inside `generate` (see `llm_agent.py`), so the loop can't see it on the
+    # wire; mirrored here purely so `run()` can record it in the request trace
+    # alongside the messages. Empty means "no system prompt was sent".
+    system_prompt: str = ""
 
     def __post_init__(self) -> None:
         if not isinstance(self.tools, tuple):
@@ -140,7 +145,15 @@ def run(
         )
         visible = list(context.messages)
         # Match make_llm_agent / provider wire shape (no routing headers).
+        # Prepend the agent's system prompt as a leading system message so the
+        # recorded request mirrors what actually crosses the wire (adapters
+        # send it as the first system entry); without this the trace would
+        # silently drop the system prompt that `generate` passes via
+        # `LLMRequest.system_prompt`. `visible_count` stays the conversation
+        # count; `llm_message_count` reflects the full payload including it.
         llm_payload = messages_to_llm_messages(visible, with_header=False)
+        if agent.system_prompt:
+            llm_payload = [llm_message("system", agent.system_prompt), *llm_payload]
 
         yield state.record_event(
             ModelRequestEvent(

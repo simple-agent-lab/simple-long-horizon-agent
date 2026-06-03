@@ -56,13 +56,16 @@ def make_llm_agent(
     without each caller re-wrapping `generate`.
     """
     tools_tuple = tuple(tools)
+    # Resolve the effective system prompt once so the value `generate` sends
+    # and the value recorded on the `Agent` (for the request trace) can't drift.
+    effective_system_prompt = system_prompt or role or ""
 
     def generate(visible: list[Message]) -> Message:
         request = LLMRequest(
             provider=provider,
             messages=messages_to_llm_messages(visible),
             tools=[tool_to_llm_tool(tool) for tool in tools_tuple],
-            system_prompt=system_prompt or role or None,
+            system_prompt=effective_system_prompt or None,
             extra=dict(request_extra or {}),
         )
         response = complete_with_tool_call_retry(request)
@@ -80,4 +83,5 @@ def make_llm_agent(
         role=role,
         tools=tools_tuple,
         context_policy=context_policy,
+        system_prompt=effective_system_prompt,
     )
