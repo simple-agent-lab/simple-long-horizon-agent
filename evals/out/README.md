@@ -21,6 +21,18 @@ evals/out/
 │           └── out/
 │               ├── trajectory.jsonl   ← three-layer trace (events, spans, model_turns)
 │               └── prediction.jsonl   ← SWE-bench prediction with model_patch
+├── swebench_multilingual/             ← SWE-bench Multilingual suite outputs
+│   ├── README.md
+│   ├── instance_<id>.jsonl
+│   ├── wheelhouse/
+│   │   └── cp311-manylinux/*.whl
+│   └── <run-id>/
+│       └── <instance-id>/
+│           ├── input/
+│           │   └── instance.json
+│           └── out/
+│               ├── trajectory.jsonl
+│               └── prediction.jsonl
 └── swebench_pro/                      ← SWE-bench Pro suite outputs
     ├── README.md
     ├── instance_<id>.jsonl
@@ -35,8 +47,9 @@ evals/out/
                 └── prediction.jsonl
 ```
 
-Each benchmark suite gets its own subdirectory under `evals/out/`, matching
-the adapter directory name under `evals/`.
+Each benchmark run family gets its own subdirectory under `evals/out/`. Some
+families share an adapter, such as SWE-bench Verified, Multilingual, and Pro
+through `evals/swebench/`.
 
 ## Reproducing the Structure
 
@@ -49,7 +62,8 @@ bash runs/run_swebench_suite.sh sympy__sympy-23824
 ```
 
 Outputs land under `swebench/<run-id>/<instance-id>/out/`.
-SWE-bench Pro outputs use the same layout under
+SWE-bench Multilingual and Pro outputs use the same layout under
+`swebench_multilingual/<run-id>/<instance-id>/out/` and
 `swebench_pro/<run-id>/<instance-id>/out/`.
 
 ## Adding a New Benchmark

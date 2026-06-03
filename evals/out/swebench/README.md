@@ -1,6 +1,7 @@
-# SWE-bench Outputs
+# SWE-bench Verified Outputs
 
-Each run is named `swebench-<timestamp>` or a custom label.
+Single-instance smoke runs are named `swebench-<timestamp>` by default.
+Verified batch runs are named `verified-<timestamp>`.
 
 ## Layout
 
@@ -25,9 +26,8 @@ evals/out/swebench/
 # Quick smoke run on a single instance
 bash runs/run_swebench_suite.sh sympy__sympy-23824
 
-# Batch runs
+# Full SWE-bench Verified split
 bash runs/run_swebench_verified.sh --all --parallel 4
-bash runs/run_swebench_pro.sh --all --parallel 4
 ```
 
 ## Evaluating Predictions

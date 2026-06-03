@@ -32,6 +32,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 DEFAULT_DATASET = "princeton-nlp/SWE-bench_Verified"
+DEFAULT_MULTILINGUAL_DATASET = "SWE-bench/SWE-bench_Multilingual"
 DEFAULT_SPLIT = "test"
 DEFAULT_WHEELHOUSE_MOUNT = "/agent/wheelhouse"
 DEFAULT_WORKDIR = "/testbed"
@@ -39,6 +40,10 @@ DEFAULT_PRO_WORKDIR = "/app"
 DEFAULT_PRO_DOCKERHUB_USERNAME = "jefzda"
 DEFAULT_RUN_ROOT = ROOT / "evals/out/swebench"
 DEFAULT_WHEELHOUSE = ROOT / "evals/out/swebench/wheelhouse/cp311-manylinux"
+DEFAULT_MULTILINGUAL_RUN_ROOT = ROOT / "evals/out/swebench_multilingual"
+DEFAULT_MULTILINGUAL_WHEELHOUSE = (
+    ROOT / "evals/out/swebench_multilingual/wheelhouse/cp311-manylinux"
+)
 DEFAULT_PRO_RUN_ROOT = ROOT / "evals/out/swebench_pro"
 DEFAULT_PRO_WHEELHOUSE = ROOT / "evals/out/swebench_pro/wheelhouse/cp311-manylinux"
 DEFAULT_UV_BINARY = shutil.which("uv") or ""
@@ -52,6 +57,7 @@ API_KIND_CHOICES = ("openai-chat", "openai-responses")
 AGENT_FLAVOR_CHOICES = ("bash", "bash_task")
 DEFAULT_AGENT_FLAVOR = "bash"
 SWE_BENCH_PRO_DATASET_MARKER = "swe-bench_pro"
+SWE_BENCH_MULTILINGUAL_DATASET_MARKER = "swe-bench_multilingual"
 OPENAI_PASSTHROUGH_ENVS = (
     OPENAI_MODEL_ENV,
     OPENAI_AUTH_ENV,
@@ -109,9 +115,17 @@ def is_swebench_pro(*, dataset_name: str = "", instance_id: str = "") -> bool:
     )
 
 
+def is_swebench_multilingual(*, dataset_name: str = "") -> bool:
+    """Multilingual check by dataset name."""
+
+    return SWE_BENCH_MULTILINGUAL_DATASET_MARKER in dataset_name.casefold()
+
+
 def suite_for_instance(*, dataset_name: str, instance_id: str) -> str:
     if is_swebench_pro(dataset_name=dataset_name, instance_id=instance_id):
         return "swebench_pro"
+    if is_swebench_multilingual(dataset_name=dataset_name):
+        return "swebench_multilingual"
     return "swebench"
 
 

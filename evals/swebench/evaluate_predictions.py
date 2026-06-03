@@ -1,7 +1,7 @@
 """Run or normalize SWE-bench evaluation results.
 
-Supports both SWE-bench Verified and SWE-bench Pro. Pass ``--pro`` to
-switch to Pro mode.
+Supports SWE-bench Verified, SWE-bench Multilingual, and SWE-bench Pro. Pass
+``--multilingual`` or ``--pro`` to switch away from Verified mode.
 
 By default this script normalizes existing official harness output into the
 project-owned EvalResult JSONL shape. Pass ``--run-official`` to invoke
@@ -37,11 +37,21 @@ from simple_agent_lab.trajectory import json_safe, read_jsonl, write_jsonl  # no
 
 
 DEFAULT_DATASET = "princeton-nlp/SWE-bench_Verified"
+DEFAULT_MULTILINGUAL_DATASET = "SWE-bench/SWE-bench_Multilingual"
 DEFAULT_SPLIT = "test"
 DEFAULT_RUN_ID = "simple-agent-lab-swebench"
 DEFAULT_PREDICTIONS = ROOT / "evals/out/swebench_predictions.jsonl"
 DEFAULT_EVAL_RESULTS = ROOT / "evals/out/swebench_eval_results.jsonl"
 DEFAULT_OFFICIAL_OUTPUT_DIR = ROOT / "evals/out/swebench_official"
+DEFAULT_MULTILINGUAL_PREDICTIONS = (
+    ROOT / "evals/out/swebench_multilingual/swebench_multilingual_predictions.jsonl"
+)
+DEFAULT_MULTILINGUAL_EVAL_RESULTS = (
+    ROOT / "evals/out/swebench_multilingual/swebench_multilingual_eval_results.jsonl"
+)
+DEFAULT_MULTILINGUAL_OFFICIAL_OUTPUT_DIR = (
+    ROOT / "evals/out/swebench_multilingual_official"
+)
 DEFAULT_PRO_PREDICTIONS = ROOT / "evals/out/swebench_pro/swebench_pro_predictions.jsonl"
 DEFAULT_PRO_EVAL_RESULTS = (
     ROOT / "evals/out/swebench_pro/swebench_pro_eval_results.jsonl"
@@ -405,6 +415,7 @@ def eval_results_for_predictions(
     predictions: list[dict[str, Any]],
     official_results: dict[str, dict[str, Any]],
     *,
+    suite: str | None = None,
     allow_missing_reports: bool,
 ) -> list[EvalResult]:
     results: list[EvalResult] = []
@@ -423,7 +434,7 @@ def eval_results_for_predictions(
                 "status": "missing_report",
                 "report_source": None,
             }
-        results.append(eval_result_from_official(prediction, official))
+        results.append(eval_result_from_official(prediction, official, suite=suite))
 
     if missing:
         raise SystemExit(
@@ -472,6 +483,7 @@ def eval_rows_from_official(
     predictions: list[dict[str, Any]],
     official_results: dict[str, dict[str, Any]],
     *,
+    suite: str | None = None,
     allow_missing_reports: bool = True,
 ) -> list[dict[str, Any]]:
     """Importable core: predictions + official harness results -> eval-result rows.
@@ -483,7 +495,10 @@ def eval_rows_from_official(
     """
 
     results = eval_results_for_predictions(
-        predictions, official_results, allow_missing_reports=allow_missing_reports
+        predictions,
+        official_results,
+        suite=suite,
+        allow_missing_reports=allow_missing_reports,
     )
     return [eval_result_record(result) for result in results]
 
@@ -491,15 +506,13 @@ def eval_rows_from_official(
 def eval_result_from_official(
     prediction: dict[str, Any],
     official: dict[str, Any],
+    *,
+    suite: str | None = None,
 ) -> EvalResult:
     instance_id = str(prediction["instance_id"])
     pro_prediction = "patch" in prediction or "prefix" in prediction
-    suite = "swebench_pro" if pro_prediction else "swebench"
-    scorer = (
-        "swebench_pro.official_harness.v1"
-        if pro_prediction
-        else "swebench.official_harness.v1"
-    )
+    suite = suite or ("swebench_pro" if pro_prediction else "swebench")
+    scorer = f"{suite}.official_harness.v1"
     patch = str(prediction.get("model_patch") or prediction.get("patch") or "")
     model_name = prediction.get("model_name_or_path") or prediction.get("prefix")
     resolved = bool(official.get("resolved"))
@@ -563,6 +576,9 @@ def reuse_eval_row(
         str(result.get("model_patch", "")),
         dataset_name=dataset_name,
     )
+    suite = harness.suite_for_instance(
+        dataset_name=dataset_name, instance_id=instance_id
+    )
     if result.get("resolved") is not None:
         official = _official_from_verdict(result)
     elif result.get("eval_log") is not None:
@@ -579,7 +595,9 @@ def reuse_eval_row(
             "status": "no_reuse_verdict",
             "report_source": "in-environment reuse (no verdict)",
         }
-    return eval_result_record(eval_result_from_official(prediction, official))
+    return eval_result_record(
+        eval_result_from_official(prediction, official, suite=suite)
+    )
 
 
 def _official_from_verdict(result: Mapping[str, Any]) -> dict[str, Any]:
@@ -658,11 +676,11 @@ def predictions_from_run_dirs(
     Generic runs write ``<run-root>/<run-id>/<instance-id>/out/result.json`` with
     ``{"model_patch": ...}``. The official harness instead wants a predictions
     JSONL keyed by instance id + model name. This rebuilds that record via
-    `harness.prediction_record` (so Verified and Pro shapes stay correct), taking
-    the instance id from the staged ``input/instance.json`` (falling back to the
-    run-dir name). Empty-patch runs are kept — the harness counts them unresolved,
-    so totals match the launched set. With ``run_id`` only that run is collected;
-    without it, every run under ``run_root``.
+    `harness.prediction_record` (so Verified, Multilingual, and Pro shapes stay
+    correct), taking the instance id from the staged ``input/instance.json``
+    (falling back to the run-dir name). Empty-patch runs are kept — the harness
+    counts them unresolved, so totals match the launched set. With ``run_id``
+    only that run is collected; without it, every run under ``run_root``.
     """
 
     from evals.swebench import harness
@@ -703,7 +721,10 @@ def _instance_id_for_run_dir(run_dir: Path) -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run or normalize SWE-bench (Verified / Pro) evaluation results."
+        description=(
+            "Run or normalize SWE-bench (Verified / Multilingual / Pro) "
+            "evaluation results."
+        )
     )
     parser.add_argument(
         "--predictions",
@@ -728,6 +749,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--pro",
         action="store_true",
         help="Evaluate SWE-bench Pro predictions instead of Verified.",
+    )
+    parser.add_argument(
+        "--multilingual",
+        action="store_true",
+        help="Evaluate SWE-bench Multilingual predictions instead of Verified.",
     )
     parser.add_argument(
         "--instances",
@@ -818,11 +844,20 @@ def build_parser() -> argparse.ArgumentParser:
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     args = build_parser().parse_args(argv)
+    if args.pro and args.multilingual:
+        raise SystemExit("Pass at most one of --pro or --multilingual.")
     if args.pro:
         args.predictions = args.predictions or str(DEFAULT_PRO_PREDICTIONS)
         args.jsonl = args.jsonl or str(DEFAULT_PRO_EVAL_RESULTS)
         args.official_output_dir = args.official_output_dir or str(
             DEFAULT_PRO_OFFICIAL_OUTPUT_DIR
+        )
+    elif args.multilingual:
+        args.dataset_name = DEFAULT_MULTILINGUAL_DATASET
+        args.predictions = args.predictions or str(DEFAULT_MULTILINGUAL_PREDICTIONS)
+        args.jsonl = args.jsonl or str(DEFAULT_MULTILINGUAL_EVAL_RESULTS)
+        args.official_output_dir = args.official_output_dir or str(
+            DEFAULT_MULTILINGUAL_OFFICIAL_OUTPUT_DIR
         )
     else:
         args.predictions = args.predictions or str(DEFAULT_PREDICTIONS)
@@ -867,9 +902,17 @@ def main() -> None:
 
     predictions = load_predictions(args.predictions)
     official_results = load_official_results(args)
+    suite = (
+        "swebench_pro"
+        if args.pro
+        else "swebench_multilingual"
+        if args.multilingual
+        else "swebench"
+    )
     rows = eval_rows_from_official(
         predictions,
         official_results,
+        suite=suite,
         allow_missing_reports=args.allow_missing_reports,
     )
     write_jsonl(args.jsonl, rows)

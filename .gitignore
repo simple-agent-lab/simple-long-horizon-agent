@@ -26,6 +26,9 @@ evals/out/*
 !evals/out/swebench/
 evals/out/swebench/*
 !evals/out/swebench/README.md
+!evals/out/swebench_multilingual/
+evals/out/swebench_multilingual/*
+!evals/out/swebench_multilingual/README.md
 !evals/out/swebench_pro/
 evals/out/swebench_pro/*
 !evals/out/swebench_pro/README.md

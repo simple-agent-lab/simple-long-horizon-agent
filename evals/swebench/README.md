@@ -4,9 +4,10 @@ This directory is the first scene-level evaluation suite adapter.
 
 The adapter maps SWE-bench onto the generic `Suite` protocol (ADR 0017):
 
-- `suite.py` defines `SwebenchSuite`, mapping SWE-bench Verified and SWE-bench
-  Pro onto one `Suite` whose per-suite differences (image, workdir, shell,
-  entrypoint) ride along as `launch_spec` data. The agent runs through
+- `suite.py` defines `SwebenchSuite`, mapping SWE-bench Verified, SWE-bench
+  Multilingual, and SWE-bench Pro onto one `Suite` whose per-suite differences
+  (image, workdir, shell, entrypoint) ride along as `launch_spec` data. The
+  agent runs through
   `run_suite_instance(SwebenchSuite, LocalDockerBackend, LocalDirStore)` — the
   same primitive every suite uses; there is no bespoke launcher.
 - `harness.py` holds the host-side helpers the suite and the run entry share:
@@ -257,19 +258,23 @@ bash runs/run_swebench_verified.sh
 bash runs/run_swebench_verified.sh sympy__sympy-23824
 bash runs/run_swebench_verified.sh --all --parallel 4
 
+bash runs/run_swebench_multilingual.sh
+bash runs/run_swebench_multilingual.sh --all --parallel 4
+
 bash runs/run_swebench_pro.sh
 bash runs/run_swebench_pro.sh instance_navidrome__navidrome-8e640bb8580affb7e0ea6225c0bbe240186b6b08
 bash runs/run_swebench_pro.sh --all --parallel 4
 ```
 
 The scripts keep each suite under its own flat output root. SWE-bench Verified
-uses `evals/out/swebench/`; SWE-bench Pro uses the sibling
-`evals/out/swebench_pro/`. Each root has `instance_<id>.jsonl` caches,
-`wheelhouse/` provider wheels, and `<run-id>/<instance-id>/` per-instance run
-outputs. When instance records are not cached, the scripts fetch HuggingFace
-rows with the `datasets` package from `uv sync --extra swebench`. On macOS the
-scripts also fetch a static Linux `uv` once (cached under `evals/out/uv-linux/`)
-so the container can build its Python 3.11 venv.
+uses `evals/out/swebench/`; SWE-bench Multilingual and Pro use sibling roots
+`evals/out/swebench_multilingual/` and `evals/out/swebench_pro/`. Each root has
+`instance_<id>.jsonl` caches, `wheelhouse/` provider wheels, and
+`<run-id>/<instance-id>/` per-instance run outputs. When instance records are
+not cached, the scripts fetch HuggingFace rows with the `datasets` package from
+`uv sync --extra swebench`. On macOS the scripts also fetch a static Linux `uv`
+once (cached under `evals/out/uv-linux/`) so the container can build its Python
+3.11 venv.
 
 For a single instance with full control over arguments, call the run entry
 directly on an already-prepared instance JSONL:
@@ -341,6 +346,14 @@ harness or normalize an existing Pro result file:
 bash runs/eval_swebench.sh --pro \
   --predictions evals/out/swebench_pro/swebench_pro_predictions.jsonl \
   --results-json evals/out/swebench_pro_eval/eval_results.json
+```
+
+For SWE-bench Multilingual predictions, pass `--multilingual`; it uses the
+standard SWE-bench harness with the Multilingual dataset name:
+
+```bash
+bash runs/eval_swebench.sh --multilingual --run-official \
+  --predictions evals/out/swebench_multilingual/swebench_multilingual_predictions.jsonl
 ```
 
 Official SWE-bench Pro evaluation additionally requires a local checkout of

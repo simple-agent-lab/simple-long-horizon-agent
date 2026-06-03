@@ -49,6 +49,7 @@ except ImportError:  # pragma: no cover - exercised only without the extra
     pass
 
 BACKEND_KIND = "local-docker"
+DEFAULT_DOCKER_TIMEOUT_S = 300.0
 
 
 def _require_docker() -> Any:
@@ -107,12 +108,21 @@ def start_container(
         if before_start is not None:
             before_start(container)
         container.start()
-    except (docker.errors.APIError, OSError):
+    except Exception:
         # Don't leave the named container behind, or the next attempt (retry /
         # resubmit) collides on the deterministic name with a 409.
-        container.remove(force=True)
+        _remove_container_quietly(container)
         raise
     return container
+
+
+def _remove_container_quietly(container: Any) -> None:
+    """Best-effort cleanup that preserves the original Docker failure."""
+
+    try:
+        container.remove(force=True)
+    except Exception:
+        pass
 
 
 def exit_status(state: Mapping[str, Any]) -> int:
@@ -185,15 +195,17 @@ class LocalDockerBackend:
         pull: str = "missing",
         wheelhouse: str | Path | None = None,
         uv_binary: str | Path | None = None,
+        docker_timeout_s: float = DEFAULT_DOCKER_TIMEOUT_S,
     ) -> None:
         self.user = user
         self.keep_container = keep_container
         self.pull = pull
         self.wheelhouse = wheelhouse
         self.uv_binary = uv_binary
+        self.docker_timeout_s = docker_timeout_s
 
     def _client(self) -> Any:
-        return _require_docker().from_env()
+        return _require_docker().from_env(timeout=self.docker_timeout_s)
 
     def submit(
         self,
@@ -257,9 +269,18 @@ class LocalDockerBackend:
         handle = self.submit(spec, store=store, binding=binding)
         client = self._client()
         try:
-            client.containers.get(handle.ref).wait()
+            container = client.containers.get(handle.ref)
         except docker.errors.NotFound:
             pass  # finished + reaped already; poll() reads the terminal state
+        else:
+            try:
+                container.wait()
+            except docker.errors.NotFound:
+                pass  # finished + reaped already; poll() reads the terminal state
+            except Exception:
+                if not self.keep_container:
+                    _remove_container_quietly(container)
+                raise
         outcome = self.poll(handle)
         if outcome is not None:
             return outcome

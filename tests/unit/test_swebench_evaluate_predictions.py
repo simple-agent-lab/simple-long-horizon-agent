@@ -20,6 +20,10 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
             evaluate_predictions.ROOT / "evals/out/swebench_official",
         )
         self.assertEqual(
+            evaluate_predictions.DEFAULT_MULTILINGUAL_OFFICIAL_OUTPUT_DIR,
+            evaluate_predictions.ROOT / "evals/out/swebench_multilingual_official",
+        )
+        self.assertEqual(
             evaluate_predictions.DEFAULT_PRO_EVAL_SCRIPT,
             Path("/tmp/SWE-bench_Pro-os/swe_bench_pro_eval.py"),
         )
@@ -49,6 +53,29 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
             args.official_output_dir,
             str(evaluate_predictions.DEFAULT_PRO_OFFICIAL_OUTPUT_DIR),
         )
+
+    def test_multilingual_mode_defaults_to_multilingual_output_paths(self) -> None:
+        args = evaluate_predictions.parse_args(["--multilingual"])
+
+        self.assertEqual(
+            args.predictions,
+            str(
+                evaluate_predictions.ROOT
+                / "evals/out/swebench_multilingual/swebench_multilingual_predictions.jsonl"
+            ),
+        )
+        self.assertEqual(
+            args.jsonl,
+            str(
+                evaluate_predictions.ROOT
+                / "evals/out/swebench_multilingual/swebench_multilingual_eval_results.jsonl"
+            ),
+        )
+        self.assertEqual(
+            args.official_output_dir,
+            str(evaluate_predictions.DEFAULT_MULTILINGUAL_OFFICIAL_OUTPUT_DIR),
+        )
+        self.assertEqual(args.dataset_name, "SWE-bench/SWE-bench_Multilingual")
 
     def test_official_paths_default_under_run_specific_output_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -203,6 +230,30 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
         self.assertIsNotNone(result.meta)
         assert result.meta is not None
         self.assertEqual(result.meta["suite"], "swebench_pro")
+
+    def test_multilingual_eval_result_uses_distinct_suite_metadata(self) -> None:
+        result = evaluate_predictions.eval_result_from_official(
+            {
+                "instance_id": "kotlin__repo-123",
+                "model_name_or_path": "simple-agent-lab-multilingual",
+                "model_patch": "diff --git a/src/App.kt b/src/App.kt\n",
+            },
+            {
+                "resolved": False,
+                "status": "unresolved",
+                "report_source": "report.json",
+            },
+            suite="swebench_multilingual",
+        )
+
+        self.assertEqual(result.scorer, "swebench_multilingual.official_harness.v1")
+        self.assertEqual(
+            result.metrics["model_name_or_path"],
+            "simple-agent-lab-multilingual",
+        )
+        self.assertIsNotNone(result.meta)
+        assert result.meta is not None
+        self.assertEqual(result.meta["suite"], "swebench_multilingual")
 
     def test_run_official_pro_harness_accepts_jsonl_instances(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -392,6 +443,15 @@ class ReuseEvalRowTest(unittest.TestCase):
             {"model_patch": "diff", "resolved": False},
         )
         self.assertFalse(row["passed"])
+
+    def test_multilingual_verdict_keeps_multilingual_suite_metadata(self) -> None:
+        row = evaluate_predictions.reuse_eval_row(
+            _instance("kotlin__repo-123"),
+            {"model_patch": "diff", "resolved": True},
+            dataset_name="SWE-bench/SWE-bench_Multilingual",
+        )
+        self.assertEqual(row["scorer"], "swebench_multilingual.official_harness.v1")
+        self.assertEqual(row["meta"]["suite"], "swebench_multilingual")
 
     def test_missing_verdict_is_unresolved_diagnostic(self) -> None:
         row = evaluate_predictions.reuse_eval_row(

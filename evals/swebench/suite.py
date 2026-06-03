@@ -1,7 +1,8 @@
 """SWE-bench as a `Suite` (ADR 0017) — the reference driver case.
 
-This is the *host half*: it maps SWE-bench Verified and SWE-bench Pro onto one
-`Suite` whose `launch_spec` carries the per-suite differences as **data**
+This is the *host half*: it maps SWE-bench Verified, SWE-bench Multilingual, and
+SWE-bench Pro onto one `Suite` whose `launch_spec` carries the per-suite
+differences as **data**
 (image, workdir, shell, entrypoint) instead of the runner branching on
 ``is_swebench_pro_instance(...)``. It delegates to the shared image/launch
 helpers in `harness` so behavior is consistent across the run entry and scoring.
@@ -24,9 +25,8 @@ from . import harness
 
 
 class SwebenchSuite:
-    """`Suite` for the SWE-bench family (Verified + Pro)."""
+    """`Suite` for the SWE-bench family (Verified + Multilingual + Pro)."""
 
-    name = "swebench"
     # Container half ships in the wheel; the generic runner imports it by
     # dotted path with zero file copying.
     container_module = "simple_agent_lab.evals.suites.swebench.container"
@@ -44,6 +44,10 @@ class SwebenchSuite:
         in_env_scoring: bool = False,
     ) -> None:
         self.dataset_name = dataset_name
+        self.name = harness.suite_for_instance(
+            dataset_name=self.dataset_name,
+            instance_id="",
+        )
         self.namespace = namespace
         self.instance_image_tag = instance_image_tag
         self.env_image_tag = env_image_tag

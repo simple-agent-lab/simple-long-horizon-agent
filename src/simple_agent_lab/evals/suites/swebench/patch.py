@@ -148,6 +148,51 @@ LANGUAGE_ALIASES = {
     "swift": ["swift"],
 }
 
+_REPO_LANGUAGE_MAP: dict[str, str] = {
+    "apache/druid": "java",
+    "apache/lucene": "java",
+    "astral-sh/ruff": "rust",
+    "axios/axios": "js",
+    # Babel's multilingual tasks edit TS sources and can generate lib/*.js.
+    "babel/babel": "ts",
+    "briannesbitt/carbon": "php",
+    "burntsushi/ripgrep": "rust",
+    "caddyserver/caddy": "go",
+    "facebook/docusaurus": "ts",
+    "faker-ruby/faker": "ruby",
+    "fastlane/fastlane": "ruby",
+    "fluent/fluentd": "ruby",
+    "fmtlib/fmt": "cpp",
+    "gin-gonic/gin": "go",
+    "gohugoio/hugo": "go",
+    "google/gson": "java",
+    "hashicorp/terraform": "go",
+    "immutable-js/immutable-js": "js",
+    "javaparser/javaparser": "java",
+    "jekyll/jekyll": "ruby",
+    "jordansissel/fpm": "ruby",
+    "jqlang/jq": "c",
+    "laravel/framework": "php",
+    "micropython/micropython": "c",
+    "mrdoob/three.js": "js",
+    "nlohmann/json": "cpp",
+    "nushell/nushell": "rust",
+    "php-cs-fixer/php-cs-fixer": "php",
+    "phpoffice/phpspreadsheet": "php",
+    "preactjs/preact": "js",
+    "projectlombok/lombok": "java",
+    "prometheus/prometheus": "go",
+    "reactivex/rxjava": "java",
+    "redis/redis": "c",
+    "rubocop/rubocop": "ruby",
+    "sharkdp/bat": "rust",
+    "tokio-rs/axum": "rust",
+    "tokio-rs/tokio": "rust",
+    "uutils/coreutils": "rust",
+    "valkey-io/valkey": "c",
+    "vuejs/core": "ts",
+}
+
 
 def instance_language(instance: dict[str, Any]) -> str:
     """Return the normalized SWE-bench language for an instance record."""
@@ -156,9 +201,44 @@ def instance_language(instance: dict[str, Any]) -> str:
         instance.get("repo_language")
         or instance.get("language")
         or instance.get("programming_language")
-        or "python"
     )
-    return normalize_language(str(raw))
+    if raw:
+        return normalize_language(str(raw))
+    repo = _instance_repo_key(instance)
+    if repo:
+        return normalize_language(_REPO_LANGUAGE_MAP.get(repo, "python"))
+    return "python"
+
+
+def _instance_repo_key(instance: dict[str, Any]) -> str | None:
+    for field in ("repo", "repository"):
+        raw = instance.get(field)
+        if raw:
+            key = _normalize_repo_key(str(raw))
+            if key:
+                return key
+
+    instance_id = str(instance.get("instance_id") or "").strip().casefold()
+    for repo in _REPO_LANGUAGE_MAP:
+        instance_prefix = repo.replace("/", "__")
+        if instance_id == instance_prefix or instance_id.startswith(
+            f"{instance_prefix}-"
+        ):
+            return repo
+    return None
+
+
+def _normalize_repo_key(repo: str) -> str | None:
+    key = repo.strip().replace("\\", "/").strip("/").casefold()
+    if key.endswith(".git"):
+        key = key[:-4]
+    parts = [part for part in key.split("/") if part]
+    if len(parts) >= 2:
+        return "/".join(parts[-2:])
+    if "__" in key:
+        owner, name = key.split("__", 1)
+        return f"{owner}/{name}" if owner and name else None
+    return key or None
 
 
 def instance_base_commit(instance: dict[str, Any]) -> str | None:
