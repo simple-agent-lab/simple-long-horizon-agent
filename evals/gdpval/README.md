@@ -34,6 +34,27 @@ Add `--judge` to run the rubric judge after successful solver cases:
 uv run --with datasets python runs/run_gdpval.py --limit 10 --judge
 ```
 
+To run through Docker with a local GDPVal base image, build the image first:
+
+```bash
+bash runs/build_gdpval_agent_base.sh
+```
+
+Then pass it to the runner. The host-side command needs the Docker Python SDK
+because `LocalDockerBackend` uses docker-py; `--pull never` keeps Docker from
+trying to pull the local tag from a registry. Docker runs mount a local
+wheelhouse for the `simple-agent-lab` bootstrap; by default this lives at
+`evals/out/gdpval/wheelhouse/cp311-manylinux` and is prepared automatically on
+first use.
+
+```bash
+uv run --with docker --with datasets python runs/run_gdpval.py \
+  --backend local-docker \
+  --image gdpval-agent-base:latest \
+  --pull never \
+  --limit 10
+```
+
 You can still pass a local JSONL/JSON/Parquet file for debugging:
 
 ```bash

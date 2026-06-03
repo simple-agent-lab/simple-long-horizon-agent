@@ -103,3 +103,24 @@ uv run python runs/run_gdpval.py path/to/gdpval.jsonl --task-ids <task-id>
 ```
 
 See `evals/gdpval/README.md` for input fields and artifact layout.
+
+For Docker-backed GDPVal runs, build the local Python 3.11 base image first:
+
+```bash
+bash runs/build_gdpval_agent_base.sh
+```
+
+Then run with the Docker SDK available in the host `uv run` environment:
+
+```bash
+uv run --with docker --with datasets python runs/run_gdpval.py \
+  --backend local-docker \
+  --image gdpval-agent-base:latest \
+  --pull never \
+  --limit 10
+```
+
+The runner prepares and mounts the local wheelhouse under
+`evals/out/gdpval/wheelhouse/cp311-manylinux` so the container installs the
+current checkout instead of looking for `simple-agent-lab` in a package
+registry.

@@ -31,6 +31,8 @@ from simple_agent_lab.evals import (  # noqa: E402
     run_dataset,
 )
 
+DEFAULT_WHEELHOUSE_MOUNT = "/agent/wheelhouse"
+
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -57,6 +59,29 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--network-mode", default="host")
     parser.add_argument("--platform", default=None)
     parser.add_argument("--run-root", default=str(ROOT / "evals/out/gdpval"))
+    parser.add_argument(
+        "--wheelhouse",
+        default=None,
+        help=(
+            "Host wheelhouse for Docker bootstrap. Defaults to "
+            "<run-root>/wheelhouse/cp311-manylinux for local-docker."
+        ),
+    )
+    parser.add_argument(
+        "--wheelhouse-mount",
+        default=DEFAULT_WHEELHOUSE_MOUNT,
+        help="In-container path where --wheelhouse is mounted.",
+    )
+    parser.add_argument(
+        "--prepare-wheelhouse",
+        action="store_true",
+        help="Download the full provider dependency wheelhouse before the run.",
+    )
+    parser.add_argument(
+        "--uv-binary",
+        default=None,
+        help="Optional host uv binary to mount at /tmp/uv for Docker runs.",
+    )
     parser.add_argument(
         "--run-id", default=f"gdpval-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     )
@@ -134,17 +159,15 @@ def main() -> None:
         raise SystemExit("No GDPVal instances selected.")
 
     run_root = Path(args.run_root).resolve()
+    wheelhouse = _wheelhouse_for(args, run_root=run_root)
+    _prepare_wheelhouse_for_run(args, wheelhouse)
     suite = GdpvalSuite(
         image=args.image,
         reference_root=args.reference_root,
         network_mode=args.network_mode or None,
         platform=args.platform,
     )
-    backend = (
-        LocalProcessBackend(workspace=_workspace_factory(args, run_id=args.run_id))
-        if args.backend == "local-process"
-        else LocalDockerBackend(pull=args.pull, keep_container=args.keep_container)
-    )
+    backend = _backend_for(args, run_id=args.run_id, wheelhouse=wheelhouse)
     provider_env = _provider_env()
 
     print("==> Running GDPVal solver")
@@ -183,6 +206,7 @@ def main() -> None:
         api_kind=args.api_kind,
         max_turns=args.max_turns,
         provider_env=provider_env,
+        wheelhouse_mount=args.wheelhouse_mount if wheelhouse else None,
     )
     print("")
     print(f"==> summary: {report.summary()}")
@@ -227,6 +251,44 @@ def _workspace_factory(args: argparse.Namespace, *, run_id: str):
         return base / spec.instance_id / "workdir"
 
     return make_workspace
+
+
+def _wheelhouse_for(args: argparse.Namespace, *, run_root: Path) -> Path | None:
+    if args.backend != "local-docker":
+        return None
+    value = args.wheelhouse or str(run_root / "wheelhouse/cp311-manylinux")
+    return Path(value).resolve()
+
+
+def _prepare_wheelhouse_for_run(
+    args: argparse.Namespace, wheelhouse: Path | None
+) -> None:
+    if wheelhouse is None:
+        return
+    prepare_all = (
+        args.prepare_wheelhouse
+        or not wheelhouse.exists()
+        or not any(wheelhouse.iterdir())
+    )
+    from evals.swebench.harness import prepare_wheelhouse_for_run
+
+    prepare_wheelhouse_for_run(wheelhouse, prepare_all=prepare_all)
+
+
+def _backend_for(
+    args: argparse.Namespace,
+    *,
+    run_id: str,
+    wheelhouse: Path | None,
+):
+    if args.backend == "local-process":
+        return LocalProcessBackend(workspace=_workspace_factory(args, run_id=run_id))
+    return LocalDockerBackend(
+        pull=args.pull,
+        keep_container=args.keep_container,
+        wheelhouse=wheelhouse,
+        uv_binary=args.uv_binary or None,
+    )
 
 
 def _run_judge_phase(
@@ -287,11 +349,8 @@ def _run_judge_phase(
         print("==> judge summary: no judge instances selected")
         return
 
-    backend = (
-        LocalProcessBackend(workspace=_workspace_factory(args, run_id=judge_run_id))
-        if args.backend == "local-process"
-        else LocalDockerBackend(pull=args.pull, keep_container=args.keep_container)
-    )
+    wheelhouse = _wheelhouse_for(args, run_root=run_root)
+    backend = _backend_for(args, run_id=judge_run_id, wheelhouse=wheelhouse)
 
     def on_judge_result(result) -> None:
         status = "ok" if result.ok else "error"
@@ -314,6 +373,7 @@ def _run_judge_phase(
         api_kind=judge_api_kind,
         max_turns=args.judge_max_turns,
         provider_env=provider_env,
+        wheelhouse_mount=args.wheelhouse_mount if wheelhouse else None,
     )
     summary = _write_judge_summary(
         run_root=run_root,
