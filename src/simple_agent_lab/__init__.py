@@ -29,6 +29,7 @@ from .protocols import (
 )
 from .compression import (
     SummarizeStrategy,
+    TieredStrategy,
     ToolCompactStrategy,
 )
 from .context_view import (
@@ -139,6 +140,7 @@ __all__ = [
     "ContextPolicy",
     "ContextView",
     "SummarizeStrategy",
+    "TieredStrategy",
     "ToolCompactStrategy",
     "assistant_message",
     "build_context_view",

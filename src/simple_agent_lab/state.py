@@ -35,6 +35,16 @@ class StateSnapshot:
     # so all messages are active. (A later visibility filter in
     # `build_context_view` narrows this to the *visible* context the model
     # actually sees -- active is the compression stage, visible the next.)
+    #
+    # INVARIANT relied on by `compression.runtime._active_context_tokens`: the
+    # only thing that makes a higher index precede a lower one in this list is a
+    # compaction splicing its replacement back at an earlier slot (the
+    # replacement is appended, so it always has the highest index). That sizing
+    # code infers compaction boundaries from exactly this ordering. If you ever
+    # re-point these indices non-monotonically for a NON-compaction reason
+    # (reorder, re-insert a dropped message at its original index, pin-to-top,
+    # merge transcripts), update `_active_context_tokens` too or it will trust a
+    # stale usage baseline and mis-size the context.
     active_context_indices: list[int] | None = None
 
     def apply(self, event: Event) -> None:

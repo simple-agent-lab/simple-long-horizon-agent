@@ -24,6 +24,10 @@ from simple_agent_lab import (
     run,
     tool_result_message,
 )
+from simple_agent_lab.compression import (
+    _active_context_tokens,
+    maybe_compress_context,
+)
 from simple_agent_lab.tools import (
     AbortFlag,
     AgentTool,
@@ -33,6 +37,12 @@ from simple_agent_lab.tools import (
     text_result,
     tool_result_text,
 )
+
+
+def _idle_writer(visible: list[Message]) -> Message:
+    """A step fn that compression tests never actually invoke."""
+    del visible
+    return assistant_message("idle", sender="writer", target="user", kind="final")
 
 
 class CoreTest(unittest.TestCase):
@@ -356,6 +366,7 @@ class CoreTest(unittest.TestCase):
             "SystemMessage",
             "TextBlock",
             "ThinkingBlock",
+            "TieredStrategy",
             "TokenUsage",
             "Tool",
             "ToolCallBlock",
@@ -489,12 +500,10 @@ class CoreTest(unittest.TestCase):
         state.send("message", "user", "writer", "old " + ("x" * 120))
         state.send("message", "user", "writer", "recent note")
         compression_policy = ContextPolicy(
-            strategies=(
-                simple_agent_lab.SummarizeStrategy(
-                    compressor=Agent("compressor", compressor),
-                    threshold_tokens=1,
-                    keep_recent=1,
-                ),
+            strategy=simple_agent_lab.SummarizeStrategy(
+                compressor=Agent("compressor", compressor),
+                threshold_tokens=1,
+                keep_recent=1,
             ),
         )
 
@@ -538,8 +547,47 @@ class CoreTest(unittest.TestCase):
             state.snapshot.active_context_indices,
         )
 
+    def test_tiered_strategy_returns_first_applicable_decision(self) -> None:
+        # TieredStrategy restores tiering as a single strategy: stages are
+        # tried in order, the first to return a decision wins, and later stages
+        # are not consulted. Nones fall through; all-None yields None.
+        calls: list[str] = []
+
+        def make_stage(name: str, decision: CompressionDecision | None):
+            def stage(active: list[tuple[int, Message]], agent_name: str):
+                del active, agent_name
+                calls.append(name)
+                return decision
+
+            return stage
+
+        decision = CompressionDecision(
+            compress_indices=(0,),
+            replacement=make_message("system", "x", kind="summary"),
+        )
+
+        # First declines, second fires -> second's decision; both consulted.
+        tiered = simple_agent_lab.TieredStrategy(
+            (make_stage("a", None), make_stage("b", decision))
+        )
+        self.assertIs(tiered([], "w"), decision)
+        self.assertEqual(calls, ["a", "b"])
+
+        # First fires -> later stage never consulted.
+        calls.clear()
+        first_wins = simple_agent_lab.TieredStrategy(
+            (make_stage("a", decision), make_stage("b", None))
+        )
+        self.assertIs(first_wins([], "w"), decision)
+        self.assertEqual(calls, ["a"])
+
+        # Every stage declines -> None.
+        self.assertIsNone(
+            simple_agent_lab.TieredStrategy((make_stage("a", None),))([], "w")
+        )
+
     def test_tool_compact_folds_old_tool_exchanges(self) -> None:
-        # ToolCompactStrategy is the no-LLM first stage: when the context
+        # ToolCompactStrategy is the rule-based, no-LLM option: when the context
         # exceeds `threshold_tokens`, every tool exchange except the most
         # recent `keep_recent_exchanges` is replaced by one short marker
         # listing the tool name and a result preview.
@@ -575,11 +623,9 @@ class CoreTest(unittest.TestCase):
             )
 
         policy = ContextPolicy(
-            strategies=(
-                simple_agent_lab.ToolCompactStrategy(
-                    threshold_tokens=1,
-                    keep_recent_exchanges=1,
-                ),
+            strategy=simple_agent_lab.ToolCompactStrategy(
+                threshold_tokens=1,
+                keep_recent_exchanges=1,
             ),
         )
         for _ in run(
@@ -615,84 +661,6 @@ class CoreTest(unittest.TestCase):
         ]
         self.assertTrue(any("gamma result" in text for text in recent_texts))
 
-    def test_default_tiered_policy_runs_compact_then_summarize(self) -> None:
-        # The two default strategies compose into a tiered policy:
-        # ToolCompactStrategy folds older tool exchanges cheaply, then
-        # SummarizeStrategy runs an LLM pass if the context is still over
-        # budget. Both compression events should fire in order.
-        summarizer_calls: list[int] = []
-
-        def writer(visible: list[Message]) -> Message:
-            del visible
-            return assistant_message(
-                "done", sender="writer", target="user", kind="final"
-            )
-
-        def fake_summarizer(visible: list[Message]) -> Message:
-            summarizer_calls.append(len(visible))
-            return assistant_message(
-                "llm summary text",
-                sender="compressor",
-                target="runtime",
-                kind="final",
-            )
-
-        state = State("tiered policy")
-        state.send("task", "user", "writer", state.task)
-        for index, payload in enumerate(("alpha", "beta", "gamma")):
-            state.record(
-                assistant_message(
-                    [
-                        TextBlock(f"call-{index}"),
-                        ToolCallBlock(f"c{index}", "echo", {"i": index}),
-                    ],
-                    sender="writer",
-                    target="user",
-                    kind="step",
-                )
-            )
-            state.record(
-                tool_result_message(
-                    payload,
-                    tool_call_id=f"c{index}",
-                    tool_name="echo",
-                    target="writer",
-                )
-            )
-
-        policy = ContextPolicy(
-            strategies=(
-                simple_agent_lab.ToolCompactStrategy(
-                    threshold_tokens=1,
-                    keep_recent_exchanges=1,
-                ),
-                simple_agent_lab.SummarizeStrategy(
-                    compressor=Agent("compressor", fake_summarizer),
-                    threshold_tokens=1,
-                    keep_recent=0,
-                ),
-            ),
-        )
-
-        for _ in run(
-            Agent("writer", writer, context_policy=policy),
-            state,
-            max_turns=1,
-        ):
-            pass
-
-        compressions = [
-            event
-            for event in state.events
-            if isinstance(event, ContextCompressionEvent)
-        ]
-        self.assertEqual(len(compressions), 2)
-        self.assertEqual(len(summarizer_calls), 1)
-        compact_replacement = state.messages[compressions[0].summary_message_index]
-        self.assertIn("Compacted", message_text(compact_replacement))
-        llm_replacement = state.messages[compressions[1].summary_message_index]
-        self.assertEqual(message_text(llm_replacement), "llm summary text")
-
     def test_after_tokens_ignores_stale_pre_compression_usage_baseline(self) -> None:
         # A kept recent assistant carries `usage.context_tokens` from when the
         # window was full. After compression drops the older messages, that
@@ -727,12 +695,10 @@ class CoreTest(unittest.TestCase):
         state.send("message", "user", "writer", "newest follow-up")
 
         policy = ContextPolicy(
-            strategies=(
-                simple_agent_lab.SummarizeStrategy(
-                    compressor=Agent("compressor", compressor),
-                    threshold_tokens=50,
-                    keep_recent=2,
-                ),
+            strategy=simple_agent_lab.SummarizeStrategy(
+                compressor=Agent("compressor", compressor),
+                threshold_tokens=50,
+                keep_recent=2,
             ),
         )
         for _ in run(
@@ -751,75 +717,230 @@ class CoreTest(unittest.TestCase):
         self.assertLess(compression.after_tokens, 1000)
         self.assertLess(compression.after_tokens, compression.before_tokens)
 
-    def test_tiered_second_strategy_does_not_fire_on_stale_baseline(self) -> None:
-        # In a tiered policy, ToolCompact runs first and folds the old tool
-        # exchanges, bringing the real context well under SummarizeStrategy's
-        # threshold. But a kept assistant still carries a large pre-compression
-        # `context_tokens`. Summarize's gate must read the true (small) size off
-        # the append-only record and NOT fire on the stale baseline.
-        summarizer_calls: list[int] = []
-
-        def writer(visible: list[Message]) -> Message:
-            del visible
-            return assistant_message(
-                "done", sender="writer", target="user", kind="final"
+    def test_rewrite_substitutes_message_in_place(self) -> None:
+        # A `rewrite=True` decision swaps one message for a shorter,
+        # structure-preserving replacement: the tool_result shrinks but stays a
+        # first-class turn, its tool_call partner stays paired, and the original
+        # remains in the append-only transcript (just no longer active).
+        state = State("rewrite")
+        state.send("task", "user", "writer", state.task)  # 0
+        state.record(
+            assistant_message(
+                [TextBlock("call"), ToolCallBlock("c0", "read", {})],
+                sender="writer",
+                target="user",
+                kind="step",
             )
-
-        def fake_summarizer(visible: list[Message]) -> Message:
-            summarizer_calls.append(len(visible))
-            return assistant_message(
-                "llm summary", sender="compressor", target="runtime", kind="final"
+        )  # 1
+        state.record(
+            tool_result_message(
+                "HUGE " + "x" * 500,
+                tool_call_id="c0",
+                tool_name="read",
+                target="writer",
             )
+        )  # 2
 
-        state = State("tiered stale baseline")
-        state.send("task", "user", "writer", state.task)
-        for index, ctx_input in enumerate((4800, 5000)):
+        def shrink(
+            active: list[tuple[int, Message]], agent_name: str
+        ) -> CompressionDecision | None:
+            for index, message in active:
+                if message.kind == "tool_result":
+                    return CompressionDecision(
+                        compress_indices=(index,),
+                        replacement=tool_result_message(
+                            "shrunk",
+                            tool_call_id="c0",
+                            tool_name="read",
+                            target=agent_name,
+                        ),
+                        rewrite=True,
+                    )
+            return None
+
+        events = maybe_compress_context(
+            Agent("writer", _idle_writer), state, ContextPolicy(strategy=shrink)
+        )
+
+        # A rewrite records the same ContextCompressionEvent as a fold: the
+        # single rewritten index folds into its in-place replacement.
+        rewrite = next(e for e in events if isinstance(e, ContextCompressionEvent))
+        self.assertEqual(rewrite.compressed_message_indices, [2])
+        self.assertEqual(rewrite.summary_message_index, 3)
+        self.assertLess(rewrite.after_tokens, rewrite.before_tokens)
+        # Active view: task, assistant(tool_call), shrunk result — pair intact.
+        self.assertEqual(state.snapshot.active_context_indices, [0, 1, 3])
+        self.assertEqual(
+            [message_text(m) for m in state.active_context_messages()],
+            ["rewrite", "call", "shrunk"],
+        )
+        # The original long result is still in the transcript, just not active.
+        self.assertIn("HUGE", message_text(state.messages[2]))
+        # The replacement is a plain tool_result — no runtime marker on it; the
+        # compaction boundary is inferred from its (out-of-order) index instead.
+        self.assertEqual(state.messages[3].sidecar, {})
+        self.assertEqual(message_text(state.messages[3]), "shrunk")
+
+    def test_rewrite_invalidates_stale_usage_baseline(self) -> None:
+        # After a rewrite shrinks a tool_result, a kept assistant still carries
+        # a `context_tokens` that counted the old, larger content. The marker on
+        # the replacement must invalidate that baseline so sizing reflects the
+        # shrink immediately — otherwise a rewrite meant to dodge compression
+        # would look like a no-op.
+        state = State("stale")
+        state.send("task", "user", "writer", state.task)  # 0
+        state.record(
+            assistant_message(
+                [TextBlock("call"), ToolCallBlock("c0", "read", {})],
+                sender="writer",
+                target="user",
+                kind="step",
+            )
+        )  # 1
+        state.record(
+            tool_result_message(
+                "HUGE " + "x" * 800,
+                tool_call_id="c0",
+                tool_name="read",
+                target="writer",
+            )
+        )  # 2
+        # Kept assistant whose context_tokens (6120) counted the HUGE result.
+        state.record(
+            assistant_message(
+                "answer",
+                sender="writer",
+                target="user",
+                kind="step",
+                usage=TokenUsage(input_tokens=6000, output_tokens=120),
+            )
+        )  # 3
+
+        def shrink(
+            active: list[tuple[int, Message]], agent_name: str
+        ) -> CompressionDecision | None:
+            for index, message in active:
+                if message.kind == "tool_result":
+                    return CompressionDecision(
+                        compress_indices=(index,),
+                        replacement=tool_result_message(
+                            "short",
+                            tool_call_id="c0",
+                            tool_name="read",
+                            target=agent_name,
+                        ),
+                        rewrite=True,
+                    )
+            return None
+
+        maybe_compress_context(
+            Agent("writer", _idle_writer), state, ContextPolicy(strategy=shrink)
+        )
+
+        # The stale baseline would report ~6120; the true post-rewrite size is
+        # tiny (the kept assistant at its exact 120 output_tokens + short texts).
+        size = _active_context_tokens(state.active_context_items())
+        self.assertLess(size, 1000)
+
+    def test_rewrite_rejects_structure_changing_replacement(self) -> None:
+        # A rewrite may shrink content but must preserve the message's shape:
+        # same role and the same tool_call_id linkage. Otherwise the swap would
+        # orphan a tool_call or its result, which providers reject.
+        def make_state() -> State:
+            state = State("reject")
+            state.send("task", "user", "writer", state.task)  # 0
             state.record(
                 assistant_message(
-                    [
-                        TextBlock(f"call {index}"),
-                        ToolCallBlock(f"c{index}", "echo", {}),
-                    ],
+                    [TextBlock("call"), ToolCallBlock("c0", "read", {})],
                     sender="writer",
                     target="user",
                     kind="step",
-                    usage=TokenUsage(input_tokens=ctx_input, output_tokens=200),
                 )
-            )
+            )  # 1
             state.record(
                 tool_result_message(
-                    "short result",
-                    tool_call_id=f"c{index}",
-                    tool_name="echo",
-                    target="writer",
+                    "big", tool_call_id="c0", tool_name="read", target="writer"
                 )
+            )  # 2
+            return state
+
+        def decide(replacement: Message) -> object:
+            def strategy(
+                active: list[tuple[int, Message]], agent_name: str
+            ) -> CompressionDecision:
+                del active, agent_name
+                return CompressionDecision(
+                    compress_indices=(2,), replacement=replacement, rewrite=True
+                )
+
+            return strategy
+
+        # Different tool_call_id -> would orphan the c0 pair.
+        with self.assertRaises(ValueError):
+            maybe_compress_context(
+                Agent("writer", _idle_writer),
+                make_state(),
+                ContextPolicy(
+                    strategy=decide(
+                        tool_result_message(
+                            "x",
+                            tool_call_id="OTHER",
+                            tool_name="read",
+                            target="writer",
+                        )
+                    ),
+                ),
             )
 
-        policy = ContextPolicy(
-            strategies=(
-                simple_agent_lab.ToolCompactStrategy(
-                    threshold_tokens=1000, keep_recent_exchanges=1
+        # Different role -> tool_result would become an assistant turn.
+        with self.assertRaises(ValueError):
+            maybe_compress_context(
+                Agent("writer", _idle_writer),
+                make_state(),
+                ContextPolicy(
+                    strategy=decide(
+                        assistant_message(
+                            "x", sender="writer", target="user", kind="step"
+                        )
+                    ),
                 ),
-                simple_agent_lab.SummarizeStrategy(
-                    compressor=Agent("compressor", fake_summarizer),
-                    threshold_tokens=3000,
-                    keep_recent=0,
-                ),
-            ),
-        )
-        for _ in run(
-            Agent("writer", writer, context_policy=policy), state, max_turns=1
-        ):
-            pass
+            )
 
-        compressions = [
-            event
-            for event in state.events
-            if isinstance(event, ContextCompressionEvent)
-        ]
-        # Only ToolCompact should fire; Summarize sees the true small size.
-        self.assertEqual(len(compressions), 1)
-        self.assertEqual(summarizer_calls, [])
+    def test_rewrite_requires_a_single_target(self) -> None:
+        state = State("multi")
+        state.send("task", "user", "writer", state.task)  # 0
+        state.record(
+            assistant_message(
+                [TextBlock("call"), ToolCallBlock("c0", "read", {})],
+                sender="writer",
+                target="user",
+                kind="step",
+            )
+        )  # 1
+        state.record(
+            tool_result_message(
+                "big", tool_call_id="c0", tool_name="read", target="writer"
+            )
+        )  # 2
+
+        def strategy(
+            active: list[tuple[int, Message]], agent_name: str
+        ) -> CompressionDecision:
+            del active
+            return CompressionDecision(
+                compress_indices=(1, 2),
+                replacement=tool_result_message(
+                    "x", tool_call_id="c0", tool_name="read", target=agent_name
+                ),
+                rewrite=True,
+            )
+
+        with self.assertRaises(ValueError):
+            maybe_compress_context(
+                Agent("writer", _idle_writer),
+                state,
+                ContextPolicy(strategy=strategy),
+            )
 
     def test_framework_auto_fixes_split_tool_pair(self) -> None:
         # If a strategy puts only one side of a tool_call/tool_result pair
@@ -871,7 +992,7 @@ class CoreTest(unittest.TestCase):
                 kind="final",
             )
 
-        policy = ContextPolicy(strategies=(CompressOnlyCall(),))
+        policy = ContextPolicy(strategy=CompressOnlyCall())
         for _ in run(Agent("writer", writer, context_policy=policy), state):
             pass
 

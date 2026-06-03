@@ -34,7 +34,12 @@ from ..protocols import (
     RunSpec,
 )
 from ._archive import pack_file_to_root, read_stream, unpack_members
-from .docker_local import _require_docker, exit_status, start_container
+from .docker_local import (
+    DEFAULT_DOCKER_TIMEOUT_S,
+    _require_docker,
+    exit_status,
+    start_container,
+)
 
 # Where the worker container keeps its run dir. No host path is shared, so this
 # is purely in-container; the host moves bytes in/out by tar over the daemon API.
@@ -89,14 +94,24 @@ class RemoteDockerBackend:
         keep_container: bool = False,
         pull: str = "missing",
         live_poll_interval_s: float = 0.0,
+        docker_timeout_s: float = DEFAULT_DOCKER_TIMEOUT_S,
     ) -> None:
         self.base_url = base_url
         self.pull = pull
         self.user = user
         self.keep_container = keep_container
+        self.docker_timeout_s = docker_timeout_s
         # >0 enables a background thread that pulls out/trajectory.jsonl on this
         # cadence so the local trace viewer can tail it during the run.
         self.live_poll_interval_s = live_poll_interval_s
+
+    def _client(self) -> Any:
+        docker = _require_docker()
+        if self.base_url:
+            return docker.DockerClient(
+                base_url=self.base_url, timeout=self.docker_timeout_s
+            )
+        return docker.from_env(timeout=self.docker_timeout_s)
 
     def run(
         self,
@@ -105,14 +120,8 @@ class RemoteDockerBackend:
         store: ArtifactStore,
         binding: ContainerBinding,
     ) -> RunOutcome:
-        docker = _require_docker()
-
         del binding  # remote ignores host mounts/env; the worker uses a local store
-        client = (
-            docker.DockerClient(base_url=self.base_url)
-            if self.base_url
-            else docker.from_env()
-        )
+        client = self._client()
         # The worker writes to a container-internal localdir; no bind mount.
         env = {
             **dict(spec.provider_env),

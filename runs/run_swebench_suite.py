@@ -13,8 +13,8 @@ Usage (host with Docker + a built SWE-bench image):
         [--in-env-scoring] [--force]
 
 Reads OPENAI_MODEL / OPENAI_AUTH_TOKEN (and optional OPENAI_BASE_URL) from .env.
-For batch / parallel runs over a whole split, see runs/run_swebench_verified.sh
-and runs/run_swebench_pro.sh.
+For batch / parallel runs over a whole split, see runs/run_swebench_verified.sh,
+runs/run_swebench_multilingual.sh, and runs/run_swebench_pro.sh.
 """
 
 from __future__ import annotations
@@ -36,6 +36,9 @@ from simple_agent_lab.evals import (  # noqa: E402
     LocalDirStore,
     LocalDockerBackend,
     run_suite_instance,
+)
+from simple_agent_lab.evals.backends.docker_local import (  # noqa: E402
+    DEFAULT_DOCKER_TIMEOUT_S,
 )
 from simple_agent_lab.evals.runner import container_name  # noqa: E402
 
@@ -77,6 +80,15 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-root", default=None)
     parser.add_argument("--wheelhouse", default=None)
     parser.add_argument("--uv-binary", default=harness.DEFAULT_UV_BINARY)
+    parser.add_argument(
+        "--docker-timeout-seconds",
+        type=float,
+        default=DEFAULT_DOCKER_TIMEOUT_S,
+        help=(
+            "Docker SDK HTTP timeout in seconds for daemon calls such as "
+            "pull/create/start/wait."
+        ),
+    )
     parser.add_argument("--prepare-wheelhouse", action="store_true")
     parser.add_argument("--in-env-scoring", action="store_true")
     parser.add_argument("--keep-container", action="store_true")
@@ -91,17 +103,26 @@ def _build_parser() -> argparse.ArgumentParser:
 def _resolve_paths(
     args: argparse.Namespace, instance: dict
 ) -> tuple[Path, Path | None]:
-    """Pick the run root + wheelhouse, swapping to Pro defaults for Pro instances."""
+    """Pick the run root + wheelhouse for the SWE-bench family."""
 
     pro = harness.is_swebench_pro_instance(instance, dataset_name=args.dataset_name)
-    run_root = (
-        Path(args.run_root)
-        if args.run_root
-        else (harness.DEFAULT_PRO_RUN_ROOT if pro else harness.DEFAULT_RUN_ROOT)
+    multilingual = harness.is_swebench_multilingual(dataset_name=args.dataset_name)
+    default_run_root = (
+        harness.DEFAULT_PRO_RUN_ROOT
+        if pro
+        else harness.DEFAULT_MULTILINGUAL_RUN_ROOT
+        if multilingual
+        else harness.DEFAULT_RUN_ROOT
     )
-    wheelhouse_arg = args.wheelhouse or str(
-        harness.DEFAULT_PRO_WHEELHOUSE if pro else harness.DEFAULT_WHEELHOUSE
+    default_wheelhouse = (
+        harness.DEFAULT_PRO_WHEELHOUSE
+        if pro
+        else harness.DEFAULT_MULTILINGUAL_WHEELHOUSE
+        if multilingual
+        else harness.DEFAULT_WHEELHOUSE
     )
+    run_root = Path(args.run_root) if args.run_root else default_run_root
+    wheelhouse_arg = args.wheelhouse or str(default_wheelhouse)
     wheelhouse = Path(wheelhouse_arg).resolve() if wheelhouse_arg else None
     return run_root, wheelhouse
 
@@ -138,6 +159,7 @@ def main() -> None:
         keep_container=args.keep_container,
         wheelhouse=wheelhouse,
         uv_binary=args.uv_binary or None,
+        docker_timeout_s=args.docker_timeout_seconds,
     )
 
     name = container_name(suite.name, args.instance_id, args.run_id)
@@ -150,6 +172,7 @@ def main() -> None:
     print(f"    run-id:     {args.run_id}")
     print(f"    agent:      {args.agent_flavor}")
     print(f"    container:  {name}")
+    print(f"    docker api timeout: {args.docker_timeout_seconds:g}s")
     print("")
 
     result = run_suite_instance(
@@ -182,7 +205,7 @@ def _force_remove(name: str) -> None:
 
     import docker
 
-    client = docker.from_env()
+    client = docker.from_env(timeout=DEFAULT_DOCKER_TIMEOUT_S)
     existing = harness._get_container(client, name)
     if existing is not None:
         existing.remove(force=True)
