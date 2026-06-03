@@ -39,12 +39,12 @@ Keys: **Enter** send · **Esc** interrupt a running turn · **Ctrl-C** quit.
 
 ## Files
 
-- `src/entry.ts` — builds `ProcessTerminal` + `TUI`, spawns the gateway, starts `App`.
-- `src/gatewayClient.ts` — spawns the gateway and frames JSON-RPC; a single
+- `./src/entry.ts` — builds `ProcessTerminal` + `TUI`, spawns the gateway, starts `App`.
+- `./src/gatewayClient.ts` — spawns the gateway and frames JSON-RPC; a single
   read loop dispatches responses by id and events to listeners (so the
   `prompt.submit` ack can never race a turn event into a deadlock).
-- `src/app.ts` — maps gateway events onto pi-tui components.
-- `src/theme.ts` — chalk-based theme objects for the themed components.
+- `./src/app.ts` — maps gateway events onto pi-tui components.
+- `./src/theme.ts` — chalk-based theme objects for the themed components.
 
 The Python REPL at `scripts/tui_gateway_repl.py` is a text-only stand-in for
 this UI — handy for exercising the protocol without Node.
