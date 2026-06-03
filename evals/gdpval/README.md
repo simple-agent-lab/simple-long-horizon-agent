@@ -79,8 +79,8 @@ Hugging Face input uses `datasets`; pass `--hf-cache-dir` to control where the
 cache lands.
 
 The runner reads `OPENAI_MODEL`, `OPENAI_AUTH_TOKEN`, and optional
-`OPENAI_BASE_URL` from `.env` or the environment. It uses `openai-chat` by
-default; pass `--api-kind openai-responses` to use the Responses adapter.
+`OPENAI_BASE_URL` from `.env` or the environment. It uses `openai-responses` by
+default; pass `--api-kind openai-chat` to use the Chat Completions adapter.
 The judge uses the same provider by default; override with `--judge-provider`,
 `--judge-api-kind`, `--judge-max-turns`, `--judge-concurrency`, and
 `--judge-mode`.

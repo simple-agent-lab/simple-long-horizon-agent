@@ -127,7 +127,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--api-kind",
         choices=["openai-chat", "openai-responses"],
-        default=os.environ.get("API_KIND", "openai-chat"),
+        default=os.environ.get("API_KIND", "openai-responses"),
     )
     parser.add_argument("--dotenv", default=str(ROOT / ".env"))
     parser.add_argument(
