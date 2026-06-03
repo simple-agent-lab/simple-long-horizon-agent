@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Protocol
 
 from .messages import (
@@ -30,6 +30,7 @@ from .messages import (
     MessageKind,
     TextBlock,
     TokenUsage,
+    ToolResultBlock,
     tool_results_of,
 )
 
@@ -61,10 +62,22 @@ class CompressionDecision:
     be removed from the active view. `replacement` is the single message
     the framework writes in their place (typically a `kind="summary"`
     system message).
+
+    `rewrite` switches the decision from an N->1 fold to a 1->1, in-place
+    substitution. When set, `compress_indices` must name exactly one target
+    and `replacement` must preserve that message's structure — same role and
+    the same `tool_call_id` linkage — so the framework can swap it without
+    folding tool pairs (it skips the pair-alignment that an ordinary
+    compression runs). The intended use is shrinking one message (e.g.
+    truncating a large `tool_result`) while keeping it a first-class turn,
+    rather than collapsing a whole exchange into a summary marker. The
+    target is named by its `state.messages` index — append-only and unique
+    across rounds, unlike a `tool_call_id`.
     """
 
     compress_indices: tuple[int, ...]
     replacement: Message
+    rewrite: bool = False
 
 
 class CompressionStrategy(Protocol):
@@ -94,14 +107,17 @@ class CompressionStrategy(Protocol):
 
 @dataclass(frozen=True)
 class ContextPolicy:
-    """Visibility filter + compression strategy list for one agent.
+    """Visibility filter + compression strategy for one agent.
 
     `model_invisible_kinds` are never shown to the model. It defaults to
     empty (every runtime `kind` is model-visible); set it per agent to hide
     kinds that your own extension code records but should not project to the
-    LLM. `strategies` is evaluated in order before each model request; each
-    strategy may return a `CompressionDecision` that the runtime applies
-    to state.
+    LLM. `strategy` is one pluggable `CompressionStrategy` (the Strategy
+    pattern — swap in different compaction approaches to compare them). It is
+    consulted before each model request and may return a `CompressionDecision`
+    that the runtime applies to state. `None` (the default) means no
+    compression. To chain approaches, write one strategy that does so; the
+    policy holds a single strategy, not a pipeline.
 
     `model_invisible_kinds` is *visibility*, not *compression*. It decides
     whether a kind reaches the model at all — it is not the way to keep a
@@ -115,7 +131,7 @@ class ContextPolicy:
     """
 
     model_invisible_kinds: tuple[MessageKind, ...] = ()
-    strategies: tuple[CompressionStrategy, ...] = field(default_factory=tuple)
+    strategy: CompressionStrategy | None = None
 
     def is_visible(self, message: Message) -> bool:
         """Whether this message survives the agent's visibility filter."""
@@ -161,10 +177,9 @@ def build_context_view(
 ) -> ContextView:
     """Project a transcript into the messages visible to one agent.
 
-    This is a pure visibility filter. To shrink the active context, attach
-    a `CompressionStrategy` to `ContextPolicy.strategies`; the runtime
-    runs strategies before this call and `messages` will already reflect
-    their effect.
+    This is a pure visibility filter. To shrink the active context, set
+    `ContextPolicy.strategy`; the runtime runs it before this call and
+    `messages` will already reflect its effect.
     """
     resolved = policy or ContextPolicy()
     visible = tuple(message for message in messages if resolved.is_visible(message))
@@ -205,6 +220,8 @@ def estimate_message_chars(message: Message) -> int:
             len(call.id) + len(call.name) + len(repr(dict(call.arguments)))
             for call in message.tool_calls
         )
+    # A tool_result's visible payload lives one level down and is counted by
+    # `_content_chars` recursing into it; here we only add the id/name metadata.
     for block in tool_results_of(message.content):
         content_chars += len(block.tool_call_id) + len(block.tool_name)
     return meta_chars + content_chars
@@ -286,6 +303,9 @@ def _content_chars(content: MessageContent) -> int:
             total += len(block.text)
         elif isinstance(block, ImageBlock):
             total += IMAGE_CHAR_ESTIMATE
+        elif isinstance(block, ToolResultBlock):
+            # The model-visible payload is nested one level down.
+            total += _content_chars(block.content)
     return total
 
 

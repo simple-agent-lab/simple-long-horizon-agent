@@ -125,13 +125,18 @@ class ModelResponseEvent(_BaseEvent):
 
 @dataclass(frozen=True, kw_only=True)
 class ContextCompressionEvent(_BaseEvent):
-    """One compression pass.
+    """One compaction pass — an N->1 fold or a 1->1 in-place rewrite.
 
     `active_context_indices` is the new active context (preserved messages +
     summary + recent), in chronological order. `compressed_message_indices`
     lists the messages that were folded into `summary_message_index`. The
     trace viewer can derive "preserved" / "recent" from the order of
     `active_context_indices` relative to `summary_message_index`.
+
+    A `rewrite=True` decision records the same event: `compressed_message_indices`
+    is the single rewritten index and `summary_message_index` is its in-place
+    replacement (which keeps the target's `kind`, e.g. `"tool_result"`, rather
+    than `"summary"`).
     """
 
     kind: Literal[EventKind.CONTEXT_COMPRESSION] = field(

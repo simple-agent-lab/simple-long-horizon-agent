@@ -1,0 +1,29 @@
+{
+  "name": "@simple-agent-lab/tui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Terminal UI for simple-agent-lab, built on @earendil-works/pi-tui, talking to the Python gateway over stdio JSON-RPC.",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "bin": {
+    "sal-tui": "dist/entry.js"
+  },
+  "scripts": {
+    "dev": "tsx src/entry.ts",
+    "build": "esbuild src/entry.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/entry.js --banner:js=\"import{createRequire as __cr}from'module';const require=__cr(import.meta.url);\"",
+    "start": "node dist/entry.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@earendil-works/pi-tui": "^0.78.0",
+    "@types/node": "^22.19.19",
+    "chalk": "^5.3.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
