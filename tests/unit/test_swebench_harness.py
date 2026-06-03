@@ -9,6 +9,8 @@ from unittest import mock
 
 from evals.swebench.harness import (
     API_KIND_ENV,
+    DEFAULT_MULTILINGUAL_RUN_ROOT,
+    DEFAULT_MULTILINGUAL_WHEELHOUSE,
     DEFAULT_PRO_RUN_ROOT,
     DEFAULT_PRO_WHEELHOUSE,
     DEFAULT_RUN_ROOT,
@@ -24,6 +26,7 @@ from evals.swebench.harness import (
     container_entrypoint_override,
     docker_image_for_instance,
     docker_run_command,
+    is_swebench_multilingual,
     is_swebench_pro,
     is_swebench_pro_instance,
     load_instance,
@@ -45,6 +48,16 @@ class SwebenchHarnessTest(unittest.TestCase):
         self.assertEqual(
             DEFAULT_WHEELHOUSE,
             Path("evals/out/swebench/wheelhouse/cp311-manylinux").resolve(),
+        )
+        self.assertEqual(
+            DEFAULT_MULTILINGUAL_RUN_ROOT,
+            Path("evals/out/swebench_multilingual").resolve(),
+        )
+        self.assertEqual(
+            DEFAULT_MULTILINGUAL_WHEELHOUSE,
+            Path(
+                "evals/out/swebench_multilingual/wheelhouse/cp311-manylinux"
+            ).resolve(),
         )
         self.assertEqual(DEFAULT_PRO_RUN_ROOT, Path("evals/out/swebench_pro").resolve())
         self.assertEqual(
@@ -190,6 +203,25 @@ class SwebenchHarnessTest(unittest.TestCase):
         self.assertEqual(record["model_name_or_path"], "simple-agent-lab-verified")
         self.assertEqual(
             record["model_patch"], "diff --git a/sympy/core.py b/sympy/core.py\n"
+        )
+        self.assertNotIn("prefix", record)
+        self.assertNotIn("patch", record)
+
+    def test_multilingual_prediction_record_matches_official_eval_shape(self) -> None:
+        record = prediction_record(
+            "kotlin__repo-123",
+            "simple-agent-lab-multilingual",
+            "diff --git a/src/App.kt b/src/App.kt\n",
+            dataset_name="SWE-bench/SWE-bench_Multilingual",
+        )
+
+        self.assertTrue(
+            is_swebench_multilingual(dataset_name="SWE-bench/SWE-bench_Multilingual")
+        )
+        self.assertEqual(record["instance_id"], "kotlin__repo-123")
+        self.assertEqual(record["model_name_or_path"], "simple-agent-lab-multilingual")
+        self.assertEqual(
+            record["model_patch"], "diff --git a/src/App.kt b/src/App.kt\n"
         )
         self.assertNotIn("prefix", record)
         self.assertNotIn("patch", record)

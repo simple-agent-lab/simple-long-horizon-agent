@@ -13,8 +13,8 @@ Usage (host with Docker + a built SWE-bench image):
         [--in-env-scoring] [--force]
 
 Reads OPENAI_MODEL / OPENAI_AUTH_TOKEN (and optional OPENAI_BASE_URL) from .env.
-For batch / parallel runs over a whole split, see runs/run_swebench_verified.sh
-and runs/run_swebench_pro.sh.
+For batch / parallel runs over a whole split, see runs/run_swebench_verified.sh,
+runs/run_swebench_multilingual.sh, and runs/run_swebench_pro.sh.
 """
 
 from __future__ import annotations
@@ -103,17 +103,26 @@ def _build_parser() -> argparse.ArgumentParser:
 def _resolve_paths(
     args: argparse.Namespace, instance: dict
 ) -> tuple[Path, Path | None]:
-    """Pick the run root + wheelhouse, swapping to Pro defaults for Pro instances."""
+    """Pick the run root + wheelhouse for the SWE-bench family."""
 
     pro = harness.is_swebench_pro_instance(instance, dataset_name=args.dataset_name)
-    run_root = (
-        Path(args.run_root)
-        if args.run_root
-        else (harness.DEFAULT_PRO_RUN_ROOT if pro else harness.DEFAULT_RUN_ROOT)
+    multilingual = harness.is_swebench_multilingual(dataset_name=args.dataset_name)
+    default_run_root = (
+        harness.DEFAULT_PRO_RUN_ROOT
+        if pro
+        else harness.DEFAULT_MULTILINGUAL_RUN_ROOT
+        if multilingual
+        else harness.DEFAULT_RUN_ROOT
     )
-    wheelhouse_arg = args.wheelhouse or str(
-        harness.DEFAULT_PRO_WHEELHOUSE if pro else harness.DEFAULT_WHEELHOUSE
+    default_wheelhouse = (
+        harness.DEFAULT_PRO_WHEELHOUSE
+        if pro
+        else harness.DEFAULT_MULTILINGUAL_WHEELHOUSE
+        if multilingual
+        else harness.DEFAULT_WHEELHOUSE
     )
+    run_root = Path(args.run_root) if args.run_root else default_run_root
+    wheelhouse_arg = args.wheelhouse or str(default_wheelhouse)
     wheelhouse = Path(wheelhouse_arg).resolve() if wheelhouse_arg else None
     return run_root, wheelhouse
 

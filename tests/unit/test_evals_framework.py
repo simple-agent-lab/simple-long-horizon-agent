@@ -1105,6 +1105,7 @@ class SwebenchSuiteDriverTest(unittest.TestCase):
 
         suite = SwebenchSuite(dataset_name="SWE-bench_Pro")
         self.assertIsInstance(suite, Suite)
+        self.assertEqual(suite.name, "swebench_pro")
         self.assertEqual(suite.container_module, SWEBENCH_CONTAINER)
         instance = {
             "instance_id": "instance_acme__widget-abc123",
@@ -1119,6 +1120,12 @@ class SwebenchSuiteDriverTest(unittest.TestCase):
         # Pro images carry no test-spec caps (Verified ones come from the spec,
         # which needs the swebench harness installed — not asserted here).
         self.assertEqual(launch_spec.cap_add, ())
+
+    def test_multilingual_suite_name_is_distinct(self) -> None:
+        from evals.swebench.suite import SwebenchSuite
+
+        suite = SwebenchSuite(dataset_name="SWE-bench/SWE-bench_Multilingual")
+        self.assertEqual(suite.name, "swebench_multilingual")
 
 
 class SafePartTest(unittest.TestCase):

@@ -1,11 +1,25 @@
 from __future__ import annotations
 
+from argparse import Namespace
+import importlib.util
 from pathlib import Path
 import subprocess
+import sys
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def _load_run_swebench_suite_module():
+    path = ROOT / "runs/run_swebench_suite.py"
+    spec = importlib.util.spec_from_file_location("sal_run_swebench_suite", path)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
 
 
 class RunsScriptsTest(unittest.TestCase):
@@ -28,6 +42,7 @@ class RunsScriptsTest(unittest.TestCase):
             ROOT / "runs/run_swebench_suite.sh",
             ROOT / "runs/run_swebench_gold_smoke.sh",
             ROOT / "runs/run_swebench_verified.sh",
+            ROOT / "runs/run_swebench_multilingual.sh",
             ROOT / "runs/run_swebench_pro.sh",
         ]
 
@@ -46,6 +61,7 @@ class RunsScriptsTest(unittest.TestCase):
     def test_swebench_run_scripts_support_batch_flags(self) -> None:
         scripts = [
             ROOT / "runs/run_swebench_verified.sh",
+            ROOT / "runs/run_swebench_multilingual.sh",
             ROOT / "runs/run_swebench_pro.sh",
         ]
 
@@ -62,6 +78,7 @@ class RunsScriptsTest(unittest.TestCase):
     def test_swebench_run_scripts_load_provider_settings_from_dotenv(self) -> None:
         scripts = [
             ROOT / "runs/run_swebench_verified.sh",
+            ROOT / "runs/run_swebench_multilingual.sh",
             ROOT / "runs/run_swebench_pro.sh",
         ]
 
@@ -86,6 +103,14 @@ class RunsScriptsTest(unittest.TestCase):
                 "instance_${instance_id}.jsonl",
                 '--wheelhouse "$WHEELHOUSE"',
             ],
+            "run_swebench_multilingual.sh": [
+                'INSTANCE_DIR="evals/out/swebench_multilingual"',
+                'CONTAINER_RUN_ROOT="evals/out/swebench_multilingual"',
+                'PREDICTION_DIR="evals/out/swebench_multilingual"',
+                'WHEELHOUSE="evals/out/swebench_multilingual/wheelhouse/cp311-manylinux"',
+                "instance_${instance_id}.jsonl",
+                '--wheelhouse "$WHEELHOUSE"',
+            ],
             "setup_swebench_docker.sh": [
                 "evals/out/swebench/instance_${INSTANCE_ID}.jsonl",
                 "evals/out/swebench/wheelhouse",
@@ -95,6 +120,7 @@ class RunsScriptsTest(unittest.TestCase):
             ],
             "eval_swebench.sh": [
                 "evals/out/swebench_predictions.jsonl",
+                "evals/out/swebench_multilingual/swebench_multilingual_predictions.jsonl",
                 "evals/out/swebench_pro/swebench_pro_predictions.jsonl",
             ],
         }
@@ -108,10 +134,29 @@ class RunsScriptsTest(unittest.TestCase):
                 self.assertNotIn("evals/out/swebench/pro", text)
                 self.assertNotIn("evals/out/swebench/shared", text)
 
+    def test_swebench_suite_entry_uses_multilingual_default_paths(self) -> None:
+        module = _load_run_swebench_suite_module()
+        args = Namespace(
+            dataset_name="SWE-bench/SWE-bench_Multilingual",
+            run_root=None,
+            wheelhouse=None,
+        )
+
+        run_root, wheelhouse = module._resolve_paths(
+            args, {"instance_id": "kotlin__repo-123"}
+        )
+
+        self.assertEqual(run_root, ROOT / "evals/out/swebench_multilingual")
+        self.assertEqual(
+            wheelhouse,
+            ROOT / "evals/out/swebench_multilingual/wheelhouse/cp311-manylinux",
+        )
+
     def test_swebench_output_docs_show_flat_suite_layout(self) -> None:
         docs = [
             ROOT / "evals/out/README.md",
             ROOT / "evals/out/swebench/README.md",
+            ROOT / "evals/out/swebench_multilingual/README.md",
             ROOT / "evals/out/swebench_pro/README.md",
         ]
 
