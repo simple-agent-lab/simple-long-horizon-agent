@@ -27,6 +27,19 @@ The embedded sample loads on first paint, so the page is useful immediately.
 Drag any `.jsonl` / `.json` trajectory onto the page (or click **file**) to
 load it. This mode needs no server.
 
+## Automated page smoke (headless)
+
+From the repo root, this starts `serve.py`, runs puppeteer-core checks against
+the embedded demo and a sample trajectory, then exits:
+
+```bash
+bash runs/run_trace_viewer_smoke.sh
+```
+
+The smoke suite lives in `smoke.mjs` and verifies that the span tree, message
+stream, stat strip, view-mode toggles, inspector selection, and experiments
+sidebar all render without JavaScript errors.
+
 ## Live eval mode (recommended for running evals)
 
 ```bash

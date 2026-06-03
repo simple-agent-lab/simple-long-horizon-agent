@@ -10,6 +10,7 @@ The style follows nanochat's `runs/` convention: a script should be readable, co
 bash runs/run_ci.sh
 bash runs/run_docs_lint.sh
 bash runs/run_bash_agent_demo.sh
+bash runs/run_trace_viewer_smoke.sh
 bash runs/run_swebench_verified.sh
 bash runs/run_swebench_pro.sh
 bash runs/eval_swebench.sh
@@ -37,6 +38,7 @@ This runs a deterministic mini-SWE-style bash-use agent demo:
 
 ```bash
 bash runs/run_bash_agent_demo.sh
+bash runs/run_trace_viewer_smoke.sh
 ```
 
 To verify SWE-bench adapter tests specifically (already included in `run_ci.sh`):

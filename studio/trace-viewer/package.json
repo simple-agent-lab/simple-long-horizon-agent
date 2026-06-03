@@ -1,13 +1,14 @@
 {
   "name": "trace-viewer",
   "version": "1.0.0",
-  "description": "A single-file HTML viewer for `simple-agent-lab.trajectory.v3` trace records.",
-  "main": "index.js",
+  "private": true,
+  "description": "Observatory trace viewer — static HTML plus headless page smoke tests.",
+  "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "smoke": "node smoke.mjs",
+    "profile": "node profile-trace.mjs"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs"
+  "devDependencies": {
+    "puppeteer-core": "^23.11.1"
+  }
 }
