@@ -37,13 +37,11 @@ from typing import Any, Callable, cast
 
 from ..agents.bash import make_bash_agent
 from ..agents.bash_task import make_bash_task_agent
+from ..agents.skill import make_skill_agent
 from ..core import Agent
 from ..llm import ApiKind, Provider
-from ..llm_agent import make_llm_agent
 from ..skills import system_prompt_with_skills
 from ..state import State
-from ..tools.bash import make_bash_tool
-from ..tools.read import make_read_tool
 from ..trajectory import run_trace_from_state, trace_record
 from .protocols import RESULT_KEY, TRACE_KEY, AgentSpec, ArtifactStore, ContainerTask
 from .stores import container_store_from_env
@@ -101,14 +99,15 @@ def build_agent(
     if spec.flavor == "bash_skills":
         # bash + read, with agent skills discovered under `cwd` and advertised
         # in the system prompt; the model loads a skill by reading its SKILL.md
-        # and runs its scripts via bash (ADR 0021).
-        return make_llm_agent(
-            name=spec.name,
+        # and runs its scripts via bash (ADR 0021). The generic `agent.run`
+        # loop has no per-turn seam to record a menu into, so the menu rides
+        # the system prompt via `system_prompt_with_skills`.
+        return make_skill_agent(
             provider=provider,
+            cwd=cwd,
+            name=spec.name,
             role=spec.role,
-            tools=[make_bash_tool(cwd=cwd), make_read_tool(cwd=cwd)],
             system_prompt=system_prompt_with_skills(spec.system_prompt, cwd=cwd),
-            target="user",
             request_extra=request_extra,
         )
     raise SystemExit(

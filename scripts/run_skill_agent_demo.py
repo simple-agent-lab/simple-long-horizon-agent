@@ -46,28 +46,24 @@ from simple_agent_lab import (  # noqa: E402
     text_of,
     tool_results_of,
 )
+from simple_agent_lab.agents.skill import (  # noqa: E402
+    SKILL_AGENT_DEFAULT_NAME,
+    make_skill_agent,
+)
 from simple_agent_lab.llm import Provider  # noqa: E402
-from simple_agent_lab.llm_agent import make_llm_agent  # noqa: E402
 from simple_agent_lab.skills import (  # noqa: E402
     BUNDLED_LIBRARY_DIR,
     SkillRoot,
     default_skill_roots,
     run_with_skills,
 )
-from simple_agent_lab.tools.bash import make_bash_tool  # noqa: E402
-from simple_agent_lab.tools.read import make_read_tool  # noqa: E402
 from simple_agent_lab.trajectory import run_trace_from_state, trace_record  # noqa: E402
 
 OPENAI_MODEL_ENV = "OPENAI_MODEL"
 OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
 OPENAI_AUTH_ENV = "OPENAI_AUTH_TOKEN"
 
-AGENT_NAME = "skill_agent"
-AGENT_ROLE = (
-    "You are a capable software agent with a bash tool and a read tool. Use the "
-    "available skills when they fit the task: read a skill's SKILL.md, then run "
-    "its scripts via bash. Work from evidence and verify your result."
-)
+AGENT_NAME = SKILL_AGENT_DEFAULT_NAME
 
 
 def load_dotenv(path: str) -> None:
@@ -158,14 +154,7 @@ def main() -> None:
     else:
         roots = [SkillRoot(BUNDLED_LIBRARY_DIR, "bundled")]
 
-    agent = make_llm_agent(
-        name=AGENT_NAME,
-        provider=provider,
-        role=AGENT_ROLE,
-        tools=[make_bash_tool(cwd=cwd), make_read_tool(cwd=cwd)],
-        system_prompt=AGENT_ROLE,
-        target="user",
-    )
+    agent = make_skill_agent(provider=provider, cwd=cwd)
 
     print(f"=== skill agent (provider={args.provider}, cwd={cwd}) ===")
     print(f"=== task: {args.task[:160]} ===")
