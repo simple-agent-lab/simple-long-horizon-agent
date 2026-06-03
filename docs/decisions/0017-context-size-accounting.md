@@ -7,7 +7,7 @@ Accepted
 ## Context
 
 Compression decisions (ADR 0010's context view, the strategies in
-`src/simple_agent_lab/compression.py`) need one number: how full is the context
+`src/simple_agent_lab/compression/strategies.py`) need one number: how full is the context
 window right now? Getting it wrong is costly in both directions — under-count
 and the real window overflows before compression fires; over-count and the
 agent compresses too early, burning summarizer calls and shedding context it

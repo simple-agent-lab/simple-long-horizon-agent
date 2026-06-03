@@ -47,7 +47,7 @@ The current source-of-truth layers are:
 - `src/simple_agent_lab/messages.py`: runtime and provider-neutral message
   protocol.
 - `src/simple_agent_lab/context_view.py`: model-visible context projection.
-- `src/simple_agent_lab/compression.py`: context-compression strategies applied
+- `src/simple_agent_lab/compression/`: context-compression strategies applied
   before each model request (visibility shaping lives behind `ContextPolicy`).
 - `src/simple_agent_lab/tools/`: shared tool/result values plus concrete tool
   implementations such as bash and the sub-agent `task` tool.
