@@ -30,6 +30,8 @@ evals/out/swebench/*
 evals/out/swebench_pro/*
 !evals/out/swebench_pro/README.md
 logs/
+.tmp/
+
 
 # Local reference-architecture research notes — kept off the public repo.
 # Drop your own `<system-name>.md` notes under docs/reference-architectures/;
