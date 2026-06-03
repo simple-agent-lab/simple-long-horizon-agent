@@ -16,6 +16,7 @@ the run's `ArtifactStore`, so this backend never copies files itself.
 
 from __future__ import annotations
 
+import importlib
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
@@ -41,10 +42,7 @@ from ..runner import build_command
 # — type checks cleanly; the runtime None-guard, not the type, enforces presence.
 docker: Any = None
 try:  # pragma: no cover - import guard
-    import docker as _docker  # ty: ignore[unresolved-import]
-    import docker.errors  # ty: ignore[unresolved-import]  # noqa: F401
-
-    docker = _docker
+    docker = importlib.import_module("docker")
 except ImportError:  # pragma: no cover - exercised only without the extra
     pass
 

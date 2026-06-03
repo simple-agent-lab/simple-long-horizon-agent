@@ -85,7 +85,9 @@ def build_task(instance: Mapping[str, Any], *, workdir: str) -> str:
             "## Completion Requirements",
             "- Create all requested deliverables under WORKDIR.",
             "- Verify generated files exist and are non-empty when practical.",
-            '- Finish with a final assistant message starting with "Final answer:".',
+            "- Finish with a final assistant message containing "
+            "<FINAL_ANSWER>...</FINAL_ANSWER>.",
+            "- Put generated file paths and the completion summary inside those tags.",
         ]
     )
 

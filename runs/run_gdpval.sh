@@ -4,6 +4,7 @@
 # Usage:
 #   bash runs/run_gdpval.sh [path/to/gdpval.jsonl] [task-id]
 #   JUDGE=1 bash runs/run_gdpval.sh [path/to/gdpval.jsonl] [task-id]
+#   JUDGE=1 JUDGE_MODE=rubric bash runs/run_gdpval.sh [path/to/gdpval.jsonl] [task-id]
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -29,6 +30,7 @@ fi
 
 if [ "${JUDGE:-}" = "1" ]; then
   ARGS+=(--judge)
+  ARGS+=(--judge-mode "${JUDGE_MODE:-gsb}")
 fi
 
 "${PYTHON[@]}" "${ARGS[@]}"

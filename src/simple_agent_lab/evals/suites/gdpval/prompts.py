@@ -38,7 +38,7 @@ GDPVAL_SYSTEM_PROMPT = dedent(
 
     Completion:
     - When the task is complete, send a normal assistant message with no tool calls.
-    - The final message must start with "Final answer:".
-    - Mention the absolute paths of any generated files and a brief summary of what was completed or verified.
+    - The final message must put the final answer between <FINAL_ANSWER> and </FINAL_ANSWER> tags.
+    - Inside the tags, mention the absolute paths of any generated files and a brief summary of what was completed or verified.
     """
 )

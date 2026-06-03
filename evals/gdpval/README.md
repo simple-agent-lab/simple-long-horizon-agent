@@ -4,7 +4,7 @@ This is a first-version GDPVal integration for Simple Agent Lab.
 
 Scope:
 
-- Solver by default, with optional first-version rubric judge via `--judge`.
+- Solver by default, with optional second-stage judge via `--judge`.
 - Agent: a plain Simple Agent Lab `make_llm_agent` tool-calling agent.
 - GDPVal source mode: rows are normalized for the `tool-call-context-managed`
   setting, but this integration does not add a custom summarizer or context
@@ -13,10 +13,9 @@ Scope:
   wheel. The implementation does not import `swalm`.
 - Tool surface: local file/read/search/write/edit/bash/todo tools. Web tools
   are intentionally absent in this first version.
-- Judge scope: rubric-only, second-stage agent judge. It compares candidate
-  deliverables against rubrics and any staged gold/reference files, then writes
-  weighted per-rubric scores. It does not yet implement the full swalm
-  forward/reverse A/B GSB scoring path.
+- Judge scope: `--judge-mode gsb` compares candidate deliverables against
+  `deliverable_files` with forward/reverse A/B GSB scoring. `--judge-mode
+  rubric` keeps the earlier direct rubric score path.
 
 The host half lives in `evals/gdpval/suite.py`. The container half ships in the
 wheel at `simple_agent_lab.evals.suites.gdpval.container`, so Docker backends
@@ -31,10 +30,17 @@ By default, the runner downloads `openai/gdpval` from Hugging Face, uses the
 uv run --with datasets python runs/run_gdpval.py --limit 10
 ```
 
-Add `--judge` to run the rubric judge after successful solver cases:
+Add `--judge` to run the GSB judge after successful solver cases:
 
 ```bash
 uv run --with datasets python runs/run_gdpval.py --limit 10 --judge
+```
+
+Use `--judge-mode rubric` to keep the legacy direct rubric judge:
+
+```bash
+uv run --with datasets python runs/run_gdpval.py --limit 10 --judge \
+  --judge-mode rubric
 ```
 
 To run through Docker with a local GDPVal base image, build the image first:
@@ -76,7 +82,8 @@ The runner reads `OPENAI_MODEL`, `OPENAI_AUTH_TOKEN`, and optional
 `OPENAI_BASE_URL` from `.env` or the environment. It uses `openai-chat` by
 default; pass `--api-kind openai-responses` to use the Responses adapter.
 The judge uses the same provider by default; override with `--judge-provider`,
-`--judge-api-kind`, `--judge-max-turns`, and `--judge-concurrency`.
+`--judge-api-kind`, `--judge-max-turns`, `--judge-concurrency`, and
+`--judge-mode`.
 
 Artifacts land under `evals/out/gdpval/<run-id>/<task-id>/out/`:
 
@@ -90,6 +97,10 @@ written beside the solver run:
 
 - `evals/out/gdpval/<run-id>/judge_summary.jsonl`
 - `evals/out/gdpval/<run-id>/judge_summary.json`
+
+GSB judge result files include `combined_weighted_score`, `llm_score`,
+`score_process`, forward/reverse rubric GSB details, and the raw parsed
+direction payloads under `rm_eval_result`.
 
 ## Input Shape
 

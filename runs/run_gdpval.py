@@ -20,7 +20,7 @@ from evals.gdpval.load_instances import (  # noqa: E402
     DEFAULT_HF_SPLIT,
     load_instances,
 )
-from evals.gdpval.judge_suite import GdpvalJudgeSuite  # noqa: E402
+from evals.gdpval.judge_suite import GdpvalGsbJudgeSuite, GdpvalJudgeSuite  # noqa: E402
 from evals.gdpval.suite import GdpvalSuite  # noqa: E402
 from simple_agent_lab.evals import (  # noqa: E402
     RESULT_KEY,
@@ -91,7 +91,16 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--judge",
         action="store_true",
-        help="Run a second-stage rubric judge over successful solver outputs.",
+        help="Run a second-stage judge over successful solver outputs.",
+    )
+    parser.add_argument(
+        "--judge-mode",
+        choices=["gsb", "rubric"],
+        default="gsb",
+        help=(
+            "Judge style. 'gsb' compares candidate deliverables against "
+            "deliverable_files; 'rubric' keeps the legacy direct rubric score."
+        ),
     )
     parser.add_argument("--judge-run-id", default=None)
     parser.add_argument("--judge-max-turns", type=int, default=50)
@@ -302,7 +311,8 @@ def _run_judge_phase(
     judge_run_id = args.judge_run_id or f"{args.run_id}-judge"
     judge_provider = args.judge_provider or args.provider
     judge_api_kind = args.judge_api_kind or args.api_kind
-    suite = GdpvalJudgeSuite(
+    suite_cls = GdpvalGsbJudgeSuite if args.judge_mode == "gsb" else GdpvalJudgeSuite
+    suite = suite_cls(
         image=args.image,
         reference_root=args.reference_root,
         deliverable_root=args.deliverable_root,
@@ -338,6 +348,7 @@ def _run_judge_phase(
     print(f"    selected:    {len(judge_instances)}")
     print(f"    skipped:     {len(skipped)}")
     print(f"    run-id:      {judge_run_id}")
+    print(f"    mode:        {args.judge_mode}")
     print(f"    provider:    {judge_provider}")
     print(f"    api-kind:    {judge_api_kind}")
     print(f"    max-turns:   {args.judge_max_turns}")
@@ -379,6 +390,7 @@ def _run_judge_phase(
         run_root=run_root,
         solver_run_id=args.run_id,
         judge_run_id=judge_run_id,
+        judge_mode=args.judge_mode,
         results=judge_report.results,
         skipped=skipped,
     )
@@ -391,6 +403,7 @@ def _write_judge_summary(
     run_root: Path,
     solver_run_id: str,
     judge_run_id: str,
+    judge_mode: str,
     results: list,
     skipped: list[tuple[str, str]],
 ) -> dict[str, object]:
@@ -419,6 +432,18 @@ def _write_judge_summary(
                         "max_score": payload.get("max_score", 0.0),
                     }
                 )
+                for key in (
+                    "combined_weighted_score",
+                    "llm_score",
+                    "score_process",
+                    "dcg_winrate",
+                    "rubrics_weighted_score_reverse",
+                    "rubrics_weighted_score_forward",
+                    "llm_gsb_score_reverse",
+                    "llm_gsb_score_forward",
+                ):
+                    if key in payload:
+                        row[key] = payload[key]
             else:
                 row["status"] = "judge_result_missing"
         rows.append(row)
@@ -426,7 +451,8 @@ def _write_judge_summary(
     scored = [
         row
         for row in rows
-        if row.get("status") == "judged" and isinstance(row.get("score"), (int, float))
+        if row.get("status") in {"judged", "gsb_judged", "no_rubrics"}
+        and isinstance(row.get("score"), (int, float))
     ]
     aggregate = {
         "total": len(rows),
@@ -436,6 +462,7 @@ def _write_judge_summary(
             sum(float(row["score"]) for row in scored) / len(scored) if scored else 0.0
         ),
         "judge_run_id": judge_run_id,
+        "judge_mode": judge_mode,
     }
     summary_dir = run_root / solver_run_id
     summary_dir.mkdir(parents=True, exist_ok=True)

@@ -244,3 +244,10 @@ def _as_list(value: Any) -> list[str]:
 def _safe_path_part(value: str) -> str:
     safe = "".join(c if c.isalnum() or c in "_.-" else "_" for c in value)
     return safe.strip("._") or "task"
+
+
+class GdpvalGsbJudgeSuite(GdpvalJudgeSuite):
+    """A GDPVal GSB judge comparing candidate deliverables to gold files."""
+
+    name = "gdpval_gsb_judge"
+    container_module = "simple_agent_lab.evals.suites.gdpval.judge_gsb_container"
