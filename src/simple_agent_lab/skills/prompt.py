@@ -11,10 +11,16 @@ and path-aliasing machinery is intentionally not implemented.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from pathlib import Path
 
 from simple_agent_lab.messages import SystemMessage, system_message
 
-from .discovery import SkillMetadata
+from .discovery import (
+    SkillMetadata,
+    SkillRoot,
+    default_skill_roots,
+    discover_skills,
+)
 
 
 # Adapted verbatim from Codex (core-skills/src/render.rs:
@@ -84,3 +90,32 @@ def skills_menu_message(
     if not block:
         return None
     return system_message(block, sender="skills", target=target, kind="system")
+
+
+def system_prompt_with_skills(
+    base_prompt: str,
+    *,
+    cwd: str | Path,
+    home: str | None = None,
+    roots: Sequence[SkillRoot] | None = None,
+) -> str:
+    """Fold the discovered skills menu into a base system prompt.
+
+    For agent flavors that run through the generic ``agent.run`` loop (e.g. the
+    benchmark path), there is no per-turn message seam to record a menu into, so
+    the ``<skills_instructions>`` menu rides the system prompt instead — the same
+    content ``run_with_skills`` records as a system message on the interactive
+    edge. When no skill is discovered the prompt is returned unchanged, so an
+    empty bundled library leaves the baseline untouched.
+
+    Pass explicit ``roots`` to control discovery; otherwise the default scopes
+    (bundled library, project under ``cwd``, user under ``home``) are scanned.
+    """
+
+    skill_roots = (
+        list(roots) if roots is not None else default_skill_roots(str(cwd), home)
+    )
+    menu = render_skills_instructions(discover_skills(skill_roots))
+    if not menu:
+        return base_prompt
+    return f"{base_prompt}\n\n{menu}" if base_prompt else menu

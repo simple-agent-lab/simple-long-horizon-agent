@@ -359,7 +359,7 @@ class SwebenchFlavorTest(unittest.TestCase):
         self.assertIn("read", tool_names)
 
     def test_skills_system_prompt_folds_in_discovered_menu(self) -> None:
-        from simple_agent_lab.evals.in_container import skills_system_prompt
+        from simple_agent_lab.skills import system_prompt_with_skills
 
         with tempfile.TemporaryDirectory() as tmp:
             skill_root = Path(tmp) / ".agents" / "skills" / "demo"
@@ -368,7 +368,7 @@ class SwebenchFlavorTest(unittest.TestCase):
                 "---\nname: demo\ndescription: a demo skill\n---\nbody\n",
                 encoding="utf-8",
             )
-            prompt = skills_system_prompt("BASE", cwd=Path(tmp), home=tmp)
+            prompt = system_prompt_with_skills("BASE", cwd=Path(tmp), home=tmp)
         # The benchmark path has no per-turn message seam; the discovered menu
         # rides the agent's system prompt instead.
         self.assertTrue(prompt.startswith("BASE"))
@@ -378,7 +378,7 @@ class SwebenchFlavorTest(unittest.TestCase):
     def test_skills_system_prompt_unchanged_when_no_skills(self) -> None:
         from unittest import mock
 
-        from simple_agent_lab.evals.in_container import skills_system_prompt
+        from simple_agent_lab.skills import system_prompt_with_skills
 
         # Isolate all three discovery scopes so "no skills" is actually true:
         # project (cwd) and user (home) point at empty temp dirs, and the
@@ -392,7 +392,7 @@ class SwebenchFlavorTest(unittest.TestCase):
                 "simple_agent_lab.skills.discovery.BUNDLED_LIBRARY_DIR",
                 str(empty_library),
             ):
-                prompt = skills_system_prompt("BASE", cwd=Path(tmp), home=tmp)
+                prompt = system_prompt_with_skills("BASE", cwd=Path(tmp), home=tmp)
         self.assertEqual(prompt, "BASE")
 
 

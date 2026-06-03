@@ -67,7 +67,8 @@ We needed a shape that fits Simple Agent Lab's small, inspectable runtime
    suite-agnostic, so it has no per-turn seam to record a menu into. The
    `bash_skills` flavor therefore builds a `bash` + `read` agent and folds the
    discovered `<skills_instructions>` menu into the agent's system prompt
-   (`skills_system_prompt` in `src/simple_agent_lab/evals/in_container.py`) —
+   (`system_prompt_with_skills` in `src/simple_agent_lab/skills/prompt.py`,
+   called from `build_agent` in `src/simple_agent_lab/evals/in_container.py`) —
    the same content
    `run_with_skills` records as a system message in the interactive edge. The
    core run loop and the generic runner stay unchanged.

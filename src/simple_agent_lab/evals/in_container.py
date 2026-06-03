@@ -40,11 +40,7 @@ from ..agents.bash_task import make_bash_task_agent
 from ..core import Agent
 from ..llm import ApiKind, Provider
 from ..llm_agent import make_llm_agent
-from ..skills import (
-    default_skill_roots,
-    discover_skills,
-    render_skills_instructions,
-)
+from ..skills import system_prompt_with_skills
 from ..state import State
 from ..tools.bash import make_bash_tool
 from ..tools.read import make_read_tool
@@ -75,26 +71,6 @@ DEFAULT_RESPONSES_MAX_OUTPUT_TOKENS = 32768
 # --------------------------------------------------------------------------- #
 # Agent construction (suite-tunable via agent_spec or a full build_agent hook)
 # --------------------------------------------------------------------------- #
-def skills_system_prompt(
-    base_prompt: str, *, cwd: Path, home: str | None = None
-) -> str:
-    """Fold the discovered skills menu into a system prompt (or return it as-is).
-
-    The benchmark path drives the agent through the generic ``agent.run`` (it has
-    no per-turn message seam to record a menu into), so the ``<skills_instructions>``
-    menu rides the system prompt instead — the same content
-    ``run_with_skills`` records as a system message in the interactive edge. When
-    no skill is discovered the prompt is unchanged, so an empty bundled library
-    leaves the baseline untouched.
-    """
-
-    skills = discover_skills(default_skill_roots(str(cwd), home))
-    menu = render_skills_instructions(skills)
-    if not menu:
-        return base_prompt
-    return f"{base_prompt}\n\n{menu}" if base_prompt else menu
-
-
 def build_agent(
     *,
     spec: AgentSpec,
@@ -131,7 +107,7 @@ def build_agent(
             provider=provider,
             role=spec.role,
             tools=[make_bash_tool(cwd=cwd), make_read_tool(cwd=cwd)],
-            system_prompt=skills_system_prompt(spec.system_prompt, cwd=cwd),
+            system_prompt=system_prompt_with_skills(spec.system_prompt, cwd=cwd),
             target="user",
             request_extra=request_extra,
         )

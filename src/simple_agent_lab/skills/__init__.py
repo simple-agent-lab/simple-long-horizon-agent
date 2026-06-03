@@ -23,6 +23,7 @@ from .prompt import (
     SKILLS_HOW_TO_USE,
     render_skills_instructions,
     skills_menu_message,
+    system_prompt_with_skills,
 )
 from .runtime import run_with_skills, skill_body_messages
 
@@ -39,6 +40,7 @@ __all__ = [
     "parse_skill_directives",
     "render_skills_instructions",
     "skills_menu_message",
+    "system_prompt_with_skills",
     "run_with_skills",
     "skill_body_messages",
 ]
