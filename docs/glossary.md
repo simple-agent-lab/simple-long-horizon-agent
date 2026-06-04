@@ -15,7 +15,7 @@ has model-adjacent `role` and `content`, plus lab-facing `sender`, `target`,
 `kind`, `channel`, and structured `data`. It is projected into an `LLMMessage`
 before a provider call.
 
-## SystemMessage
+## RuntimeMessage
 
 A message variant for system, instruction, summary, or runtime guidance that should stay visible in transcript state.
 

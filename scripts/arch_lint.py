@@ -52,6 +52,7 @@ MODULE_ZONES = {
     "compression": CORE,
     "state": CORE,
     "core": CORE,
+    "hooks": CORE,
     "llm_agent": CORE,
     "llm": CORE,
     "tools": CORE,

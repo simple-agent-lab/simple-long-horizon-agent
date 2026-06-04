@@ -1,4 +1,4 @@
-"""Render the <skills_instructions> menu and wrap it as a system message.
+"""Render the <skills_instructions> menu and wrap it as a runtime message.
 
 The menu is the only "matching engine": a list of name + description + path,
 plus the verbatim "how to use skills" prose that tells the model how to load
@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
-from simple_agent_lab.messages import SystemMessage, system_message
+from simple_agent_lab.messages import RuntimeMessage, runtime_message
 
 from .discovery import (
     SkillMetadata,
@@ -78,8 +78,8 @@ def render_skills_instructions(skills: Sequence[SkillMetadata]) -> str:
 
 def skills_menu_message(
     skills: Sequence[SkillMetadata], *, target: str = "all"
-) -> SystemMessage | None:
-    """Wrap the menu as a system message, or ``None`` when there are no skills.
+) -> RuntimeMessage | None:
+    """Wrap the menu as a runtime message, or ``None`` when there are no skills.
 
     A system-kind message is folded into the provider's system area by both
     adapters (OpenAI Chat emits a ``role="system"`` entry; Anthropic appends it
@@ -89,7 +89,7 @@ def skills_menu_message(
     block = render_skills_instructions(skills)
     if not block:
         return None
-    return system_message(block, sender="skills", target=target, kind="system")
+    return runtime_message(block, sender="skills", target=target, kind="system")
 
 
 def system_prompt_with_skills(
@@ -104,7 +104,7 @@ def system_prompt_with_skills(
     For agent flavors that run through the generic ``agent.run`` loop (e.g. the
     benchmark path), there is no per-turn message seam to record a menu into, so
     the ``<skills_instructions>`` menu rides the system prompt instead — the same
-    content ``run_with_skills`` records as a system message on the interactive
+    content ``run_with_skills`` records as a runtime message on the interactive
     edge. When no skill is discovered the prompt is returned unchanged, so an
     empty bundled library leaves the baseline untouched.
 

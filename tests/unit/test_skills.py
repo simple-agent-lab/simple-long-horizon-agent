@@ -137,7 +137,7 @@ class PromptMenuTest(unittest.TestCase):
         self.assertIn("### How to use skills", block)
         self.assertIn(SKILLS_HOW_TO_USE.strip().splitlines()[0], block)
 
-    def test_menu_message_is_a_system_message(self) -> None:
+    def test_menu_message_is_a_runtime_message(self) -> None:
         msg = skills_menu_message([self._skill("alpha")], target="agent")
         assert msg is not None
         self.assertEqual(msg.role, "system")

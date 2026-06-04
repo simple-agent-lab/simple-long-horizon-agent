@@ -34,6 +34,7 @@ class EventKind(str, Enum):
     TOOL_EXECUTION_START = "tool_execution_start"
     TOOL_EXECUTION_UPDATE = "tool_execution_update"
     TOOL_EXECUTION_END = "tool_execution_end"
+    HOOK_FIRED = "hook_fired"
 
     def __str__(self) -> str:
         return self.value
@@ -180,6 +181,29 @@ class ToolExecutionEndEvent(_BaseEvent):
     terminate: bool
 
 
+@dataclass(frozen=True, kw_only=True)
+class HookFiredEvent(_BaseEvent):
+    """One firing of a lifecycle hook point — observe-only trace of an
+    otherwise invisible control-flow decision.
+
+    Hooks (see `hooks.py`) are append-only — they can block a tool call or add
+    messages; the decision flows back through a `HookDecision`, and this event
+    records that the point fired and how it resolved so the trace shows hook
+    activity. `point` is the `HookPoint` value; `target` is the tool/sub-agent
+    name in scope (or ""). A non-empty `block_reason` means the point blocked;
+    `emitted` is how many messages the hooks added.
+    """
+
+    kind: Literal[EventKind.HOOK_FIRED] = field(
+        default=EventKind.HOOK_FIRED, init=False
+    )
+    point: str
+    agent: AgentName
+    target: str = ""
+    block_reason: str = ""
+    emitted: int = 0
+
+
 Event: TypeAlias = (
     MessageEvent
     | AgentStartEvent
@@ -192,4 +216,5 @@ Event: TypeAlias = (
     | ToolExecutionStartEvent
     | ToolExecutionUpdateEvent
     | ToolExecutionEndEvent
+    | HookFiredEvent
 )

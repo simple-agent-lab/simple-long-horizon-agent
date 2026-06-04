@@ -196,7 +196,7 @@ class CompleteWithToolCallRetryTest(unittest.TestCase):
         self.assertIs(result, valid)
         self.assertEqual(len(calls), 1)
 
-    def test_reasks_until_valid_with_corrective_system_message(self) -> None:
+    def test_reasks_until_valid_with_corrective_runtime_message(self) -> None:
         bad = _tool_call_response("ghost", {})
         good = _tool_call_response("bash", {"command": "ls"})
         responses = iter([bad, good])
