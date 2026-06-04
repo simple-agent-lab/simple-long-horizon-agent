@@ -174,9 +174,7 @@ class EditFileTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "f.txt"
             target.write_text("one two two\n")
-            result = edit_file(
-                "f.txt", "two", "2", replace_all=True, root=tmp
-            )
+            result = edit_file("f.txt", "two", "2", replace_all=True, root=tmp)
             written = target.read_text()
 
         self.assertFalse(result.is_error)
