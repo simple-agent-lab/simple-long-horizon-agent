@@ -39,7 +39,11 @@ def build_agent(
         name="gdpval_solver",
         provider=provider,
         role="Complete GDPVal tasks by creating deliverables in WORKDIR.",
-        tools=make_gdpval_tools(workdir=workdir, reference_dir=reference_dir),
+        tools=make_gdpval_tools(
+            workdir=workdir,
+            reference_dir=reference_dir,
+            profile="bash_fileops",
+        ),
         system_prompt=GDPVAL_SYSTEM_PROMPT,
         target="user",
         request_extra=request_extra,
@@ -87,6 +91,7 @@ def build_task(instance: Mapping[str, Any], *, workdir: str) -> str:
             "- Verify generated files exist and are non-empty when practical.",
             "- Finish with a final assistant message containing "
             "<FINAL_ANSWER>...</FINAL_ANSWER>.",
+            "- Treat those tags as plain final-message text, not as a tool call.",
             "- Put generated file paths and the completion summary inside those tags.",
         ]
     )

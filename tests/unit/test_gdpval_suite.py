@@ -211,6 +211,9 @@ class GdpvalSuiteTest(unittest.TestCase):
             self.assertIn(str(reference_dir / "brief.txt"), task)
             self.assertIn("<FINAL_ANSWER>", GDPVAL_SYSTEM_PROMPT)
             self.assertIn("</FINAL_ANSWER>", GDPVAL_SYSTEM_PROMPT)
+            self.assertIn("execute_bash as the primary tool", GDPVAL_SYSTEM_PROMPT)
+            self.assertIn("multi_edit_file", GDPVAL_SYSTEM_PROMPT)
+            self.assertIn("view_image", GDPVAL_SYSTEM_PROMPT)
             self.assertIn("<FINAL_ANSWER>...</FINAL_ANSWER>", task)
 
     def test_gdpval_tools_cover_file_and_shell_work(self) -> None:
@@ -251,6 +254,81 @@ class GdpvalSuiteTest(unittest.TestCase):
             if shutil.which("rg"):
                 self.assertIn("answer.txt", call("grep_files", {"pattern": "gamma"}))
 
+    def test_gdpval_bash_fileops_profile_covers_multi_edit_and_images(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workdir = Path(tmp) / "workdir"
+            reference_dir = Path(tmp) / "reference_task_id_files"
+            tools = {
+                tool.name: tool
+                for tool in make_gdpval_tools(
+                    workdir=workdir,
+                    reference_dir=reference_dir,
+                    profile="bash_fileops",
+                    output_head_chars=2000,
+                    output_tail_chars=2000,
+                )
+            }
+            self.assertEqual(
+                set(tools),
+                {"execute_bash", "TodoWrite", "multi_edit_file", "view_image"},
+            )
+
+            def call(name: str, args: dict) -> str:
+                result = tools[name].execute("call-1", args, lambda: False, None)
+                self.assertFalse(result.is_error, tool_result_text(result))
+                return tool_result_text(result)
+
+            call(
+                "execute_bash",
+                {"command": "printf 'alpha\\nbeta\\n' > answer.txt"},
+            )
+            self.assertIn(
+                "gamma",
+                call(
+                    "multi_edit_file",
+                    {
+                        "file_path": str(workdir / "answer.txt"),
+                        "edits": [
+                            {
+                                "old_string": "beta\n",
+                                "new_string": "gamma\n",
+                            }
+                        ],
+                    },
+                ),
+            )
+            self.assertEqual(
+                (workdir / "answer.txt").read_text(encoding="utf-8"),
+                "alpha\ngamma\n",
+            )
+
+            failed = tools["multi_edit_file"].execute(
+                "call-2",
+                {
+                    "file_path": str(workdir / "answer.txt"),
+                    "edits": [
+                        {
+                            "old_string": "missing",
+                            "new_string": "should-not-write",
+                        }
+                    ],
+                },
+                lambda: False,
+                None,
+            )
+            self.assertTrue(failed.is_error)
+            self.assertEqual(
+                (workdir / "answer.txt").read_text(encoding="utf-8"),
+                "alpha\ngamma\n",
+            )
+
+            pixel_png = base64.b64decode(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8"
+                "/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+            )
+            (workdir / "pixel.png").write_bytes(pixel_png)
+            self.assertIn("Image file:", call("view_image", {"path": "pixel.png"}))
+
     def test_extract_result_collects_manifest_and_archive(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             workdir = Path(tmp) / "workdir"
@@ -277,6 +355,14 @@ class GdpvalSuiteTest(unittest.TestCase):
         self.assertIsNone(solver.context_policy)
         self.assertIsNone(judge.context_policy)
         self.assertIsNone(gsb_judge.context_policy)
+        self.assertEqual(
+            [tool.name for tool in solver.tools],
+            ["execute_bash", "TodoWrite", "multi_edit_file", "view_image"],
+        )
+        self.assertNotIn("read_file", {tool.name for tool in solver.tools})
+        self.assertNotIn("write_file", {tool.name for tool in solver.tools})
+        self.assertIn("write_file", {tool.name for tool in judge.tools})
+        self.assertIn("write_file", {tool.name for tool in gsb_judge.tools})
 
     def test_judge_scoring_normalizes_rubrics_and_weighted_score(self) -> None:
         rubrics = json.dumps(

@@ -7,8 +7,9 @@ import hashlib
 import json
 import mimetypes
 import subprocess
+from difflib import unified_diff
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 from simple_agent_lab.messages import ImageBlock, TextBlock
 from simple_agent_lab.tools import AgentTool, ToolResult, text_result
@@ -21,16 +22,25 @@ from simple_agent_lab.tools.bash import (
 _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 _MAX_IMAGE_BYTES = 5 * 1024 * 1024
 _MAX_READ_CHARS = 80_000
+_MULTI_EDIT_DIFF_MAX_CHARS = 12_000
+_MULTI_EDIT_DIFF_MAX_LINES = 120
 
 
 def make_gdpval_tools(
     *,
     workdir: str | Path,
     reference_dir: str | Path,
+    profile: Literal["full", "bash_fileops"] = "full",
     output_head_chars: int = 6000,
     output_tail_chars: int = 6000,
 ) -> tuple[AgentTool, ...]:
-    """Return the no-web GDPVal tool surface."""
+    """Return the no-web GDPVal tool surface.
+
+    ``profile="bash_fileops"`` matches the swalm
+    ``tool-call-optimized-bash-fileops`` solver shape: bash is the primary
+    file-operation tool, with exact multi-edit, image inspection, and todos.
+    The default ``full`` profile keeps judge behavior stable.
+    """
 
     workspace = Path(workdir).resolve()
     references = Path(reference_dir).resolve()
@@ -170,6 +180,59 @@ def make_gdpval_tools(
         except Exception as exc:
             return text_result(f"{type(exc).__name__}: {exc}", is_error=True)
 
+    def multi_edit_file(
+        call_id: str, args: dict[str, Any], abort, on_update
+    ) -> ToolResult:
+        del call_id, abort, on_update
+        try:
+            path = _resolve_write_path(args.get("file_path"), workspace)
+            raw_edits = args.get("edits")
+            if not isinstance(raw_edits, list) or not raw_edits:
+                return text_result("edits must be a non-empty list", is_error=True)
+
+            before = path.read_text(encoding="utf-8", errors="replace")
+            after = before
+            summaries: list[str] = []
+            for index, raw_edit in enumerate(raw_edits, start=1):
+                if not isinstance(raw_edit, dict):
+                    return text_result(f"edit {index} must be an object", is_error=True)
+                # ty narrows runtime dict checks to dict[Never, Never].
+                edit = cast("dict[str, Any]", raw_edit)
+                old = str(edit.get("old_string") or "")
+                new = str(edit.get("new_string") or "")
+                replace_all = bool(edit.get("replace_all", False))
+                if old == "":
+                    return text_result(
+                        f"edit {index} old_string is required", is_error=True
+                    )
+                occurrences = after.count(old)
+                if occurrences == 0:
+                    return text_result(
+                        f"edit {index} old_string not found in {path}",
+                        is_error=True,
+                    )
+                if not replace_all and occurrences != 1:
+                    return text_result(
+                        f"edit {index} old_string matched {occurrences} times; "
+                        "set replace_all=true or provide a unique old_string",
+                        is_error=True,
+                    )
+                replacements = occurrences if replace_all else 1
+                after = after.replace(old, new, replacements)
+                summaries.append(
+                    f"- edit {index}: replaced {replacements} occurrence(s)"
+                )
+
+            if after == before:
+                return text_result("No changes made")
+
+            path.write_text(after, encoding="utf-8")
+            diff = _format_unified_diff(before, after, path)
+            body = "\n".join([f"Edited {path}", *summaries, "", diff]).strip()
+            return text_result(body)
+        except Exception as exc:
+            return text_result(f"{type(exc).__name__}: {exc}", is_error=True)
+
     def execute_bash(
         call_id: str, args: dict[str, Any], abort, on_update
     ) -> ToolResult:
@@ -210,6 +273,19 @@ def make_gdpval_tools(
         except Exception as exc:
             return text_result(f"{type(exc).__name__}: {exc}", is_error=True)
 
+    def view_image(call_id: str, args: dict[str, Any], abort, on_update) -> ToolResult:
+        del call_id, abort, on_update
+        try:
+            path = _resolve_read_path(args.get("path"), workspace, references)
+            if path.suffix.lower() not in _IMAGE_EXTS:
+                return text_result(
+                    f"view_image only supports: {', '.join(sorted(_IMAGE_EXTS))}",
+                    is_error=True,
+                )
+            return _image_result(path)
+        except Exception as exc:
+            return text_result(f"{type(exc).__name__}: {exc}", is_error=True)
+
     def todo_write(call_id: str, args: dict[str, Any], abort, on_update) -> ToolResult:
         del call_id, abort, on_update
         nonlocal todos
@@ -221,118 +297,203 @@ def make_gdpval_tools(
         (workspace / "_sal_todos.json").write_text(payload + "\n", encoding="utf-8")
         return text_result(payload)
 
-    return (
-        AgentTool(
-            name="list_dir",
-            description="List files under WORKDIR or REFERENCE_DIR.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string"},
-                    "recursive": {"type": "boolean"},
-                    "limit": {"type": "integer"},
-                },
-                "additionalProperties": False,
+    list_dir_tool = AgentTool(
+        name="list_dir",
+        description="List files under WORKDIR or REFERENCE_DIR.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "recursive": {"type": "boolean"},
+                "limit": {"type": "integer"},
             },
-            execute=list_dir,
-        ),
-        AgentTool(
-            name="read_file",
-            description="Read a text file with line numbers, or return an image block for image files.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string"},
-                    "offset": {"type": "integer"},
-                    "limit": {"type": "integer"},
-                },
-                "required": ["path"],
-                "additionalProperties": False,
+            "additionalProperties": False,
+        },
+        execute=list_dir,
+    )
+    read_file_tool = AgentTool(
+        name="read_file",
+        description="Read a text file with line numbers, or return an image block for image files.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "offset": {"type": "integer"},
+                "limit": {"type": "integer"},
             },
-            execute=read_file,
-        ),
-        AgentTool(
-            name="grep_files",
-            description="Search text files under WORKDIR or REFERENCE_DIR with ripgrep.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "pattern": {"type": "string"},
-                    "path": {"type": "string"},
-                    "case_sensitive": {"type": "boolean"},
-                    "max_matches": {"type": "integer"},
-                },
-                "required": ["pattern"],
-                "additionalProperties": False,
+            "required": ["path"],
+            "additionalProperties": False,
+        },
+        execute=read_file,
+    )
+    grep_files_tool = AgentTool(
+        name="grep_files",
+        description="Search text files under WORKDIR or REFERENCE_DIR with ripgrep.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "pattern": {"type": "string"},
+                "path": {"type": "string"},
+                "case_sensitive": {"type": "boolean"},
+                "max_matches": {"type": "integer"},
             },
-            execute=grep_files,
-        ),
-        AgentTool(
-            name="write_file",
-            description="Create or rewrite a UTF-8 text file under WORKDIR.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string"},
-                    "content": {"type": "string"},
-                },
-                "required": ["path", "content"],
-                "additionalProperties": False,
+            "required": ["pattern"],
+            "additionalProperties": False,
+        },
+        execute=grep_files,
+    )
+    write_file_tool = AgentTool(
+        name="write_file",
+        description="Create or rewrite a UTF-8 text file under WORKDIR.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "content": {"type": "string"},
             },
-            execute=write_file,
-            execution_mode="sequential",
-        ),
-        AgentTool(
-            name="edit_file",
-            description="Replace exact text in a UTF-8 file under WORKDIR.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string"},
-                    "old": {"type": "string"},
-                    "new": {"type": "string"},
-                    "count": {"type": "integer"},
-                },
-                "required": ["path", "old", "new"],
-                "additionalProperties": False,
+            "required": ["path", "content"],
+            "additionalProperties": False,
+        },
+        execute=write_file,
+        execution_mode="sequential",
+    )
+    edit_file_tool = AgentTool(
+        name="edit_file",
+        description="Replace exact text in a UTF-8 file under WORKDIR.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "old": {"type": "string"},
+                "new": {"type": "string"},
+                "count": {"type": "integer"},
             },
-            execute=edit_file,
-            execution_mode="sequential",
-        ),
-        AgentTool(
-            name="execute_bash",
-            description="Run a bash command in WORKDIR and return stdout/stderr.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "command": {"type": "string"},
-                    "timeout_seconds": {"type": "number"},
-                },
-                "required": ["command"],
-                "additionalProperties": False,
+            "required": ["path", "old", "new"],
+            "additionalProperties": False,
+        },
+        execute=edit_file,
+        execution_mode="sequential",
+    )
+    execute_bash_tool = AgentTool(
+        name="execute_bash",
+        description="Run a bash command in WORKDIR and return stdout/stderr.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "command": {"type": "string"},
+                "timeout_seconds": {"type": "number"},
             },
-            execute=execute_bash,
-            execution_mode="sequential",
-            timeout_seconds=125.0,
+            "required": ["command"],
+            "additionalProperties": False,
+        },
+        execute=execute_bash,
+        execution_mode="sequential",
+        timeout_seconds=125.0,
+    )
+    todo_write_tool = AgentTool(
+        name="TodoWrite",
+        description="Replace the current task todo list.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "todos": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                },
+            },
+            "required": ["todos"],
+            "additionalProperties": False,
+        },
+        execute=todo_write,
+        execution_mode="sequential",
+    )
+    multi_edit_file_tool = AgentTool(
+        name="multi_edit_file",
+        description=(
+            "Perform multiple exact string replacements in one text file. "
+            "Read the file first so every old_string matches exact content. "
+            "All edits are validated before writing; if any edit fails, the "
+            "file is not changed. On success, returns a concise change summary "
+            "and unified diff preview."
         ),
-        AgentTool(
-            name="TodoWrite",
-            description="Replace the current task todo list.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "todos": {
-                        "type": "array",
-                        "items": {"type": "object"},
+        parameters={
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Absolute path to the text file to edit.",
+                },
+                "edits": {
+                    "type": "array",
+                    "description": "Ordered exact string replacements to apply.",
+                    "minItems": 1,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "old_string": {
+                                "type": "string",
+                                "description": "Exact text to replace.",
+                            },
+                            "new_string": {
+                                "type": "string",
+                                "description": "Replacement text.",
+                            },
+                            "replace_all": {
+                                "type": "boolean",
+                                "description": "Replace every match instead of requiring one unique match.",
+                                "default": False,
+                            },
+                        },
+                        "required": ["old_string", "new_string"],
+                        "additionalProperties": False,
                     },
                 },
-                "required": ["todos"],
-                "additionalProperties": False,
             },
-            execute=todo_write,
-            execution_mode="sequential",
-        ),
+            "required": ["file_path", "edits"],
+            "additionalProperties": False,
+        },
+        execute=multi_edit_file,
+        execution_mode="sequential",
     )
+    view_image_tool = AgentTool(
+        name="view_image",
+        description=(
+            "Attach a local image file for direct visual inspection in the "
+            "next model turn. Use this for PNG, JPG/JPEG, WEBP, GIF, or BMP "
+            "files in the sandbox."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Absolute path or WORKDIR-relative path to a local image file.",
+                },
+            },
+            "required": ["path"],
+            "additionalProperties": False,
+        },
+        execute=view_image,
+    )
+
+    if profile == "bash_fileops":
+        return (
+            execute_bash_tool,
+            todo_write_tool,
+            multi_edit_file_tool,
+            view_image_tool,
+        )
+    if profile == "full":
+        return (
+            list_dir_tool,
+            read_file_tool,
+            grep_files_tool,
+            write_file_tool,
+            edit_file_tool,
+            execute_bash_tool,
+            todo_write_tool,
+        )
+    raise ValueError(f"unknown GDPVal tool profile: {profile!r}")
 
 
 def _resolve_read_path(value: Any, workspace: Path, references: Path) -> Path:
@@ -370,6 +531,29 @@ def _middle_truncate(text: str, *, head_chars: int, tail_chars: int) -> str:
     omitted = len(text) - budget
     tail = text[-tail_chars:] if tail_chars > 0 else ""
     return f"{text[:head_chars]}\n...[truncated {omitted} chars]...\n{tail}"
+
+
+def _format_unified_diff(before: str, after: str, path: Path) -> str:
+    diff_lines = list(
+        unified_diff(
+            before.splitlines(keepends=True),
+            after.splitlines(keepends=True),
+            fromfile=f"{path} before",
+            tofile=f"{path} after",
+        )
+    )
+    if len(diff_lines) > _MULTI_EDIT_DIFF_MAX_LINES:
+        omitted = len(diff_lines) - _MULTI_EDIT_DIFF_MAX_LINES
+        diff_lines = diff_lines[:_MULTI_EDIT_DIFF_MAX_LINES]
+        diff_lines.append(f"... diff truncated after {omitted} more line(s)\n")
+    diff = "".join(diff_lines)
+    if len(diff) > _MULTI_EDIT_DIFF_MAX_CHARS:
+        diff = _middle_truncate(
+            diff,
+            head_chars=_MULTI_EDIT_DIFF_MAX_CHARS // 2,
+            tail_chars=_MULTI_EDIT_DIFF_MAX_CHARS // 2,
+        )
+    return diff or "(no diff)"
 
 
 def _image_result(path: Path) -> ToolResult:
