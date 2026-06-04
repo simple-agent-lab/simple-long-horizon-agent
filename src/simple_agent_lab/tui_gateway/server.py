@@ -26,7 +26,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from ..agents.bash import make_bash_agent
+from ..agents.starter import make_bash_agent
 from ..core import Agent, run
 from ..llm import Provider
 from ..messages import (

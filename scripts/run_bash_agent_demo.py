@@ -48,7 +48,7 @@ from simple_agent_lab import (  # noqa: E402
     text_of,
     tool_results_of,
 )
-from simple_agent_lab.agents.bash import (  # noqa: E402
+from simple_agent_lab.agents.starter import (  # noqa: E402
     BASH_AGENT_SYSTEM_PROMPT,
     make_bash_agent,
 )
