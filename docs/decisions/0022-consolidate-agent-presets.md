@@ -41,10 +41,11 @@ canonical builder used everywhere, without a declarative config interpreter
    exit stack" idea, scaled to our runtime, and generalizes to multiple servers
    and future resource tools.
 
-3. **Four kinds become composition presets** (`agents/starter.py`):
-   `bash_session`, `bash_task_session` (explorer sub-agent is an ordinary
-   `task` tool entry), `skill_session` (a `SkillConfig` flag), and
-   `mcp_session` (`MCPToolset` entries). No per-kind class.
+3. **Capabilities compose through one front door** (`agents/starter.py`):
+   `agent_session()` turns on bash, read, an explorer `task` tool, skills (a
+   `SkillConfig` flag), and MCP servers (`MCPToolset` entries) in any
+   combination. No per-kind class. (Superseded the original four presets — see
+   the follow-up note below.)
 
 4. **Clean cut.** The per-kind subfolders are deleted; their factory names
    (`make_bash_agent`, `make_bash_task_agent`) survive as thin back-compat
@@ -73,3 +74,14 @@ canonical builder used everywhere, without a declarative config interpreter
   function is fragile.
 - **Builder only (returns a plain `Agent`).** Smallest, but does not dedup the
   run path or the MCP/skills wiring — the stated goal.
+
+## Follow-up (2026-06-04): presets superseded by `agent_session()`
+
+The original four preset constructors (`bash_session`, `bash_task_session`,
+`skill_session`, `mcp_session`) implied the kinds were mutually exclusive, but
+they are not — an agent commonly needs skills **and** MCP tools at once. They
+are replaced by a single composable `agent_session()` that enables capabilities
+additively (bash/read/explorer/skills/mcp/extra tools). The runtime
+(`AgentSession`), `Toolset`/`MCPToolset`, `SkillConfig`, and the plain-`Agent`
+back-compat factories (`make_bash_agent`, `make_bash_task_agent`) are unchanged.
+Design: `docs/superpowers/specs/2026-06-04-composable-agent-session-design.md`.
