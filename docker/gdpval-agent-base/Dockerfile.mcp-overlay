@@ -30,6 +30,13 @@ RUN set -eux; \
         > /etc/apt/sources.list.d/nodesource.list; \
     apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=30; \
     apt-get install -y --no-install-recommends nodejs; \
+    if [ ! -e /usr/bin/node.real ]; then mv /usr/bin/node /usr/bin/node.real; fi; \
+    printf '%s\n' \
+        '#!/bin/sh' \
+        'unset LD_LIBRARY_PATH' \
+        'exec /usr/bin/node.real "$@"' \
+        > /usr/bin/node; \
+    chmod +x /usr/bin/node; \
     rm -rf /var/lib/apt/lists/*
 
 RUN npm install -g --omit=dev --no-audit --no-fund \
