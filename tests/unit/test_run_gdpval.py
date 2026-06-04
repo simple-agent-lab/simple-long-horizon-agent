@@ -27,6 +27,7 @@ class RunGdpvalJudgeRetryTest(unittest.TestCase):
             args.image,
             "hub.byted.org/boyuan/gdpval-agent-base:latest",
         )
+        self.assertEqual(args.judge_tool_mode, "hybrid")
 
     def test_provider_env_includes_azure_openai_settings(self) -> None:
         with mock.patch.dict(

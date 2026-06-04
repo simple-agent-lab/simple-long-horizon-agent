@@ -19,6 +19,7 @@ from simple_agent_lab.llm_agent import make_llm_agent
 
 from .judge_container import _candidate_summary, _input_dir_for, prepare as prepare
 from .judge_gsb_prompts import GDPVAL_GSB_JUDGE_SYSTEM_PROMPT
+from .judge_mcp import gdpval_judge_agent_context
 from .judge_scoring import (
     normalize_rubrics,
     parse_gsb_judge_payload,
@@ -47,6 +48,28 @@ def build_agent(
         system_prompt=GDPVAL_GSB_JUDGE_SYSTEM_PROMPT,
         target="user",
         request_extra=request_extra,
+    )
+
+
+def agent_context(
+    *,
+    provider: Provider,
+    cwd: Path,
+    request_extra: Mapping[str, Any] | None = None,
+    instance: Mapping[str, Any] | None = None,
+    context: Mapping[str, Any] | None = None,
+):
+    """Build a run-scoped GSB judge agent with optional MCP tools."""
+
+    return gdpval_judge_agent_context(
+        provider=provider,
+        cwd=Path(cwd),
+        request_extra=request_extra,
+        instance=instance,
+        context=context,
+        name="gdpval_gsb_judge",
+        role="Compare GDPVal deliverables and write a GSB JSON verdict.",
+        system_prompt=GDPVAL_GSB_JUDGE_SYSTEM_PROMPT,
     )
 
 

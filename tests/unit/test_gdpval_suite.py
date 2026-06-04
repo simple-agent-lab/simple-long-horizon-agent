@@ -32,6 +32,10 @@ from simple_agent_lab.evals.suites.gdpval.judge_scoring import (
     score_gsb_judgment,
     score_judgment,
 )
+from simple_agent_lab.evals.suites.gdpval.judge_mcp import (
+    gdpval_mcp_server_configs,
+    normalize_judge_tool_mode,
+)
 from simple_agent_lab.evals.suites.gdpval.prompts import GDPVAL_SYSTEM_PROMPT
 from simple_agent_lab.evals.suites.gdpval.tools import make_gdpval_tools
 from simple_agent_lab.llm.provider import Provider
@@ -363,6 +367,51 @@ class GdpvalSuiteTest(unittest.TestCase):
         self.assertNotIn("write_file", {tool.name for tool in solver.tools})
         self.assertIn("write_file", {tool.name for tool in judge.tools})
         self.assertIn("write_file", {tool.name for tool in gsb_judge.tools})
+
+    def test_judge_suite_threads_tool_mode_into_instance(self) -> None:
+        suite = GdpvalGsbJudgeSuite(judge_tool_mode="local")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "candidate"
+            run_dir.mkdir()
+            artifacts = RunArtifacts(
+                instance_id="task-1",
+                run_dir=run_dir,
+                trajectory_path=run_dir / "out" / "trajectory.jsonl",
+                status_code=0,
+            )
+            instance = suite.build_instance(
+                {"task_id": "task-1", "prompt": "p"},
+                candidate_result={"status": "solver_finished", "files": []},
+                candidate_artifacts=artifacts,
+            )
+
+        self.assertEqual(instance["judge_tool_mode"], "local")
+
+    def test_judge_mcp_registry_uses_local_stdio_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            try:
+                configs = gdpval_mcp_server_configs(
+                    workdir=root / "workdir",
+                    reference_dir=root / "judge_inputs",
+                )
+            except ModuleNotFoundError:
+                self.skipTest("mcp extra not installed")
+
+        by_name = {config.name: config for config in configs}
+        self.assertEqual(by_name["filesystem"].command, "mcp-server-filesystem")
+        self.assertEqual(by_name["pdf"].command, "pdf-reader-mcp")
+        self.assertEqual(by_name["excel"].command, "excel-mcp-server")
+        self.assertEqual(by_name["excel"].args, ("stdio",))
+        self.assertEqual(by_name["word"].command, "word_mcp_server")
+        self.assertEqual(by_name["ppt"].command, "ppt_mcp_server")
+
+    def test_judge_tool_mode_normalization(self) -> None:
+        self.assertEqual(normalize_judge_tool_mode(None), "hybrid")
+        self.assertEqual(normalize_judge_tool_mode("MCP"), "mcp")
+        with self.assertRaises(ValueError):
+            normalize_judge_tool_mode("remote")
 
     def test_judge_scoring_normalizes_rubrics_and_weighted_score(self) -> None:
         rubrics = json.dumps(

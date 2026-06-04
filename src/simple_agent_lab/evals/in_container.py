@@ -31,6 +31,7 @@ import json
 import os
 import time
 from collections.abc import Mapping
+from contextlib import nullcontext
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, cast
@@ -143,6 +144,51 @@ def _resolve_agent(
     return build_agent(
         spec=spec, provider=provider, cwd=cwd, request_extra=request_extra
     )
+
+
+def _resolve_agent_context(
+    module: ModuleType,
+    *,
+    provider: Provider,
+    cwd: Path,
+    request_extra: Mapping[str, Any] | None,
+    instance: Mapping[str, Any],
+    context: Mapping[str, Any],
+):
+    """Resolve an agent context manager, if the suite needs run-scoped resources.
+
+    Most suites return a plain Agent from ``build_agent``. Suites that need
+    resources tied to a single run, such as local MCP subprocesses, can expose
+    ``agent_context(...)`` and yield an Agent whose tools remain live only while
+    the run loop is being consumed.
+    """
+
+    custom_context = getattr(module, "agent_context", None)
+    if not callable(custom_context):
+        return nullcontext(
+            _resolve_agent(
+                module,
+                provider=provider,
+                cwd=cwd,
+                request_extra=request_extra,
+            )
+        )
+
+    kwargs: dict[str, Any] = {
+        "provider": provider,
+        "cwd": cwd,
+        "request_extra": request_extra,
+    }
+    parameters = inspect.signature(custom_context).parameters
+    accepts_kwargs = any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
+    if accepts_kwargs or "instance" in parameters:
+        kwargs["instance"] = instance
+    if accepts_kwargs or "context" in parameters:
+        kwargs["context"] = context
+    return custom_context(**kwargs)
 
 
 # --------------------------------------------------------------------------- #
@@ -262,16 +308,21 @@ def run_in_container(
     else:
         if provider is None:
             raise SystemExit("a Provider is required unless oracle=True")
-        agent = _resolve_agent(
-            module, provider=provider, cwd=workdir, request_extra=request_extra
-        )
-        state, events = agent.run(task, max_turns=max_turns)
-        last = 0.0
-        for _ in events:
-            now = time.monotonic()
-            if now - last >= flush_interval_s:
-                store.put(TRACE_KEY, trace_bytes(in_progress=True))
-                last = now
+        with _resolve_agent_context(
+            module,
+            provider=provider,
+            cwd=workdir,
+            request_extra=request_extra,
+            instance=instance,
+            context=context,
+        ) as agent:
+            state, events = agent.run(task, max_turns=max_turns)
+            last = 0.0
+            for _ in events:
+                now = time.monotonic()
+                if now - last >= flush_interval_s:
+                    store.put(TRACE_KEY, trace_bytes(in_progress=True))
+                    last = now
 
     extract = tasks.extract_result
     result = dict(extract(workdir, instance, **_context_kwargs(extract, context)))

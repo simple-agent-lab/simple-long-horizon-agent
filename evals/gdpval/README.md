@@ -36,6 +36,12 @@ Add `--judge` to run the GSB judge after successful solver cases:
 uv run --with datasets python runs/run_gdpval.py --limit 10 --judge
 ```
 
+The judge tool surface defaults to `--judge-tool-mode hybrid`: the local
+GDPVal file/bash tools stay available, and local stdio MCP servers are added
+when the image can start them. Use `--judge-tool-mode local` to disable MCP
+tools, or `--judge-tool-mode mcp` to require MCP startup and fail loudly if a
+server is missing.
+
 Use `--judge-mode rubric` to keep the legacy direct rubric judge:
 
 ```bash
@@ -81,9 +87,25 @@ cache lands.
 The runner reads `OPENAI_MODEL`, `OPENAI_AUTH_TOKEN`, and optional
 `OPENAI_BASE_URL` from `.env` or the environment. It uses `openai-responses` by
 default; pass `--api-kind openai-chat` to use the Chat Completions adapter.
-The judge uses the same provider by default; override with `--judge-provider`,
-`--judge-api-kind`, `--judge-max-turns`, `--judge-concurrency`, and
-`--judge-mode`.
+The judge uses the same provider by default; override solver and judge settings
+separately with `--solver-model`, `--solver-api-key`, `--solver-base-url`,
+`--judge-model`, `--judge-api-key`, `--judge-base-url`, `--judge-provider`,
+`--judge-api-kind`, `--judge-max-turns`, `--judge-concurrency`, `--judge-mode`,
+and `--judge-tool-mode`.
+
+Before a Docker judge run that uses MCP tools, smoke-test the image:
+
+```bash
+docker run --rm -i \
+  -v "$PWD:/repo" -w /repo -e PYTHONPATH=/repo/src \
+  hub.byted.org/boyuan/gdpval-agent-base:latest \
+  python runs/smoke_gdpval_mcp.py
+```
+
+The smoke test starts the filesystem, PDF, Excel, Word, and PowerPoint MCP
+servers, lists their tools, performs one read-only call on sample files, and
+checks that the filesystem MCP server denies a read outside WORKDIR/reference
+roots.
 
 Artifacts land under `evals/out/gdpval/<run-id>/<task-id>/out/`:
 

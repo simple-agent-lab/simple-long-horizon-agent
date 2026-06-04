@@ -22,6 +22,7 @@ from simple_agent_lab.llm.provider import Provider
 from simple_agent_lab.llm_agent import make_llm_agent
 
 from .assets import write_reference_files
+from .judge_mcp import gdpval_judge_agent_context
 from .judge_prompts import GDPVAL_JUDGE_SYSTEM_PROMPT
 from .judge_scoring import normalize_rubrics, parse_judge_payload, score_judgment
 from .tools import make_gdpval_tools
@@ -47,6 +48,28 @@ def build_agent(
         system_prompt=GDPVAL_JUDGE_SYSTEM_PROMPT,
         target="user",
         request_extra=request_extra,
+    )
+
+
+def agent_context(
+    *,
+    provider: Provider,
+    cwd: Path,
+    request_extra: Mapping[str, Any] | None = None,
+    instance: Mapping[str, Any] | None = None,
+    context: Mapping[str, Any] | None = None,
+):
+    """Build a run-scoped judge agent, keeping MCP tools alive during the run."""
+
+    return gdpval_judge_agent_context(
+        provider=provider,
+        cwd=Path(cwd),
+        request_extra=request_extra,
+        instance=instance,
+        context=context,
+        name="gdpval_judge",
+        role="Judge GDPVal deliverables and write a JSON verdict.",
+        system_prompt=GDPVAL_JUDGE_SYSTEM_PROMPT,
     )
 
 

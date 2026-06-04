@@ -114,6 +114,15 @@ def _build_parser() -> argparse.ArgumentParser:
             "deliverable_files; 'rubric' keeps the legacy direct rubric score."
         ),
     )
+    parser.add_argument(
+        "--judge-tool-mode",
+        choices=["local", "mcp", "hybrid"],
+        default="hybrid",
+        help=(
+            "Tool surface for the judge. 'hybrid' keeps local GDPVal tools and "
+            "adds local stdio MCP servers when available."
+        ),
+    )
     parser.add_argument("--judge-run-id", default=None)
     parser.add_argument("--judge-max-turns", type=int, default=50)
     parser.add_argument("--judge-concurrency", type=int, default=None)
@@ -473,6 +482,7 @@ def _run_judge_phase(
         deliverable_root=args.deliverable_root,
         network_mode=args.network_mode or None,
         platform=args.platform,
+        judge_tool_mode=args.judge_tool_mode,
     )
     judge_instances = []
     skipped = []
@@ -504,6 +514,7 @@ def _run_judge_phase(
     print(f"    skipped:     {len(skipped)}")
     print(f"    run-id:      {judge_run_id}")
     print(f"    mode:        {args.judge_mode}")
+    print(f"    tools:       {args.judge_tool_mode}")
     print(f"    provider:    {judge_provider}")
     print(f"    api-kind:    {judge_api_kind}")
     print(f"    model:       {_provider_model_label(provider_env)}")

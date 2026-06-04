@@ -10,6 +10,11 @@ from typing import Any
 
 from simple_agent_lab.evals.protocols import LaunchSpec, RunArtifacts
 from simple_agent_lab.evals.suites.gdpval.assets import normalize_reference_file_inputs
+from simple_agent_lab.evals.suites.gdpval.judge_mcp import (
+    DEFAULT_JUDGE_TOOL_MODE,
+    JudgeToolMode,
+    normalize_judge_tool_mode,
+)
 
 from .suite import DEFAULT_GDPVAL_IMAGE, DEFAULT_WORKDIR_PREFIX
 
@@ -34,6 +39,7 @@ class GdpvalJudgeSuite:
         deliverable_root: str | Path | None = None,
         network_mode: str | None = "host",
         platform: str | None = None,
+        judge_tool_mode: str = DEFAULT_JUDGE_TOOL_MODE,
     ) -> None:
         self.image = image
         self.workdir_prefix = workdir_prefix.rstrip("/")
@@ -43,6 +49,9 @@ class GdpvalJudgeSuite:
         )
         self.network_mode = network_mode
         self.platform = platform
+        self.judge_tool_mode: JudgeToolMode = normalize_judge_tool_mode(
+            judge_tool_mode
+        )
 
     def launch_spec(self, instance: Mapping[str, Any]) -> LaunchSpec:
         task_id = _task_id(instance)
@@ -104,6 +113,7 @@ class GdpvalJudgeSuite:
             "candidate_file_blobs": (
                 [] if archive_base64 else _candidate_file_blobs(candidate_result)
             ),
+            "judge_tool_mode": self.judge_tool_mode,
             "gold_files": _public_entries(gold_blobs),
             "gold_file_blobs": gold_blobs,
             "reference_file_blobs": reference_blobs,
