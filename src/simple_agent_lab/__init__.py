@@ -92,6 +92,7 @@ from .tools import (
     tool_result_text,
 )
 from .tools.read import make_read_tool
+from .tools.edit import make_edit_tool
 from .skills import (
     SkillMetadata,
     SkillRoot,
@@ -176,6 +177,7 @@ __all__ = [
     "text_result",
     "tool_result_text",
     "make_read_tool",
+    "make_edit_tool",
     "SkillMetadata",
     "SkillRoot",
     "discover_skills",
