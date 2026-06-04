@@ -33,8 +33,8 @@ from simple_agent_lab.evals.suites.gdpval.judge_scoring import (
     score_judgment,
 )
 from simple_agent_lab.evals.suites.gdpval.judge_mcp import (
-    GDPVAL_MCP_READ_TOOL_NAMES,
     gdpval_mcp_server_configs,
+    is_gdpval_judge_read_only_mcp_tool_name,
     normalize_judge_tool_mode,
 )
 from simple_agent_lab.evals.suites.gdpval.prompts import GDPVAL_SYSTEM_PROMPT
@@ -408,22 +408,22 @@ class GdpvalSuiteTest(unittest.TestCase):
         self.assertEqual(by_name["word"].command, "word_mcp_server")
         self.assertEqual(by_name["ppt"].command, "ppt_mcp_server")
 
-    def test_judge_mcp_allowlist_exposes_only_read_related_tools(self) -> None:
-        all_allowed = {
-            tool_name
-            for tool_names in GDPVAL_MCP_READ_TOOL_NAMES.values()
-            for tool_name in tool_names
-        }
-        expected = {
-            "validate_formula_syntax",
-            "find_text_in_document",
-            "get_all_comments",
-            "get_comments_by_author",
-            "get_comments_for_paragraph",
-            "get_paragraph_text_from_document",
-            "validate_document_footnotes",
-        }
-        denied = {
+    def test_judge_mcp_filter_matches_swalm_read_only_keyword_rules(self) -> None:
+        allowed = [
+            "read_file",
+            "list_directory",
+            "get_workbook_metadata",
+            "extract_slide_text",
+            "search_files",
+            "inspect_pdf",
+            "parse_document",
+            "profile_sheet",
+            "query_table",
+            "analyze_workbook",
+            "describe_content",
+            "metadata_info",
+        ]
+        denied = [
             "write_file",
             "edit_file",
             "create_directory",
@@ -434,20 +434,65 @@ class GdpvalSuiteTest(unittest.TestCase):
             "create_document",
             "add_paragraph",
             "search_and_replace",
-            "create_presentation",
-            "save_presentation",
-            "add_slide",
-            "manage_text",
-            "manage_hyperlinks",
-            "manage_slide_transitions",
-            "manage_image",
-        }
+            "save_document",
+            "export_pdf",
+            "import_document",
+            "render_page",
+        ]
 
-        self.assertLessEqual(
-            sum(len(v) for v in GDPVAL_MCP_READ_TOOL_NAMES.values()), 40
+        for name in allowed:
+            with self.subTest(name=name):
+                self.assertTrue(is_gdpval_judge_read_only_mcp_tool_name(name))
+        for name in denied:
+            with self.subTest(name=name):
+                self.assertFalse(is_gdpval_judge_read_only_mcp_tool_name(name))
+
+        # The swalm rule is intentionally keyword-based, not an exact-name list.
+        self.assertFalse(
+            is_gdpval_judge_read_only_mcp_tool_name("validate_formula_syntax")
         )
-        self.assertTrue(expected <= all_allowed)
-        self.assertFalse(all_allowed & denied)
+        self.assertFalse(is_gdpval_judge_read_only_mcp_tool_name("get_merged_cells"))
+
+    def test_judge_mcp_filter_allows_ppt_stateful_read_helpers(self) -> None:
+        allowed = [
+            "open_presentation",
+            "load_presentation",
+            "import_presentation",
+            "render_slide",
+            "export_slide_image",
+            "get_thumbnail",
+            "extract_slide_text",
+        ]
+        denied = [
+            "save_presentation",
+            "edit_slide",
+            "format_text",
+            "add_slide",
+            "replace_image",
+        ]
+
+        for name in allowed:
+            with self.subTest(name=name):
+                self.assertTrue(
+                    is_gdpval_judge_read_only_mcp_tool_name(
+                        name,
+                        server_name="ppt",
+                    )
+                )
+                self.assertTrue(
+                    is_gdpval_judge_read_only_mcp_tool_name(
+                        name,
+                        server_name="ppt_mcp_server",
+                    )
+                )
+        for name in denied:
+            with self.subTest(name=name):
+                self.assertFalse(
+                    is_gdpval_judge_read_only_mcp_tool_name(
+                        name,
+                        server_name="ppt",
+                    )
+                )
 
     def test_judge_tool_mode_normalization(self) -> None:
         self.assertEqual(normalize_judge_tool_mode(None), "hybrid")

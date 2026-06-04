@@ -17,8 +17,8 @@ from pathlib import Path
 from typing import Any
 
 from simple_agent_lab.evals.suites.gdpval.judge_mcp import (
-    GDPVAL_MCP_READ_TOOL_NAMES,
     gdpval_mcp_server_configs,
+    is_gdpval_judge_read_only_mcp_tool_name,
     open_gdpval_judge_tools,
 )
 from simple_agent_lab.mcp import MCPConnection, connect_mcp
@@ -171,26 +171,32 @@ def _call_sample(
 
 
 def _smoke_filtered_agent_tools(*, workdir: Path, reference_dir: Path) -> None:
-    expected = {
-        f"{server}_{tool_name}"
-        for server, tool_names in GDPVAL_MCP_READ_TOOL_NAMES.items()
-        for tool_name in tool_names
-    }
     with open_gdpval_judge_tools(
         workdir=workdir,
         reference_dir=reference_dir,
         mode="mcp",
     ) as tools:
         names = {tool.name for tool in tools}
-    unexpected = names - expected
-    if unexpected:
+    violations = sorted(
+        name for name in names if not _is_prefixed_allowed_judge_mcp_tool_name(name)
+    )
+    if violations:
         raise RuntimeError(
-            "MCP agent tool filter exposed non-allowlisted tools: "
-            + ", ".join(sorted(unexpected))
+            "MCP agent tool filter exposed disallowed tools: " + ", ".join(violations)
         )
     if not names:
         raise RuntimeError("MCP agent tool filter exposed no tools")
     print(f"\nfiltered agent tools: {len(names)}")
+
+
+def _is_prefixed_allowed_judge_mcp_tool_name(name: str) -> bool:
+    server_name, separator, raw_tool_name = name.partition("_")
+    if not separator:
+        return False
+    return is_gdpval_judge_read_only_mcp_tool_name(
+        raw_tool_name,
+        server_name=server_name,
+    )
 
 
 def connection_tool_timeout(connection: MCPConnection) -> float:

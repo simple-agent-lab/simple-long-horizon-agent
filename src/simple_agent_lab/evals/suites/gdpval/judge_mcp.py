@@ -19,58 +19,78 @@ JudgeToolMode = Literal["local", "mcp", "hybrid"]
 JUDGE_TOOL_MODES: tuple[JudgeToolMode, ...] = ("local", "mcp", "hybrid")
 DEFAULT_JUDGE_TOOL_MODE: JudgeToolMode = "hybrid"
 MCP_WARNING_FILE = "_gdpval_mcp_warnings.json"
-GDPVAL_MCP_READ_TOOL_NAMES: Mapping[str, frozenset[str]] = {
-    "filesystem": frozenset(
-        {
-            "read_file",
-            "read_text_file",
-            "read_media_file",
-            "read_multiple_files",
-            "list_directory",
-            "list_directory_with_sizes",
-            "directory_tree",
-            "search_files",
-            "get_file_info",
-            "list_allowed_directories",
-        }
-    ),
-    "pdf": frozenset({"read_pdf"}),
-    "excel": frozenset(
-        {
-            "read_data_from_excel",
-            "get_workbook_metadata",
-            "validate_excel_range",
-            "validate_formula_syntax",
-            "get_merged_cells",
-            "get_data_validation_info",
-        }
-    ),
-    "word": frozenset(
-        {
-            "get_document_info",
-            "get_document_text",
-            "get_document_outline",
-            "list_available_documents",
-            "get_document_xml",
-            "get_paragraph_text_from_document",
-            "find_text_in_document",
-            "get_all_comments",
-            "get_comments_by_author",
-            "get_comments_for_paragraph",
-            "validate_document_footnotes",
-        }
-    ),
-    "ppt": frozenset(
-        {
-            "open_presentation",
-            "get_presentation_info",
-            "get_template_file_info",
-            "get_slide_info",
-            "extract_slide_text",
-            "extract_presentation_text",
-        }
-    ),
-}
+GDPVAL_JUDGE_MCP_TOOL_ALLOW_TERMS: tuple[str, ...] = (
+    "read",
+    "list",
+    "get",
+    "extract",
+    "search",
+    "inspect",
+    "parse",
+    "profile",
+    "query",
+    "analyze",
+    "describe",
+    "info",
+    "metadata",
+    "text",
+    "content",
+    "sheet",
+    "workbook",
+    "document",
+    "paragraph",
+    "table",
+    "slide",
+    "pdf",
+)
+GDPVAL_JUDGE_MCP_TOOL_DENY_TERMS: tuple[str, ...] = (
+    "write",
+    "create",
+    "add",
+    "insert",
+    "update",
+    "delete",
+    "remove",
+    "replace",
+    "edit",
+    "format",
+    "set",
+    "merge",
+    "split",
+    "copy",
+    "move",
+    "upload",
+    "download",
+    "save",
+    "export",
+    "import",
+    "render",
+)
+GDPVAL_PPT_JUDGE_MCP_EXTRA_ALLOW_TERMS: tuple[str, ...] = (
+    # PPT MCP tools are stateful: some read operations first require loading a
+    # .pptx file into the MCP session, and visual checks may need rendering.
+    "open",
+    "load",
+    "import",
+    "render",
+    "export",
+    "image",
+    "thumbnail",
+)
+GDPVAL_PPT_JUDGE_MCP_HARD_DENY_TERMS: tuple[str, ...] = (
+    "write",
+    "create",
+    "add",
+    "insert",
+    "update",
+    "delete",
+    "remove",
+    "replace",
+    "edit",
+    "format",
+    "save",
+)
+_PPT_MCP_SERVER_NAMES = {"ppt", "ppt_mcp_server"}
 
 
 def normalize_judge_tool_mode(value: Any) -> JudgeToolMode:
@@ -81,6 +101,28 @@ def normalize_judge_tool_mode(value: Any) -> JudgeToolMode:
             f"unknown GDPVal judge tool mode {value!r}; expected {choices}"
         )
     return cast(JudgeToolMode, text)
+
+
+def is_gdpval_judge_read_only_mcp_tool_name(
+    name: str,
+    *,
+    server_name: str = "",
+) -> bool:
+    """Return whether a raw MCP tool name is safe for GDPVal judge reads."""
+
+    tool_name = str(name or "").lower()
+    if not tool_name:
+        return False
+    normalized_server = str(server_name or "").lower()
+    if normalized_server in _PPT_MCP_SERVER_NAMES:
+        if any(term in tool_name for term in GDPVAL_PPT_JUDGE_MCP_HARD_DENY_TERMS):
+            return False
+        if any(term in tool_name for term in GDPVAL_JUDGE_MCP_TOOL_ALLOW_TERMS):
+            return True
+        return any(term in tool_name for term in GDPVAL_PPT_JUDGE_MCP_EXTRA_ALLOW_TERMS)
+    if any(term in tool_name for term in GDPVAL_JUDGE_MCP_TOOL_DENY_TERMS):
+        return False
+    return any(term in tool_name for term in GDPVAL_JUDGE_MCP_TOOL_ALLOW_TERMS)
 
 
 def gdpval_mcp_server_configs(*, workdir: str | Path, reference_dir: str | Path):
@@ -272,7 +314,6 @@ def _filtered_mcp_agent_tools(
 
     from simple_agent_lab.mcp import mcp_tool_to_agent_tool
 
-    allowed = GDPVAL_MCP_READ_TOOL_NAMES.get(server_name, frozenset())
     return [
         mcp_tool_to_agent_tool(
             connection,
@@ -281,7 +322,10 @@ def _filtered_mcp_agent_tools(
             call_timeout=call_timeout,
         )
         for tool in connection.tools
-        if tool.name in allowed
+        if is_gdpval_judge_read_only_mcp_tool_name(
+            tool.name,
+            server_name=server_name,
+        )
     ]
 
 
