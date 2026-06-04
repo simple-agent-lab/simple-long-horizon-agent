@@ -5,3 +5,4 @@ fillpdf
 fpdf2
 markitdown[all]
 pytesseract
+ipykernel
