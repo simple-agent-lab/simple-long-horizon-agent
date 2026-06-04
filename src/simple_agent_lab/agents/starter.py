@@ -270,6 +270,93 @@ def compose_agent_system_prompt(
     return "\n\n".join(parts)
 
 
+def agent_session(
+    provider: LLMProvider,
+    *,
+    cwd: str | Path | None = None,
+    bash: bool = True,
+    read: bool = False,
+    explorer: bool = False,
+    skills: "SkillConfig | bool" = False,
+    mcp_servers: Sequence["MCPServerConfig"] = (),
+    tools: Sequence[AgentTool] = (),
+    name: str = DEFAULT_AGENT_NAME,
+    role: str = "",
+    system_prompt: str | None = None,
+    call_timeout: float = 60.0,
+    connect: Callable[["MCPServerConfig"], "MCPConnection"] | None = None,
+    context_policy: ContextPolicy | None = None,
+    request_extra: Mapping[str, Any] | None = None,
+    max_turns: int = 10,
+) -> AgentSession:
+    """Build one `AgentSession` by composing capabilities additively.
+
+    Each capability is independent and combinable: ``bash``/``read`` add their
+    local tools, ``explorer`` adds a `task` tool delegating to a bash explorer,
+    ``tools`` appends arbitrary `AgentTool`s, ``mcp_servers`` each become an
+    `MCPToolset` the session opens/closes, and ``skills`` (``True`` for defaults
+    or a `SkillConfig`) routes `run` through the skills loop. When
+    ``system_prompt`` is None the prompt is composed from per-capability
+    fragments; otherwise the explicit value is used verbatim. ``connect`` is the
+    MCP test seam (in-memory transport).
+    """
+
+    static_tools: list[AgentTool] = []
+    if bash:
+        static_tools.append(make_bash_tool(cwd=cwd))
+    if read:
+        static_tools.append(make_read_tool(cwd=cwd))
+    if explorer:
+        explorer_agent = make_bash_agent(
+            provider=provider,
+            cwd=cwd,
+            name=EXPLORER_AGENT_DEFAULT_NAME,
+            role=EXPLORER_AGENT_DEFAULT_ROLE,
+            system_prompt=EXPLORER_AGENT_SYSTEM_PROMPT,
+            request_extra=request_extra,
+        )
+        static_tools.append(
+            task_tool([explorer_agent], max_turns=DEFAULT_TASK_MAX_TURNS)
+        )
+    static_tools.extend(tools)
+
+    toolsets: list[Toolset] = [
+        MCPToolset(server, call_timeout=call_timeout, connect=connect)
+        for server in mcp_servers
+    ]
+
+    if skills is True:
+        skill_config: SkillConfig | None = SkillConfig(
+            enabled=True, cwd=str(cwd) if cwd is not None else "."
+        )
+    elif not skills:
+        skill_config = None
+    else:
+        skill_config = skills  # an explicit SkillConfig
+
+    if system_prompt is None:
+        system_prompt = compose_agent_system_prompt(
+            bash=bash,
+            explorer=explorer,
+            skills=skill_config is not None and skill_config.enabled,
+            mcp=bool(mcp_servers),
+        )
+
+    return AgentSession(
+        provider=provider,
+        name=name,
+        role=role,
+        system_prompt=system_prompt,
+        target="user",
+        static_tools=static_tools,
+        toolsets=toolsets,
+        skills=skill_config,
+        context_policy=context_policy,
+        request_extra=request_extra,
+        max_turns=max_turns,
+    )
+
+
 # --------------------------------------------------------------------------
 # Presets: each kind is a thin AgentSession configuration.
 # --------------------------------------------------------------------------

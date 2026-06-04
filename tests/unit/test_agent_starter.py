@@ -321,5 +321,146 @@ class MCPToolsetTest(unittest.TestCase):
             self.assertIn("demo_echo", {t.name for t in session.agent.tools})
 
 
+class AgentSessionFactoryTest(unittest.TestCase):
+    def test_bash_only_default(self) -> None:
+        from simple_agent_lab.agents.starter import (
+            BASH_AGENT_SYSTEM_PROMPT,
+            agent_session,
+        )
+
+        with agent_session(FAKE_PROVIDER, cwd=str(ROOT)) as session:
+            self.assertEqual([t.name for t in session.agent.tools], ["bash"])
+            self.assertEqual(session.agent.system_prompt, BASH_AGENT_SYSTEM_PROMPT)
+
+    def test_read_and_explorer_compose_tools_and_prompt(self) -> None:
+        from simple_agent_lab.agents.starter import (
+            BASH_TASK_EXPLORER_ADDENDUM,
+            EXPLORER_AGENT_DEFAULT_NAME,
+            agent_session,
+        )
+
+        with agent_session(
+            FAKE_PROVIDER, cwd=str(ROOT), read=True, explorer=True
+        ) as session:
+            self.assertEqual(
+                sorted(t.name for t in session.agent.tools), ["bash", "read", "task"]
+            )
+            task = next(t for t in session.agent.tools if t.name == "task")
+            self.assertEqual(
+                list(task.parameters["properties"]["subagent_type"]["enum"]),
+                [EXPLORER_AGENT_DEFAULT_NAME],
+            )
+            self.assertIn(BASH_TASK_EXPLORER_ADDENDUM, session.agent.system_prompt)
+
+    def test_extra_tools_appended(self) -> None:
+        from simple_agent_lab.agents.starter import agent_session
+
+        with agent_session(
+            FAKE_PROVIDER, cwd=str(ROOT), tools=[_static_tool("x")]
+        ) as session:
+            self.assertEqual([t.name for t in session.agent.tools], ["bash", "x"])
+
+    def test_system_prompt_override_wins(self) -> None:
+        from simple_agent_lab.agents.starter import agent_session
+
+        with agent_session(
+            FAKE_PROVIDER, cwd=str(ROOT), explorer=True, system_prompt="custom"
+        ) as session:
+            self.assertEqual(session.agent.system_prompt, "custom")
+
+    def test_skills_true_uses_default_config(self) -> None:
+        from simple_agent_lab.agents.starter import SKILLS_ADDENDUM, agent_session
+
+        with agent_session(FAKE_PROVIDER, cwd=str(FIXTURE_SKILLS), skills=True) as session:
+            self.assertIn(SKILLS_ADDENDUM, session.agent.system_prompt)
+
+    def test_skills_config_routes_through_run_with_skills(self) -> None:
+        from simple_agent_lab.agents.starter import SKILLS_ADDENDUM, agent_session
+
+        with agent_session(
+            FAKE_PROVIDER,
+            cwd=str(FIXTURE_SKILLS),
+            read=True,
+            skills=SkillConfig(
+                enabled=True,
+                roots=[SkillRoot(str(FIXTURE_SKILLS), "repo")],
+                cwd=str(FIXTURE_SKILLS),
+            ),
+        ) as session:
+            self.assertIn(SKILLS_ADDENDUM, session.agent.system_prompt)
+            state, events = session.run("do something", max_turns=3)
+            for _ in events:
+                pass
+        menu = next((m for m in state.messages if m.sender == "skills"), None)
+        self.assertIsNotNone(menu)
+        self.assertIn("echo-fixture", menu.content[0].text)
+
+
+@unittest.skipUnless(HAS_MCP, _SKIP_REASON)
+class MCPAgentSessionTest(unittest.TestCase):
+    @staticmethod
+    def _demo_server() -> "FastMCP":
+        server = FastMCP("demo")
+
+        @server.tool(description="Echo text back as plain text.")
+        def echo(text: str) -> str:
+            return f"echo: {text}"
+
+        return server
+
+    def _in_memory_connect(self):
+        server = self._demo_server()
+
+        def connect(config: "MCPServerConfig") -> "MCPConnection":
+            @asynccontextmanager
+            async def factory() -> AsyncIterator["ClientSession"]:
+                async with connect_session(server._mcp_server) as session:
+                    yield session
+
+            return MCPConnection(factory, name=config.name).open()
+
+        return connect
+
+    def test_mcp_servers_expose_tools_and_compose_prompt(self) -> None:
+        from simple_agent_lab.agents.starter import MCP_ADDENDUM, agent_session
+
+        config = MCPServerConfig.stdio("demo", "noop")
+        with agent_session(
+            FAKE_PROVIDER,
+            cwd=str(ROOT),
+            mcp_servers=[config],
+            connect=self._in_memory_connect(),
+        ) as session:
+            names = {t.name for t in session.agent.tools}
+            self.assertIn("bash", names)
+            self.assertIn("demo_echo", names)
+            self.assertIn(MCP_ADDENDUM, session.agent.system_prompt)
+
+    def test_skills_and_mcp_together(self) -> None:
+        # The combination the old presets could not express.
+        from simple_agent_lab.agents.starter import agent_session
+
+        config = MCPServerConfig.stdio("demo", "noop")
+        with agent_session(
+            FAKE_PROVIDER,
+            cwd=str(FIXTURE_SKILLS),
+            read=True,
+            skills=SkillConfig(
+                enabled=True,
+                roots=[SkillRoot(str(FIXTURE_SKILLS), "repo")],
+                cwd=str(FIXTURE_SKILLS),
+            ),
+            mcp_servers=[config],
+            connect=self._in_memory_connect(),
+        ) as session:
+            names = {t.name for t in session.agent.tools}
+            self.assertIn("demo_echo", names)
+            self.assertIn("read", names)
+            state, events = session.run("do something", max_turns=3)
+            for _ in events:
+                pass
+        self.assertTrue(any(m.sender == "skills" for m in state.messages))
+
+
 if __name__ == "__main__":
     unittest.main()
