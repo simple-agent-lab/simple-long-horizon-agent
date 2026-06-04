@@ -17,7 +17,9 @@ from pathlib import Path
 from typing import Any
 
 from simple_agent_lab.evals.suites.gdpval.judge_mcp import (
+    GDPVAL_MCP_READ_TOOL_NAMES,
     gdpval_mcp_server_configs,
+    open_gdpval_judge_tools,
 )
 from simple_agent_lab.mcp import MCPConnection, connect_mcp
 
@@ -56,6 +58,10 @@ def main() -> None:
                 _smoke_server(config, samples=samples, outside_path=outside)
             except Exception as exc:  # noqa: BLE001 - report every server cleanly
                 failures.append(f"{config.name}: {type(exc).__name__}: {exc}")
+        try:
+            _smoke_filtered_agent_tools(workdir=workdir, reference_dir=reference_dir)
+        except Exception as exc:  # noqa: BLE001 - report filter failures cleanly
+            failures.append(f"agent-tool-filter: {type(exc).__name__}: {exc}")
         if failures:
             print("\nFAILED")
             for failure in failures:
@@ -162,6 +168,29 @@ def _call_sample(
         return
 
     raise RuntimeError(f"no sample call registered for server {server_name!r}")
+
+
+def _smoke_filtered_agent_tools(*, workdir: Path, reference_dir: Path) -> None:
+    expected = {
+        f"{server}_{tool_name}"
+        for server, tool_names in GDPVAL_MCP_READ_TOOL_NAMES.items()
+        for tool_name in tool_names
+    }
+    with open_gdpval_judge_tools(
+        workdir=workdir,
+        reference_dir=reference_dir,
+        mode="mcp",
+    ) as tools:
+        names = {tool.name for tool in tools}
+    unexpected = names - expected
+    if unexpected:
+        raise RuntimeError(
+            "MCP agent tool filter exposed non-allowlisted tools: "
+            + ", ".join(sorted(unexpected))
+        )
+    if not names:
+        raise RuntimeError("MCP agent tool filter exposed no tools")
+    print(f"\nfiltered agent tools: {len(names)}")
 
 
 def connection_tool_timeout(connection: MCPConnection) -> float:

@@ -33,6 +33,7 @@ from simple_agent_lab.evals.suites.gdpval.judge_scoring import (
     score_judgment,
 )
 from simple_agent_lab.evals.suites.gdpval.judge_mcp import (
+    GDPVAL_MCP_READ_TOOL_NAMES,
     gdpval_mcp_server_configs,
     normalize_judge_tool_mode,
 )
@@ -406,6 +407,33 @@ class GdpvalSuiteTest(unittest.TestCase):
         self.assertEqual(by_name["excel"].args, ("stdio",))
         self.assertEqual(by_name["word"].command, "word_mcp_server")
         self.assertEqual(by_name["ppt"].command, "ppt_mcp_server")
+
+    def test_judge_mcp_allowlist_exposes_only_read_related_tools(self) -> None:
+        all_allowed = {
+            tool_name
+            for tool_names in GDPVAL_MCP_READ_TOOL_NAMES.values()
+            for tool_name in tool_names
+        }
+        denied = {
+            "write_file",
+            "edit_file",
+            "create_directory",
+            "move_file",
+            "write_data_to_excel",
+            "create_workbook",
+            "delete_worksheet",
+            "create_document",
+            "add_paragraph",
+            "search_and_replace",
+            "create_presentation",
+            "save_presentation",
+            "add_slide",
+        }
+
+        self.assertLessEqual(
+            sum(len(v) for v in GDPVAL_MCP_READ_TOOL_NAMES.values()), 32
+        )
+        self.assertFalse(all_allowed & denied)
 
     def test_judge_tool_mode_normalization(self) -> None:
         self.assertEqual(normalize_judge_tool_mode(None), "hybrid")

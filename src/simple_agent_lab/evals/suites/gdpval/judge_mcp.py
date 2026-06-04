@@ -19,6 +19,51 @@ JudgeToolMode = Literal["local", "mcp", "hybrid"]
 JUDGE_TOOL_MODES: tuple[JudgeToolMode, ...] = ("local", "mcp", "hybrid")
 DEFAULT_JUDGE_TOOL_MODE: JudgeToolMode = "hybrid"
 MCP_WARNING_FILE = "_gdpval_mcp_warnings.json"
+GDPVAL_MCP_READ_TOOL_NAMES: Mapping[str, frozenset[str]] = {
+    "filesystem": frozenset(
+        {
+            "read_file",
+            "read_text_file",
+            "read_media_file",
+            "read_multiple_files",
+            "list_directory",
+            "list_directory_with_sizes",
+            "directory_tree",
+            "search_files",
+            "get_file_info",
+            "list_allowed_directories",
+        }
+    ),
+    "pdf": frozenset({"read_pdf"}),
+    "excel": frozenset(
+        {
+            "read_data_from_excel",
+            "get_workbook_metadata",
+            "validate_excel_range",
+            "get_merged_cells",
+            "get_data_validation_info",
+        }
+    ),
+    "word": frozenset(
+        {
+            "get_document_info",
+            "get_document_text",
+            "get_document_outline",
+            "list_available_documents",
+            "get_document_xml",
+        }
+    ),
+    "ppt": frozenset(
+        {
+            "open_presentation",
+            "get_presentation_info",
+            "get_template_file_info",
+            "get_slide_info",
+            "extract_slide_text",
+            "extract_presentation_text",
+        }
+    ),
+}
 
 
 def normalize_judge_tool_mode(value: Any) -> JudgeToolMode:
@@ -126,9 +171,23 @@ def open_gdpval_judge_tools(
                         )
                         continue
                     connections.append(connection)
-                    mcp_tools.extend(
-                        connection.agent_tools(call_timeout=config.call_timeout)
+                    selected_tools = _filtered_mcp_agent_tools(
+                        connection,
+                        server_name=config.name,
+                        call_timeout=config.call_timeout,
                     )
+                    if not selected_tools:
+                        warnings.append(
+                            {
+                                "server": config.name,
+                                "error_type": "MCPToolFilter",
+                                "error": (
+                                    "server started but no GDPVal read-only "
+                                    "MCP tools matched the allowlist"
+                                ),
+                            }
+                        )
+                    mcp_tools.extend(selected_tools)
         if warnings:
             _write_mcp_warnings(workspace, warnings)
         tools = tuple(local_tools) + tuple(mcp_tools)
@@ -194,6 +253,29 @@ def _handle_mcp_startup_error(
             "error": str(exc),
         }
     )
+
+
+def _filtered_mcp_agent_tools(
+    connection: Any,
+    *,
+    server_name: str,
+    call_timeout: float,
+) -> list[AgentTool]:
+    """Wrap only read/inspection MCP tools for GDPVal judge use."""
+
+    from simple_agent_lab.mcp import mcp_tool_to_agent_tool
+
+    allowed = GDPVAL_MCP_READ_TOOL_NAMES.get(server_name, frozenset())
+    return [
+        mcp_tool_to_agent_tool(
+            connection,
+            tool,
+            name_prefix=f"{connection.name}_",
+            call_timeout=call_timeout,
+        )
+        for tool in connection.tools
+        if tool.name in allowed
+    ]
 
 
 def _write_mcp_warnings(workspace: Path, warnings: list[dict[str, str]]) -> None:

@@ -38,9 +38,11 @@ uv run --with datasets python runs/run_gdpval.py --limit 10 --judge
 
 The judge tool surface defaults to `--judge-tool-mode hybrid`: the local
 GDPVal file/bash tools stay available, and local stdio MCP servers are added
-when the image can start them. Use `--judge-tool-mode local` to disable MCP
-tools, or `--judge-tool-mode mcp` to require MCP startup and fail loudly if a
-server is missing.
+when the image can start them. Only read/inspection MCP tools are exposed to
+the model; MCP tools that write, edit, create, delete, move, or format files
+are filtered out. Use `--judge-tool-mode local` to disable MCP tools, or
+`--judge-tool-mode mcp` to require MCP startup and fail loudly if a server is
+missing.
 
 Use `--judge-mode rubric` to keep the legacy direct rubric judge:
 
@@ -105,7 +107,8 @@ docker run --rm -i \
 The smoke test starts the filesystem, PDF, Excel, Word, and PowerPoint MCP
 servers, lists their tools, performs one read-only call on sample files, and
 checks that the filesystem MCP server denies a read outside WORKDIR/reference
-roots.
+roots. It also verifies that the final AgentTool surface contains only the
+GDPVal judge MCP read/inspection allowlist.
 
 Artifacts land under `evals/out/gdpval/<run-id>/<task-id>/out/`:
 
