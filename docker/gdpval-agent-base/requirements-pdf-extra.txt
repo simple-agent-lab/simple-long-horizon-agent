@@ -1,0 +1,7 @@
+# PDF compatibility packages observed in GDPVal traces.
+PyPDF2
+pymupdf
+fillpdf
+fpdf2
+markitdown[all]
+pytesseract

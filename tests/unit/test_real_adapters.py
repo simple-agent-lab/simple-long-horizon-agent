@@ -337,7 +337,23 @@ def _stub_openai(
             else:
                 self.responses = FakeResponses()
 
+    class AzureOpenAI:
+        def __init__(
+            self,
+            *,
+            api_key=None,
+            api_version=None,
+            azure_endpoint=None,
+            default_headers=None,
+        ):
+            captured["__init_api_key"] = api_key
+            captured["__init_api_version"] = api_version
+            captured["__init_azure_endpoint"] = azure_endpoint
+            captured["__init_default_headers"] = default_headers
+            self.chat = FakeChat()
+
     module.OpenAI = OpenAI
+    module.AzureOpenAI = AzureOpenAI
     return module
 
 
@@ -521,6 +537,36 @@ class OpenAIChatAdapterTest(unittest.TestCase):
             os.environ.pop("TEST_OPENAI_KEY", None)
             with self.assertRaisesRegex(RuntimeError, "TEST_OPENAI_KEY"):
                 complete(req)
+
+    def test_azure_openai_client_from_env(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(_chat_response(text="azure ok"), captured, kind="chat")
+        req = LLMRequest(
+            provider=OPENAI_CHAT_PROVIDER,
+            messages=[LLMMessage(role="user", content="hi")],
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict(
+                "os.environ",
+                {
+                    "TEST_OPENAI_KEY": "k",
+                    "AZURE_OPENAI_ENDPOINT": "https://example.azure.test",
+                    "AZURE_OPENAI_API_VERSION": "2024-02-01",
+                    "AZURE_OPENAI_LOGID": "log-123",
+                },
+                clear=False,
+            ),
+        ):
+            response = complete(req)
+
+        self.assertEqual(response.text, "azure ok")
+        self.assertEqual(captured["__init_api_key"], "k")
+        self.assertEqual(captured["__init_api_version"], "2024-02-01")
+        self.assertEqual(
+            captured["__init_azure_endpoint"], "https://example.azure.test"
+        )
+        self.assertEqual(captured["__init_default_headers"], {"X-TT-LOGID": "log-123"})
 
 
 # ---------------------------------------------------------------------------

@@ -32,3 +32,11 @@ beautifulsoup4
 html5lib
 matplotlib
 seaborn
+markdown
+markdown2
+weasyprint
+pypandoc
+nbformat
+geopy
+statsmodels
+graphviz

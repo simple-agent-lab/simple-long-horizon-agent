@@ -78,19 +78,7 @@ from ..types import (
 
 
 def stream(req: LLMRequest) -> Iterator[StreamEvent]:
-    try:
-        from openai import OpenAI
-    except ImportError as exc:  # pragma: no cover - import error path
-        raise RuntimeError(
-            "openai-chat adapter requires the 'openai' package. "
-            "Install the package dependencies with: uv sync "
-            "or: pip install openai"
-        ) from exc
-
-    client = OpenAI(
-        api_key=_api_key(req),
-        base_url=req.provider.base_url,
-    )
+    client = _client(req)
 
     messages = to_openai_chat_messages(
         req.messages,
@@ -194,6 +182,49 @@ def _api_key(req: LLMRequest) -> str | None:
             f"Provider {req.provider.id!r} requires env var {env!r}; not set."
         )
     return api_key
+
+
+def _client(req: LLMRequest) -> Any:
+    try:
+        from openai import AzureOpenAI, OpenAI
+    except ImportError as exc:  # pragma: no cover - import error path
+        raise RuntimeError(
+            "openai-chat adapter requires the 'openai' package. "
+            "Install the package dependencies with: uv sync "
+            "or: pip install openai"
+        ) from exc
+
+    azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "").strip()
+    azure_api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "").strip()
+    if azure_endpoint or azure_api_version:
+        if not azure_endpoint:
+            raise RuntimeError(
+                "Azure OpenAI chat requires env var 'AZURE_OPENAI_ENDPOINT'; not set."
+            )
+        if not azure_api_version:
+            raise RuntimeError(
+                "Azure OpenAI chat requires env var 'AZURE_OPENAI_API_VERSION'; "
+                "not set."
+            )
+        default_headers: dict[str, str] = {}
+        log_id = (
+            os.environ.get("AZURE_OPENAI_LOGID")
+            or os.environ.get("OPENAI_LOG_ID")
+            or ""
+        ).strip()
+        if log_id:
+            default_headers["X-TT-LOGID"] = log_id
+        return AzureOpenAI(
+            api_key=_api_key(req),
+            api_version=azure_api_version,
+            azure_endpoint=azure_endpoint,
+            default_headers=default_headers or None,
+        )
+
+    return OpenAI(
+        api_key=_api_key(req),
+        base_url=req.provider.base_url,
+    )
 
 
 DEFAULT_REASONING_FIELD = "reasoning_content"

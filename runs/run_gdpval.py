@@ -32,6 +32,7 @@ from simple_agent_lab.evals import (  # noqa: E402
 )
 
 DEFAULT_WHEELHOUSE_MOUNT = "/agent/wheelhouse"
+JUDGE_SUCCESS_STATUSES = {"judged", "gsb_judged", "no_rubrics"}
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -106,6 +107,15 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--judge-max-turns", type=int, default=50)
     parser.add_argument("--judge-concurrency", type=int, default=None)
     parser.add_argument("--judge-max-attempts", type=int, default=1)
+    parser.add_argument(
+        "--judge-semantic-max-attempts",
+        type=int,
+        default=2,
+        help=(
+            "Maximum GDPVal judge semantic attempts per instance. Retries judge "
+            "runs whose result status is not a scored judge status."
+        ),
+    )
     parser.add_argument(
         "--judge-provider",
         choices=["fake", "openai", "oracle"],
@@ -246,6 +256,9 @@ def _provider_env() -> dict[str, str]:
         "OPENAI_BASE_URL",
         "OPENAI_SESSION_ID",
         "OPENAI_LOG_ID",
+        "AZURE_OPENAI_ENDPOINT",
+        "AZURE_OPENAI_API_VERSION",
+        "AZURE_OPENAI_LOGID",
     )
     return {name: os.environ[name] for name in names if os.environ.get(name)}
 
@@ -361,7 +374,6 @@ def _run_judge_phase(
         return
 
     wheelhouse = _wheelhouse_for(args, run_root=run_root)
-    backend = _backend_for(args, run_id=judge_run_id, wheelhouse=wheelhouse)
 
     def on_judge_result(result) -> None:
         status = "ok" if result.ok else "error"
@@ -370,32 +382,140 @@ def _run_judge_phase(
         print(f"[judge {status}] {result.instance_id}")
         _persist_backend_log(result.artifacts)
 
-    judge_report = run_dataset(
-        suite=suite,
-        instances=judge_instances,
-        backend=backend,
-        store=LocalDirStore(run_root),
-        run_root=run_root,
-        run_id=judge_run_id,
-        concurrency=args.judge_concurrency or args.concurrency,
-        max_attempts=args.judge_max_attempts,
-        on_result=on_judge_result,
-        provider=judge_provider,
-        api_kind=judge_api_kind,
-        max_turns=args.judge_max_turns,
-        provider_env=provider_env,
-        wheelhouse_mount=args.wheelhouse_mount if wheelhouse else None,
+    judge_results, judge_run_ids, attempt_counts, semantic_histories = (
+        _run_judge_with_semantic_retries(
+            args=args,
+            suite=suite,
+            judge_instances=judge_instances,
+            run_root=run_root,
+            base_judge_run_id=judge_run_id,
+            wheelhouse=wheelhouse,
+            judge_provider=judge_provider,
+            judge_api_kind=judge_api_kind,
+            provider_env=provider_env,
+            on_judge_result=on_judge_result,
+        )
     )
     summary = _write_judge_summary(
         run_root=run_root,
         solver_run_id=args.run_id,
         judge_run_id=judge_run_id,
+        judge_run_ids=judge_run_ids,
         judge_mode=args.judge_mode,
-        results=judge_report.results,
+        results=judge_results,
         skipped=skipped,
+        attempt_counts=attempt_counts,
+        semantic_histories=semantic_histories,
     )
     print("")
     print(f"==> judge summary: {summary}")
+
+
+def _run_judge_with_semantic_retries(
+    *,
+    args: argparse.Namespace,
+    suite,
+    judge_instances: list[dict],
+    run_root: Path,
+    base_judge_run_id: str,
+    wheelhouse: Path | None,
+    judge_provider: str,
+    judge_api_kind: str,
+    provider_env: dict[str, str],
+    on_judge_result,
+) -> tuple[list, list[str], dict[str, int], dict[str, list[str]]]:
+    pending = list(judge_instances)
+    latest_by_id = {}
+    attempt_counts: dict[str, int] = {}
+    semantic_histories: dict[str, list[str]] = {}
+    run_ids: list[str] = []
+    max_semantic_attempts = max(1, int(args.judge_semantic_max_attempts or 1))
+
+    for semantic_attempt in range(1, max_semantic_attempts + 1):
+        attempt_run_id = _judge_attempt_run_id(base_judge_run_id, semantic_attempt)
+        run_ids.append(attempt_run_id)
+        if semantic_attempt > 1:
+            print("")
+            print(
+                "==> Retrying GDPVal judge semantic failures "
+                f"(attempt {semantic_attempt}/{max_semantic_attempts})"
+            )
+            print(f"    selected:    {len(pending)}")
+            print(f"    run-id:      {attempt_run_id}")
+            print("")
+        backend = _backend_for(args, run_id=attempt_run_id, wheelhouse=wheelhouse)
+        judge_report = run_dataset(
+            suite=suite,
+            instances=pending,
+            backend=backend,
+            store=LocalDirStore(run_root),
+            run_root=run_root,
+            run_id=attempt_run_id,
+            concurrency=args.judge_concurrency or args.concurrency,
+            max_attempts=args.judge_max_attempts,
+            on_result=on_judge_result,
+            provider=judge_provider,
+            api_kind=judge_api_kind,
+            max_turns=args.judge_max_turns,
+            provider_env=provider_env,
+            wheelhouse_mount=args.wheelhouse_mount if wheelhouse else None,
+        )
+        latest_by_id.update({item.instance_id: item for item in judge_report.results})
+        for item in judge_report.results:
+            task_id = str(item.instance_id)
+            attempt_counts[task_id] = attempt_counts.get(task_id, 0) + item.attempts
+            semantic_histories.setdefault(task_id, []).append(
+                _judge_result_status(item)
+            )
+
+        failed_ids = {
+            item.instance_id
+            for item in judge_report.results
+            if not _judge_result_is_semantic_success(item)
+        }
+        if not failed_ids:
+            break
+        if semantic_attempt >= max_semantic_attempts:
+            break
+
+        pending = [
+            instance
+            for instance in pending
+            if str(instance["instance_id"]) in failed_ids
+        ]
+        for instance_id in sorted(failed_ids):
+            status = _judge_result_status(latest_by_id[instance_id])
+            print(f"    semantic retry queued {instance_id}: status={status}")
+
+    ordered = [
+        latest_by_id[str(instance["instance_id"])]
+        for instance in judge_instances
+        if str(instance["instance_id"]) in latest_by_id
+    ]
+    return ordered, run_ids, attempt_counts, semantic_histories
+
+
+def _judge_attempt_run_id(base_judge_run_id: str, semantic_attempt: int) -> str:
+    if semantic_attempt <= 1:
+        return base_judge_run_id
+    return f"{base_judge_run_id}-semantic-retry-{semantic_attempt}"
+
+
+def _judge_result_status(item) -> str:
+    if item.artifacts is None:
+        return "error"
+    result_path = item.artifacts.run_dir / RESULT_KEY
+    if not result_path.is_file():
+        return "judge_result_missing"
+    try:
+        payload = json.loads(result_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return "judge_result_invalid_json"
+    return str(payload.get("status", "unknown"))
+
+
+def _judge_result_is_semantic_success(item) -> bool:
+    return _judge_result_status(item) in JUDGE_SUCCESS_STATUSES
 
 
 def _write_judge_summary(
@@ -403,19 +523,29 @@ def _write_judge_summary(
     run_root: Path,
     solver_run_id: str,
     judge_run_id: str,
+    judge_run_ids: list[str] | None = None,
     judge_mode: str,
     results: list,
     skipped: list[tuple[str, str]],
+    attempt_counts: dict[str, int] | None = None,
+    semantic_histories: dict[str, list[str]] | None = None,
 ) -> dict[str, object]:
+    attempt_counts = attempt_counts or {}
+    semantic_histories = semantic_histories or {}
     rows: list[dict[str, object]] = [
         {"task_id": task_id, "status": "skipped", "reason": reason}
         for task_id, reason in skipped
     ]
     for item in results:
+        task_id = str(item.instance_id)
         row: dict[str, object] = {
             "task_id": item.instance_id,
-            "attempts": item.attempts,
+            "attempts": attempt_counts.get(task_id, item.attempts),
         }
+        history = semantic_histories.get(task_id, [])
+        if history:
+            row["semantic_attempts"] = len(history)
+            row["semantic_status_history"] = history
         if item.artifacts is None:
             row.update({"status": "error", "error": item.error or ""})
         else:
@@ -423,27 +553,36 @@ def _write_judge_summary(
             result_path = item.artifacts.run_dir / RESULT_KEY
             row["result_path"] = str(result_path)
             if result_path.is_file():
-                payload = json.loads(result_path.read_text(encoding="utf-8"))
-                row.update(
-                    {
-                        "status": payload.get("status", "unknown"),
-                        "score": payload.get("score", 0.0),
-                        "earned_score": payload.get("earned_score", 0.0),
-                        "max_score": payload.get("max_score", 0.0),
-                    }
-                )
-                for key in (
-                    "combined_weighted_score",
-                    "llm_score",
-                    "score_process",
-                    "dcg_winrate",
-                    "rubrics_weighted_score_reverse",
-                    "rubrics_weighted_score_forward",
-                    "llm_gsb_score_reverse",
-                    "llm_gsb_score_forward",
-                ):
-                    if key in payload:
-                        row[key] = payload[key]
+                try:
+                    payload = json.loads(result_path.read_text(encoding="utf-8"))
+                except json.JSONDecodeError as exc:
+                    row.update(
+                        {
+                            "status": "judge_result_invalid_json",
+                            "error": f"{type(exc).__name__}: {exc}",
+                        }
+                    )
+                else:
+                    row.update(
+                        {
+                            "status": payload.get("status", "unknown"),
+                            "score": payload.get("score", 0.0),
+                            "earned_score": payload.get("earned_score", 0.0),
+                            "max_score": payload.get("max_score", 0.0),
+                        }
+                    )
+                    for key in (
+                        "combined_weighted_score",
+                        "llm_score",
+                        "score_process",
+                        "dcg_winrate",
+                        "rubrics_weighted_score_reverse",
+                        "rubrics_weighted_score_forward",
+                        "llm_gsb_score_reverse",
+                        "llm_gsb_score_forward",
+                    ):
+                        if key in payload:
+                            row[key] = payload[key]
             else:
                 row["status"] = "judge_result_missing"
         rows.append(row)
@@ -451,7 +590,7 @@ def _write_judge_summary(
     scored = [
         row
         for row in rows
-        if row.get("status") in {"judged", "gsb_judged", "no_rubrics"}
+        if row.get("status") in JUDGE_SUCCESS_STATUSES
         and isinstance(row.get("score"), (int, float))
     ]
     aggregate = {
@@ -462,6 +601,7 @@ def _write_judge_summary(
             sum(float(row["score"]) for row in scored) / len(scored) if scored else 0.0
         ),
         "judge_run_id": judge_run_id,
+        "judge_run_ids": judge_run_ids or [judge_run_id],
         "judge_mode": judge_mode,
     }
     summary_dir = run_root / solver_run_id
