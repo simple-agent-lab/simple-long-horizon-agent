@@ -84,4 +84,3 @@ are replaced by a single composable `agent_session()` that enables capabilities
 additively (bash/read/explorer/skills/mcp/extra tools). The runtime
 (`AgentSession`), `Toolset`/`MCPToolset`, `SkillConfig`, and the plain-`Agent`
 back-compat factories (`make_bash_agent`, `make_bash_task_agent`) are unchanged.
-Design: `docs/superpowers/specs/2026-06-04-composable-agent-session-design.md`.
