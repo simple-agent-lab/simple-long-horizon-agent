@@ -35,8 +35,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, cast
 
-from ..agents.bash import make_bash_agent
-from ..agents.bash_task import make_bash_task_agent
+from ..agents.starter import make_bash_agent, make_bash_task_agent
 from ..core import Agent
 from ..llm import ApiKind, Provider
 from ..llm_agent import make_llm_agent

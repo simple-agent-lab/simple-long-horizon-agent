@@ -203,7 +203,7 @@ class DirectivesTest(unittest.TestCase):
         self.assertIsInstance(parse_skill_directives("x", set()), SkillDirectives)
 
 
-from simple_agent_lab.agents.bash import make_bash_agent  # noqa: E402
+from simple_agent_lab.agents.starter import make_bash_agent  # noqa: E402
 from simple_agent_lab.llm import Provider  # noqa: E402
 from simple_agent_lab.skills.runtime import (  # noqa: E402
     run_with_skills,

@@ -19,7 +19,7 @@ from simple_agent_lab import (
     tool_result_text,
     tool_results_of,
 )
-from simple_agent_lab.agents.bash import make_bash_agent
+from simple_agent_lab.agents.starter import make_bash_agent
 from simple_agent_lab.llm import Provider
 from simple_agent_lab.messages import Message
 from simple_agent_lab.trajectory import (

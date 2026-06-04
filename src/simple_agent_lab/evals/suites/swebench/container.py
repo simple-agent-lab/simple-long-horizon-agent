@@ -36,7 +36,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from simple_agent_lab.agents.bash_task import BASH_TASK_EXPLORER_ADDENDUM
+from simple_agent_lab.agents.starter import BASH_TASK_EXPLORER_ADDENDUM
 from simple_agent_lab.evals.protocols import AgentSpec
 
 from .patch import (
