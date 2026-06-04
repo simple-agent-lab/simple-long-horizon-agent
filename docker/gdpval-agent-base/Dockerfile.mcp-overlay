@@ -37,4 +37,23 @@ RUN npm install -g --omit=dev --no-audit --no-fund \
         @sylphx/pdf-reader-mcp@2.3.0 \
     && npm cache clean --force
 
+RUN printf '%s\n' \
+        '#!/bin/sh' \
+        'unset LD_LIBRARY_PATH' \
+        'export NODE_PATH="${NODE_PATH:-/usr/local/lib/node_modules:/usr/lib/node_modules}"' \
+        '' \
+        'for entry in \' \
+        '  /usr/lib/node_modules/@sylphx/pdf-reader-mcp/dist/index.js \' \
+        '  /usr/local/lib/node_modules/@sylphx/pdf-reader-mcp/dist/index.js' \
+        'do' \
+        '  if [ -f "$entry" ]; then' \
+        '    exec node "$entry" "$@"' \
+        '  fi' \
+        'done' \
+        '' \
+        'echo "pdf-reader-mcp package not found" >&2' \
+        'exit 127' \
+        > /usr/local/bin/pdf-reader-mcp \
+    && chmod +x /usr/local/bin/pdf-reader-mcp
+
 ENV NODE_PATH=/usr/local/lib/node_modules:/usr/lib/node_modules
