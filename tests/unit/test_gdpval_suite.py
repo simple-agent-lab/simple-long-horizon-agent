@@ -414,6 +414,15 @@ class GdpvalSuiteTest(unittest.TestCase):
             for tool_names in GDPVAL_MCP_READ_TOOL_NAMES.values()
             for tool_name in tool_names
         }
+        expected = {
+            "validate_formula_syntax",
+            "find_text_in_document",
+            "get_all_comments",
+            "get_comments_by_author",
+            "get_comments_for_paragraph",
+            "get_paragraph_text_from_document",
+            "validate_document_footnotes",
+        }
         denied = {
             "write_file",
             "edit_file",
@@ -428,11 +437,16 @@ class GdpvalSuiteTest(unittest.TestCase):
             "create_presentation",
             "save_presentation",
             "add_slide",
+            "manage_text",
+            "manage_hyperlinks",
+            "manage_slide_transitions",
+            "manage_image",
         }
 
         self.assertLessEqual(
-            sum(len(v) for v in GDPVAL_MCP_READ_TOOL_NAMES.values()), 32
+            sum(len(v) for v in GDPVAL_MCP_READ_TOOL_NAMES.values()), 40
         )
+        self.assertTrue(expected <= all_allowed)
         self.assertFalse(all_allowed & denied)
 
     def test_judge_tool_mode_normalization(self) -> None:

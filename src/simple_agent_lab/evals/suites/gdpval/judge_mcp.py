@@ -40,6 +40,7 @@ GDPVAL_MCP_READ_TOOL_NAMES: Mapping[str, frozenset[str]] = {
             "read_data_from_excel",
             "get_workbook_metadata",
             "validate_excel_range",
+            "validate_formula_syntax",
             "get_merged_cells",
             "get_data_validation_info",
         }
@@ -51,6 +52,12 @@ GDPVAL_MCP_READ_TOOL_NAMES: Mapping[str, frozenset[str]] = {
             "get_document_outline",
             "list_available_documents",
             "get_document_xml",
+            "get_paragraph_text_from_document",
+            "find_text_in_document",
+            "get_all_comments",
+            "get_comments_by_author",
+            "get_comments_for_paragraph",
+            "validate_document_footnotes",
         }
     ),
     "ppt": frozenset(
