@@ -10,8 +10,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from simple_agent_lab.core import Agent
-from simple_agent_lab.llm import Provider as LLMProvider
-from simple_agent_lab.llm_agent import make_llm_agent
+from simple_agent_lab.llm_agent import ProviderLike, make_llm_agent
 from simple_agent_lab.tools.bash import make_bash_tool
 
 BASH_AGENT_SYSTEM_PROMPT = (
@@ -27,7 +26,7 @@ BASH_AGENT_DEFAULT_NAME = "bash_agent"
 
 
 def make_bash_agent(
-    provider: LLMProvider,
+    provider: ProviderLike,
     *,
     cwd: str | Path | None = None,
     name: str = BASH_AGENT_DEFAULT_NAME,
@@ -38,7 +37,9 @@ def make_bash_agent(
     """Build a bash-using `Agent` with the bash tool already bound.
 
     Consumers (eval suites, demos, custom flows) own provider choice so
-    this preset stays independent of fake or live model policy.
+    this preset stays independent of fake or live model policy. `provider`
+    may be a single `Provider` or a `ProviderSelector` to switch models per
+    turn (see `make_llm_agent`).
     """
     return make_llm_agent(
         name=name,

@@ -27,6 +27,7 @@ Use [0000-template.md](0000-template.md) for new records. Number accepted decisi
 - [ADR 0018: MCP Servers Are a Tool Source, Wrapped at the Tool Boundary](0018-mcp-as-tool-source.md)
 - [ADR 0020: Collapse the Scorer Seam into the Run Primitive](0020-collapse-scorer-seam-into-run-primitive.md) — amends ADR 0019 and ADR 0017, builds on ADR 0018
 - [ADR 0021: Add Agent Skills (read-based, on by default)](0021-add-agent-skills.md)
+- [ADR 0022: Per-Turn Model Selection via a Provider Selector](0022-per-turn-model-selection.md)
 
 ## Proposed
 

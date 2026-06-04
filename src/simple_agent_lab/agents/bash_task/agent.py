@@ -28,8 +28,7 @@ from typing import Any, Mapping
 
 from simple_agent_lab.agents.bash import BASH_AGENT_SYSTEM_PROMPT, make_bash_agent
 from simple_agent_lab.core import Agent
-from simple_agent_lab.llm import Provider as LLMProvider
-from simple_agent_lab.llm_agent import make_llm_agent
+from simple_agent_lab.llm_agent import ProviderLike, make_llm_agent
 from simple_agent_lab.tools.bash import make_bash_tool
 from simple_agent_lab.tools.task import task_tool
 
@@ -73,7 +72,7 @@ DEFAULT_TASK_MAX_TURNS = 70
 
 
 def make_bash_task_agent(
-    provider: LLMProvider,
+    provider: ProviderLike,
     *,
     cwd: str | Path | None = None,
     name: str = BASH_TASK_AGENT_DEFAULT_NAME,
@@ -89,10 +88,11 @@ def make_bash_task_agent(
 
     Parent and explorer share ``cwd`` so a delegated investigation sees
     the same workspace state the parent's edits affect. Both run with
-    the same provider — callers can pass distinct providers by composing
-    the inner ``make_bash_agent`` directly if they want a cheaper model
-    for exploration. ``request_extra`` flows to both so every model call
-    carries the same per-request extras.
+    the same ``provider`` — a single ``Provider`` or a ``ProviderSelector``
+    for per-turn model switching. Callers wanting a different model for the
+    explorer (e.g. a cheaper one) can compose the inner ``make_bash_agent``
+    directly. ``request_extra`` flows to both so every model call carries
+    the same per-request extras.
     """
 
     explorer = make_bash_agent(

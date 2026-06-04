@@ -112,6 +112,7 @@ Stop and collect more evidence before changing behavior when:
 | Day-to-day implementation | `docs/agent-native/development.md`, `docs/agent-native/code-style.md`, `runs/README.md` | Commands, quality gate, and style constraints. |
 | Harness workflow or docs-first process | `docs/agent-native/harness-engineering.md`, ADR 0002, ADR 0003 | Feedback signal and repository-as-harness rules. |
 | Core runtime shape | ADR 0001, ADR 0005, ADR 0009, `src/simple_agent_lab/core.py` | Canonical runtime boundary and stateful run-loop rationale. |
+| Per-turn model switching / `make_llm_agent` provider | ADR 0022, `src/simple_agent_lab/llm_agent.py`, `tests/unit/test_per_round_model.py`, `scripts/run_per_round_model_demo.py` | `provider` is a single `Provider` or a `ProviderSelector` `(turn) -> Provider`; turn index derived statelessly from visible context, core loop and `generate` contract untouched. |
 | Message protocol or provider conversion | `CONTEXT.md`, ADR 0006, ADR 0012, ADR 0014, `src/simple_agent_lab/messages.py`, `src/simple_agent_lab/llm/README.md` | Runtime-vs-model message boundary and vocabulary. |
 | Context visibility or budgeting | ADR 0010, `src/simple_agent_lab/context_view.py`, `tests/unit/test_core.py`, `tests/unit/test_token_usage.py` | Projection behavior and token-estimate constraints. |
 | Tool execution or bash demo | `src/simple_agent_lab/tools/`, `src/simple_agent_lab/agents/bash/` (preset agent), `tests/unit/test_bash_agent.py` | Tool result semantics and deterministic demo checks. |
