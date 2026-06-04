@@ -58,7 +58,7 @@ canonical builder used everywhere, without a declarative config interpreter
   it. Adding a kind is a new preset, not a new subfolder.
 - The MCP connection lifecycle is honest and uniform (`with session:`), not a
   bespoke `with connect_mcp(...)` dance at every call site.
-- The eval skills path (`evals/in_container.py`) still uses
+- The eval skills path (`src/simple_agent_lab/evals/in_container.py`) still uses
   `system_prompt_with_skills` (menu in the system prompt), which is distinct
   from the interactive `run_with_skills` path; this ADR does not unify those.
 - `build_agent` from the design spec was dropped (it only forwarded to
