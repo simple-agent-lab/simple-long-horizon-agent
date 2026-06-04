@@ -232,6 +232,43 @@ MCP_AGENT_DEFAULT_ROLE = (
     "task, then return a short final answer."
 )
 
+DEFAULT_AGENT_NAME = "agent"
+
+SKILLS_ADDENDUM = (
+    "You also have access to a library of skills. When a skill fits the task, "
+    "read its SKILL.md first, then run its scripts via bash. Prefer a matching "
+    "skill over improvising, and work from the evidence it produces."
+)
+
+MCP_ADDENDUM = (
+    "You also have tools provided by one or more connected MCP servers (their "
+    "names are prefixed with the server name). Use them when they fit the task, "
+    "then return a short final answer."
+)
+
+
+def compose_agent_system_prompt(
+    *, bash: bool, explorer: bool, skills: bool, mcp: bool
+) -> str:
+    """Build a system prompt by appending capability fragments to the base.
+
+    The base is always the bash-agent prompt; ``explorer``/``skills``/``mcp``
+    each append their fragment in that fixed order. Callers that pass an
+    explicit ``system_prompt`` bypass this entirely. When ``bash`` is false the
+    base still reads as the bash prompt, so a bash-less agent should supply its
+    own ``system_prompt`` (see the design spec's edge-case note).
+    """
+
+    del bash  # base is unconditional today; kept for signature symmetry
+    parts = [BASH_AGENT_SYSTEM_PROMPT]
+    if explorer:
+        parts.append(BASH_TASK_EXPLORER_ADDENDUM)
+    if skills:
+        parts.append(SKILLS_ADDENDUM)
+    if mcp:
+        parts.append(MCP_ADDENDUM)
+    return "\n\n".join(parts)
+
 
 # --------------------------------------------------------------------------
 # Presets: each kind is a thin AgentSession configuration.
