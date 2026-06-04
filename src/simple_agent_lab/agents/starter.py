@@ -1,15 +1,15 @@
-"""The general agent starter: one runner + presets for every agent kind.
+"""The general agent starter: one runner + one composable front door.
 
 This module replaces the per-kind subfolders. A single :class:`AgentSession`
 (the runner) opens any :class:`~simple_agent_lab.agents.toolsets.Toolset`
 resources, assembles the full tool list, builds an ``Agent`` via the existing
 :func:`~simple_agent_lab.llm_agent.make_llm_agent`, and dispatches ``run`` to
-either the plain loop or the skills loop. Four thin preset constructors
-(:func:`bash_session`, :func:`bash_task_session`, :func:`skill_session`,
-:func:`mcp_session`) configure that session for each kind.
+either the plain loop or the skills loop. The composable
+:func:`agent_session` front door configures that session by combining
+capabilities (bash, read, explorer, skills, MCP) additively.
 
-The kinds differ only by their tool list and an optional skills flag — there is
-no per-kind class. ``bash_task``'s explorer sub-agent is an ordinary ``task``
+The capabilities differ only by their tool list and an optional skills flag —
+there is no per-kind class. The explorer sub-agent is an ordinary ``task``
 tool entry, and ``mcp`` servers are ``MCPToolset`` entries the session opens
 and closes. Back-compat ``make_bash_agent`` / ``make_bash_task_agent`` wrappers
 remain for callers that already drive a plain ``Agent`` themselves.
@@ -352,155 +352,6 @@ def agent_session(
         toolsets=toolsets,
         skills=skill_config,
         context_policy=context_policy,
-        request_extra=request_extra,
-        max_turns=max_turns,
-    )
-
-
-# --------------------------------------------------------------------------
-# Presets: each kind is a thin AgentSession configuration.
-# --------------------------------------------------------------------------
-
-
-def bash_session(
-    provider: LLMProvider,
-    *,
-    cwd: str | Path | None = None,
-    name: str = BASH_AGENT_DEFAULT_NAME,
-    role: str = BASH_AGENT_DEFAULT_ROLE,
-    system_prompt: str = BASH_AGENT_SYSTEM_PROMPT,
-    request_extra: Mapping[str, Any] | None = None,
-    max_turns: int = 10,
-) -> AgentSession:
-    """A session whose agent carries only the bash tool."""
-
-    return AgentSession(
-        provider=provider,
-        name=name,
-        role=role,
-        system_prompt=system_prompt,
-        target="user",
-        static_tools=[make_bash_tool(cwd=cwd)],
-        request_extra=request_extra,
-        max_turns=max_turns,
-    )
-
-
-def bash_task_session(
-    provider: LLMProvider,
-    *,
-    cwd: str | Path | None = None,
-    name: str = BASH_TASK_AGENT_DEFAULT_NAME,
-    role: str = BASH_TASK_AGENT_DEFAULT_ROLE,
-    system_prompt: str = BASH_TASK_AGENT_SYSTEM_PROMPT,
-    explorer_name: str = EXPLORER_AGENT_DEFAULT_NAME,
-    explorer_role: str = EXPLORER_AGENT_DEFAULT_ROLE,
-    explorer_system_prompt: str = EXPLORER_AGENT_SYSTEM_PROMPT,
-    task_max_turns: int = DEFAULT_TASK_MAX_TURNS,
-    request_extra: Mapping[str, Any] | None = None,
-    max_turns: int = 10,
-) -> AgentSession:
-    """A session with bash + a `task` tool delegating to a bash explorer.
-
-    Parent and explorer share ``cwd`` so a delegated investigation sees the
-    same workspace the parent's edits affect.
-    """
-
-    explorer = make_bash_agent(
-        provider=provider,
-        cwd=cwd,
-        name=explorer_name,
-        role=explorer_role,
-        system_prompt=explorer_system_prompt,
-        request_extra=request_extra,
-    )
-    return AgentSession(
-        provider=provider,
-        name=name,
-        role=role,
-        system_prompt=system_prompt,
-        target="user",
-        static_tools=[
-            make_bash_tool(cwd=cwd),
-            task_tool([explorer], max_turns=task_max_turns),
-        ],
-        request_extra=request_extra,
-        max_turns=max_turns,
-    )
-
-
-def skill_session(
-    provider: LLMProvider,
-    *,
-    cwd: str | Path | None = None,
-    roots: Sequence[SkillRoot] | None = None,
-    skills: Sequence[SkillMetadata] | None = None,
-    preload: Sequence[str] = (),
-    name: str = SKILL_AGENT_DEFAULT_NAME,
-    role: str = SKILL_AGENT_DEFAULT_ROLE,
-    system_prompt: str | None = None,
-    request_extra: Mapping[str, Any] | None = None,
-    max_turns: int = 10,
-) -> AgentSession:
-    """A session with bash + read whose `run` advertises and injects skills.
-
-    Skills are driven by the task text (a leading ``/mention`` or
-    ``/no-skills``) plus any ``preload`` names — exactly like the interactive
-    ``run_with_skills`` edge.
-    """
-
-    resolved_cwd = str(cwd) if cwd is not None else "."
-    return AgentSession(
-        provider=provider,
-        name=name,
-        role=role,
-        system_prompt=role if system_prompt is None else system_prompt,
-        target="user",
-        static_tools=[make_bash_tool(cwd=cwd), make_read_tool(cwd=cwd)],
-        skills=SkillConfig(
-            enabled=True,
-            roots=roots,
-            skills=skills,
-            preload=preload,
-            cwd=resolved_cwd,
-        ),
-        request_extra=request_extra,
-        max_turns=max_turns,
-    )
-
-
-def mcp_session(
-    provider: LLMProvider,
-    *,
-    servers: Sequence["MCPServerConfig"],
-    name: str = MCP_AGENT_DEFAULT_NAME,
-    role: str = MCP_AGENT_DEFAULT_ROLE,
-    system_prompt: str = "",
-    static_tools: Sequence[AgentTool] = (),
-    call_timeout: float = 60.0,
-    connect: Callable[["MCPServerConfig"], "MCPConnection"] | None = None,
-    request_extra: Mapping[str, Any] | None = None,
-    max_turns: int = 10,
-) -> AgentSession:
-    """A session whose tools come from one or more live MCP servers.
-
-    Each server becomes an :class:`MCPToolset` the session opens on enter and
-    closes on exit. ``static_tools`` can add local tools (e.g. bash) alongside
-    the MCP tools. ``connect`` is a test seam for the in-memory transport.
-    """
-
-    toolsets = [
-        MCPToolset(server, call_timeout=call_timeout, connect=connect)
-        for server in servers
-    ]
-    return AgentSession(
-        provider=provider,
-        name=name,
-        role=role,
-        system_prompt=system_prompt,
-        target="user",
-        static_tools=static_tools,
-        toolsets=toolsets,
         request_extra=request_extra,
         max_turns=max_turns,
     )
