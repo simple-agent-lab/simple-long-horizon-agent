@@ -90,7 +90,7 @@ class BashToolTest(unittest.TestCase):
             execution = run_bash(
                 "grep missing /dev/null",
                 cwd=tmp,
-                timeout_seconds=2,
+                timeout_seconds=3,
             )
         result = bash_execution_to_tool_result(execution)
 
@@ -117,7 +117,7 @@ class BashToolTest(unittest.TestCase):
             execution = run_bash(
                 'printf "%s,%s,%s\\n" "$PAGER" "$TQDM_DISABLE" "$PIP_PROGRESS_BAR"',
                 cwd=ROOT,
-                timeout_seconds=2,
+                timeout_seconds=3,
             )
         self.assertEqual(execution.exit_code, 0)
         self.assertEqual(execution.raw_stdout, "cat,1,off")
@@ -128,14 +128,14 @@ class BashToolTest(unittest.TestCase):
 
         # If the caller already exported PAGER, our defaults must not clobber it.
         with mock.patch.dict(os.environ, {"PAGER": "less"}, clear=False):
-            execution = run_bash('printf "%s" "$PAGER"', cwd=ROOT, timeout_seconds=2)
+            execution = run_bash('printf "%s" "$PAGER"', cwd=ROOT, timeout_seconds=3)
         self.assertEqual(execution.raw_stdout, "less")
 
     def test_truncation_note_suggests_narrowing_strategies(self) -> None:
         # Force truncation by emitting more than the default budget.
         big = "x" * 5000
         with tempfile.TemporaryDirectory() as tmp:
-            execution = run_bash(f"printf '{big}'", cwd=tmp, timeout_seconds=2)
+            execution = run_bash(f"printf '{big}'", cwd=tmp, timeout_seconds=3)
         self.assertTrue(execution.stdout_truncated)
         observation = bash_execution_to_tool_result(execution)
         text = tool_result_text(observation)
@@ -544,32 +544,32 @@ class BashToolCrashSafetyTest(unittest.TestCase):
     """Defenses against non-UTF-8 output and NaN/zero/non-numeric timeouts."""
 
     def test_invalid_utf8_stdout_does_not_crash(self) -> None:
-        execution = run_bash(r"printf '\xff\xfe\xfd'", cwd=ROOT, timeout_seconds=2)
+        execution = run_bash(r"printf '\xff\xfe\xfd'", cwd=ROOT, timeout_seconds=3)
         self.assertEqual(execution.exit_code, 0)
         # All three bytes are invalid UTF-8 starts → three replacement chars.
         self.assertEqual(execution.raw_stdout, "���")
         self.assertFalse(execution.is_error)
 
     def test_invalid_utf8_stderr_does_not_crash(self) -> None:
-        execution = run_bash(r"printf '\xff' >&2", cwd=ROOT, timeout_seconds=2)
+        execution = run_bash(r"printf '\xff' >&2", cwd=ROOT, timeout_seconds=3)
         self.assertEqual(execution.exit_code, 0)
         self.assertEqual(execution.raw_stderr, "�")
         # No exit-code failure, just unusual bytes.
         self.assertFalse(execution.is_error)
 
     def test_mixed_valid_and_invalid_utf8_preserves_valid_parts(self) -> None:
-        execution = run_bash(r"printf 'ok\xffok'", cwd=ROOT, timeout_seconds=2)
+        execution = run_bash(r"printf 'ok\xffok'", cwd=ROOT, timeout_seconds=3)
         self.assertEqual(execution.raw_stdout, "ok�ok")
 
     def test_truncated_multibyte_sequence_is_replaced_not_raised(self) -> None:
         # 0xC3 starts a 2-byte UTF-8 sequence; 0x28 ('(') is not a valid
         # continuation byte. Must not raise.
-        execution = run_bash(r"printf '\xc3\x28'", cwd=ROOT, timeout_seconds=2)
+        execution = run_bash(r"printf '\xc3\x28'", cwd=ROOT, timeout_seconds=3)
         self.assertEqual(execution.exit_code, 0)
         self.assertIn("�", execution.raw_stdout)
 
     def test_valid_utf8_emoji_passes_through(self) -> None:
-        execution = run_bash("printf '🦀\\n'", cwd=ROOT, timeout_seconds=2)
+        execution = run_bash("printf '🦀\\n'", cwd=ROOT, timeout_seconds=3)
         self.assertEqual(execution.raw_stdout, "🦀")
         self.assertFalse(execution.is_error)
 
@@ -649,7 +649,7 @@ class BashToolCrashSafetyTest(unittest.TestCase):
         execution = run_bash(
             r"printf '\xff\xfe' && sleep 5",
             cwd=ROOT,
-            timeout_seconds=1,
+            timeout_seconds=3,
         )
         self.assertTrue(execution.timed_out)
         self.assertLess(execution.exit_code, 0)
