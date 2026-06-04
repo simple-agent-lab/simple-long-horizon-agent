@@ -14,6 +14,17 @@ Build it from the repo root:
 bash runs/build_gdpval_agent_base.sh
 ```
 
+To build the MCP overlay from the published `v20260604.4` image instead of
+rebuilding the full base, run:
+
+```bash
+docker build \
+  -f docker/gdpval-agent-base/Dockerfile.mcp-overlay \
+  --build-arg PIP_INDEX_URL=https://bytedpypi.byted.org/simple/ \
+  -t hub.byted.org/boyuan/gdpval-agent-base:v20260604.5 \
+  docker/gdpval-agent-base
+```
+
 The build script defaults to `DEBIAN_MIRROR=http://mirrors.aliyun.com` for apt
 and `PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/` for pip. Use the
 official sources instead with:
@@ -29,6 +40,13 @@ docker run --rm gdpval-agent-base:latest python - <<'PY'
 import pandas, scipy, openpyxl, pypdf, docx, pptx, PIL, reportlab
 print("gdpval-agent-base imports ok")
 PY
+```
+
+MCP runtime smoke check:
+
+```bash
+docker run --rm hub.byted.org/boyuan/gdpval-agent-base:v20260604.5 sh -lc \
+  'node --version && npm --version && which excel-mcp-server word_mcp_server ppt_mcp_server pdf-reader-mcp mcp-server-filesystem'
 ```
 
 Use it with the GDPVal runner:

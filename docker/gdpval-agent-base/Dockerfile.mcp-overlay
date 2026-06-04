@@ -1,0 +1,40 @@
+# syntax=docker/dockerfile:1
+
+FROM hub.byted.org/boyuan/gdpval-agent-base:v20260604.4
+
+ARG PIP_INDEX_URL=""
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+ENV PIP_DEFAULT_TIMEOUT=120
+ENV PIP_NO_CACHE_DIR=1
+ENV PIP_RETRIES=5
+
+COPY requirements-mcp.txt /tmp/requirements-mcp.txt
+
+RUN if [ -n "$PIP_INDEX_URL" ]; then \
+        python -m pip config set global.index-url "$PIP_INDEX_URL"; \
+    fi \
+    && python -m pip install --no-compile -r /tmp/requirements-mcp.txt \
+    && rm /tmp/requirements-mcp.txt \
+    && find /usr/local/lib/python3.11/site-packages -type d -name "__pycache__" -prune -exec rm -rf '{}' + \
+    && find /usr/local/lib/python3.11/site-packages -type f \( -name "*.pyc" -o -name "*.pyo" \) -delete \
+    && find /usr/local/lib/python3.11/site-packages -type d \( -name "test" -o -name "tests" \) -prune -exec rm -rf '{}' +
+
+RUN set -eux; \
+    apt-get remove -y nodejs npm || true; \
+    apt-get autoremove -y || true; \
+    mkdir -p /etc/apt/keyrings; \
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+        | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg; \
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" \
+        > /etc/apt/sources.list.d/nodesource.list; \
+    apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=30; \
+    apt-get install -y --no-install-recommends nodejs; \
+    rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g --omit=dev --no-audit --no-fund \
+        @modelcontextprotocol/server-filesystem@2025.12.18 \
+        @sylphx/pdf-reader-mcp@2.3.0 \
+    && npm cache clean --force
+
+ENV NODE_PATH=/usr/local/lib/node_modules:/usr/lib/node_modules

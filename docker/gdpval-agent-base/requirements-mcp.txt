@@ -1,0 +1,8 @@
+# Judge MCP server runtimes.
+mcp==1.26.0
+fastmcp==2.14.5
+excel-mcp-server==0.1.7
+office-word-mcp-server==1.1.11
+office-powerpoint-mcp-server==2.0.7
+aspose-words==25.8.0
+docx2pdf==0.1.8

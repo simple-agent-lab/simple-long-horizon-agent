@@ -28,24 +28,33 @@ RUN if [ -n "$DEBIAN_MIRROR" ]; then \
         curl \
         file \
         git \
+        gnupg \
         libgomp1 \
         ripgrep \
         unzip \
         zip \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt /tmp/gdpval-requirements.txt
+COPY requirements.txt requirements-mcp.txt /tmp/
 
 RUN if [ -n "$PIP_INDEX_URL" ]; then \
         python -m pip config set global.index-url "$PIP_INDEX_URL"; \
     fi \
-    && python -m pip install --no-compile -r /tmp/gdpval-requirements.txt \
-    && rm /tmp/gdpval-requirements.txt \
+    && python -m pip install --no-compile \
+        -r /tmp/requirements.txt \
+        -r /tmp/requirements-mcp.txt \
+    && rm /tmp/requirements.txt /tmp/requirements-mcp.txt \
     && find /usr/local/lib/python3.11/site-packages -type d -name "__pycache__" -prune -exec rm -rf '{}' + \
     && find /usr/local/lib/python3.11/site-packages -type f \( -name "*.pyc" -o -name "*.pyo" \) -delete \
     && find /usr/local/lib/python3.11/site-packages -type d \( -name "test" -o -name "tests" \) -prune -exec rm -rf '{}' +
 
-RUN apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=30 \
+RUN set -eux; \
+    mkdir -p /etc/apt/keyrings; \
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+        | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg; \
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" \
+        > /etc/apt/sources.list.d/nodesource.list; \
+    apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=30 \
     && apt-get install -y --no-install-recommends \
         fonts-dejavu-core \
         fonts-noto-cjk \
@@ -61,7 +70,6 @@ RUN apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=30 \
         libpangoft2-1.0-0 \
         libreoffice \
         nodejs \
-        npm \
         pandoc \
         poppler-utils \
         qpdf \
@@ -72,14 +80,16 @@ RUN apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=30 \
         wkhtmltopdf \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund \
+RUN npm install -g --omit=dev --no-audit --no-fund \
+        @modelcontextprotocol/server-filesystem@2025.12.18 \
+        @sylphx/pdf-reader-mcp@2.3.0 \
         docx \
         pdf-lib \
         pdfjs-dist@3.11.174 \
         pptxgenjs \
     && npm cache clean --force
 
-ENV NODE_PATH=/usr/local/lib/node_modules
+ENV NODE_PATH=/usr/local/lib/node_modules:/usr/lib/node_modules
 
 COPY requirements-pdf-extra.txt /tmp/gdpval-pdf-extra-requirements.txt
 

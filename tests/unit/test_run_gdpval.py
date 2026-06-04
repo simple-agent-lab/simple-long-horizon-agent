@@ -20,6 +20,14 @@ from runs import run_gdpval
 
 
 class RunGdpvalJudgeRetryTest(unittest.TestCase):
+    def test_default_image_uses_boyuan_gdpval_base(self) -> None:
+        args = run_gdpval._build_parser().parse_args([])
+
+        self.assertEqual(
+            args.image,
+            "hub.byted.org/boyuan/gdpval-agent-base:latest",
+        )
+
     def test_provider_env_includes_azure_openai_settings(self) -> None:
         with mock.patch.dict(
             "os.environ",
@@ -42,6 +50,73 @@ class RunGdpvalJudgeRetryTest(unittest.TestCase):
                     "AZURE_OPENAI_LOGID": "log-123",
                 },
             )
+
+    def test_solver_and_judge_provider_env_can_differ_from_cli(self) -> None:
+        args = run_gdpval._build_parser().parse_args(
+            [
+                "--solver-model",
+                "solver-model",
+                "--solver-api-key",
+                "solver-key",
+                "--solver-base-url",
+                "https://solver.example/v1",
+                "--judge-model",
+                "judge-model",
+                "--judge-api-key",
+                "judge-key",
+                "--judge-base-url",
+                "https://judge.example/v1",
+            ]
+        )
+        with mock.patch.dict("os.environ", {}, clear=True):
+            solver_env = run_gdpval._provider_env(args, stage="solver")
+            judge_env = run_gdpval._provider_env(args, stage="judge", base=solver_env)
+
+        self.assertEqual(
+            solver_env,
+            {
+                "OPENAI_MODEL": "solver-model",
+                "OPENAI_AUTH_TOKEN": "solver-key",
+                "OPENAI_BASE_URL": "https://solver.example/v1",
+            },
+        )
+        self.assertEqual(
+            judge_env,
+            {
+                "OPENAI_MODEL": "judge-model",
+                "OPENAI_AUTH_TOKEN": "judge-key",
+                "OPENAI_BASE_URL": "https://judge.example/v1",
+            },
+        )
+
+    def test_judge_prefixed_env_overrides_solver_env_for_azure(self) -> None:
+        args = run_gdpval._build_parser().parse_args(
+            ["--solver-base-url", "https://solver.example/v1"]
+        )
+        with mock.patch.dict(
+            "os.environ",
+            {
+                "OPENAI_MODEL": "solver-model",
+                "OPENAI_AUTH_TOKEN": "solver-key",
+                "JUDGE_OPENAI_MODEL": "judge-model",
+                "JUDGE_OPENAI_AUTH_TOKEN": "judge-key",
+                "JUDGE_AZURE_OPENAI_ENDPOINT": "https://judge.azure.test",
+                "JUDGE_AZURE_OPENAI_API_VERSION": "2024-02-01",
+                "JUDGE_AZURE_OPENAI_LOGID": "judge-log",
+            },
+            clear=True,
+        ):
+            solver_env = run_gdpval._provider_env(args, stage="solver")
+            judge_env = run_gdpval._provider_env(args, stage="judge", base=solver_env)
+
+        self.assertEqual(solver_env["OPENAI_MODEL"], "solver-model")
+        self.assertEqual(solver_env["OPENAI_BASE_URL"], "https://solver.example/v1")
+        self.assertEqual(judge_env["OPENAI_MODEL"], "judge-model")
+        self.assertEqual(judge_env["OPENAI_AUTH_TOKEN"], "judge-key")
+        self.assertNotIn("OPENAI_BASE_URL", judge_env)
+        self.assertEqual(judge_env["AZURE_OPENAI_ENDPOINT"], "https://judge.azure.test")
+        self.assertEqual(judge_env["AZURE_OPENAI_API_VERSION"], "2024-02-01")
+        self.assertEqual(judge_env["AZURE_OPENAI_LOGID"], "judge-log")
 
     def test_semantic_retry_only_reruns_invalid_judge_results(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -32,7 +32,18 @@ from simple_agent_lab.evals import (  # noqa: E402
 )
 
 DEFAULT_WHEELHOUSE_MOUNT = "/agent/wheelhouse"
+DEFAULT_GDPVAL_IMAGE = "hub.byted.org/boyuan/gdpval-agent-base:latest"
 JUDGE_SUCCESS_STATUSES = {"judged", "gsb_judged", "no_rubrics"}
+PROVIDER_ENV_FIELDS = (
+    ("OPENAI_MODEL", "model"),
+    ("OPENAI_AUTH_TOKEN", "api_key"),
+    ("OPENAI_BASE_URL", "base_url"),
+    ("OPENAI_SESSION_ID", "session_id"),
+    ("OPENAI_LOG_ID", "log_id"),
+    ("AZURE_OPENAI_ENDPOINT", "azure_endpoint"),
+    ("AZURE_OPENAI_API_VERSION", "azure_api_version"),
+    ("AZURE_OPENAI_LOGID", "azure_logid"),
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -56,7 +67,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Do not filter out rows whose deliverable_files field is empty.",
     )
     parser.add_argument("--reference-root", default=None)
-    parser.add_argument("--image", default="hub.byted.org/apihub/gdpeval:1.0.0")
+    parser.add_argument("--image", default=DEFAULT_GDPVAL_IMAGE)
     parser.add_argument("--network-mode", default="host")
     parser.add_argument("--platform", default=None)
     parser.add_argument("--run-root", default=str(ROOT / "evals/out/gdpval"))
@@ -139,6 +150,94 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=["openai-chat", "openai-responses"],
         default=os.environ.get("API_KIND", "openai-responses"),
     )
+    solver_group = parser.add_argument_group("solver provider overrides")
+    solver_group.add_argument(
+        "--solver-model",
+        "--model",
+        dest="solver_model",
+        default=None,
+        help="Solver model. Overrides OPENAI_MODEL.",
+    )
+    solver_group.add_argument(
+        "--solver-api-key",
+        "--api-key",
+        dest="solver_api_key",
+        default=None,
+        help="Solver API key/token. Overrides OPENAI_AUTH_TOKEN.",
+    )
+    solver_group.add_argument(
+        "--solver-base-url",
+        "--base-url",
+        dest="solver_base_url",
+        default=None,
+        help="Solver OpenAI-compatible base URL. Overrides OPENAI_BASE_URL.",
+    )
+    solver_group.add_argument(
+        "--solver-session-id",
+        default=None,
+        help="Solver session id. Overrides OPENAI_SESSION_ID.",
+    )
+    solver_group.add_argument(
+        "--solver-log-id",
+        default=None,
+        help="Solver log id. Overrides OPENAI_LOG_ID.",
+    )
+    solver_group.add_argument(
+        "--solver-azure-endpoint",
+        default=None,
+        help="Solver Azure OpenAI endpoint. Overrides AZURE_OPENAI_ENDPOINT.",
+    )
+    solver_group.add_argument(
+        "--solver-azure-api-version",
+        default=None,
+        help="Solver Azure OpenAI API version. Overrides AZURE_OPENAI_API_VERSION.",
+    )
+    solver_group.add_argument(
+        "--solver-azure-logid",
+        default=None,
+        help="Solver Azure OpenAI log id. Overrides AZURE_OPENAI_LOGID.",
+    )
+    judge_group = parser.add_argument_group("judge provider overrides")
+    judge_group.add_argument(
+        "--judge-model",
+        default=None,
+        help="Judge model. Defaults to the solver model.",
+    )
+    judge_group.add_argument(
+        "--judge-api-key",
+        default=None,
+        help="Judge API key/token. Defaults to the solver API key/token.",
+    )
+    judge_group.add_argument(
+        "--judge-base-url",
+        default=None,
+        help="Judge OpenAI-compatible base URL. Defaults to the solver base URL.",
+    )
+    judge_group.add_argument(
+        "--judge-session-id",
+        default=None,
+        help="Judge session id. Defaults to the solver session id.",
+    )
+    judge_group.add_argument(
+        "--judge-log-id",
+        default=None,
+        help="Judge log id. Defaults to the solver log id.",
+    )
+    judge_group.add_argument(
+        "--judge-azure-endpoint",
+        default=None,
+        help="Judge Azure OpenAI endpoint. Defaults to the solver endpoint.",
+    )
+    judge_group.add_argument(
+        "--judge-azure-api-version",
+        default=None,
+        help="Judge Azure OpenAI API version. Defaults to the solver API version.",
+    )
+    judge_group.add_argument(
+        "--judge-azure-logid",
+        default=None,
+        help="Judge Azure OpenAI log id. Defaults to the solver log id.",
+    )
     parser.add_argument("--dotenv", default=str(ROOT / ".env"))
     parser.add_argument(
         "--backend",
@@ -187,7 +286,8 @@ def main() -> None:
         platform=args.platform,
     )
     backend = _backend_for(args, run_id=args.run_id, wheelhouse=wheelhouse)
-    provider_env = _provider_env()
+    solver_provider_env = _provider_env(args, stage="solver")
+    judge_provider_env = _provider_env(args, stage="judge", base=solver_provider_env)
 
     print("==> Running GDPVal solver")
     source = args.input or f"huggingface:{args.hf_dataset}/{args.hf_split}"
@@ -200,6 +300,7 @@ def main() -> None:
     print(f"    backend:     {args.backend}")
     print(f"    provider:    {args.provider}")
     print(f"    api-kind:    {args.api_kind}")
+    print(f"    model:       {_provider_model_label(solver_provider_env)}")
     print(f"    max-turns:   {args.max_turns}")
     print(f"    output root: {run_root}")
     print("")
@@ -224,7 +325,7 @@ def main() -> None:
         provider=args.provider,
         api_kind=args.api_kind,
         max_turns=args.max_turns,
-        provider_env=provider_env,
+        provider_env=solver_provider_env,
         wheelhouse_mount=args.wheelhouse_mount if wheelhouse else None,
     )
     print("")
@@ -235,7 +336,7 @@ def main() -> None:
             print(f"    failed {item.instance_id}: {item.error}")
         raise SystemExit(1)
     if args.judge:
-        _run_judge_phase(args, instances, report.results, run_root, provider_env)
+        _run_judge_phase(args, instances, report.results, run_root, judge_provider_env)
 
 
 def _load_dotenv(path: Path) -> None:
@@ -249,18 +350,59 @@ def _load_dotenv(path: Path) -> None:
         os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 
-def _provider_env() -> dict[str, str]:
-    names = (
-        "OPENAI_MODEL",
-        "OPENAI_AUTH_TOKEN",
-        "OPENAI_BASE_URL",
-        "OPENAI_SESSION_ID",
-        "OPENAI_LOG_ID",
-        "AZURE_OPENAI_ENDPOINT",
-        "AZURE_OPENAI_API_VERSION",
-        "AZURE_OPENAI_LOGID",
+def _provider_env(
+    args: argparse.Namespace | None = None,
+    *,
+    stage: str = "solver",
+    base: dict[str, str] | None = None,
+) -> dict[str, str]:
+    env = (
+        {
+            name: os.environ[name]
+            for name, _ in PROVIDER_ENV_FIELDS
+            if os.environ.get(name)
+        }
+        if base is None
+        else dict(base)
     )
-    return {name: os.environ[name] for name in names if os.environ.get(name)}
+    if args is None:
+        return env
+    overrides = _provider_override_attrs(args, stage=stage)
+    stage_prefix = stage.upper()
+    for name, attr in PROVIDER_ENV_FIELDS:
+        prefixed = os.environ.get(f"{stage_prefix}_{name}")
+        if prefixed:
+            env[name] = prefixed
+        value = getattr(args, f"{stage}_{attr}", None)
+        if value:
+            env[name] = value
+    _normalize_provider_env(env, overrides=overrides)
+    return env
+
+
+def _provider_override_attrs(args: argparse.Namespace, *, stage: str) -> set[str]:
+    attrs: set[str] = set()
+    stage_prefix = stage.upper()
+    for name, attr in PROVIDER_ENV_FIELDS:
+        if os.environ.get(f"{stage_prefix}_{name}"):
+            attrs.add(attr)
+        if getattr(args, f"{stage}_{attr}", None):
+            attrs.add(attr)
+    return attrs
+
+
+def _normalize_provider_env(env: dict[str, str], *, overrides: set[str]) -> None:
+    azure_attrs = {"azure_endpoint", "azure_api_version", "azure_logid"}
+    if overrides & azure_attrs and "base_url" not in overrides:
+        env.pop("OPENAI_BASE_URL", None)
+    if "base_url" in overrides and not (overrides & azure_attrs):
+        env.pop("AZURE_OPENAI_ENDPOINT", None)
+        env.pop("AZURE_OPENAI_API_VERSION", None)
+        env.pop("AZURE_OPENAI_LOGID", None)
+
+
+def _provider_model_label(provider_env: dict[str, str]) -> str:
+    return provider_env.get("OPENAI_MODEL", "") or "<unset>"
 
 
 def _workspace_factory(args: argparse.Namespace, *, run_id: str):
@@ -364,6 +506,7 @@ def _run_judge_phase(
     print(f"    mode:        {args.judge_mode}")
     print(f"    provider:    {judge_provider}")
     print(f"    api-kind:    {judge_api_kind}")
+    print(f"    model:       {_provider_model_label(provider_env)}")
     print(f"    max-turns:   {args.judge_max_turns}")
     print("")
     if skipped:
