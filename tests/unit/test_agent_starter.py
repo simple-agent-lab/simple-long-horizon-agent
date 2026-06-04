@@ -108,6 +108,57 @@ class ToolsetProtocolTest(unittest.TestCase):
         self.assertTrue(toolset.closed)
 
 
+class ComposePromptTest(unittest.TestCase):
+    def test_bash_only_is_base(self) -> None:
+        from simple_agent_lab.agents.starter import (
+            BASH_AGENT_SYSTEM_PROMPT,
+            compose_agent_system_prompt,
+        )
+
+        prompt = compose_agent_system_prompt(
+            bash=True, explorer=False, skills=False, mcp=False
+        )
+        self.assertEqual(prompt, BASH_AGENT_SYSTEM_PROMPT)
+
+    def test_appends_fragments_in_order(self) -> None:
+        from simple_agent_lab.agents.starter import (
+            BASH_AGENT_SYSTEM_PROMPT,
+            BASH_TASK_EXPLORER_ADDENDUM,
+            MCP_ADDENDUM,
+            SKILLS_ADDENDUM,
+            compose_agent_system_prompt,
+        )
+
+        prompt = compose_agent_system_prompt(
+            bash=True, explorer=True, skills=True, mcp=True
+        )
+        self.assertEqual(
+            prompt,
+            "\n\n".join(
+                [
+                    BASH_AGENT_SYSTEM_PROMPT,
+                    BASH_TASK_EXPLORER_ADDENDUM,
+                    SKILLS_ADDENDUM,
+                    MCP_ADDENDUM,
+                ]
+            ),
+        )
+
+    def test_skills_only_appends_skills_fragment(self) -> None:
+        from simple_agent_lab.agents.starter import (
+            BASH_AGENT_SYSTEM_PROMPT,
+            SKILLS_ADDENDUM,
+            compose_agent_system_prompt,
+        )
+
+        prompt = compose_agent_system_prompt(
+            bash=True, explorer=False, skills=True, mcp=False
+        )
+        self.assertEqual(
+            prompt, BASH_AGENT_SYSTEM_PROMPT + "\n\n" + SKILLS_ADDENDUM
+        )
+
+
 FIXTURE_SKILLS = ROOT / "tests" / "fixtures" / "skills"
 
 
