@@ -22,17 +22,10 @@ from simple_agent_lab.tools.bash import make_bash_tool
 from simple_agent_lab.tools.read import make_read_tool
 
 from simple_agent_lab.agents.starter import (
-    BASH_AGENT_SYSTEM_PROMPT,
-    BASH_TASK_AGENT_SYSTEM_PROMPT,
-    EXPLORER_AGENT_DEFAULT_NAME,
     AgentSession,
     SkillConfig,
-    bash_session,
-    bash_task_session,
     make_bash_agent,
     make_bash_task_agent,
-    mcp_session,
-    skill_session,
 )
 from simple_agent_lab.agents.toolsets import MCPToolset, Toolset
 
@@ -154,9 +147,7 @@ class ComposePromptTest(unittest.TestCase):
         prompt = compose_agent_system_prompt(
             bash=True, explorer=False, skills=True, mcp=False
         )
-        self.assertEqual(
-            prompt, BASH_AGENT_SYSTEM_PROMPT + "\n\n" + SKILLS_ADDENDUM
-        )
+        self.assertEqual(prompt, BASH_AGENT_SYSTEM_PROMPT + "\n\n" + SKILLS_ADDENDUM)
 
 
 FIXTURE_SKILLS = ROOT / "tests" / "fixtures" / "skills"
@@ -231,32 +222,7 @@ class AgentSessionTest(unittest.TestCase):
         self.assertIn("echo-fixture", menu.content[0].text)
 
 
-class PresetTest(unittest.TestCase):
-    def test_bash_session_exposes_only_bash(self) -> None:
-        with bash_session(FAKE_PROVIDER, cwd=str(ROOT)) as session:
-            self.assertEqual([t.name for t in session.agent.tools], ["bash"])
-            self.assertEqual(session.agent.system_prompt, BASH_AGENT_SYSTEM_PROMPT)
-
-    def test_bash_task_session_exposes_bash_and_task(self) -> None:
-        with bash_task_session(FAKE_PROVIDER, cwd=str(ROOT)) as session:
-            names = sorted(t.name for t in session.agent.tools)
-            self.assertEqual(names, ["bash", "task"])
-            task = next(t for t in session.agent.tools if t.name == "task")
-            self.assertEqual(
-                list(task.parameters["properties"]["subagent_type"]["enum"]),
-                [EXPLORER_AGENT_DEFAULT_NAME],
-            )
-            self.assertTrue(
-                BASH_TASK_AGENT_SYSTEM_PROMPT.startswith(BASH_AGENT_SYSTEM_PROMPT)
-            )
-
-    def test_skill_session_carries_bash_read_and_skill_config(self) -> None:
-        session = skill_session(FAKE_PROVIDER, cwd=str(FIXTURE_SKILLS))
-        with session as entered:
-            self.assertEqual(
-                sorted(t.name for t in entered.agent.tools), ["bash", "read"]
-            )
-
+class BackCompatFactoryTest(unittest.TestCase):
     def test_make_bash_agent_returns_plain_agent(self) -> None:
         agent = make_bash_agent(provider=FAKE_PROVIDER, cwd=str(ROOT))
         self.assertEqual([t.name for t in agent.tools], ["bash"])
@@ -311,15 +277,6 @@ class MCPToolsetTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             toolset.tools()
 
-    def test_mcp_session_exposes_server_tools(self) -> None:
-        config = MCPServerConfig.stdio("demo", "noop")
-        with mcp_session(
-            FAKE_PROVIDER,
-            servers=[config],
-            connect=self._in_memory_connect(),
-        ) as session:
-            self.assertIn("demo_echo", {t.name for t in session.agent.tools})
-
 
 class AgentSessionFactoryTest(unittest.TestCase):
     def test_bash_only_default(self) -> None:
@@ -371,7 +328,9 @@ class AgentSessionFactoryTest(unittest.TestCase):
     def test_skills_true_uses_default_config(self) -> None:
         from simple_agent_lab.agents.starter import SKILLS_ADDENDUM, agent_session
 
-        with agent_session(FAKE_PROVIDER, cwd=str(FIXTURE_SKILLS), skills=True) as session:
+        with agent_session(
+            FAKE_PROVIDER, cwd=str(FIXTURE_SKILLS), skills=True
+        ) as session:
             self.assertIn(SKILLS_ADDENDUM, session.agent.system_prompt)
 
     def test_skills_config_routes_through_run_with_skills(self) -> None:
