@@ -219,19 +219,6 @@ EXPLORER_AGENT_SYSTEM_PROMPT = (
 )
 DEFAULT_TASK_MAX_TURNS = 70
 
-SKILL_AGENT_DEFAULT_NAME = "skill_agent"
-SKILL_AGENT_DEFAULT_ROLE = (
-    "You are a capable software agent with a bash tool and a read tool. Use the "
-    "available skills when they fit the task: read a skill's SKILL.md, then run "
-    "its scripts via bash. Work from evidence and verify your result."
-)
-
-MCP_AGENT_DEFAULT_NAME = "mcp_agent"
-MCP_AGENT_DEFAULT_ROLE = (
-    "Use the tools provided by the connected MCP server(s) to satisfy the "
-    "task, then return a short final answer."
-)
-
 DEFAULT_AGENT_NAME = "agent"
 
 SKILLS_ADDENDUM = (
@@ -295,16 +282,31 @@ def agent_session(
     local tools, ``explorer`` adds a `task` tool delegating to a bash explorer,
     ``tools`` appends arbitrary `AgentTool`s, ``mcp_servers`` each become an
     `MCPToolset` the session opens/closes, and ``skills`` (``True`` for defaults
-    or a `SkillConfig`) routes `run` through the skills loop. When
+    or a `SkillConfig`) routes `run` through the skills loop. Enabling skills
+    implies the read tool (a skill reads its SKILL.md before running its
+    scripts), so ``read`` need not be passed alongside ``skills``. When
     ``system_prompt`` is None the prompt is composed from per-capability
     fragments; otherwise the explicit value is used verbatim. ``connect`` is the
     MCP test seam (in-memory transport).
     """
 
+    if skills is True:
+        skill_config: SkillConfig | None = SkillConfig(
+            enabled=True, cwd=str(cwd) if cwd is not None else "."
+        )
+    elif not skills:
+        skill_config = None
+    else:
+        skill_config = skills  # an explicit SkillConfig
+    skills_enabled = skill_config is not None and skill_config.enabled
+
     static_tools: list[AgentTool] = []
     if bash:
         static_tools.append(make_bash_tool(cwd=cwd))
-    if read:
+    # Skills drive themselves through the read tool (read a SKILL.md, then run
+    # its scripts via bash), so enabling skills implies read even when the
+    # caller left `read` at its default.
+    if read or skills_enabled:
         static_tools.append(make_read_tool(cwd=cwd))
     if explorer:
         explorer_agent = make_bash_agent(
@@ -325,20 +327,11 @@ def agent_session(
         for server in mcp_servers
     ]
 
-    if skills is True:
-        skill_config: SkillConfig | None = SkillConfig(
-            enabled=True, cwd=str(cwd) if cwd is not None else "."
-        )
-    elif not skills:
-        skill_config = None
-    else:
-        skill_config = skills  # an explicit SkillConfig
-
     if system_prompt is None:
         system_prompt = compose_agent_system_prompt(
             bash=bash,
             explorer=explorer,
-            skills=skill_config is not None and skill_config.enabled,
+            skills=skills_enabled,
             mcp=bool(mcp_servers),
         )
 

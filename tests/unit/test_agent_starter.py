@@ -325,13 +325,17 @@ class AgentSessionFactoryTest(unittest.TestCase):
         ) as session:
             self.assertEqual(session.agent.system_prompt, "custom")
 
-    def test_skills_true_uses_default_config(self) -> None:
+    def test_skills_true_uses_default_config_and_implies_read(self) -> None:
         from simple_agent_lab.agents.starter import SKILLS_ADDENDUM, agent_session
 
         with agent_session(
             FAKE_PROVIDER, cwd=str(FIXTURE_SKILLS), skills=True
         ) as session:
             self.assertIn(SKILLS_ADDENDUM, session.agent.system_prompt)
+            # Skills imply the read tool even without an explicit `read=True`.
+            self.assertEqual(
+                sorted(t.name for t in session.agent.tools), ["bash", "read"]
+            )
 
     def test_skills_config_routes_through_run_with_skills(self) -> None:
         from simple_agent_lab.agents.starter import SKILLS_ADDENDUM, agent_session
@@ -339,7 +343,6 @@ class AgentSessionFactoryTest(unittest.TestCase):
         with agent_session(
             FAKE_PROVIDER,
             cwd=str(FIXTURE_SKILLS),
-            read=True,
             skills=SkillConfig(
                 enabled=True,
                 roots=[SkillRoot(str(FIXTURE_SKILLS), "repo")],
@@ -347,6 +350,8 @@ class AgentSessionFactoryTest(unittest.TestCase):
             ),
         ) as session:
             self.assertIn(SKILLS_ADDENDUM, session.agent.system_prompt)
+            # A SkillConfig also implies read, with no explicit `read=True`.
+            self.assertIn("read", [t.name for t in session.agent.tools])
             state, events = session.run("do something", max_turns=3)
             for _ in events:
                 pass
