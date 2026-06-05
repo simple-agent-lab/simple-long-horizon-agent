@@ -39,8 +39,11 @@ from .starter import (
     SkillConfig,
     agent_session,
     compose_agent_system_prompt,
+    make_agent,
     make_bash_agent,
     make_bash_task_agent,
+    mcp_session,
+    skill_session,
 )
 from .toolsets import MCPToolset, Toolset
 
@@ -50,10 +53,13 @@ __all__ = [
     "Toolset",
     "MCPToolset",
     "agent_session",
+    "skill_session",
+    "mcp_session",
     "compose_agent_system_prompt",
     "DEFAULT_AGENT_NAME",
     "SKILLS_ADDENDUM",
     "MCP_ADDENDUM",
+    "make_agent",
     "make_bash_agent",
     "make_bash_task_agent",
     "BASH_AGENT_SYSTEM_PROMPT",
