@@ -84,3 +84,19 @@ are replaced by a single composable `agent_session()` that enables capabilities
 additively (bash/read/explorer/skills/mcp/extra tools). The runtime
 (`AgentSession`), `Toolset`/`MCPToolset`, `SkillConfig`, and the plain-`Agent`
 back-compat factories (`make_bash_agent`, `make_bash_task_agent`) are unchanged.
+
+## Follow-up (2026-06-05): general `make_agent()` + named session sugar
+
+Two symmetric front doors now exist, sharing the same capability flags:
+`make_agent()` builds a stateless `Agent` from resource-free capabilities
+(bash/read/explorer/tools), and `agent_session()` adds the session-only
+capabilities (skills, MCP). The two named factories (`make_bash_agent`,
+`make_bash_task_agent`) and the explorer wiring inside `agent_session()` are now
+thin reuses of `make_agent` via a shared `_assemble_static_tools` helper, so the
+tool-assembly logic lives in one place.
+
+Named session shortcuts `skill_session()` and `mcp_session()` were re-added, but
+only as thin wrappers that preset one capability on `agent_session()` and
+forward the rest. This restores convenient names without bringing back the
+per-kind silos: the composable core stays the single implementation, so
+`skill_session(provider, mcp_servers=[...])` still composes freely.

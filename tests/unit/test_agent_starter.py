@@ -360,6 +360,71 @@ class AgentSessionFactoryTest(unittest.TestCase):
         self.assertIn("echo-fixture", menu.content[0].text)
 
 
+class MakeAgentTest(unittest.TestCase):
+    def test_bash_only_default(self) -> None:
+        from simple_agent_lab.agents.starter import (
+            BASH_AGENT_SYSTEM_PROMPT,
+            make_agent,
+        )
+
+        agent = make_agent(FAKE_PROVIDER, cwd=str(ROOT))
+        self.assertEqual([t.name for t in agent.tools], ["bash"])
+        self.assertEqual(agent.system_prompt, BASH_AGENT_SYSTEM_PROMPT)
+
+    def test_read_and_explorer_compose_tools_and_prompt(self) -> None:
+        from simple_agent_lab.agents.starter import (
+            BASH_TASK_EXPLORER_ADDENDUM,
+            EXPLORER_AGENT_DEFAULT_NAME,
+            make_agent,
+        )
+
+        agent = make_agent(FAKE_PROVIDER, cwd=str(ROOT), read=True, explorer=True)
+        self.assertEqual(sorted(t.name for t in agent.tools), ["bash", "read", "task"])
+        task = next(t for t in agent.tools if t.name == "task")
+        self.assertEqual(
+            list(task.parameters["properties"]["subagent_type"]["enum"]),
+            [EXPLORER_AGENT_DEFAULT_NAME],
+        )
+        self.assertIn(BASH_TASK_EXPLORER_ADDENDUM, agent.system_prompt)
+
+    def test_extra_tools_appended(self) -> None:
+        from simple_agent_lab.agents.starter import make_agent
+
+        agent = make_agent(FAKE_PROVIDER, cwd=str(ROOT), tools=[_static_tool("x")])
+        self.assertEqual([t.name for t in agent.tools], ["bash", "x"])
+
+    def test_bash_can_be_disabled(self) -> None:
+        from simple_agent_lab.agents.starter import make_agent
+
+        agent = make_agent(FAKE_PROVIDER, cwd=str(ROOT), bash=False, read=True)
+        self.assertEqual([t.name for t in agent.tools], ["read"])
+
+    def test_system_prompt_override_wins(self) -> None:
+        from simple_agent_lab.agents.starter import make_agent
+
+        agent = make_agent(
+            FAKE_PROVIDER, cwd=str(ROOT), explorer=True, system_prompt="custom"
+        )
+        self.assertEqual(agent.system_prompt, "custom")
+
+
+class SessionSugarTest(unittest.TestCase):
+    def test_skill_session_enables_skills_and_implies_read(self) -> None:
+        from simple_agent_lab.agents.starter import SKILLS_ADDENDUM, skill_session
+
+        with skill_session(FAKE_PROVIDER, cwd=str(FIXTURE_SKILLS)) as session:
+            self.assertIn(SKILLS_ADDENDUM, session.agent.system_prompt)
+            self.assertIn("read", [t.name for t in session.agent.tools])
+
+    def test_skill_session_forwards_kwargs_preserving_composition(self) -> None:
+        from simple_agent_lab.agents.starter import skill_session
+
+        with skill_session(
+            FAKE_PROVIDER, cwd=str(FIXTURE_SKILLS), explorer=True
+        ) as session:
+            self.assertIn("task", [t.name for t in session.agent.tools])
+
+
 @unittest.skipUnless(HAS_MCP, _SKIP_REASON)
 class MCPAgentSessionTest(unittest.TestCase):
     @staticmethod
@@ -424,6 +489,18 @@ class MCPAgentSessionTest(unittest.TestCase):
             for _ in events:
                 pass
         self.assertTrue(any(m.sender == "skills" for m in state.messages))
+
+    def test_mcp_session_wrapper_exposes_tools(self) -> None:
+        from simple_agent_lab.agents.starter import mcp_session
+
+        config = MCPServerConfig.stdio("demo", "noop")
+        with mcp_session(
+            FAKE_PROVIDER,
+            [config],
+            cwd=str(ROOT),
+            connect=self._in_memory_connect(),
+        ) as session:
+            self.assertIn("demo_echo", {t.name for t in session.agent.tools})
 
 
 if __name__ == "__main__":

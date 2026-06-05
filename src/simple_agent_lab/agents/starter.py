@@ -11,8 +11,14 @@ capabilities (bash, read, explorer, skills, MCP) additively.
 The capabilities differ only by their tool list and an optional skills flag —
 there is no per-kind class. The explorer sub-agent is an ordinary ``task``
 tool entry, and ``mcp`` servers are ``MCPToolset`` entries the session opens
-and closes. Back-compat ``make_bash_agent`` / ``make_bash_task_agent`` wrappers
-remain for callers that already drive a plain ``Agent`` themselves.
+and closes.
+
+:func:`make_agent` is the definition-layer twin of :func:`agent_session`: same
+resource-free capability flags, but it returns a bare ``Agent`` you run
+yourself (no session). The ``make_bash_agent`` / ``make_bash_task_agent``
+factories are thin wrappers over it for callers that drive a plain ``Agent``
+themselves. :func:`skill_session` / :func:`mcp_session` are thin wrappers over
+:func:`agent_session` that preset one capability while keeping composition.
 """
 
 from __future__ import annotations
@@ -257,6 +263,92 @@ def compose_agent_system_prompt(
     return "\n\n".join(parts)
 
 
+def _assemble_static_tools(
+    provider: LLMProvider,
+    *,
+    cwd: str | Path | None,
+    bash: bool,
+    read: bool,
+    explorer: bool,
+    tools: Sequence[AgentTool],
+    request_extra: Mapping[str, Any] | None,
+) -> list[AgentTool]:
+    """Build the resource-free tool list shared by `make_agent`/`agent_session`.
+
+    Order is deterministic: bash, read, the explorer `task` tool, then any
+    caller-supplied `tools`. The explorer is an ordinary bash sub-agent wrapped
+    as a `task` tool — exactly how a parent delegates today.
+    """
+
+    assembled: list[AgentTool] = []
+    if bash:
+        assembled.append(make_bash_tool(cwd=cwd))
+    if read:
+        assembled.append(make_read_tool(cwd=cwd))
+    if explorer:
+        explorer_agent = make_agent(
+            provider,
+            cwd=cwd,
+            name=EXPLORER_AGENT_DEFAULT_NAME,
+            role=EXPLORER_AGENT_DEFAULT_ROLE,
+            system_prompt=EXPLORER_AGENT_SYSTEM_PROMPT,
+            request_extra=request_extra,
+        )
+        assembled.append(task_tool([explorer_agent], max_turns=DEFAULT_TASK_MAX_TURNS))
+    assembled.extend(tools)
+    return assembled
+
+
+def make_agent(
+    provider: LLMProvider,
+    *,
+    cwd: str | Path | None = None,
+    bash: bool = True,
+    read: bool = False,
+    explorer: bool = False,
+    tools: Sequence[AgentTool] = (),
+    name: str = DEFAULT_AGENT_NAME,
+    role: str = "",
+    system_prompt: str | None = None,
+    context_policy: ContextPolicy | None = None,
+    request_extra: Mapping[str, Any] | None = None,
+) -> Agent:
+    """Build a stateless `Agent` by composing resource-free capabilities.
+
+    The definition-layer twin of :func:`agent_session`: it shares the same
+    ``bash``/``read``/``explorer``/``tools`` flags and prompt composition but
+    returns a bare ``Agent`` you run yourself (``agent.run(...)``). It omits
+    ``skills`` and ``mcp_servers`` on purpose — those own a run path or a live
+    resource and so require the :class:`AgentSession` runner. When
+    ``system_prompt`` is None the prompt is composed from the enabled
+    capabilities' fragments; otherwise the explicit value is used verbatim.
+    """
+
+    assembled = _assemble_static_tools(
+        provider,
+        cwd=cwd,
+        bash=bash,
+        read=read,
+        explorer=explorer,
+        tools=tools,
+        request_extra=request_extra,
+    )
+    if system_prompt is None:
+        system_prompt = compose_agent_system_prompt(
+            bash=bash, explorer=explorer, skills=False, mcp=False
+        )
+    return make_llm_agent(
+        name=name,
+        provider=provider,
+        role=role,
+        tools=assembled,
+        system_prompt=system_prompt,
+        target="user",
+        context_policy=context_policy,
+        request_extra=request_extra,
+    )
+
+
 def agent_session(
     provider: LLMProvider,
     *,
@@ -300,27 +392,18 @@ def agent_session(
         skill_config = skills  # an explicit SkillConfig
     skills_enabled = skill_config is not None and skill_config.enabled
 
-    static_tools: list[AgentTool] = []
-    if bash:
-        static_tools.append(make_bash_tool(cwd=cwd))
     # Skills drive themselves through the read tool (read a SKILL.md, then run
     # its scripts via bash), so enabling skills implies read even when the
     # caller left `read` at its default.
-    if read or skills_enabled:
-        static_tools.append(make_read_tool(cwd=cwd))
-    if explorer:
-        explorer_agent = make_bash_agent(
-            provider=provider,
-            cwd=cwd,
-            name=EXPLORER_AGENT_DEFAULT_NAME,
-            role=EXPLORER_AGENT_DEFAULT_ROLE,
-            system_prompt=EXPLORER_AGENT_SYSTEM_PROMPT,
-            request_extra=request_extra,
-        )
-        static_tools.append(
-            task_tool([explorer_agent], max_turns=DEFAULT_TASK_MAX_TURNS)
-        )
-    static_tools.extend(tools)
+    static_tools = _assemble_static_tools(
+        provider,
+        cwd=cwd,
+        bash=bash,
+        read=read or skills_enabled,
+        explorer=explorer,
+        tools=tools,
+        request_extra=request_extra,
+    )
 
     toolsets: list[Toolset] = [
         MCPToolset(server, call_timeout=call_timeout, connect=connect)
@@ -351,6 +434,32 @@ def agent_session(
 
 
 # --------------------------------------------------------------------------
+# Named session sugar: thin wrappers that preset one capability on the
+# composable `agent_session`. They add no behavior of their own — composition
+# stays intact, so e.g. `skill_session(provider, mcp_servers=[...])` still
+# works. They forward every other keyword straight through.
+# --------------------------------------------------------------------------
+
+
+def skill_session(
+    provider: LLMProvider, *, skills: "SkillConfig | bool" = True, **kwargs: Any
+) -> AgentSession:
+    """`agent_session` with skills enabled by default (implies the read tool)."""
+
+    return agent_session(provider, skills=skills, **kwargs)
+
+
+def mcp_session(
+    provider: LLMProvider,
+    mcp_servers: Sequence["MCPServerConfig"],
+    **kwargs: Any,
+) -> AgentSession:
+    """`agent_session` wired to one or more MCP servers."""
+
+    return agent_session(provider, mcp_servers=mcp_servers, **kwargs)
+
+
+# --------------------------------------------------------------------------
 # Back-compat: callers that drive a plain `Agent` themselves (evals, the TUI
 # gateway) keep these factories. Resource-free kinds need no session.
 # --------------------------------------------------------------------------
@@ -365,15 +474,15 @@ def make_bash_agent(
     system_prompt: str = BASH_AGENT_SYSTEM_PROMPT,
     request_extra: Mapping[str, Any] | None = None,
 ) -> Agent:
-    """Build a bash-using `Agent` with the bash tool already bound."""
+    """Build a bash-using `Agent` — `make_agent` with the bash-agent defaults."""
 
-    return make_llm_agent(
+    return make_agent(
+        provider,
+        cwd=cwd,
+        bash=True,
         name=name,
-        provider=provider,
         role=role,
-        tools=[make_bash_tool(cwd=cwd)],
         system_prompt=system_prompt,
-        target="user",
         request_extra=request_extra,
     )
 
@@ -391,25 +500,29 @@ def make_bash_task_agent(
     task_max_turns: int = DEFAULT_TASK_MAX_TURNS,
     request_extra: Mapping[str, Any] | None = None,
 ) -> Agent:
-    """Build a parent `Agent` with bash + task(explorer) tools."""
+    """Build a parent `Agent` with bash + task(explorer) tools.
 
-    explorer = make_bash_agent(
-        provider=provider,
+    Unlike ``make_agent(explorer=True)`` (which uses the fixed explorer
+    defaults), this keeps the explorer's name/role/prompt and the task turn
+    budget configurable, so it builds the explorer explicitly and passes it as
+    a `task` tool via ``tools=``.
+    """
+
+    explorer = make_agent(
+        provider,
         cwd=cwd,
         name=explorer_name,
         role=explorer_role,
         system_prompt=explorer_system_prompt,
         request_extra=request_extra,
     )
-    return make_llm_agent(
+    return make_agent(
+        provider,
+        cwd=cwd,
+        bash=True,
+        tools=[task_tool([explorer], max_turns=task_max_turns)],
         name=name,
-        provider=provider,
         role=role,
-        tools=[
-            make_bash_tool(cwd=cwd),
-            task_tool([explorer], max_turns=task_max_turns),
-        ],
         system_prompt=system_prompt,
-        target="user",
         request_extra=request_extra,
     )
