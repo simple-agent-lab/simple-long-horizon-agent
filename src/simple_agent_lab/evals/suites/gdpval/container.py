@@ -31,7 +31,7 @@ def build_agent(
     cwd: Path,
     request_extra: Mapping[str, Any] | None = None,
 ) -> Agent:
-    """Build the first-version GDPVal solver."""
+    """Build the GDPVal solver agent."""
 
     workdir = Path(cwd)
     reference_dir = _reference_dir_for(workdir)

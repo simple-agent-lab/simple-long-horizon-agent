@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import shutil
 import tempfile
 import unittest
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
+from unittest.mock import patch
 
 from evals.gdpval.load_instances import load_instances
 from evals.gdpval.judge_suite import GdpvalGsbJudgeSuite, GdpvalJudgeSuite
@@ -41,6 +43,7 @@ from simple_agent_lab.evals.suites.gdpval.judge_mcp import (
 from simple_agent_lab.evals.suites.gdpval.prompts import GDPVAL_SYSTEM_PROMPT
 from simple_agent_lab.evals.suites.gdpval.tools import make_gdpval_tools
 from simple_agent_lab.llm.provider import Provider
+from simple_agent_lab.state import State
 from simple_agent_lab.tools import tool_result_text
 
 
@@ -625,6 +628,96 @@ class GdpvalSuiteTest(unittest.TestCase):
         self.assertEqual(payload["rubrics_result"][0]["gsb"], "A>B")
         self.assertEqual(payload["overall"]["final_gsb"], "A>B")
 
+    def test_gsb_last_assistant_text_keeps_full_response_for_parsing(self) -> None:
+        response = (
+            "<rubrics_result>"
+            + json.dumps(
+                [
+                    {
+                        "score": 1,
+                        "criterion": "Accuracy",
+                        "grade_A": 1,
+                        "grade_B": 0,
+                        "gsb": "A>B",
+                        "grade_explanation": "standard is better",
+                    }
+                ]
+            )
+            + "</rubrics_result>"
+            + (" filler" * 40)
+            + '<overall>{"overall_explanation":"standard wins",'
+            + '"final_gsb":"A>B"}</overall>'
+        )
+        self.assertGreater(len(response), 120)
+        state = State(task="")
+        state.send(
+            "final",
+            sender="gdpval_gsb_judge_reverse_1",
+            target="user",
+            content=response,
+        )
+
+        text = judge_gsb_container._last_assistant_text(state)
+        payload = parse_gsb_direction_payload(text)
+
+        self.assertEqual(text, response)
+        self.assertEqual(payload["overall"]["final_gsb"], "A>B")
+        self.assertEqual(len(payload["rubrics_result"]), 1)
+
+    def test_gsb_direction_attempt_limit_defaults_to_one_and_is_bounded(self) -> None:
+        env = judge_gsb_container.GSB_DIRECTION_ATTEMPTS_ENV
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(env, None)
+            self.assertEqual(judge_gsb_container._max_gsb_direction_attempts({}), 1)
+            self.assertEqual(
+                judge_gsb_container._max_gsb_direction_attempts(
+                    {"judge_gsb_direction_attempts": 3}
+                ),
+                3,
+            )
+            self.assertEqual(
+                judge_gsb_container._max_gsb_direction_attempts(
+                    {"judge_gsb_direction_attempts": 99}
+                ),
+                judge_gsb_container.MAX_GSB_DIRECTION_ATTEMPTS,
+            )
+            self.assertEqual(
+                judge_gsb_container._max_gsb_direction_attempts(
+                    {"judge_gsb_direction_attempts": 0}
+                ),
+                1,
+            )
+
+        with patch.dict(os.environ, {env: "2"}):
+            self.assertEqual(judge_gsb_container._max_gsb_direction_attempts({}), 2)
+
+    def test_gsb_attempt_result_fields_include_attempt_details(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workdir = Path(tmp)
+            attempts = [
+                {
+                    "direction": "reverse",
+                    "attempt": 1,
+                    "has_tool_messages": True,
+                    "mcp_tool_count": 2,
+                    "failure_reason": "invalid_output",
+                    "raw_response_preview": "preview",
+                }
+            ]
+            (workdir / judge_gsb_container.JUDGE_ATTEMPTS_FILE).write_text(
+                json.dumps({"attempts": attempts}),
+                encoding="utf-8",
+            )
+
+            fields = judge_gsb_container._attempt_result_fields(workdir)
+
+        self.assertEqual(fields["judge_attempts"], attempts)
+        self.assertEqual(fields["judge_retry_summary"]["reverse"]["attempts"], 1)
+        self.assertEqual(
+            fields["judge_retry_summary"]["reverse"]["last_failure_reason"],
+            "invalid_output",
+        )
+
     def test_gsb_scoring_counts_missing_direction_like_swalm(self) -> None:
         result = score_gsb_judgment(
             {
@@ -860,7 +953,7 @@ class GdpvalSuiteTest(unittest.TestCase):
             self.assertEqual(result["score"], 0.5)
             self.assertEqual(result["combined_weighted_score"], 0.5)
 
-    def test_gsb_judge_fake_provider_retries_no_tool_outputs(self) -> None:
+    def test_gsb_judge_fake_provider_records_no_tool_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             candidate_workdir = root / "candidate_workdir"
@@ -912,9 +1005,12 @@ class GdpvalSuiteTest(unittest.TestCase):
             self.assertEqual(result["status"], "gsb_judged")
             self.assertEqual(result["score"], 0.0)
             retry_summary = result["judge_retry_summary"]
-            self.assertEqual(retry_summary["reverse"]["attempts"], 5)
-            self.assertEqual(retry_summary["forward"]["attempts"], 5)
+            self.assertEqual(retry_summary["reverse"]["attempts"], 1)
+            self.assertEqual(retry_summary["forward"]["attempts"], 1)
             self.assertFalse(retry_summary["reverse"]["had_tool_messages"])
+            self.assertEqual(
+                result["judge_attempts"][0]["failure_reason"], "no_tool_messages"
+            )
 
     def test_run_suite_instance_local_process_fake_provider(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

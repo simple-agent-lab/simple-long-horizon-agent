@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from dataclasses import dataclass
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -17,7 +18,7 @@ from typing import Any
 from simple_agent_lab.core import Agent
 from simple_agent_lab.llm.provider import Provider
 from simple_agent_lab.llm_agent import make_llm_agent
-from simple_agent_lab.messages import message_text
+from simple_agent_lab.messages import text_of
 from simple_agent_lab.protocols import ToolExecutionStartEvent
 from simple_agent_lab.state import State
 
@@ -37,7 +38,9 @@ from .tools import make_gdpval_tools
 
 JUDGE_RESULT_FILE = "_gdpval_gsb_judge_result.json"
 JUDGE_ATTEMPTS_FILE = "_gdpval_gsb_judge_attempts.json"
+DEFAULT_GSB_DIRECTION_ATTEMPTS = 1
 MAX_GSB_DIRECTION_ATTEMPTS = 5
+GSB_DIRECTION_ATTEMPTS_ENV = "GDPVAL_GSB_DIRECTION_ATTEMPTS"
 _GSB_LABELS = {"A>>B", "A>B", "A=B", "A<B", "A<<B"}
 _LOCAL_EXCEL_HELPER_NAMES = {
     "excel_profile_sheet",
@@ -185,6 +188,7 @@ def run_agent(
 
         paths = _judge_paths(context)
         rubrics = normalize_rubrics(instance.get("rubrics"))
+        max_direction_attempts = _max_gsb_direction_attempts(instance)
         final_answer_summary = json.dumps(
             _candidate_summary(instance.get("candidate_result") or {}),
             ensure_ascii=False,
@@ -211,6 +215,7 @@ def run_agent(
             rubrics=rubrics,
             require_tool=bool(paths["candidate"]),
             max_turns=max_turns,
+            max_attempts=max_direction_attempts,
         )
         all_attempts.extend(reverse.attempts)
 
@@ -235,6 +240,7 @@ def run_agent(
                 rubrics=rubrics,
                 require_tool=True,
                 max_turns=max_turns,
+                max_attempts=max_direction_attempts,
             )
             all_attempts.extend(forward.attempts)
 
@@ -352,13 +358,14 @@ def _run_direction(
     rubrics: list[dict[str, Any]],
     require_tool: bool,
     max_turns: int,
+    max_attempts: int,
 ):
     attempts: list[dict[str, Any]] = []
     warning: str | None = None
     last_response = ""
     last_payload: dict[str, Any] = {}
     failure_reason = ""
-    for attempt_index in range(MAX_GSB_DIRECTION_ATTEMPTS):
+    for attempt_index in range(max_attempts):
         prompt = _build_direction_prompt(
             instance=instance,
             direction=direction,
@@ -446,8 +453,6 @@ def _run_direction(
             f"{direction} judge failed to invoke any tool after maximum retries; "
             "treating evaluation as failed with score 0.0."
         )
-    elif failure_reason == "invalid_output":
-        last_payload = {}
     return _DirectionRunResult(
         direction=direction,
         payload=last_payload,
@@ -608,7 +613,7 @@ def _path_block(paths: list[str]) -> str:
 def _last_assistant_text(state: State) -> str:
     for message in reversed(state.messages):
         if message.sender.startswith("gdpval_gsb_judge"):
-            text = message_text(message).strip()
+            text = text_of(message.content).strip()
             if text:
                 return text
     return ""
@@ -689,10 +694,28 @@ def _attempt_result_fields(workdir: Path) -> dict[str, Any]:
         attempts = []
     return {
         "judge_attempts_file": str(path),
+        "judge_attempts": attempts,
         "judge_retry_summary": _attempt_summary(
             [item for item in attempts if isinstance(item, Mapping)]
         ),
     }
+
+
+def _max_gsb_direction_attempts(instance: Mapping[str, Any]) -> int:
+    value = instance.get("judge_gsb_direction_attempts")
+    if value is None:
+        value = os.environ.get(GSB_DIRECTION_ATTEMPTS_ENV)
+    return _coerce_gsb_direction_attempts(value)
+
+
+def _coerce_gsb_direction_attempts(value: Any) -> int:
+    if value is None or value == "":
+        return DEFAULT_GSB_DIRECTION_ATTEMPTS
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_GSB_DIRECTION_ATTEMPTS
+    return max(1, min(MAX_GSB_DIRECTION_ATTEMPTS, parsed))
 
 
 def _oracle_direction(

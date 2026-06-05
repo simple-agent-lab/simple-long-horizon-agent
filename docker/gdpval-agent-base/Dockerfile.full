@@ -1,0 +1,128 @@
+# syntax=docker/dockerfile:1
+
+# Direct-build GDPVal agent image.
+# This file folds the base GDPVal image and the MCP overlay into one Dockerfile,
+# so it can be built directly from python:3.11-slim-bookworm.
+
+FROM python:3.11-slim-bookworm
+
+ARG DEBIAN_MIRROR=""
+ARG PIP_INDEX_URL=""
+
+LABEL org.opencontainers.image.title="GDPval-Agent-Base"
+LABEL org.opencontainers.image.description="Python 3.11 GDPVal image with common task libraries and judge MCP runtimes."
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+ENV PIP_DEFAULT_TIMEOUT=120
+ENV PIP_NO_CACHE_DIR=1
+ENV PIP_RETRIES=5
+
+RUN if [ -n "$DEBIAN_MIRROR" ]; then \
+        find /etc/apt -type f \( -name "*.list" -o -name "*.sources" \) -print0 \
+        | xargs -0 sed -i \
+            -e "s|http://deb.debian.org|$DEBIAN_MIRROR|g" \
+            -e "s|http://security.debian.org|$DEBIAN_MIRROR|g"; \
+    fi \
+    && apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=30 \
+    && apt-get install -y --no-install-recommends \
+        bash \
+        ca-certificates \
+        curl \
+        file \
+        git \
+        gnupg \
+        libgomp1 \
+        ripgrep \
+        unzip \
+        zip \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt requirements-mcp.txt requirements-pdf-extra.txt /tmp/
+
+RUN if [ -n "$PIP_INDEX_URL" ]; then \
+        python -m pip config set global.index-url "$PIP_INDEX_URL"; \
+    fi \
+    && python -m pip install --no-compile \
+        -r /tmp/requirements.txt \
+        -r /tmp/requirements-mcp.txt \
+        -r /tmp/requirements-pdf-extra.txt \
+    && rm /tmp/requirements.txt /tmp/requirements-mcp.txt /tmp/requirements-pdf-extra.txt \
+    && find /usr/local/lib/python3.11/site-packages -type d -name "__pycache__" -prune -exec rm -rf '{}' + \
+    && find /usr/local/lib/python3.11/site-packages -type f \( -name "*.pyc" -o -name "*.pyo" \) -delete \
+    && find /usr/local/lib/python3.11/site-packages -type d \( -name "test" -o -name "tests" \) -prune -exec rm -rf '{}' +
+
+RUN set -eux; \
+    mkdir -p /etc/apt/keyrings; \
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+        | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg; \
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" \
+        > /etc/apt/sources.list.d/nodesource.list; \
+    apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=30; \
+    apt-get install -y --no-install-recommends \
+        fonts-dejavu-core \
+        fonts-noto-cjk \
+        fonts-wqy-microhei \
+        fonts-wqy-zenhei \
+        ghostscript \
+        graphviz \
+        libcairo2 \
+        libgdk-pixbuf-2.0-0 \
+        libharfbuzz0b \
+        libpango-1.0-0 \
+        libpangocairo-1.0-0 \
+        libpangoft2-1.0-0 \
+        libreoffice \
+        nodejs \
+        pandoc \
+        poppler-utils \
+        qpdf \
+        shared-mime-info \
+        tesseract-ocr \
+        tesseract-ocr-eng \
+        wget \
+        wkhtmltopdf; \
+    if [ ! -e /usr/bin/node.real ]; then mv /usr/bin/node /usr/bin/node.real; fi; \
+    printf '%s\n' \
+        '#!/bin/sh' \
+        'unset LD_LIBRARY_PATH' \
+        'exec /usr/bin/node.real "$@"' \
+        > /usr/bin/node; \
+    chmod +x /usr/bin/node; \
+    rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g --omit=dev --no-audit --no-fund \
+        @modelcontextprotocol/server-filesystem@2025.12.18 \
+        @sylphx/pdf-reader-mcp@2.3.0 \
+        docx \
+        pdf-lib \
+        pdfjs-dist@3.11.174 \
+        pptxgenjs \
+    && npm cache clean --force
+
+RUN printf '%s\n' \
+        '#!/bin/sh' \
+        'unset LD_LIBRARY_PATH' \
+        'export NODE_PATH="${NODE_PATH:-/usr/local/lib/node_modules:/usr/lib/node_modules}"' \
+        '' \
+        'for entry in \' \
+        '  /usr/lib/node_modules/@sylphx/pdf-reader-mcp/dist/index.js \' \
+        '  /usr/local/lib/node_modules/@sylphx/pdf-reader-mcp/dist/index.js' \
+        'do' \
+        '  if [ -f "$entry" ]; then' \
+        '    exec node "$entry" "$@"' \
+        '  fi' \
+        'done' \
+        '' \
+        'echo "pdf-reader-mcp package not found" >&2' \
+        'exit 127' \
+        > /usr/local/bin/pdf-reader-mcp \
+    && chmod +x /usr/local/bin/pdf-reader-mcp
+
+ENV NODE_PATH=/usr/local/lib/node_modules:/usr/lib/node_modules
+ENV PYTHONPATH=/tmp/agent-venv/lib/python3.11/site-packages:/usr/local/lib/python3.11/site-packages
+
+WORKDIR /app/workspace/gdpevals
+
+CMD ["python", "--version"]

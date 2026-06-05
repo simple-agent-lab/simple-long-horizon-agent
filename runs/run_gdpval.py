@@ -111,7 +111,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default="gsb",
         help=(
             "Judge style. 'gsb' compares candidate deliverables against "
-            "deliverable_files; 'rubric' keeps the legacy direct rubric score."
+            "deliverable_files; 'rubric' uses the direct rubric score."
         ),
     )
     parser.add_argument(

@@ -1,6 +1,6 @@
 # GDPVal
 
-This is a first-version GDPVal integration for Simple Agent Lab.
+This directory contains the GDPVal integration for Simple Agent Lab.
 
 Scope:
 
@@ -12,10 +12,10 @@ Scope:
 - Runtime dependency: standard library plus the installed `simple-agent-lab`
   wheel. The implementation does not import `swalm`.
 - Tool surface: local file/read/search/write/edit/bash/todo tools. Web tools
-  are intentionally absent in this first version.
+  are intentionally absent from the solver tool surface.
 - Judge scope: `--judge-mode gsb` compares candidate deliverables against
   `deliverable_files` with forward/reverse A/B GSB scoring. `--judge-mode
-  rubric` keeps the earlier direct rubric score path.
+  rubric` uses the direct rubric score path.
 
 The host half lives in `evals/gdpval/suite.py`. The container half ships in the
 wheel at `simple_agent_lab.evals.suites.gdpval.container`, so Docker backends
@@ -44,7 +44,7 @@ are filtered out. Use `--judge-tool-mode local` to disable MCP tools, or
 `--judge-tool-mode mcp` to require MCP startup and fail loudly if a server is
 missing.
 
-Use `--judge-mode rubric` to keep the legacy direct rubric judge:
+Use `--judge-mode rubric` for the direct rubric judge:
 
 ```bash
 uv run --with datasets python runs/run_gdpval.py --limit 10 --judge \
@@ -55,6 +55,45 @@ To run through Docker with a local GDPVal base image, build the image first:
 
 ```bash
 bash runs/build_gdpval_agent_base.sh
+```
+
+For a full direct build that includes the judge MCP runtimes and starts from
+`python:3.11-slim-bookworm`, use `Dockerfile.full`:
+
+```bash
+docker build \
+  -f docker/gdpval-agent-base/Dockerfile.full \
+  -t gdpval-agent-base:latest \
+  docker/gdpval-agent-base
+```
+
+If your network needs mirrors, pass them as build args. For open-source/default
+builds, omit these args and Docker uses the upstream Debian and PyPI sources:
+
+```bash
+docker build \
+  -f docker/gdpval-agent-base/Dockerfile.full \
+  --build-arg DEBIAN_MIRROR=http://mirror.example/debian \
+  --build-arg PIP_INDEX_URL=https://pypi.example/simple/ \
+  -t gdpval-agent-base:latest \
+  docker/gdpval-agent-base
+```
+
+The full image includes the common GDPVal task libraries, LibreOffice,
+PDF/OCR/font system packages, Node 22, npm document packages, and the local MCP
+server runtimes used by the GSB judge. Smoke check it with:
+
+```bash
+docker run --rm gdpval-agent-base:latest sh -lc '
+python - <<'"'"'PY'"'"'
+import pandas, scipy, openpyxl, pypdf, docx, pptx, PIL, reportlab
+import mcp, fastmcp, pytesseract
+print("python imports ok")
+PY
+node --version
+npm --version
+which excel-mcp-server word_mcp_server ppt_mcp_server pdf-reader-mcp mcp-server-filesystem
+'
 ```
 
 Then pass it to the runner. The host-side command needs the Docker Python SDK
@@ -100,7 +139,7 @@ Before a Docker judge run that uses MCP tools, smoke-test the image:
 ```bash
 docker run --rm -i \
   -v "$PWD:/repo" -w /repo -e PYTHONPATH=/repo/src \
-  hub.byted.org/boyuan/gdpval-agent-base:latest \
+  gdpval-agent-base:latest \
   python runs/smoke_gdpval_mcp.py
 ```
 

@@ -91,10 +91,10 @@ workarounds, and troubleshooting.
 
 ## GDPVal
 
-The GDPVal runner drives a first-version plain tool-calling solver and collects
-workspace artifacts. Add `--judge` to run the GSB follow-up judge and write
+The GDPVal runner drives a plain tool-calling solver and collects workspace
+artifacts. Add `--judge` to run the GSB follow-up judge and write
 `judge_summary.jsonl` / `judge_summary.json` beside the solver run. Pass
-`--judge-mode rubric` to use the legacy direct rubric judge.
+`--judge-mode rubric` to use the direct rubric judge.
 
 ```bash
 uv run --with datasets python runs/run_gdpval.py --limit 10

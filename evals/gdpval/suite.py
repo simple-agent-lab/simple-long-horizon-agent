@@ -99,7 +99,7 @@ class GdpvalSuite:
         return record
 
     def eval_inputs(self, instance: Mapping[str, Any]) -> Mapping[str, Any] | None:
-        """Solver-only first version: do not stage judge/gold fields at all."""
+        """Solver-only run: do not stage judge/gold fields at all."""
 
         return None
 
