@@ -64,6 +64,14 @@ from .tools import AbortFlag, AgentTool, ToolResult, ToolUpdateFn, text_result
 # point where the function is built (see `llm_agent.py` and the test fakes).
 GenerateFn = Callable[[list[Message]], Message]
 
+# A `seed` builds the initial `State` for `Agent.run` from a task. The default
+# (see `Agent._default_seed`) records a single task message; a higher layer can
+# supply one that records extra context up front — e.g. the skills layer seeds
+# a skills menu and any mentioned skill bodies before the task. Kept a plain
+# callable taking the agent explicitly so `core` never imports a higher layer:
+# the dependency always points inward (skills imports core, not the reverse).
+SeedFn = Callable[["Agent", ContentInput], State]
+
 
 @dataclass
 class Agent:
@@ -89,6 +97,12 @@ class Agent:
     # wire; mirrored here purely so `run()` can record it in the request trace
     # alongside the messages. Empty means "no system prompt was sent".
     system_prompt: str = ""
+    # How `run` builds the initial `State` from a task. `None` means the default
+    # single-task-message seed (`_default_seed`); a `SeedFn` (e.g. installed by
+    # the skills layer) can record extra context messages before the task so
+    # they are present at the first sample. The loop (`run`) is unaffected — it
+    # always drives whatever `State` the seed produced.
+    seed: SeedFn | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.tools, tuple):
@@ -107,14 +121,20 @@ class Agent:
         multimodal task (text + `ImageBlock`) is seeded the same way as plain
         text — the message layer normalizes both to content blocks.
 
+        The initial `State` comes from `self.seed` when set, else
+        `_default_seed`. A seed is how a layer like skills makes a *bare* agent
+        skills-aware: `agent.run(task)` advertises the menu and injects bodies
+        because the seed recorded them — no separate run path.
+
         Returns `(state, events)`. Caller iterates `events` to advance the
         loop and inspects `state` for the message/event history. Callers
         that need to prepend extra messages (e.g. a sub-agent context
         prelude) can `state.record(...)` them after this call and before
         starting to iterate `events`.
         """
-        state = State(task=task)
-        state.send("task", "user", self.name, task)
+        state = (
+            self.seed(self, task) if self.seed is not None else self._default_seed(task)
+        )
         events = run(
             self,
             state,
@@ -156,6 +176,13 @@ class Agent:
             abort=abort,
         )
         return state, events
+
+    def _default_seed(self, task: ContentInput) -> State:
+        """Seed a fresh `State` with just the task message (the no-seed path)."""
+
+        state = State(task=task)
+        state.send("task", "user", self.name, task)
+        return state
 
 
 def run(

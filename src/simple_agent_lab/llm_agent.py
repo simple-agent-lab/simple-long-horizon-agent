@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Any, Mapping, Sequence
 
 from .context_view import ContextPolicy
-from .core import Agent
+from .core import Agent, SeedFn
 from .llm.bridge import (
     llm_response_to_assistant_message,
     messages_to_llm_messages,
@@ -42,6 +42,7 @@ def make_llm_agent(
     context_policy: ContextPolicy | None = None,
     request_extra: Mapping[str, Any] | None = None,
     reasoning: ReasoningEffort | None = None,
+    seed: SeedFn | None = None,
 ) -> Agent:
     """Build an `Agent` whose `generate` is backed by `provider`.
 
@@ -87,4 +88,5 @@ def make_llm_agent(
         tools=tools_tuple,
         context_policy=context_policy,
         system_prompt=effective_system_prompt,
+        seed=seed,
     )
