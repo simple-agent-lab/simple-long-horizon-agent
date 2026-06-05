@@ -11,15 +11,17 @@ projection helpers / `Provider` plumbing from `llm`. Keeping the
 factory out of `llm/` is what lets `llm/` stay free of any agent-loop
 concept (no `Agent`, no routing fields, no tool dispatch).
 
-Per-turn model switching lives here too: pass `provider` a list of models
-and the agent uses one per round (see `make_llm_agent`). It needs no change
-to the core loop or the `generate(visible) -> Message` contract; the factory
-just picks which model to call before each model step.
+Per-round model switching lives here too: give `make_llm_agent` a map of
+named models plus a `choose_model(ctx) -> name` function, and the factory
+calls the chosen model on each round (see `make_llm_agent`). It needs no
+change to the core loop or the `generate(visible) -> Message` contract; the
+factory just picks which model to call before each model step.
 """
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any, Callable, Mapping, Sequence
 
 from .context_view import ContextPolicy
 from .core import Agent
@@ -31,40 +33,85 @@ from .llm.bridge import (
 from .llm.provider import Provider as LLMProvider
 from .llm.retry import complete_with_tool_call_retry
 from .llm.types import LLMRequest
-from .messages import AssistantMessage, Message
+from .messages import AssistantMessage, Message, tool_results_of
 from .tools import AgentTool
 
-# `provider` accepts a single `Provider` (one model for the whole run, the
-# common case) or a list of `Provider`s (one model per round). With a list,
-# round N uses the Nth model and the last one sticks once the list runs out,
-# so `[fast, strong]` means "fast on round 0, strong from then on".
-ProviderLike = LLMProvider | Sequence[LLMProvider]
 
+@dataclass(frozen=True)
+class RoundContext:
+    """What a `choose_model` function sees before one model step.
 
-def _provider_for_turn(
-    provider: ProviderLike, visible: list[Message], name: str
-) -> LLMProvider:
-    """Resolve the `Provider` to call for the round the agent is about to take.
-
-    A bare `Provider` is used as-is (and the round scan is skipped). For a
-    list, the round index is derived statelessly from the visible context: the
-    count of assistant messages this agent has already produced. The loop calls
-    `generate` once per round and records the output before the next, so this
-    is 0 on the first step, 1 on the second, and so on — and it resets for each
-    fresh `agent.run(...)` with no mutable counter to leak across runs. The
-    last model in the list applies to every round past its length. (If
-    compression folds away some of the agent's own earlier messages the count
-    can dip; per-round routing is a model-choice policy, so a repeated choice
-    is harmless.)
+    `round` is the zero-based round index — 0 on the agent's first step, 1
+    on the next, and so on. `messages` is the visible context for this round
+    (the same list `generate` receives), so a chooser can inspect anything it
+    needs. `last_failed` is the curated common signal: did the most recent
+    tool result in view come back as an error? It lets a chooser escalate
+    after a bad round, e.g. ``"strong" if ctx.last_failed else "fast"``.
     """
-    if isinstance(provider, LLMProvider):
-        return provider
-    rounds_taken = sum(
+
+    round: int
+    messages: tuple[Message, ...]
+
+    @property
+    def last_failed(self) -> bool:
+        for message in reversed(self.messages):
+            results = tool_results_of(message.content)
+            if results:
+                return any(block.is_error for block in results)
+        return False
+
+
+# `choose_model` maps the current round's context to a key in the model map.
+ModelChooser = Callable[[RoundContext], str]
+
+# `provider` accepts a single `Provider` (one model for the whole run, the
+# common case) or a map of named models (`{"fast": ..., "strong": ...}`). With
+# a map, `choose_model` names which model to use each round.
+ProviderLike = LLMProvider | Mapping[str, LLMProvider]
+
+
+def _round_index(visible: list[Message], name: str) -> int:
+    """Zero-based round derived statelessly from the visible context.
+
+    Counts the assistant messages this agent has already produced. The loop
+    calls `generate` once per round and records the output before the next, so
+    this is 0 on the first step, 1 on the second, and so on — and it resets for
+    each fresh `agent.run(...)` with no mutable counter to leak across runs. (If
+    compression folds away some of the agent's own earlier messages the count
+    can dip; per-round routing is a model-choice policy, so a repeated choice is
+    harmless.)
+    """
+    return sum(
         1
         for message in visible
         if isinstance(message, AssistantMessage) and message.sender == name
     )
-    return provider[min(rounds_taken, len(provider) - 1)]
+
+
+def _provider_for_round(
+    provider: ProviderLike,
+    choose_model: ModelChooser | None,
+    visible: list[Message],
+    name: str,
+) -> LLMProvider:
+    """Resolve the `Provider` to call for the round the agent is about to take.
+
+    A bare `Provider` is used as-is (the round scan and chooser are skipped).
+    For a model map, `choose_model` is called with the round's `RoundContext`
+    and must return a key in the map.
+    """
+    if isinstance(provider, LLMProvider):
+        return provider
+    assert choose_model is not None  # guaranteed by make_llm_agent's validation
+    context = RoundContext(round=_round_index(visible, name), messages=tuple(visible))
+    key = choose_model(context)
+    try:
+        return provider[key]
+    except KeyError:
+        raise KeyError(
+            f"choose_model returned {key!r}, which is not in the model map "
+            f"{sorted(provider)}"
+        ) from None
 
 
 def make_llm_agent(
@@ -77,6 +124,7 @@ def make_llm_agent(
     target: str = "all",
     context_policy: ContextPolicy | None = None,
     request_extra: Mapping[str, Any] | None = None,
+    choose_model: ModelChooser | None = None,
 ) -> Agent:
     """Build an `Agent` whose `generate` is backed by `provider`.
 
@@ -87,11 +135,19 @@ def make_llm_agent(
     to repeat themselves.
 
     `provider` is either a single `Provider` (one model for the whole run)
-    or a list of `Provider`s — one model per round, with the last model
-    sticking once the list runs out. So `[fast, strong]` runs round 0 on the
-    fast model and every later round on the strong one (explore cheap, finish
-    strong); `[a, b, c]` uses a different model for each of the first three
-    rounds. Per-round switching needs no change to the core loop or the
+    or a **map of named models** — `{"fast": ..., "strong": ...}` — paired
+    with `choose_model`, a `(RoundContext) -> name` function the factory calls
+    before each round to pick which model from the map serves that round::
+
+        make_llm_agent(
+            name="agent",
+            provider={"fast": fast, "strong": strong},
+            choose_model=lambda ctx: "fast" if ctx.round == 0 else "strong",
+        )
+
+    The chooser can route on round number or on conversation state — e.g.
+    ``"strong" if ctx.last_failed else "fast"`` to escalate after a failed
+    tool call. Per-round switching needs no change to the core loop or the
     `generate(visible) -> Message` contract; the served model lands on each
     response (`AssistantMessage.model` / `ModelResponseEvent.model`) so a
     trace shows which model answered each round.
@@ -102,8 +158,19 @@ def make_llm_agent(
     tool call in the model's own output. Every LLM-backed agent gets both
     without each caller re-wrapping `generate`.
     """
-    if not isinstance(provider, LLMProvider) and not provider:
-        raise ValueError("provider list must hold at least one Provider")
+    if isinstance(provider, LLMProvider):
+        if choose_model is not None:
+            raise ValueError(
+                "choose_model only applies to a model map; a single Provider "
+                "needs no chooser"
+            )
+    elif not provider:
+        raise ValueError("model map must hold at least one Provider")
+    elif choose_model is None:
+        raise ValueError(
+            "a model map needs choose_model to name which model serves each round"
+        )
+
     tools_tuple = tuple(tools)
     # Resolve the effective system prompt once so the value `generate` sends
     # and the value recorded on the `Agent` (for the request trace) can't drift.
@@ -111,7 +178,7 @@ def make_llm_agent(
 
     def generate(visible: list[Message]) -> Message:
         request = LLMRequest(
-            provider=_provider_for_turn(provider, visible, name),
+            provider=_provider_for_round(provider, choose_model, visible, name),
             messages=messages_to_llm_messages(visible),
             tools=[tool_to_llm_tool(tool) for tool in tools_tuple],
             system_prompt=effective_system_prompt or None,

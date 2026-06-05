@@ -1,4 +1,4 @@
-# ADR 0022: Per-Round Model Selection via a Provider List
+# ADR 0022: Per-Round Model Selection via a Model Map + Chooser
 
 ## Status
 
@@ -10,7 +10,8 @@ An LLM-backed agent was pinned to one model for its whole run:
 `make_llm_agent(provider=...)` closed over a single `Provider`, and the
 core loop calls `agent.generate(visible) -> Message` once per round with no
 round argument. Common workflows want to vary the model per round — explore
-with a cheap model and finish with a strong one being the headline case.
+with a cheap model and finish with a strong one, or escalate to a stronger
+model after a round fails.
 
 The constraint is the core contract. `Agent.generate(visible) -> Message`
 is the runtime boundary fixed by ADR 0001 and ADR 0009 and is depended on
@@ -20,80 +21,92 @@ readability the project optimizes for (see `AGENTS.md`). `Provider` is also
 deliberately pure data (no callables) per the `llm/` layer design, so the
 per-round decision cannot live on the provider itself.
 
-An earlier iteration of this ADR accepted a `ProviderSelector` callable
-(`Callable[[int], Provider]`). It was flexible but the API felt heavy: it
-added two exported type aliases and asked callers to hand-write a
-`lambda round: ...`. The simpler shape below replaced it before the feature
-shipped to `main`.
+Two earlier iterations of this ADR were superseded before the feature
+shipped to `main`: a `ProviderSelector` callable returning a `Provider`
+(flexible but heavy — two exported type aliases and a hand-written lambda),
+and a plain list of providers indexed by round (simple but it couldn't route
+on conversation state, and "list exhaustion" needed an arbitrary rule). The
+shape below separates the two concerns cleanly.
 
 ## Decision
 
 Resolve which model to call **inside `make_llm_agent`**, before each model
 step, leaving the core loop and the `generate` contract untouched.
 
-`make_llm_agent(provider=...)` accepts either:
+Split "which models exist" from "which one this round":
 
-- a single `Provider` — one model for the whole run (unchanged default), or
-- a **list of `Provider`s** — one model per round. Round N uses the Nth
-  model, and the **last model sticks** once the list runs out.
+- `provider` accepts a single `Provider` (one model for the whole run, the
+  unchanged default) **or a map of named models** —
+  `{"fast": ..., "strong": ...}`.
+- `choose_model` is a `(RoundContext) -> name` function the factory calls
+  before each round; it returns a key in the map and the factory calls
+  `provider[key]`. It is required with a map and rejected with a single
+  `Provider`.
 
-So `[fast, strong]` runs round 0 on the fast model and every later round on
-the strong one ("explore cheap, finish strong"); `[a, b, c]` gives a
-different model to each of the first three rounds. There is exactly one new
-idea to learn — "pass a list of models" — and no new vocabulary, callable,
-or exported type. An empty list is rejected at construction.
+```python
+make_llm_agent(
+    name="agent",
+    provider={"fast": fast, "strong": strong},
+    choose_model=lambda ctx: "fast" if ctx.round == 0 else "strong",
+)
+```
+
+`RoundContext` is what the chooser sees: `round` (zero-based round index),
+`messages` (the visible context for this round), and a `last_failed`
+convenience (did the most recent tool result in view error out?). So a
+chooser can route on the round number or on conversation state — e.g.
+`"strong" if ctx.last_failed else "fast"` to escalate after a failed round.
+Returning a *name* rather than a `Provider` keeps the map the single source
+of available models and makes traces read in plain model names.
 
 The round index is derived statelessly from the visible context: the count
-of assistant messages this agent has already produced (a bare `Provider`
-skips that scan entirely). The loop calls `generate` once per round and
-records the output before the next, so the count is 0 on the first step, 1
-on the second, and so on, and it resets on its own for each fresh
-`agent.run(...)` — there is no mutable counter to leak across runs.
-
-The "last model sticks" (clamp) rule is chosen over cycling because it
-matches the intuition of an escalation list and never surprises the caller
-by quietly dropping back to a cheap model on a later round. A caller who
-truly wants to alternate can repeat entries (`[a, b, a, b]`).
+of assistant messages this agent has already produced. The loop calls
+`generate` once per round and records the output before the next, so the
+count is 0 on the first step, 1 on the second, and so on, and it resets on
+its own for each fresh `agent.run(...)` — there is no mutable counter to leak
+across runs. A bare `Provider` skips that scan and the chooser entirely.
 
 The served model already rides on each response
 (`AssistantMessage.model` / `ModelResponseEvent.model`), so a trace shows
 which model answered each round with no extra plumbing.
 
-The single union type `ProviderLike = Provider | Sequence[Provider]` lives
-in `llm_agent.py` for the signatures (including the preset agents) but is
-**not** exported from the package root — it is an implementation detail of
-the parameter, not a concept callers name.
+`RoundContext` is exported from the package root (callers annotate their
+chooser with it). `ModelChooser` and `ProviderLike` stay internal to
+`llm_agent.py` for signatures. The preset agents (`make_bash_agent`,
+`make_bash_task_agent`) take and forward `choose_model`.
 
 ## Consequences
 
 - Per-round model switching needs no change to `core.py`, the `GenerateFn`
-  type, the test fakes, or the demos. The feature is additive and
-  backward compatible — passing a `Provider` behaves exactly as before.
-- The public surface is minimal: one parameter that now also accepts a
-  list. No new exported names, no callable contract to document.
+  type, the test fakes, or the demos. The feature is additive and backward
+  compatible — passing a single `Provider` behaves exactly as before.
+- "Which models exist" is declarative (the map) and "which one this round"
+  is a small function — the two can be written, read, and tested apart.
+- The chooser can react to conversation state via `RoundContext`, so
+  content-aware routing (escalate on error, switch after a tool runs) needs
+  no further API.
 - The round index is a model-choice policy, not a correctness invariant. If
   compression folds away some of the agent's own earlier messages the count
   can dip, which may repeat an earlier model choice after a compaction. That
   is acceptable for routing; nothing else depends on the count.
-- Routing is keyed only on the round index, so it cannot react to
-  conversation content (e.g. "switch to a stronger model after an error").
-  That is intentionally out of scope; if the need becomes common, a richer
-  mechanism is a future ADR rather than a heavier API today.
+- A chooser returning a key not in the map raises a clear `KeyError` naming
+  the bad key and the available keys.
 
 ## Alternatives Considered
 
-- **A `ProviderSelector` callable (`Callable[[int], Provider]`).** Strictly
-  more flexible (cycle, clamp, or content-aware routing all expressible),
-  but heavier: two exported type aliases and a hand-written lambda for the
-  common case. The list covers the headline workflows with far less surface,
-  so the callable was dropped before shipping.
+- **A `ProviderSelector` callable returning a `Provider`
+  (`Callable[[int], Provider]`).** Flexible, but heavier: two exported type
+  aliases and a hand-written lambda for the common case, and it conflated
+  "what models exist" with "which one now".
+- **A plain list of providers indexed by round (`[fast, strong]`).** Simple
+  and declarative, but it cannot route on conversation state, and it forces
+  an arbitrary "list exhaustion" rule (cycle vs. clamp).
 - **Thread a round index through `generate(visible, round)`.** Most explicit,
   but breaks the ADR 0001 / 0009 core contract and every fake/demo, and
   trades away beginner readability for a feature only LLM-backed agents use.
-- **Cycle instead of clamp at the end of the list.** Rejected as the default
-  because silently returning to a cheaper model on a later round is
-  surprising; clamp matches the escalation intuition, and cycling is still
-  expressible by repeating list entries.
+- **Have the chooser return a `Provider` instead of a key.** Removes the map
+  as a source of truth, lets traces show ad-hoc providers, and drops the
+  cheap "key must exist" check. Returning a name is the smaller, safer shape.
 - **Put the model choice on `Provider` (callable field).** Violates the
   `llm/` rule that `Provider` is pure, JSON-serializable data with no
   callables.

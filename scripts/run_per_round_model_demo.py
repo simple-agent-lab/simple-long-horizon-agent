@@ -1,12 +1,12 @@
 """Per-round model switching demo.
 
-Shows how one agent can use a different model on each round: pass
-``make_llm_agent`` (or a preset like ``make_bash_agent``) a list of
-providers instead of one, and round N uses the Nth model, with the last
-model sticking once the list runs out. Here ``[FAST, STRONG]`` runs the
-first round (the tool call) on a cheap model and the final answer on a
-strong one. The core loop and the ``generate(visible) -> Message`` contract
-are untouched; only which provider gets called changes per round.
+Shows how one agent can use a different model on each round: give the agent
+a map of named models plus a ``choose_model`` function that names which model
+serves each round. Here ``choose`` runs the first round (the tool call) on a
+cheap model and escalates to a strong one afterwards — and it would also
+escalate early if a round came back with a tool error (``ctx.last_failed``).
+The core loop and the ``generate(visible) -> Message`` contract are untouched;
+only which model gets called changes per round.
 
 Example::
 
@@ -28,16 +28,25 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from simple_agent_lab import AssistantMessage, print_trace  # noqa: E402
+from simple_agent_lab import AssistantMessage, RoundContext, print_trace  # noqa: E402
 from simple_agent_lab.agents.bash import make_bash_agent  # noqa: E402
 from simple_agent_lab.llm import Provider  # noqa: E402
 
 # Two fake "models" so the switch is visible without any network call.
-FAST = Provider(id="fast", api="fake", model="fast-model")
-STRONG = Provider(id="strong", api="fake", model="strong-model")
+MODELS = {
+    "fast": Provider(id="fast", api="fake", model="fast-model"),
+    "strong": Provider(id="strong", api="fake", model="strong-model"),
+}
 
 # Pin a command so the fake takes two rounds (tool call, then final answer).
 DEMO_TASK = "Use bash to run command: `echo per-round`"
+
+
+def choose(ctx: RoundContext) -> str:
+    """Cheap to explore, strong to finish — or strong early if a round failed."""
+    if ctx.last_failed:
+        return "strong"
+    return "fast" if ctx.round == 0 else "strong"
 
 
 def main() -> None:
@@ -45,8 +54,8 @@ def main() -> None:
     parser.add_argument("--no-trace", action="store_true")
     args = parser.parse_args()
 
-    print("=== per-round model switching: provider=[FAST, STRONG] ===")
-    agent = make_bash_agent([FAST, STRONG], cwd=ROOT)
+    print("=== per-round model switching: model map + choose_model ===")
+    agent = make_bash_agent(MODELS, cwd=ROOT, choose_model=choose)
     state, events = agent.run(DEMO_TASK, max_turns=3)
     for _ in events:
         pass
