@@ -70,24 +70,6 @@ ModelChooser = Callable[[RoundContext], str]
 ProviderLike = LLMProvider | Mapping[str, LLMProvider]
 
 
-def _round_index(visible: list[Message], name: str) -> int:
-    """Zero-based round derived statelessly from the visible context.
-
-    Counts the assistant messages this agent has already produced. The loop
-    calls `generate` once per round and records the output before the next, so
-    this is 0 on the first step, 1 on the second, and so on — and it resets for
-    each fresh `agent.run(...)` with no mutable counter to leak across runs. (If
-    compression folds away some of the agent's own earlier messages the count
-    can dip; per-round routing is a model-choice policy, so a repeated choice is
-    harmless.)
-    """
-    return sum(
-        1
-        for message in visible
-        if isinstance(message, AssistantMessage) and message.sender == name
-    )
-
-
 def _provider_for_round(
     provider: ProviderLike,
     choose_model: ModelChooser | None,
@@ -99,11 +81,23 @@ def _provider_for_round(
     A bare `Provider` is used as-is (the round scan and chooser are skipped).
     For a model map, `choose_model` is called with the round's `RoundContext`
     and must return a key in the map.
+
+    The round index is derived statelessly from the visible context — the count
+    of assistant messages this agent has already produced — so it resets on its
+    own for each fresh `agent.run(...)` with no mutable counter to leak across
+    runs. (If compression folds away some of the agent's own earlier messages
+    the count can dip; per-round routing is a model-choice policy, so a repeated
+    choice is harmless.)
     """
     if isinstance(provider, LLMProvider):
         return provider
     assert choose_model is not None  # guaranteed by make_llm_agent's validation
-    context = RoundContext(round=_round_index(visible, name), messages=tuple(visible))
+    round_index = sum(
+        1
+        for message in visible
+        if isinstance(message, AssistantMessage) and message.sender == name
+    )
+    context = RoundContext(round=round_index, messages=tuple(visible))
     key = choose_model(context)
     try:
         return provider[key]

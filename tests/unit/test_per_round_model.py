@@ -57,6 +57,19 @@ def _prior(name: str, count: int) -> list[AssistantMessage]:
     ]
 
 
+def _run_agent(agent):
+    """Drive `agent` through the two-round bash task and return the final state."""
+    state, events = agent.run(TWO_ROUND_TASK, max_turns=3)
+    for _ in events:
+        pass
+    return state
+
+
+def _run_bash(provider, choose_model=None):
+    """Build a bash agent for `provider` and run it once."""
+    return _run_agent(make_bash_agent(provider, cwd=ROOT, choose_model=choose_model))
+
+
 class RoundContextTest(unittest.TestCase):
     def test_last_failed_reflects_the_most_recent_tool_result(self) -> None:
         ok = tool_results_message(
@@ -139,21 +152,13 @@ class MakeLlmAgentValidationTest(unittest.TestCase):
 
 class PerRoundModelRunTest(unittest.TestCase):
     def test_single_provider_pins_one_model_across_rounds(self) -> None:
-        agent = make_bash_agent(FAST, cwd=ROOT)
-        state, events = agent.run(TWO_ROUND_TASK, max_turns=3)
-        for _ in events:
-            pass
-
+        state = _run_bash(FAST)
         models = _assistant_models(state, "bash_agent")
         self.assertEqual(len(models), 2)  # step + final
         self.assertEqual(models, ["fast-model", "fast-model"])
 
     def test_chooser_switches_model_each_round(self) -> None:
-        agent = make_bash_agent(MODELS, cwd=ROOT, choose_model=escalate_by_round)
-        state, events = agent.run(TWO_ROUND_TASK, max_turns=3)
-        for _ in events:
-            pass
-
+        state = _run_bash(MODELS, escalate_by_round)
         # Round 0 ran on the fast model; round 1 escalated to the strong model —
         # visible both on the assistant messages and on the response events.
         self.assertEqual(
@@ -169,14 +174,8 @@ class PerRoundModelRunTest(unittest.TestCase):
         # The round index is derived from the visible context, so a reused agent
         # starts at round 0 again on its next run rather than carrying a counter.
         agent = make_bash_agent(MODELS, cwd=ROOT, choose_model=escalate_by_round)
-
-        first, first_events = agent.run(TWO_ROUND_TASK, max_turns=3)
-        for _ in first_events:
-            pass
-        second, second_events = agent.run(TWO_ROUND_TASK, max_turns=3)
-        for _ in second_events:
-            pass
-
+        first = _run_agent(agent)
+        second = _run_agent(agent)
         self.assertEqual(
             _assistant_models(first, "bash_agent"), ["fast-model", "strong-model"]
         )
