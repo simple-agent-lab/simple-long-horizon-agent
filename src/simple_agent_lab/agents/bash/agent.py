@@ -38,8 +38,8 @@ def make_bash_agent(
 
     Consumers (eval suites, demos, custom flows) own provider choice so
     this preset stays independent of fake or live model policy. `provider`
-    may be a single `Provider` or a `ProviderSelector` to switch models per
-    turn (see `make_llm_agent`).
+    may be a single `Provider` or a list of `Provider`s to switch models per
+    round (see `make_llm_agent`).
     """
     return make_llm_agent(
         name=name,

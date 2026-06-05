@@ -1,4 +1,4 @@
-# ADR 0022: Per-Turn Model Selection via a Provider Selector
+# ADR 0022: Per-Round Model Selection via a Provider List
 
 ## Status
 
@@ -8,82 +8,95 @@ Accepted
 
 An LLM-backed agent was pinned to one model for its whole run:
 `make_llm_agent(provider=...)` closed over a single `Provider`, and the
-core loop calls `agent.generate(visible) -> Message` once per turn with no
-turn argument. Common workflows want to vary the model per round — explore
-with a cheap model and finish with a strong one, alternate models to
-compare them, or escalate after a rough patch.
+core loop calls `agent.generate(visible) -> Message` once per round with no
+round argument. Common workflows want to vary the model per round — explore
+with a cheap model and finish with a strong one being the headline case.
 
 The constraint is the core contract. `Agent.generate(visible) -> Message`
 is the runtime boundary fixed by ADR 0001 and ADR 0009 and is depended on
-by the loop, the test fakes, and the demos. Threading a turn index through
+by the loop, the test fakes, and the demos. Threading a round index through
 `generate` would change that signature everywhere and erode the beginner
 readability the project optimizes for (see `AGENTS.md`). `Provider` is also
 deliberately pure data (no callables) per the `llm/` layer design, so the
-per-turn decision cannot live on the provider itself.
+per-round decision cannot live on the provider itself.
+
+An earlier iteration of this ADR accepted a `ProviderSelector` callable
+(`Callable[[int], Provider]`). It was flexible but the API felt heavy: it
+added two exported type aliases and asked callers to hand-write a
+`lambda round: ...`. The simpler shape below replaced it before the feature
+shipped to `main`.
 
 ## Decision
 
-Resolve which provider to call **inside `make_llm_agent`**, before each
-model step, leaving the core loop and the `generate` contract untouched.
+Resolve which model to call **inside `make_llm_agent`**, before each model
+step, leaving the core loop and the `generate` contract untouched.
 
-`make_llm_agent(provider=...)` now accepts either:
+`make_llm_agent(provider=...)` accepts either:
 
 - a single `Provider` — one model for the whole run (unchanged default), or
-- a `ProviderSelector` — a `Callable[[int], Provider]` resolved each turn
-  from the zero-based turn index.
+- a **list of `Provider`s** — one model per round. Round N uses the Nth
+  model, and the **last model sticks** once the list runs out.
 
-When a selector is given, the turn index is derived statelessly from the
-visible context: the count of assistant messages this agent has already
-produced (a bare `Provider` skips that scan entirely). The loop calls
-`generate` once per turn and records the output before the next turn, so the
-count is 0 on the first step, 1 on the second, and so on, and it resets on
-its own for each fresh `agent.run(...)` — there is no mutable counter to leak
-across runs.
+So `[fast, strong]` runs round 0 on the fast model and every later round on
+the strong one ("explore cheap, finish strong"); `[a, b, c]` gives a
+different model to each of the first three rounds. There is exactly one new
+idea to learn — "pass a list of models" — and no new vocabulary, callable,
+or exported type. An empty list is rejected at construction.
 
-A plain list of models is intentionally *not* a separate parameter: it is
-just a one-line selector the caller writes —
-`lambda turn: models[turn % len(models)]` (cycle) or
-`lambda turn: models[min(turn, len(models) - 1)]` (escalate-then-hold) —
-so the rotation policy stays visible in caller code rather than hiding
-behind a list-exhaustion rule the framework would have to define.
+The round index is derived statelessly from the visible context: the count
+of assistant messages this agent has already produced (a bare `Provider`
+skips that scan entirely). The loop calls `generate` once per round and
+records the output before the next, so the count is 0 on the first step, 1
+on the second, and so on, and it resets on its own for each fresh
+`agent.run(...)` — there is no mutable counter to leak across runs.
+
+The "last model sticks" (clamp) rule is chosen over cycling because it
+matches the intuition of an escalation list and never surprises the caller
+by quietly dropping back to a cheap model on a later round. A caller who
+truly wants to alternate can repeat entries (`[a, b, a, b]`).
 
 The served model already rides on each response
 (`AssistantMessage.model` / `ModelResponseEvent.model`), so a trace shows
-which model answered each turn with no extra plumbing.
+which model answered each round with no extra plumbing.
 
-`ProviderLike = Provider | ProviderSelector` and `ProviderSelector` are
-exported from the package root and accepted by the preset agents
-(`make_bash_agent`, `make_bash_task_agent`).
+The single union type `ProviderLike = Provider | Sequence[Provider]` lives
+in `llm_agent.py` for the signatures (including the preset agents) but is
+**not** exported from the package root — it is an implementation detail of
+the parameter, not a concept callers name.
 
 ## Consequences
 
-- Per-turn model switching needs no change to `core.py`, the `GenerateFn`
+- Per-round model switching needs no change to `core.py`, the `GenerateFn`
   type, the test fakes, or the demos. The feature is additive and
   backward compatible — passing a `Provider` behaves exactly as before.
-- The decision policy lives in caller code (any function of the turn), so
-  cycling, escalation, and conditional routing are all expressible without
-  new framework surface.
-- The turn index is a model-choice policy, not a correctness invariant. If
+- The public surface is minimal: one parameter that now also accepts a
+  list. No new exported names, no callable contract to document.
+- The round index is a model-choice policy, not a correctness invariant. If
   compression folds away some of the agent's own earlier messages the count
   can dip, which may repeat an earlier model choice after a compaction. That
   is acceptable for routing; nothing else depends on the count.
-- Routing keyed only on the turn index cannot react to conversation content
-  (e.g. "switch to a stronger model after an error"). A selector can close
-  over external state for that; a richer signature is a future ADR if the
-  need becomes common.
+- Routing is keyed only on the round index, so it cannot react to
+  conversation content (e.g. "switch to a stronger model after an error").
+  That is intentionally out of scope; if the need becomes common, a richer
+  mechanism is a future ADR rather than a heavier API today.
 
 ## Alternatives Considered
 
-- **Thread a turn index through `generate(visible, turn)`.** Most explicit,
+- **A `ProviderSelector` callable (`Callable[[int], Provider]`).** Strictly
+  more flexible (cycle, clamp, or content-aware routing all expressible),
+  but heavier: two exported type aliases and a hand-written lambda for the
+  common case. The list covers the headline workflows with far less surface,
+  so the callable was dropped before shipping.
+- **Thread a round index through `generate(visible, round)`.** Most explicit,
   but breaks the ADR 0001 / 0009 core contract and every fake/demo, and
   trades away beginner readability for a feature only LLM-backed agents use.
-- **Accept a `Sequence[Provider]` and index by turn.** Declarative and
-  JSON-friendly, but forces the framework to pick a list-exhaustion rule
-  (cycle vs. clamp). A selector subsumes both and keeps the policy in caller
-  code, so the list was dropped.
+- **Cycle instead of clamp at the end of the list.** Rejected as the default
+  because silently returning to a cheaper model on a later round is
+  surprising; clamp matches the escalation intuition, and cycling is still
+  expressible by repeating list entries.
 - **Put the model choice on `Provider` (callable field).** Violates the
   `llm/` rule that `Provider` is pure, JSON-serializable data with no
   callables.
-- **Keep a mutable turn counter in the `generate` closure.** Simple, but
+- **Keep a mutable round counter in the `generate` closure.** Simple, but
   leaks state across `agent.run(...)` calls on a reused agent. Deriving the
   index from the visible context avoids the hidden state entirely.

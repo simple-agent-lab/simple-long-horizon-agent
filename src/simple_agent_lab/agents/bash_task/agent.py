@@ -88,8 +88,8 @@ def make_bash_task_agent(
 
     Parent and explorer share ``cwd`` so a delegated investigation sees
     the same workspace state the parent's edits affect. Both run with
-    the same ``provider`` — a single ``Provider`` or a ``ProviderSelector``
-    for per-turn model switching. Callers wanting a different model for the
+    the same ``provider`` — a single ``Provider`` or a list of ``Provider``s
+    for per-round model switching. Callers wanting a different model for the
     explorer (e.g. a cheaper one) can compose the inner ``make_bash_agent``
     directly. ``request_extra`` flows to both so every model call carries
     the same per-request extras.

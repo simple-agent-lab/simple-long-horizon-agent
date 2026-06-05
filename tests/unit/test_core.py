@@ -356,8 +356,6 @@ class CoreTest(unittest.TestCase):
             "ModelRequestEvent",
             "ModelResponseEvent",
             "ModelTurn",
-            "ProviderLike",
-            "ProviderSelector",
             "Role",
             "RunTrace",
             "SkillMetadata",
