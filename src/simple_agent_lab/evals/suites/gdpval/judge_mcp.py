@@ -10,8 +10,11 @@ from typing import Any, Literal, cast
 
 from simple_agent_lab.llm.provider import Provider
 from simple_agent_lab.llm_agent import make_llm_agent
+from simple_agent_lab.messages import ImageBlock, TextBlock
 from simple_agent_lab.tools import AgentTool
+from simple_agent_lab.tools import ToolResult
 
+from .judge_excel_tools import make_judge_excel_tools
 from .tools import make_gdpval_tools
 
 JudgeToolMode = Literal["local", "mcp", "hybrid"]
@@ -91,6 +94,18 @@ GDPVAL_PPT_JUDGE_MCP_HARD_DENY_TERMS: tuple[str, ...] = (
     "save",
 )
 _PPT_MCP_SERVER_NAMES = {"ppt", "ppt_mcp_server"}
+_LOCAL_WRITE_TOOL_NAMES = {"write_file", "edit_file", "multi_edit_file", "TodoWrite"}
+_MAX_JUDGE_TOOL_TEXT_CHARS = 200_000
+_MAX_JUDGE_TOOL_FILE_TEXT_CHARS = 400_000
+_BINARY_JSON_KEYS = {
+    "base64",
+    "blob",
+    "data",
+    "image",
+    "image_data",
+    "imageData",
+    "bytes",
+}
 
 
 def normalize_judge_tool_mode(value: Any) -> JudgeToolMode:
@@ -180,17 +195,30 @@ def open_gdpval_judge_tools(
     workdir: str | Path,
     reference_dir: str | Path,
     mode: str | None = None,
+    include_local_write_tools: bool = True,
+    include_excel_helpers: bool = False,
 ) -> Iterator[tuple[AgentTool, ...]]:
     """Open GDPVal judge tools, keeping MCP connections alive for the run."""
 
     workspace = Path(workdir).resolve()
     references = Path(reference_dir).resolve()
     tool_mode = normalize_judge_tool_mode(mode)
-    local_tools = (
-        make_gdpval_tools(workdir=workspace, reference_dir=references)
-        if tool_mode in {"local", "hybrid"}
-        else ()
-    )
+    local_tools: tuple[AgentTool, ...] = ()
+    if tool_mode in {"local", "hybrid"}:
+        selected_local_tools = list(
+            make_gdpval_tools(workdir=workspace, reference_dir=references)
+        )
+        if not include_local_write_tools:
+            selected_local_tools = [
+                tool
+                for tool in selected_local_tools
+                if tool.name not in _LOCAL_WRITE_TOOL_NAMES
+            ]
+        if include_excel_helpers:
+            selected_local_tools.extend(
+                make_judge_excel_tools(workdir=workspace, reference_dir=references)
+            )
+        local_tools = tuple(selected_local_tools)
     connections = []
     mcp_tools: list[AgentTool] = []
     warnings: list[dict[str, str]] = []
@@ -259,6 +287,8 @@ def gdpval_judge_agent_context(
     name: str,
     role: str,
     system_prompt: str,
+    include_local_write_tools: bool = True,
+    include_excel_helpers: bool = False,
 ) -> Iterator:
     """Yield a judge Agent with local and optional MCP tools bound for one run."""
 
@@ -271,6 +301,8 @@ def gdpval_judge_agent_context(
         workdir=workdir,
         reference_dir=reference_dir,
         mode=mode,
+        include_local_write_tools=include_local_write_tools,
+        include_excel_helpers=include_excel_helpers,
     ) as tools:
         yield make_llm_agent(
             name=name,
@@ -314,19 +346,130 @@ def _filtered_mcp_agent_tools(
 
     from simple_agent_lab.mcp import mcp_tool_to_agent_tool
 
-    return [
-        mcp_tool_to_agent_tool(
+    tools: list[AgentTool] = []
+    for tool in connection.tools:
+        if not is_gdpval_judge_read_only_mcp_tool_name(
+            tool.name,
+            server_name=server_name,
+        ):
+            continue
+        agent_tool = mcp_tool_to_agent_tool(
             connection,
             tool,
             name_prefix=f"{connection.name}_",
             call_timeout=call_timeout,
         )
-        for tool in connection.tools
-        if is_gdpval_judge_read_only_mcp_tool_name(
-            tool.name,
-            server_name=server_name,
+        tools.append(_sanitize_judge_tool_output(agent_tool))
+    return tools
+
+
+def _sanitize_judge_tool_output(tool: AgentTool) -> AgentTool:
+    def execute(call_id: str, args: dict[str, Any], abort, on_update) -> ToolResult:
+        result = tool.execute(call_id, args, abort, on_update)
+        content = []
+        for block in result.content:
+            if isinstance(block, TextBlock):
+                content.append(TextBlock(_preprocess_judge_tool_text(block.text)))
+            elif isinstance(block, ImageBlock):
+                content.append(block)
+            else:
+                content.append(block)
+        return ToolResult(
+            content=tuple(content),
+            details=result.details,
+            is_error=result.is_error,
+            terminate=result.terminate,
         )
-    ]
+
+    return AgentTool(
+        name=tool.name,
+        description=tool.description,
+        parameters=tool.parameters,
+        execute=execute,
+        execution_mode=tool.execution_mode,
+        timeout_seconds=tool.timeout_seconds,
+    )
+
+
+def _preprocess_judge_tool_text(text: str) -> str:
+    if not text:
+        return text
+    cleaned = _strip_large_binary_json(text)
+    max_chars = (
+        _MAX_JUDGE_TOOL_FILE_TEXT_CHARS
+        if _looks_like_file_payload(cleaned)
+        else _MAX_JUDGE_TOOL_TEXT_CHARS
+    )
+    if len(cleaned) <= max_chars:
+        return cleaned
+    return _truncate_middle(
+        cleaned,
+        max_chars=max_chars,
+        marker=(
+            "\n...[GDPVal judge tool output truncated: "
+            f"original_chars={len(cleaned)}]...\n"
+        ),
+    )
+
+
+def _strip_large_binary_json(text: str) -> str:
+    stripped = text.strip()
+    if not stripped or stripped[0] not in "[{":
+        return text
+    if not any(f'"{key}"' in stripped for key in _BINARY_JSON_KEYS):
+        return text
+    try:
+        parsed = json.loads(stripped)
+    except json.JSONDecodeError:
+        return text
+    sanitized, changed = _sanitize_binary_json_value(parsed)
+    if not changed:
+        return text
+    return json.dumps(sanitized, ensure_ascii=False, default=str)
+
+
+def _sanitize_binary_json_value(value: Any) -> tuple[Any, bool]:
+    if isinstance(value, Mapping):
+        changed = False
+        output: dict[str, Any] = {}
+        for key, item in value.items():
+            normalized = str(key)
+            if (
+                normalized in _BINARY_JSON_KEYS
+                and isinstance(item, str)
+                and len(item) > 1024
+            ):
+                output[normalized] = (
+                    f"[stripped binary/base64 payload: chars={len(item)}]"
+                )
+                changed = True
+                continue
+            output_item, item_changed = _sanitize_binary_json_value(item)
+            output[normalized] = output_item
+            changed = changed or item_changed
+        return output, changed
+    if isinstance(value, list):
+        changed = False
+        output_list = []
+        for item in value:
+            output_item, item_changed = _sanitize_binary_json_value(item)
+            output_list.append(output_item)
+            changed = changed or item_changed
+        return output_list, changed
+    return value, False
+
+
+def _looks_like_file_payload(text: str) -> bool:
+    lowered = text[:2000].lower()
+    return any(marker in lowered for marker in ("filepath", "filename", "file:"))
+
+
+def _truncate_middle(text: str, *, max_chars: int, marker: str) -> str:
+    if len(text) <= max_chars:
+        return text
+    head = max_chars // 2
+    tail = max_chars - head
+    return f"{text[:head]}{marker}{text[-tail:]}"
 
 
 def _write_mcp_warnings(workspace: Path, warnings: list[dict[str, str]]) -> None:

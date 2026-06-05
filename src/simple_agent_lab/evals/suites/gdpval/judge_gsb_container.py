@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -16,18 +17,43 @@ from typing import Any
 from simple_agent_lab.core import Agent
 from simple_agent_lab.llm.provider import Provider
 from simple_agent_lab.llm_agent import make_llm_agent
+from simple_agent_lab.messages import message_text
+from simple_agent_lab.protocols import ToolExecutionStartEvent
+from simple_agent_lab.state import State
 
 from .judge_container import _candidate_summary, _input_dir_for, prepare as prepare
-from .judge_gsb_prompts import GDPVAL_GSB_JUDGE_SYSTEM_PROMPT
+from .judge_gsb_prompts import (
+    GDPVAL_GSB_JUDGE_EXCEL_HANDLING_PROMPT,
+    GDPVAL_GSB_JUDGE_SYSTEM_PROMPT,
+)
 from .judge_mcp import gdpval_judge_agent_context
 from .judge_scoring import (
     normalize_rubrics,
+    parse_gsb_direction_payload,
     parse_gsb_judge_payload,
     score_gsb_judgment,
 )
 from .tools import make_gdpval_tools
 
 JUDGE_RESULT_FILE = "_gdpval_gsb_judge_result.json"
+JUDGE_ATTEMPTS_FILE = "_gdpval_gsb_judge_attempts.json"
+MAX_GSB_DIRECTION_ATTEMPTS = 5
+_GSB_LABELS = {"A>>B", "A>B", "A=B", "A<B", "A<<B"}
+_LOCAL_EXCEL_HELPER_NAMES = {
+    "excel_profile_sheet",
+    "read_data_from_excel_compact",
+    "excel_filter_rows",
+    "excel_aggregate",
+}
+
+
+@dataclass(frozen=True)
+class _DirectionRunResult:
+    direction: str
+    payload: dict[str, Any]
+    raw_response: str
+    attempts: list[dict[str, Any]]
+    failure_reason: str = ""
 
 
 def build_agent(
@@ -70,6 +96,8 @@ def agent_context(
         name="gdpval_gsb_judge",
         role="Compare GDPVal deliverables and write a GSB JSON verdict.",
         system_prompt=GDPVAL_GSB_JUDGE_SYSTEM_PROMPT,
+        include_local_write_tools=False,
+        include_excel_helpers=True,
     )
 
 
@@ -107,12 +135,11 @@ def build_task(instance: Mapping[str, Any], *, workdir: str) -> str:
             json.dumps(rubrics, ensure_ascii=False, indent=2),
             "",
             "## Instructions",
-            "- Inspect candidate, gold, and reference files as needed.",
-            "- Write the GSB judgment JSON to REQUIRED_OUTPUT_JSON.",
-            "- Include exactly one rubrics_result item for each rubric index in "
-            "both reverse and forward.",
-            "- Use the exact GSB labels specified in the system prompt.",
-            "- Do not write the judgment anywhere else.",
+            "- The suite will run reverse and forward as isolated judge prompts.",
+            "- Each direction must inspect the supplied files with tools before "
+            "scoring when files are available.",
+            "- The harness will aggregate parsed direction outputs to "
+            "REQUIRED_OUTPUT_JSON.",
         ]
     )
 
@@ -135,6 +162,98 @@ def apply_oracle(workspace: Path, instance: Mapping[str, Any]) -> None:
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+
+
+def run_agent(
+    *,
+    provider: Provider,
+    cwd: Path,
+    request_extra: Mapping[str, Any] | None,
+    instance: Mapping[str, Any],
+    context: Mapping[str, Any],
+    task: str,
+    max_turns: int,
+) -> tuple[State, Any]:
+    """Run swalm-style independent reverse/forward GSB judge directions."""
+
+    workdir = Path(cwd)
+    state = State(task=task)
+
+    def events():
+        if not _has_available_files(context.get("gold_manifest")):
+            return
+
+        paths = _judge_paths(context)
+        rubrics = normalize_rubrics(instance.get("rubrics"))
+        final_answer_summary = json.dumps(
+            _candidate_summary(instance.get("candidate_result") or {}),
+            ensure_ascii=False,
+            indent=2,
+        )
+        all_attempts: list[dict[str, Any]] = []
+
+        reverse = yield from _run_direction(
+            provider=provider,
+            cwd=workdir,
+            request_extra=request_extra,
+            instance=instance,
+            context=context,
+            combined_state=state,
+            direction="reverse",
+            a_label="standard answer",
+            b_label="candidate",
+            a_paths=paths["gold"],
+            b_paths=paths["candidate"],
+            reference_paths=paths["reference"],
+            zip_paths=paths["zip"],
+            final_answer_label="B Final Answer Summary",
+            final_answer_summary=final_answer_summary,
+            rubrics=rubrics,
+            require_tool=bool(paths["candidate"]),
+            max_turns=max_turns,
+        )
+        all_attempts.extend(reverse.attempts)
+
+        forward: _DirectionRunResult | None = None
+        if paths["candidate"]:
+            forward = yield from _run_direction(
+                provider=provider,
+                cwd=workdir,
+                request_extra=request_extra,
+                instance=instance,
+                context=context,
+                combined_state=state,
+                direction="forward",
+                a_label="candidate",
+                b_label="standard answer",
+                a_paths=paths["candidate"],
+                b_paths=paths["gold"],
+                reference_paths=paths["reference"],
+                zip_paths=paths["zip"],
+                final_answer_label="A Final Answer Summary",
+                final_answer_summary=final_answer_summary,
+                rubrics=rubrics,
+                require_tool=True,
+                max_turns=max_turns,
+            )
+            all_attempts.extend(forward.attempts)
+
+        payload: dict[str, Any] = {
+            "reverse": reverse.payload,
+            "forward": forward.payload if forward is not None else {},
+            "_sal_judge_attempt_summary": _attempt_summary(all_attempts),
+        }
+        workdir.mkdir(parents=True, exist_ok=True)
+        (workdir / JUDGE_RESULT_FILE).write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        (workdir / JUDGE_ATTEMPTS_FILE).write_text(
+            json.dumps({"attempts": all_attempts}, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+    return state, events()
 
 
 def extract_result(
@@ -209,6 +328,370 @@ def extract_result(
         **base,
         **scored,
         "raw_judge_result_sha256": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+        **_attempt_result_fields(workdir),
+    }
+
+
+def _run_direction(
+    *,
+    provider: Provider,
+    cwd: Path,
+    request_extra: Mapping[str, Any] | None,
+    instance: Mapping[str, Any],
+    context: Mapping[str, Any],
+    combined_state: State,
+    direction: str,
+    a_label: str,
+    b_label: str,
+    a_paths: list[str],
+    b_paths: list[str],
+    reference_paths: list[str],
+    zip_paths: list[str],
+    final_answer_label: str,
+    final_answer_summary: str,
+    rubrics: list[dict[str, Any]],
+    require_tool: bool,
+    max_turns: int,
+):
+    attempts: list[dict[str, Any]] = []
+    warning: str | None = None
+    last_response = ""
+    last_payload: dict[str, Any] = {}
+    failure_reason = ""
+    for attempt_index in range(MAX_GSB_DIRECTION_ATTEMPTS):
+        prompt = _build_direction_prompt(
+            instance=instance,
+            direction=direction,
+            a_label=a_label,
+            b_label=b_label,
+            a_paths=a_paths,
+            b_paths=b_paths,
+            reference_paths=reference_paths,
+            zip_paths=zip_paths,
+            final_answer_label=final_answer_label,
+            final_answer_summary=final_answer_summary,
+            rubrics=rubrics,
+            warning=warning,
+        )
+        with gdpval_judge_agent_context(
+            provider=provider,
+            cwd=cwd,
+            request_extra=request_extra,
+            instance=instance,
+            context=context,
+            name=f"gdpval_gsb_judge_{direction}_{attempt_index + 1}",
+            role="Compare GDPVal deliverables and emit one GSB direction.",
+            system_prompt=GDPVAL_GSB_JUDGE_SYSTEM_PROMPT,
+            include_local_write_tools=False,
+            include_excel_helpers=True,
+        ) as agent:
+            source_state, source_events = agent.run(prompt, max_turns=max_turns)
+            copied = yield from _copy_new_events(source_state, combined_state, start=0)
+            for _ in source_events:
+                copied = yield from _copy_new_events(
+                    source_state, combined_state, start=copied
+                )
+
+        last_response = _last_assistant_text(source_state)
+        tool_names = _tool_names(source_state)
+        payload = parse_gsb_direction_payload(last_response)
+        last_payload = payload
+        final_gsb = str((payload.get("overall") or {}).get("final_gsb") or "").strip()
+        has_rubrics = bool(payload.get("rubrics_result"))
+        parseable = bool(payload)
+        valid_final_gsb = final_gsb in _GSB_LABELS
+        valid_output = parseable and valid_final_gsb and (has_rubrics or not rubrics)
+
+        reason = ""
+        if require_tool and not tool_names:
+            reason = "no_tool_messages"
+            warning = "no_tool"
+        elif not valid_output:
+            reason = "invalid_output"
+            warning = "invalid_output"
+        else:
+            record = _attempt_record(
+                direction=direction,
+                attempt_index=attempt_index,
+                tool_names=tool_names,
+                parseable=parseable,
+                valid_final_gsb=valid_final_gsb,
+                failure_reason="",
+                raw_response=last_response,
+            )
+            attempts.append(record)
+            return _DirectionRunResult(
+                direction=direction,
+                payload=payload,
+                raw_response=last_response,
+                attempts=attempts,
+            )
+
+        attempts.append(
+            _attempt_record(
+                direction=direction,
+                attempt_index=attempt_index,
+                tool_names=tool_names,
+                parseable=parseable,
+                valid_final_gsb=valid_final_gsb,
+                failure_reason=reason,
+                raw_response=last_response,
+            )
+        )
+        failure_reason = reason
+
+    if failure_reason == "no_tool_messages":
+        last_payload = {}
+        last_response = (
+            f"{direction} judge failed to invoke any tool after maximum retries; "
+            "treating evaluation as failed with score 0.0."
+        )
+    elif failure_reason == "invalid_output":
+        last_payload = {}
+    return _DirectionRunResult(
+        direction=direction,
+        payload=last_payload,
+        raw_response=last_response,
+        attempts=attempts,
+        failure_reason=failure_reason,
+    )
+
+
+def _copy_new_events(
+    source_state: State,
+    combined_state: State,
+    *,
+    start: int,
+):
+    for event in source_state.events[start:]:
+        yield combined_state.record_event(event)
+    return len(source_state.events)
+
+
+def _build_direction_prompt(
+    *,
+    instance: Mapping[str, Any],
+    direction: str,
+    a_label: str,
+    b_label: str,
+    a_paths: list[str],
+    b_paths: list[str],
+    reference_paths: list[str],
+    zip_paths: list[str],
+    final_answer_label: str,
+    final_answer_summary: str,
+    rubrics: list[dict[str, Any]],
+    warning: str | None,
+) -> str:
+    warning_lines: list[str] = []
+    if warning == "no_tool":
+        warning_lines.extend(
+            [
+                "- WARNING: In the previous round you did NOT invoke any document "
+                "or filesystem tool. This violates the requirements.",
+                "- In this round, before producing any score, you MUST actually "
+                "invoke at least one tool to read the supplied <A> and <B> files.",
+            ]
+        )
+    elif warning == "invalid_output":
+        warning_lines.extend(
+            [
+                "- WARNING: In the previous round your response did not output a "
+                "valid <rubrics_result> block and/or <overall> block with a valid "
+                "final_gsb value.",
+                "- Please try again and strictly follow the required output format.",
+            ]
+        )
+    return "\n".join(
+        [
+            f"<judge_direction>{direction}</judge_direction>",
+            "",
+            "<prompt>",
+            str(instance.get("prompt") or ""),
+            "</prompt>",
+            "",
+            "<rubrics>",
+            json.dumps(_binary_judge_rubrics(rubrics), ensure_ascii=False, indent=2),
+            "</rubrics>",
+            "",
+            "<reference_file_urls>",
+            "The following reference/input files were provided as task inputs "
+            "(use tools to read as needed, absolute paths):",
+            _path_block(reference_paths),
+            "</reference_file_urls>",
+            "",
+            "<A>",
+            f"A files ({a_label}; use tools to read, absolute paths):",
+            _path_block(a_paths),
+            f"{final_answer_label}:" if final_answer_label.startswith("A ") else "",
+            final_answer_summary if final_answer_label.startswith("A ") else "",
+            "</A>",
+            "",
+            "<B>",
+            f"B files ({b_label}; use tools to read, absolute paths):",
+            _path_block(b_paths),
+            f"{final_answer_label}:" if final_answer_label.startswith("B ") else "",
+            final_answer_summary if final_answer_label.startswith("B ") else "",
+            "</B>",
+            "",
+            "Zip archives automatically extracted for judging:",
+            _path_block(zip_paths),
+            "",
+            "#### Tool Usage Requirements (Important)",
+            *warning_lines,
+            "- You MUST use MCP document/filesystem tools or the local judge "
+            "inspection tools to actually open and read both <A> and <B> files "
+            "before scoring when files are listed. Do NOT rely on file paths or "
+            "the Final Answer Summary alone.",
+            "- If no tool is invoked in the current round when files are listed, "
+            "the scoring process will be marked as failed.",
+            "",
+            GDPVAL_GSB_JUDGE_EXCEL_HANDLING_PROMPT,
+            "",
+            "#### Required Output Format",
+            "Wrap a JSON array in <rubrics_result> and </rubrics_result>. Each "
+            "item must contain exactly: score, criterion, grade_A, grade_B, gsb, "
+            "grade_explanation.",
+            'Then output <overall>{"overall_explanation": "...", '
+            '"final_gsb": "A=B"}</overall>.',
+        ]
+    )
+
+
+def _judge_paths(context: Mapping[str, Any]) -> dict[str, list[str]]:
+    candidate = _manifest_paths(context.get("candidate_manifest"))
+    gold = _manifest_paths(context.get("gold_manifest"))
+    reference = _manifest_paths(context.get("reference_manifest"))
+    zip_paths = _manifest_paths(context.get("zip_manifest"))
+    candidate.extend(_zip_paths_for_label(context.get("zip_manifest"), "candidate"))
+    gold.extend(_zip_paths_for_label(context.get("zip_manifest"), "gold"))
+    reference.extend(_zip_paths_for_label(context.get("zip_manifest"), "reference"))
+    return {
+        "candidate": sorted(set(candidate)),
+        "gold": sorted(set(gold)),
+        "reference": sorted(set(reference)),
+        "zip": sorted(set(zip_paths)),
+    }
+
+
+def _manifest_paths(value: Any) -> list[str]:
+    paths: list[str] = []
+    if isinstance(value, Mapping):
+        status = str(value.get("status") or "")
+        if not value.get("missing") and status not in {"skipped_unsafe", "missing"}:
+            path = value.get("path")
+            if isinstance(path, str) and path:
+                paths.append(path)
+        for key in ("entries", "files"):
+            paths.extend(_manifest_paths(value.get(key)))
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        for item in value:
+            paths.extend(_manifest_paths(item))
+    return paths
+
+
+def _zip_paths_for_label(value: Any, label: str) -> list[str]:
+    marker = f"/__zip_extracts/{label}/"
+    return [path for path in _manifest_paths(value) if marker in path]
+
+
+def _binary_judge_rubrics(rubrics: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {"score": item["weight"], "criterion": item["criterion"]} for item in rubrics
+    ]
+
+
+def _path_block(paths: list[str]) -> str:
+    return "\n".join(f"- {path}" for path in paths) if paths else "(none)"
+
+
+def _last_assistant_text(state: State) -> str:
+    for message in reversed(state.messages):
+        if message.sender.startswith("gdpval_gsb_judge"):
+            text = message_text(message).strip()
+            if text:
+                return text
+    return ""
+
+
+def _tool_names(state: State) -> list[str]:
+    return [
+        event.tool_name
+        for event in state.events
+        if isinstance(event, ToolExecutionStartEvent)
+    ]
+
+
+def _attempt_record(
+    *,
+    direction: str,
+    attempt_index: int,
+    tool_names: list[str],
+    parseable: bool,
+    valid_final_gsb: bool,
+    failure_reason: str,
+    raw_response: str,
+) -> dict[str, Any]:
+    mcp_tools = [name for name in tool_names if _is_mcp_tool_name(name)]
+    return {
+        "direction": direction,
+        "attempt": attempt_index + 1,
+        "has_tool_messages": bool(tool_names),
+        "tool_message_count": len(tool_names),
+        "tool_names": tool_names,
+        "mcp_tool_count": len(mcp_tools),
+        "mcp_tool_names": mcp_tools,
+        "parseable": parseable,
+        "valid_final_gsb": valid_final_gsb,
+        "failure_reason": failure_reason,
+        "raw_response_preview": raw_response[:4000],
+    }
+
+
+def _is_mcp_tool_name(name: str) -> bool:
+    if name in _LOCAL_EXCEL_HELPER_NAMES:
+        return False
+    return name.startswith(("filesystem_", "pdf_", "excel_", "word_", "ppt_"))
+
+
+def _attempt_summary(attempts: list[dict[str, Any]]) -> dict[str, Any]:
+    by_direction: dict[str, dict[str, Any]] = {}
+    for attempt in attempts:
+        direction = str(attempt.get("direction") or "")
+        item = by_direction.setdefault(
+            direction,
+            {
+                "attempts": 0,
+                "had_tool_messages": False,
+                "mcp_tool_count": 0,
+                "last_failure_reason": "",
+            },
+        )
+        item["attempts"] += 1
+        item["had_tool_messages"] = bool(
+            item["had_tool_messages"] or attempt.get("has_tool_messages")
+        )
+        item["mcp_tool_count"] += int(attempt.get("mcp_tool_count") or 0)
+        item["last_failure_reason"] = str(attempt.get("failure_reason") or "")
+    return by_direction
+
+
+def _attempt_result_fields(workdir: Path) -> dict[str, Any]:
+    path = workdir / JUDGE_ATTEMPTS_FILE
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {"judge_attempts_file": str(path)}
+    attempts = payload.get("attempts") if isinstance(payload, Mapping) else []
+    if not isinstance(attempts, list):
+        attempts = []
+    return {
+        "judge_attempts_file": str(path),
+        "judge_retry_summary": _attempt_summary(
+            [item for item in attempts if isinstance(item, Mapping)]
+        ),
     }
 
 

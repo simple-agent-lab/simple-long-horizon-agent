@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import html
 import json
 import re
 from collections.abc import Mapping, Sequence
@@ -109,16 +110,61 @@ def parse_gsb_judge_payload(raw: Any) -> dict[str, Any]:
     except ValueError:
         pass
 
-    rubrics = _extract_tag_json(text, "rubrics_result")
-    overall = _extract_tag_json(text, "overall")
-    if rubrics is not None or overall is not None:
-        return {
-            "reverse": {
-                "rubrics_result": rubrics or [],
-                "overall": overall or {},
-            }
-        }
+    direction = parse_gsb_direction_payload(text)
+    if direction:
+        return {"reverse": direction}
     raise ValueError("GSB judge payload did not contain JSON or GSB XML tags")
+
+
+def parse_gsb_direction_payload(raw: Any) -> dict[str, Any]:
+    """Parse one swalm-style GDPVal GSB direction output."""
+
+    if isinstance(raw, Mapping):
+        payload = dict(raw)
+        if "rubrics_result" in payload or "rubric_results" in payload:
+            return {
+                "rubrics_result": _normalize_direction_rubrics(
+                    payload.get("rubrics_result") or payload.get("rubric_results")
+                ),
+                "overall": _normalize_direction_overall(
+                    payload.get("overall") or payload
+                ),
+            }
+        return {}
+    if not isinstance(raw, str):
+        raise ValueError("GSB direction payload must be a JSON object or string")
+    text = raw.strip()
+    if not text:
+        raise ValueError("GSB direction payload is empty")
+
+    try:
+        payload = parse_judge_payload(text)
+    except ValueError:
+        payload = None
+    if isinstance(payload, Mapping):
+        if "rubrics_result" in payload or "rubric_results" in payload:
+            return {
+                "rubrics_result": _normalize_direction_rubrics(
+                    payload.get("rubrics_result") or payload.get("rubric_results")
+                ),
+                "overall": _normalize_direction_overall(
+                    payload.get("overall") or payload
+                ),
+            }
+        if "overall" in payload:
+            return {
+                "rubrics_result": [],
+                "overall": _normalize_direction_overall(payload.get("overall")),
+            }
+
+    rubrics = _parse_rubrics_result(text)
+    overall = _parse_overall(text)
+    if rubrics is None and overall is None:
+        return {}
+    return {
+        "rubrics_result": rubrics or [],
+        "overall": overall or {},
+    }
 
 
 def score_judgment(payload: Mapping[str, Any], rubrics: Any) -> dict[str, Any]:
@@ -210,31 +256,33 @@ def score_gsb_judgment(payload: Mapping[str, Any], rubrics: Any) -> dict[str, An
         },
     )
 
-    rubric_raw_values = [
-        value
-        for value in (
-            reverse["rubrics_weighted_score"],
-            forward["rubrics_weighted_score"],
-        )
-        if value is not None
-    ]
-    overall_values = [
-        value
-        for value in (reverse["llm_gsb_score"], forward["llm_gsb_score"])
-        if value is not None
-    ]
-    combined_raw = (
-        sum(rubric_raw_values) / len(rubric_raw_values) if rubric_raw_values else None
+    has_reverse_rubrics = bool(reverse["parsed_payload"]["rubrics_result"])
+    has_forward_rubrics = bool(forward["parsed_payload"]["rubrics_result"])
+    has_any_rubrics = has_reverse_rubrics or has_forward_rubrics
+    reverse_rubric_raw = (
+        reverse["rubrics_weighted_score"]
+        if reverse["rubrics_weighted_score"] is not None
+        else 0.0
     )
-    llm_raw = sum(overall_values) / len(overall_values) if overall_values else None
+    forward_rubric_raw = (
+        forward["rubrics_weighted_score"]
+        if forward["rubrics_weighted_score"] is not None
+        else 0.0
+    )
+    reverse_overall_raw = (
+        reverse["llm_gsb_score"] if reverse["llm_gsb_score"] is not None else 0.0
+    )
+    forward_overall_raw = (
+        forward["llm_gsb_score"] if forward["llm_gsb_score"] is not None else 0.0
+    )
+    combined_raw = (reverse_rubric_raw + forward_rubric_raw) / 2.0
+    llm_raw = (reverse_overall_raw + forward_overall_raw) / 2.0
     combined_weighted_score = (
         _three_way_score(combined_raw, high=0.02, low=-0.02)
-        if combined_raw is not None
+        if has_any_rubrics
         else None
     )
-    llm_score = (
-        _three_way_score(llm_raw, high=0.55, low=0.45) if llm_raw is not None else 0.0
-    )
+    llm_score = _three_way_score(llm_raw, high=0.55, low=0.45)
 
     score_a_forward = forward["score_a"]
     score_b_forward = forward["score_b"]
@@ -246,9 +294,9 @@ def score_gsb_judgment(payload: Mapping[str, Any], rubrics: Any) -> dict[str, An
     dcg_winrate = _three_way_score(dcg_winrate_raw, high=0.02, low=-0.02)
     score_process = (
         score_b_reverse
-        if reverse["rubric_results"]
+        if has_reverse_rubrics
         else score_a_forward
-        if forward["rubric_results"]
+        if has_forward_rubrics
         else 0.0
     )
     fallback_score = (
@@ -256,7 +304,7 @@ def score_gsb_judgment(payload: Mapping[str, Any], rubrics: Any) -> dict[str, An
         if reverse["llm_gsb_score"] is not None
         else forward["llm_gsb_score"]
         if forward["llm_gsb_score"] is not None
-        else llm_score
+        else 0.0
     )
     score = (
         combined_weighted_score
@@ -331,6 +379,177 @@ def _extract_tag_json(text: str, tag: str) -> Any:
         raise ValueError(f"GSB tag {tag!r} did not contain valid JSON") from exc
 
 
+def _parse_rubrics_result(text: str) -> list[dict[str, Any]] | None:
+    match = re.search(
+        r"<rubrics_result\b[^>]*>([\s\S]*?)(?:</rubrics_result>|<overall\b|$)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        body = match.group(1).strip()
+        if body:
+            try:
+                parsed = json.loads(body)
+            except json.JSONDecodeError:
+                parsed = None
+            normalized = _normalize_direction_rubrics(parsed)
+            if normalized:
+                return normalized
+            xmlish = _parse_xmlish_rubrics_result(body)
+            if xmlish is not None:
+                return xmlish
+
+    try:
+        payload = parse_judge_payload(text)
+    except ValueError:
+        return _parse_xmlish_rubrics_result(text)
+    if isinstance(payload, Mapping):
+        return _normalize_direction_rubrics(
+            payload.get("rubrics_result") or payload.get("rubric_results")
+        )
+    return _normalize_direction_rubrics(payload)
+
+
+def _parse_overall(text: str) -> dict[str, Any] | None:
+    match = re.search(
+        r"<overall\b[^>]*>([\s\S]*?)</overall>",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        body = match.group(1).strip()
+        if body:
+            try:
+                parsed = json.loads(body)
+            except json.JSONDecodeError:
+                parsed = None
+            normalized = _normalize_direction_overall(parsed)
+            if normalized:
+                return normalized
+            xmlish = _parse_xmlish_overall(body)
+            if xmlish:
+                return xmlish
+    try:
+        payload = parse_judge_payload(text)
+    except ValueError:
+        return None
+    if isinstance(payload, Mapping):
+        return _normalize_direction_overall(payload.get("overall") or payload)
+    return None
+
+
+def _parse_xmlish_rubrics_result(text: str) -> list[dict[str, Any]] | None:
+    blocks = [
+        match.group(0)
+        for match in re.finditer(
+            r"<rubric\b[^>]*/>|<rubric\b[^>]*>[\s\S]*?</rubric>",
+            text,
+            flags=re.IGNORECASE,
+        )
+    ]
+    if not blocks:
+        return None
+    items: list[dict[str, Any]] = []
+    for block in blocks:
+        grade_b = _xml_first_value(block, ("grade_B", "grade_b", "gradeB"))
+        pass_value = _xml_first_value(block, ("pass", "passed", "satisfied"))
+        grade_b_value = (
+            _boolish_grade(grade_b) if grade_b else _boolish_grade(pass_value)
+        )
+        items.append(
+            {
+                "score": _safe_float(_xml_first_value(block, ("score",)), default=1.0),
+                "criterion": _xml_first_value(block, ("criterion", "rubric_id")),
+                "grade_A": _safe_float(
+                    _xml_first_value(block, ("grade_A", "grade_a", "gradeA")),
+                    default=0.0,
+                ),
+                "grade_B": 0.0 if grade_b_value is None else grade_b_value,
+                "gsb": _xml_first_value(block, ("gsb",)),
+                "grade_explanation": _xml_first_value(
+                    block,
+                    ("grade_explanation", "explanation", "reason"),
+                ),
+            }
+        )
+    return _normalize_direction_rubrics(items)
+
+
+def _parse_xmlish_overall(text: str) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    explanation = _xml_tag_text(text, "overall_explanation")
+    final_score = _safe_optional_float(_xml_tag_text(text, "final_score"))
+    final_gsb = _xml_tag_text(text, "final_gsb")
+    if explanation:
+        result["overall_explanation"] = explanation
+    if final_score is not None:
+        result["final_score"] = final_score
+    if final_gsb:
+        result["final_gsb"] = final_gsb
+    return result
+
+
+def _normalize_direction_rubrics(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return []
+    return [dict(item) for item in value if isinstance(item, Mapping)]
+
+
+def _normalize_direction_overall(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _xml_attr(block: str, name: str) -> str:
+    match = re.search(
+        rf"\b{re.escape(name)}\s*=\s*(['\"])([\s\S]*?)\1",
+        block,
+        flags=re.IGNORECASE,
+    )
+    return html.unescape(match.group(2).strip()) if match else ""
+
+
+def _xml_tag_text(block: str, name: str) -> str:
+    match = re.search(
+        rf"<{re.escape(name)}\b[^>]*>([\s\S]*?)</{re.escape(name)}>",
+        block,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return ""
+    return html.unescape(re.sub(r"\s+", " ", match.group(1)).strip())
+
+
+def _xml_first_value(block: str, names: tuple[str, ...]) -> str:
+    for name in names:
+        value = _xml_attr(block, name) or _xml_tag_text(block, name)
+        if value:
+            return value
+    return ""
+
+
+def _boolish_grade(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return 1.0 if value else 0.0
+    text = str(value).strip().lower()
+    if text in {"true", "yes", "pass", "passed", "1", "y"}:
+        return 1.0
+    if text in {"false", "no", "fail", "failed", "0", "n"}:
+        return 0.0
+    parsed = _safe_optional_float(value)
+    if parsed is None:
+        return None
+    return _clamp(parsed)
+
+
+def _safe_optional_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _direction_payload(payload: Mapping[str, Any], key: str) -> dict[str, Any]:
     value = payload.get(key)
     if isinstance(value, Mapping):
@@ -356,15 +575,15 @@ def _score_gsb_direction(
     if not isinstance(raw_results, Sequence) or isinstance(raw_results, (str, bytes)):
         raw_results = []
     result_items = [dict(item) for item in raw_results if isinstance(item, Mapping)]
-    max_score = sum(max(0.0, _safe_float(item["weight"])) for item in rubrics)
 
     rubric_results: list[dict[str, Any]] = []
     weighted_gsb_total = 0.0
     score_a_total = 0.0
     score_b_total = 0.0
+    scored_weight_total = 0.0
     valid_gsb_count = 0
-    for position, rubric in enumerate(rubrics):
-        result = _match_result(rubric, position, result_items)
+    for position, result in enumerate(result_items):
+        rubric = _rubric_for_gsb_result(result, position, rubrics)
         weight = max(0.0, _safe_float(rubric["weight"]))
         gsb = _normalize_gsb(result.get("gsb"))
         gsb_score = criterion_map.get(gsb, 0.0)
@@ -372,6 +591,7 @@ def _score_gsb_direction(
             valid_gsb_count += 1
         grade_a = _grade_for_key(result, "grade_A", "grade_a")
         grade_b = _grade_for_key(result, "grade_B", "grade_b")
+        scored_weight_total += weight
         weighted_gsb_total += weight * gsb_score
         score_a_total += weight * grade_a
         score_b_total += weight * grade_b
@@ -414,12 +634,16 @@ def _score_gsb_direction(
             for item in rubric_results
         ],
         "rubrics_weighted_score": (
-            weighted_gsb_total / max_score
-            if max_score > 0 and valid_gsb_count
+            weighted_gsb_total / scored_weight_total
+            if scored_weight_total > 0 and valid_gsb_count
             else None
         ),
-        "score_a": score_a_total / max_score if max_score > 0 else 0.0,
-        "score_b": score_b_total / max_score if max_score > 0 else 0.0,
+        "score_a": (
+            score_a_total / scored_weight_total if scored_weight_total > 0 else 0.0
+        ),
+        "score_b": (
+            score_b_total / scored_weight_total if scored_weight_total > 0 else 0.0
+        ),
         "final_gsb": final_gsb,
         "llm_gsb_score": llm_gsb_score,
         "overall_explanation": str(
@@ -430,6 +654,26 @@ def _score_gsb_direction(
         ).strip()
         if isinstance(overall, Mapping)
         else "",
+    }
+
+
+def _rubric_for_gsb_result(
+    result: Mapping[str, Any], position: int, rubrics: list[dict[str, Any]]
+) -> dict[str, Any]:
+    for key in ("index", "rubric_index", "source_index"):
+        if key not in result:
+            continue
+        wanted = int(_safe_float(result.get(key), default=-1.0))
+        for rubric in rubrics:
+            if wanted in {int(rubric["index"]), int(rubric.get("source_index", -1))}:
+                return rubric
+    if 0 <= position < len(rubrics):
+        return rubrics[position]
+    return {
+        "index": position,
+        "source_index": position,
+        "weight": _safe_float(result.get("score", result.get("weight", 1.0))),
+        "criterion": str(result.get("criterion") or ""),
     }
 
 

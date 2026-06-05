@@ -49,9 +49,7 @@ class GdpvalJudgeSuite:
         )
         self.network_mode = network_mode
         self.platform = platform
-        self.judge_tool_mode: JudgeToolMode = normalize_judge_tool_mode(
-            judge_tool_mode
-        )
+        self.judge_tool_mode: JudgeToolMode = normalize_judge_tool_mode(judge_tool_mode)
 
     def launch_spec(self, instance: Mapping[str, Any]) -> LaunchSpec:
         task_id = _task_id(instance)

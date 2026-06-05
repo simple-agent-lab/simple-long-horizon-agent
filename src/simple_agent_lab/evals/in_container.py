@@ -308,21 +308,39 @@ def run_in_container(
     else:
         if provider is None:
             raise SystemExit("a Provider is required unless oracle=True")
-        with _resolve_agent_context(
-            module,
-            provider=provider,
-            cwd=workdir,
-            request_extra=request_extra,
-            instance=instance,
-            context=context,
-        ) as agent:
-            state, events = agent.run(task, max_turns=max_turns)
+        custom_run_agent = getattr(module, "run_agent", None)
+        if callable(custom_run_agent):
+            state, events = custom_run_agent(
+                provider=provider,
+                cwd=workdir,
+                request_extra=request_extra,
+                instance=instance,
+                context=context,
+                task=task,
+                max_turns=max_turns,
+            )
             last = 0.0
             for _ in events:
                 now = time.monotonic()
                 if now - last >= flush_interval_s:
                     store.put(TRACE_KEY, trace_bytes(in_progress=True))
                     last = now
+        else:
+            with _resolve_agent_context(
+                module,
+                provider=provider,
+                cwd=workdir,
+                request_extra=request_extra,
+                instance=instance,
+                context=context,
+            ) as agent:
+                state, events = agent.run(task, max_turns=max_turns)
+                last = 0.0
+                for _ in events:
+                    now = time.monotonic()
+                    if now - last >= flush_interval_s:
+                        store.put(TRACE_KEY, trace_bytes(in_progress=True))
+                        last = now
 
     extract = tasks.extract_result
     result = dict(extract(workdir, instance, **_context_kwargs(extract, context)))

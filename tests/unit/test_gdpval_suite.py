@@ -27,6 +27,7 @@ from simple_agent_lab.evals.suites.gdpval import (
 )
 from simple_agent_lab.evals.suites.gdpval.judge_scoring import (
     normalize_rubrics,
+    parse_gsb_direction_payload,
     parse_gsb_judge_payload,
     parse_judge_payload,
     score_gsb_judgment,
@@ -603,6 +604,49 @@ class GdpvalSuiteTest(unittest.TestCase):
         self.assertEqual(result["status"], "no_rubrics")
         self.assertEqual(result["score"], 0.75)
 
+    def test_gsb_direction_parser_accepts_swalm_xmlish_output(self) -> None:
+        payload = parse_gsb_direction_payload(
+            """
+            <rubrics_result>
+              <rubric score="2" criterion="Accuracy" grade_A="1"
+                grade_B="0" gsb="A>B">
+                <grade_explanation>standard is more accurate</grade_explanation>
+              </rubric>
+            </rubrics_result>
+            <overall>
+              <overall_explanation>standard wins</overall_explanation>
+              <final_gsb>A>B</final_gsb>
+            </overall>
+            """
+        )
+
+        self.assertEqual(payload["rubrics_result"][0]["score"], 2.0)
+        self.assertEqual(payload["rubrics_result"][0]["criterion"], "Accuracy")
+        self.assertEqual(payload["rubrics_result"][0]["gsb"], "A>B")
+        self.assertEqual(payload["overall"]["final_gsb"], "A>B")
+
+    def test_gsb_scoring_counts_missing_direction_like_swalm(self) -> None:
+        result = score_gsb_judgment(
+            {
+                "reverse": {
+                    "rubrics_result": [
+                        {"index": 0, "grade_A": 0, "grade_B": 1, "gsb": "A<B"},
+                        {"index": 1, "grade_A": 1, "grade_B": 0, "gsb": "A>B"},
+                    ],
+                    "overall": {"final_gsb": "A<B"},
+                }
+            },
+            [
+                {"score": 103, "criterion": "large candidate win"},
+                {"score": 97, "criterion": "small candidate loss"},
+            ],
+        )
+
+        self.assertAlmostEqual(result["rubrics_weighted_score_reverse"], 0.03)
+        self.assertAlmostEqual(result["combined_weighted_score_raw"], 0.015)
+        self.assertEqual(result["combined_weighted_score"], 0.5)
+        self.assertEqual(result["score"], 0.5)
+
     def test_judge_prepare_stages_candidate_gold_and_references(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -815,6 +859,62 @@ class GdpvalSuiteTest(unittest.TestCase):
             self.assertEqual(result["judge_mode"], "gsb")
             self.assertEqual(result["score"], 0.5)
             self.assertEqual(result["combined_weighted_score"], 0.5)
+
+    def test_gsb_judge_fake_provider_retries_no_tool_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            candidate_workdir = root / "candidate_workdir"
+            candidate_workdir.mkdir()
+            (candidate_workdir / "answer.txt").write_text("answer", encoding="utf-8")
+            candidate_result = container.extract_result(
+                candidate_workdir, {"task_id": "task-1"}
+            )
+            deliverable_root = root / "deliverables"
+            (deliverable_root / "gold").mkdir(parents=True)
+            (deliverable_root / "gold" / "answer.txt").write_text(
+                "gold", encoding="utf-8"
+            )
+            suite = GdpvalGsbJudgeSuite(
+                image="unused",
+                deliverable_root=deliverable_root,
+                network_mode=None,
+                judge_tool_mode="local",
+            )
+            judge_instance = suite.build_instance(
+                {
+                    "task_id": "task-1",
+                    "prompt": "Make answer.",
+                    "rubrics": [{"score": 1, "criterion": "Answer quality"}],
+                    "deliverable_files": ["gold/answer.txt"],
+                },
+                candidate_result=candidate_result,
+                candidate_artifacts=RunArtifacts(
+                    instance_id="task-1",
+                    run_dir=root / "solver-run",
+                    trajectory_path=root / "solver-run" / "out" / "trajectory.jsonl",
+                    status_code=0,
+                ),
+            )
+
+            artifacts = run_suite_instance(
+                suite=suite,
+                instance=judge_instance,
+                backend=LocalProcessBackend(workspace=root / "judge_workdir"),
+                store=LocalDirStore(root / "runs"),
+                run_root=root / "runs",
+                run_id="gsb-judge-fake",
+                provider="fake",
+                max_turns=1,
+            )
+
+            self.assertEqual(artifacts.status_code, 0)
+            result = json.loads((artifacts.run_dir / RESULT_KEY).read_text())
+            self.assertEqual(result["status"], "gsb_judged")
+            self.assertEqual(result["score"], 0.0)
+            retry_summary = result["judge_retry_summary"]
+            self.assertEqual(retry_summary["reverse"]["attempts"], 5)
+            self.assertEqual(retry_summary["forward"]["attempts"], 5)
+            self.assertFalse(retry_summary["reverse"]["had_tool_messages"])
 
     def test_run_suite_instance_local_process_fake_provider(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
