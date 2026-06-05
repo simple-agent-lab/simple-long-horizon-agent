@@ -72,11 +72,13 @@ def main() -> None:
         pass
 
     print("\n=== model used per turn ===")
-    turn = 0
-    for message in state.messages:
-        if isinstance(message, AssistantMessage) and message.sender == "bash_agent":
-            print(f"  turn {turn}: {message.model} ({message.kind})")
-            turn += 1
+    answers = [
+        message
+        for message in state.messages
+        if isinstance(message, AssistantMessage) and message.sender == "bash_agent"
+    ]
+    for turn, message in enumerate(answers):
+        print(f"  turn {turn}: {message.model} ({message.kind})")
 
     if not args.no_trace:
         print("\n=== full trace ===")

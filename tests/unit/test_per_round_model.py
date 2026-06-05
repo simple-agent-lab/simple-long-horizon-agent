@@ -15,7 +15,7 @@ from pathlib import Path
 from simple_agent_lab import AssistantMessage
 from simple_agent_lab.agents.bash import make_bash_agent
 from simple_agent_lab.llm import Provider
-from simple_agent_lab.llm_agent import _provider_for_turn, _turn_index, make_llm_agent
+from simple_agent_lab.llm_agent import _provider_for_turn, make_llm_agent
 from simple_agent_lab.messages import assistant_message, user_message
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -36,38 +36,33 @@ def _assistant_models(state, name: str) -> list[str]:
     ]
 
 
-class TurnIndexTest(unittest.TestCase):
-    def test_counts_only_this_agents_assistant_messages(self) -> None:
+class ProviderResolutionTest(unittest.TestCase):
+    def test_bare_provider_ignores_turn_and_is_used_as_is(self) -> None:
+        two_prior = [
+            assistant_message("a1", sender="a", target="user", kind="step"),
+            assistant_message("a2", sender="a", target="user", kind="step"),
+        ]
+        # A bare Provider is returned regardless of how far the run has gone.
+        self.assertIs(_provider_for_turn(FAST, [], "a"), FAST)
+        self.assertIs(_provider_for_turn(FAST, two_prior, "a"), FAST)
+
+    def test_selector_gets_turn_index_from_this_agents_prior_messages(self) -> None:
+        seen: list[int] = []
+
+        def selector(turn: int) -> Provider:
+            seen.append(turn)
+            return FAST if turn == 0 else STRONG
+
         visible = [
             user_message("task", sender="user", target="a"),
             assistant_message("a1", sender="a", target="user", kind="step"),
             assistant_message("b1", sender="b", target="user", kind="step"),
-            assistant_message("a2", sender="a", target="user", kind="step"),
         ]
-        # Two of the assistant messages are this agent's own; the next turn is 2.
-        self.assertEqual(_turn_index(visible, "a"), 2)
-        # A different agent has produced one, so its next turn is 1.
-        self.assertEqual(_turn_index(visible, "b"), 1)
-        # An agent that has not spoken yet is on turn 0.
-        self.assertEqual(_turn_index(visible, "c"), 0)
-
-    def test_first_turn_is_zero(self) -> None:
-        visible = [user_message("task", sender="user", target="a")]
-        self.assertEqual(_turn_index(visible, "a"), 0)
-
-
-class ProviderResolutionTest(unittest.TestCase):
-    def test_bare_provider_is_used_on_every_turn(self) -> None:
-        self.assertIs(_provider_for_turn(FAST, 0), FAST)
-        self.assertIs(_provider_for_turn(FAST, 5), FAST)
-
-    def test_selector_is_called_with_the_turn_index(self) -> None:
-        def selector(turn: int) -> Provider:
-            return FAST if turn == 0 else STRONG
-
-        self.assertIs(_provider_for_turn(selector, 0), FAST)
-        self.assertIs(_provider_for_turn(selector, 1), STRONG)
-        self.assertIs(_provider_for_turn(selector, 9), STRONG)
+        # One prior assistant message from "a" → turn 1; "b"'s message is ignored.
+        self.assertIs(_provider_for_turn(selector, visible, "a"), STRONG)
+        # No prior messages from "a" yet → turn 0.
+        self.assertIs(_provider_for_turn(selector, [], "a"), FAST)
+        self.assertEqual(seen, [1, 0])
 
 
 class PerRoundModelRunTest(unittest.TestCase):
@@ -95,18 +90,12 @@ class PerRoundModelRunTest(unittest.TestCase):
 
         # The selector saw consecutive turn indices, one per model step.
         self.assertEqual(seen_turns, [0, 1])
-        # Turn 0 ran on the fast model; turn 1 escalated to the strong model.
+        # Turn 0 ran on the fast model; turn 1 escalated to the strong model —
+        # visible both on the assistant messages and on the response events.
         self.assertEqual(
             _assistant_models(state, "bash_agent"),
             ["fast-model", "strong-model"],
         )
-
-    def test_response_event_records_the_served_model_per_turn(self) -> None:
-        agent = make_bash_agent(lambda turn: FAST if turn == 0 else STRONG, cwd=ROOT)
-        state, events = agent.run(TWO_TURN_TASK, max_turns=3)
-        for _ in events:
-            pass
-
         response_models = [
             event.model for event in state.events if event.kind == "model_response"
         ]

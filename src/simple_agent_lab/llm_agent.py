@@ -49,34 +49,29 @@ ProviderSelector = Callable[[int], LLMProvider]
 ProviderLike = LLMProvider | ProviderSelector
 
 
-def _provider_for_turn(provider: ProviderLike, turn: int) -> LLMProvider:
-    """Resolve the concrete `Provider` for `turn`.
+def _provider_for_turn(
+    provider: ProviderLike, visible: list[Message], name: str
+) -> LLMProvider:
+    """Resolve the `Provider` to call for the turn the agent is about to take.
 
-    A bare `Provider` is used as-is on every turn; anything else is treated
-    as a `ProviderSelector` and called with the turn index.
+    A bare `Provider` is used as-is (and the turn scan is skipped). A
+    `ProviderSelector` is called with the zero-based turn index, derived
+    statelessly from the visible context: the count of assistant messages
+    this agent has already produced. The loop calls `generate` once per turn
+    and records the output before the next, so this is 0 on the first step, 1
+    on the second, and so on — and it resets for each fresh `agent.run(...)`
+    with no mutable counter to leak across runs. (If compression folds away
+    some of the agent's own earlier messages the count can dip; per-turn
+    routing is a model-choice policy, so a repeated choice is harmless.)
     """
     if isinstance(provider, LLMProvider):
         return provider
-    return provider(turn)
-
-
-def _turn_index(visible: list[Message], name: str) -> int:
-    """The zero-based turn this agent is about to take.
-
-    Derived statelessly from the visible context: the count of assistant
-    messages this agent has already produced. The loop calls `generate`
-    once per turn and records the output before the next turn, so this is
-    0 on the first step, 1 on the second, and so on — and it resets on its
-    own for each fresh run (no mutable counter to leak across `agent.run`
-    calls). If compression folds away some of the agent's own earlier
-    messages the count can dip; per-turn routing is a model-choice policy,
-    so an occasional repeated choice after compaction is harmless.
-    """
-    return sum(
+    turn = sum(
         1
         for message in visible
         if isinstance(message, AssistantMessage) and message.sender == name
     )
+    return provider(turn)
 
 
 def make_llm_agent(
@@ -119,9 +114,8 @@ def make_llm_agent(
     effective_system_prompt = system_prompt or role or ""
 
     def generate(visible: list[Message]) -> Message:
-        turn_provider = _provider_for_turn(provider, _turn_index(visible, name))
         request = LLMRequest(
-            provider=turn_provider,
+            provider=_provider_for_turn(provider, visible, name),
             messages=messages_to_llm_messages(visible),
             tools=[tool_to_llm_tool(tool) for tool in tools_tuple],
             system_prompt=effective_system_prompt or None,

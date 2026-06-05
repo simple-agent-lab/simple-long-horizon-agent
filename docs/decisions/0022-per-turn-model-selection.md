@@ -32,12 +32,13 @@ model step, leaving the core loop and the `generate` contract untouched.
 - a `ProviderSelector` — a `Callable[[int], Provider]` resolved each turn
   from the zero-based turn index.
 
-The turn index is derived statelessly from the visible context: the count
-of assistant messages this agent has already produced (`_turn_index`). The
-loop calls `generate` once per turn and records the output before the next
-turn, so the count is 0 on the first step, 1 on the second, and so on, and
-it resets on its own for each fresh `agent.run(...)` — there is no mutable
-counter to leak across runs.
+When a selector is given, the turn index is derived statelessly from the
+visible context: the count of assistant messages this agent has already
+produced (a bare `Provider` skips that scan entirely). The loop calls
+`generate` once per turn and records the output before the next turn, so the
+count is 0 on the first step, 1 on the second, and so on, and it resets on
+its own for each fresh `agent.run(...)` — there is no mutable counter to leak
+across runs.
 
 A plain list of models is intentionally *not* a separate parameter: it is
 just a one-line selector the caller writes —
