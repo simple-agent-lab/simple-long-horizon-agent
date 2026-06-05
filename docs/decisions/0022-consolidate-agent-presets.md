@@ -95,8 +95,20 @@ capabilities (skills, MCP). The two named factories (`make_bash_agent`,
 thin reuses of `make_agent` via a shared `_assemble_static_tools` helper, so the
 tool-assembly logic lives in one place.
 
-Named session shortcuts `skill_session()` and `mcp_session()` were re-added, but
-only as thin wrappers that preset one capability on `agent_session()` and
-forward the rest. This restores convenient names without bringing back the
-per-kind silos: the composable core stays the single implementation, so
-`skill_session(provider, mcp_servers=[...])` still composes freely.
+A named session shortcut `mcp_session()` was re-added, but only as a thin
+wrapper that presets the MCP capability on `agent_session()` and forwards the
+rest. This restores a convenient name without bringing back the per-kind silos:
+the composable core stays the single implementation, so
+`mcp_session(provider, [...], skills=True)` still composes freely. (A
+`skill_session()` was briefly added alongside it, then dropped — see ADR 0023:
+skills are a seed, not a resource, so they need no session.)
+
+## Follow-up (2026-06-05): skills moved to a seed hook (see ADR 0023)
+
+`AgentSession.run` no longer branches on skills. Skills are now installed as an
+`Agent.seed` (the core hook added in ADR 0023): `agent_session(skills=...)`
+builds that seed in `__enter__`, and the new `make_skill_agent()` factory
+returns a **bare** `Agent` carrying the same seed — symmetric with
+`make_bash_agent`, runnable with a plain `agent.run`. The interim `skills_agent`
+runner type is removed. `agent_session`/`mcp_session` remain only for MCP, the
+one capability that owns a live resource.

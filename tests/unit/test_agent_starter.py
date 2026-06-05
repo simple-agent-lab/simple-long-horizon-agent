@@ -408,21 +408,38 @@ class MakeAgentTest(unittest.TestCase):
         self.assertEqual(agent.system_prompt, "custom")
 
 
-class SessionSugarTest(unittest.TestCase):
-    def test_skill_session_enables_skills_and_implies_read(self) -> None:
-        from simple_agent_lab.agents.starter import SKILLS_ADDENDUM, skill_session
+class MakeSkillAgentTest(unittest.TestCase):
+    def test_builds_bare_skills_aware_agent(self) -> None:
+        from simple_agent_lab.agents.starter import SKILLS_ADDENDUM, make_skill_agent
 
-        with skill_session(FAKE_PROVIDER, cwd=str(FIXTURE_SKILLS)) as session:
-            self.assertIn(SKILLS_ADDENDUM, session.agent.system_prompt)
-            self.assertIn("read", [t.name for t in session.agent.tools])
+        # Returns a plain Agent (no session, no runner wrapper) — skills ride
+        # on the core `seed` hook, not a separate run path.
+        agent = make_skill_agent(FAKE_PROVIDER, cwd=str(FIXTURE_SKILLS))
+        self.assertIn(SKILLS_ADDENDUM, agent.system_prompt)
+        self.assertEqual(sorted(t.name for t in agent.tools), ["bash", "read"])
+        self.assertIsNotNone(agent.seed)
 
-    def test_skill_session_forwards_kwargs_preserving_composition(self) -> None:
-        from simple_agent_lab.agents.starter import skill_session
+    def test_bare_run_advertises_skills_menu(self) -> None:
+        from simple_agent_lab.agents.starter import make_skill_agent
 
-        with skill_session(
-            FAKE_PROVIDER, cwd=str(FIXTURE_SKILLS), explorer=True
-        ) as session:
-            self.assertIn("task", [t.name for t in session.agent.tools])
+        agent = make_skill_agent(
+            FAKE_PROVIDER,
+            cwd=str(FIXTURE_SKILLS),
+            roots=[SkillRoot(str(FIXTURE_SKILLS), "repo")],
+        )
+        # The key property: a plain `agent.run` is skills-aware, no wrapper.
+        state, events = agent.run("do something", max_turns=3)
+        for _ in events:
+            pass
+        menu = next((m for m in state.messages if m.sender == "skills"), None)
+        self.assertIsNotNone(menu)
+        self.assertIn("echo-fixture", menu.content[0].text)
+
+    def test_explorer_flag_adds_task_tool(self) -> None:
+        from simple_agent_lab.agents.starter import make_skill_agent
+
+        agent = make_skill_agent(FAKE_PROVIDER, cwd=str(FIXTURE_SKILLS), explorer=True)
+        self.assertIn("task", [t.name for t in agent.tools])
 
 
 @unittest.skipUnless(HAS_MCP, _SKIP_REASON)

@@ -14,10 +14,14 @@ current kinds:
         for _ in events:
             pass
 
-Resource-free kinds can still be built as a plain ``Agent`` via the
-back-compat ``make_bash_agent`` / ``make_bash_task_agent`` factories. These
-are not auto-imported by the top-level ``simple_agent_lab`` namespace —
-importing them here keeps that surface focused on the protocol and runtime.
+Capabilities that own no live resource are built as a plain ``Agent`` via
+``make_agent`` (general) or the named factories ``make_bash_agent`` /
+``make_bash_task_agent`` / ``make_skill_agent``. Skills count as resource-free:
+``make_skill_agent`` installs a skills *seed* on the agent, so a bare
+``agent.run(task)`` is skills-aware with no session. Only MCP (a live
+connection) needs ``agent_session``/``mcp_session``. These factories are not
+auto-imported by the top-level ``simple_agent_lab`` namespace — importing them
+here keeps that surface focused on the protocol and runtime.
 """
 
 from .starter import (
@@ -42,8 +46,8 @@ from .starter import (
     make_agent,
     make_bash_agent,
     make_bash_task_agent,
+    make_skill_agent,
     mcp_session,
-    skill_session,
 )
 from .toolsets import MCPToolset, Toolset
 
@@ -53,13 +57,13 @@ __all__ = [
     "Toolset",
     "MCPToolset",
     "agent_session",
-    "skill_session",
     "mcp_session",
     "compose_agent_system_prompt",
     "DEFAULT_AGENT_NAME",
     "SKILLS_ADDENDUM",
     "MCP_ADDENDUM",
     "make_agent",
+    "make_skill_agent",
     "make_bash_agent",
     "make_bash_task_agent",
     "BASH_AGENT_SYSTEM_PROMPT",

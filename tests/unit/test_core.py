@@ -196,6 +196,48 @@ class CoreTest(unittest.TestCase):
         final = next(message for message in state.messages if message.kind == "final")
         self.assertEqual(message_text(final), "done")
 
+    def test_seed_hook_builds_the_initial_state(self) -> None:
+        # A `seed` callable lets a higher layer (e.g. skills) record extra
+        # context messages before the task without touching `run`. Default
+        # `run` seeds only the task message; a seed can prepend its own.
+        def writer(visible: list[Message]) -> Message:
+            del visible
+            return assistant_message(
+                "done", sender="seeded", target="user", kind="final"
+            )
+
+        def seed(agent: Agent, task: Any) -> State:
+            state = State(task=task)
+            state.send("context", "primer", agent.name, "PRELUDE")
+            state.send("task", "user", agent.name, task)
+            return state
+
+        agent = Agent("seeded", writer, seed=seed)
+        state, events = agent.run("real task")
+        for _ in events:
+            pass
+
+        self.assertTrue(any(m.sender == "primer" for m in state.messages))
+        self.assertEqual(
+            [message_text(m) for m in state.messages if m.kind != "final"][:2],
+            ["PRELUDE", "real task"],
+        )
+
+    def test_default_seed_records_only_the_task(self) -> None:
+        # With no seed, `run` keeps its original behavior: one task message.
+        def writer(visible: list[Message]) -> Message:
+            del visible
+            return assistant_message("ok", sender="plain", target="user", kind="final")
+
+        agent = Agent("plain", writer)
+        state, events = agent.run("just the task")
+        for _ in events:
+            pass
+
+        non_final = [m for m in state.messages if m.kind != "final"]
+        self.assertEqual(len(non_final), 1)
+        self.assertEqual(message_text(non_final[0]), "just the task")
+
     def test_max_turns_exhausted_reports_truncation_in_agent_end(self) -> None:
         # If the agent never emits `final`, the run was truncated by the
         # turn budget. The trace must say so — otherwise downstream analysis
