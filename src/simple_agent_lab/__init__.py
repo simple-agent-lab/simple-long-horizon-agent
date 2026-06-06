@@ -70,6 +70,15 @@ from .messages import (
     tool_results_of,
     user_message,
 )
+from .pricing import (
+    CostBreakdown,
+    ModelCost,
+    ModelPrice,
+    PriceBook,
+    RunCost,
+    default_price_book,
+    usage_cost,
+)
 from .trace import append_openai_training_record, openai_training_record, print_trace
 from .trajectory import (
     ModelTurn,
@@ -162,6 +171,13 @@ __all__ = [
     "spans_from_events",
     "append_openai_training_record",
     "openai_training_record",
+    "CostBreakdown",
+    "ModelCost",
+    "ModelPrice",
+    "PriceBook",
+    "RunCost",
+    "default_price_book",
+    "usage_cost",
     "system_message",
     "task_tool",
     "tool_result_message",

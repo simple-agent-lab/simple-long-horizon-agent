@@ -57,6 +57,7 @@ MODULE_ZONES = {
     "tools": CORE,
     # peripheral subsystems: may depend on core, but core must not depend back
     "agents": PERIPHERAL,
+    "pricing": PERIPHERAL,
     "trace": PERIPHERAL,
     "trajectory": PERIPHERAL,
     "evals": PERIPHERAL,

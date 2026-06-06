@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..messages import normalize_content, text_of
+from ..pricing import PriceBook, RunCost
 from ..protocols import Event
 from .jsonl import json_safe
 from .spans import Span, merge_sub_agent_spans, span_record, spans_from_events
@@ -50,6 +51,14 @@ class RunTrace:
     def model_turns(self) -> list[ModelTurn]:
         """Extract model-visible input/output pairs for training."""
         return model_turns_from_events(self.trace_id, self.events)
+
+    def run_cost(self, price_book: PriceBook | None = None) -> RunCost:
+        """Fold this run's token usage into a per-model dollar rollup.
+
+        Includes sub-agent calls reached through tool-result sidecars. Pass a
+        `price_book` to override the built-in rate card.
+        """
+        return RunCost.from_run(self.events, self.messages, price_book)
 
 
 def run_trace_from_state(
@@ -100,5 +109,6 @@ def trace_record(trace: RunTrace) -> dict[str, Any]:
         "messages": json_safe(trace.messages),
         "spans": json_safe([span_record(s) for s in trace.spans()]),
         "model_turns": json_safe(trace.model_turns()),
+        "cost": trace.run_cost().as_dict(),
         "meta": trace.meta,
     }
