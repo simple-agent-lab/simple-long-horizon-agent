@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "https://claw-bench.github.io/schemas/task.schema.json",
+  "title": "Claw Bench Task Definition",
+  "description": "JSON Schema for claw-bench task.toml files",
+  "type": "object",
+  "required": ["id", "title", "domain", "level", "description", "timeout", "capabilities"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique task identifier (e.g. cal-001)",
+      "pattern": "^[a-z]+-[0-9]{3}$"
+    },
+    "title": {
+      "type": "string",
+      "description": "Human-readable task title",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "track": {
+      "type": "string",
+      "description": "The evaluation track: foundation (basic agent capabilities) or subject-matter (professional domain knowledge applied via agent actions)",
+      "enum": ["foundation", "subject-matter"],
+      "default": "foundation"
+    },
+    "domain": {
+      "type": "string",
+      "description": "Task domain category",
+      "enum": [
+        "calendar",
+        "code-assistance",
+        "communication",
+        "cross-domain",
+        "data-analysis",
+        "document-editing",
+        "email",
+        "file-operations",
+        "memory",
+        "multi-agent",
+        "multimodal",
+        "security",
+        "system-admin",
+        "web-browsing",
+        "workflow-automation",
+        "database",
+        "debugging",
+        "math-reasoning",
+        "planning",
+        "real-tools",
+        "mathematics",
+        "computer-science",
+        "physics-engineering",
+        "biology-chemistry",
+        "financial-analysis",
+        "accounting",
+        "marketing",
+        "contract-review",
+        "legal-research",
+        "clinical-data",
+        "medical-research",
+        "sociology",
+        "education"
+      ]
+    },
+    "level": {
+      "type": "string",
+      "description": "Difficulty level from L1 (easiest) to L4 (hardest)",
+      "enum": ["L1", "L2", "L3", "L4"]
+    },
+    "description": {
+      "type": "string",
+      "description": "Detailed description of what the task requires",
+      "minLength": 10
+    },
+    "timeout": {
+      "type": "integer",
+      "description": "Maximum execution time in seconds",
+      "minimum": 10,
+      "maximum": 3600
+    },
+    "capabilities": {
+      "type": "array",
+      "description": "List of capabilities the agent needs for this task",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    },
+    "required_actions": {
+      "type": "array",
+      "description": "Concrete agent actions required (ensures subject-matter tasks test real operations, not just Q&A)",
+      "items": {
+        "type": "string",
+        "enum": [
+          "api-call",
+          "file-read",
+          "file-write",
+          "file-move",
+          "database-query",
+          "database-write",
+          "script-execution",
+          "environment-setup",
+          "web-navigation",
+          "web-scraping",
+          "git-operation",
+          "email-send",
+          "document-conversion",
+          "data-visualization",
+          "command-line-tool",
+          "package-install",
+          "multi-agent-orchestration"
+        ]
+      },
+      "default": []
+    },
+    "skills_allowed": {
+      "type": "boolean",
+      "description": "Whether the agent may use external skills/tools",
+      "default": true
+    },
+    "tags": {
+      "type": "array",
+      "description": "Optional tags for filtering and categorisation",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "capability_types": {
+      "type": "array",
+      "description": "Core capability types tested: reasoning, tool-use, memory, multimodal, collaboration",
+      "items": {
+        "type": "string",
+        "enum": ["reasoning", "tool-use", "memory", "multimodal", "collaboration"]
+      },
+      "default": []
+    }
+  },
+  "additionalProperties": false
+}

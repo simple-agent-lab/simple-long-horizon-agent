@@ -1,0 +1,9 @@
+[task]
+id = "ds-003-feature-engineering"
+title = "Feature Engineering and Selection Pipeline"
+domain = "data-science"
+level = "L3"
+track = "subject-matter"
+tags = ["data-science", "feature-engineering", "ml"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "data-processing", "computation", "file-write"]

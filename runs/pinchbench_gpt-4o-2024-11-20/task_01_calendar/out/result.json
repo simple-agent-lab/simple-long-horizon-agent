@@ -1,0 +1,1 @@
+{"instance_id": "task_01_calendar", "workspace_files": ["meeting.ics"], "scores": {"file_created": 1.0, "attendee_present": 1.0, "title_correct": 1.0, "description_present": 1.0, "time_correct": 1.0, "date_correct": 1.0}, "mean": 1.0, "score": 100.0}

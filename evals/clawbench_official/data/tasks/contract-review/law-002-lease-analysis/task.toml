@@ -1,0 +1,9 @@
+[task]
+id = "law-002-lease-analysis"
+title = "Analyze Commercial Lease and Extract Obligations"
+domain = "contract-review"
+level = "L2"
+track = "subject-matter"
+tags = ["legal", "lease", "contract"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "text-processing", "file-write"]

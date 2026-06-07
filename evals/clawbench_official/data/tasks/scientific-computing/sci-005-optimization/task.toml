@@ -1,0 +1,9 @@
+[task]
+id = "sci-005-optimization"
+title = "Constrained Optimization with Gradient Descent"
+domain = "scientific-computing"
+level = "L3"
+track = "subject-matter"
+tags = ["scientific-computing", "optimization", "gradient-descent"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "computation", "file-write"]

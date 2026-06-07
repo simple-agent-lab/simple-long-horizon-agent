@@ -1,0 +1,15 @@
+Computational methods enable large scale text analysis.
+Plagiarism detection is important in academia.
+Data science is an interdisciplinary field.
+Cosine similarity measures the cosine of the angle between vectors.
+Jaccard similarity is a statistic used for comparing sets.
+The quick brown fox jumps over the lazy dog.
+The quick brown fox jumps over the lazy dog.
+Natural language processing involves computational linguistics.
+Students should avoid plagiarism in their assignments.
+TF-IDF stands for term frequency-inverse document frequency.
+Machine learning models can detect patterns.
+Natural language processing involves computational linguistics.
+The dog barked loudly at the stranger.
+Machine learning models can detect patterns.
+Jaccard similarity is a statistic used for comparing sets.

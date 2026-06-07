@@ -1,0 +1,9 @@
+[task]
+id = "reg-005-environmental-report"
+title = "EPA Emissions Compliance Report"
+domain = "regulatory-compliance"
+level = "L2"
+track = "subject-matter"
+tags = ["compliance", "environmental", "epa"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "computation", "file-write"]

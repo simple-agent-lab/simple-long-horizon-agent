@@ -1,0 +1,30 @@
+{"id": "E1", "type": "deployment", "severity": "low", "source": "api-gateway", "message": "Deployment completed for v2.3.1"}
+{"id": "E2", "type": "alert", "severity": "medium", "source": "database", "message": "CPU usage exceeded threshold"}
+{"id": "E3", "type": "monitoring", "severity": "low", "source": "auth-service", "message": "Network latency spike observed"}
+{"id": "E4", "type": "deployment", "severity": "low", "source": "security", "message": "Unauthorized access attempt detected"}
+{"id": "E5", "type": "alert", "severity": "low", "source": "auth-service", "message": "Unauthorized access attempt detected"}
+{"id": "E6", "type": "monitoring", "severity": "critical", "source": "database", "message": "SSL certificate expiring in 7 days"}
+{"id": "E7", "type": "monitoring", "severity": "high", "source": "security", "message": "Database connection pool exhausted"}
+{"id": "E8", "type": "maintenance", "severity": "high", "source": "web-server", "message": "Database connection pool exhausted"}
+{"id": "E9", "type": "alert", "severity": "high", "source": "security", "message": "CPU usage exceeded threshold"}
+{"id": "E10", "type": "maintenance", "severity": "low", "source": "web-server", "message": "Memory leak detected in worker process"}
+{"id": "E11", "type": "monitoring", "severity": "high", "source": "security", "message": "SSL certificate expiring in 7 days"}
+{"id": "E12", "type": "monitoring", "severity": "low", "source": "network", "message": "CPU usage exceeded threshold"}
+{"id": "E13", "type": "monitoring", "severity": "high", "source": "api-gateway", "message": "New deployment initiated for hotfix"}
+{"id": "E14", "type": "incident", "severity": "medium", "source": "api-gateway", "message": "CPU usage exceeded threshold"}
+{"id": "E15", "type": "deployment", "severity": "medium", "source": "web-server", "message": "CPU usage exceeded threshold"}
+{"id": "E16", "type": "alert", "severity": "low", "source": "network", "message": "Deployment completed for v2.3.1"}
+{"id": "E17", "type": "maintenance", "severity": "high", "source": "database", "message": "Memory leak detected in worker process"}
+{"id": "E18", "type": "incident", "severity": "medium", "source": "api-gateway", "message": "Deployment completed for v2.3.1"}
+{"id": "E19", "type": "deployment", "severity": "medium", "source": "auth-service", "message": "Unauthorized access attempt detected"}
+{"id": "E20", "type": "alert", "severity": "critical", "source": "network", "message": "Deployment completed for v2.3.1"}
+{"id": "E21", "type": "monitoring", "severity": "medium", "source": "api-gateway", "message": "Memory leak detected in worker process"}
+{"id": "E22", "type": "deployment", "severity": "medium", "source": "security", "message": "Memory leak detected in worker process"}
+{"id": "E23", "type": "maintenance", "severity": "high", "source": "security", "message": "Unauthorized access attempt detected"}
+{"id": "E24", "type": "monitoring", "severity": "high", "source": "database", "message": "SSL certificate expiring in 7 days"}
+{"id": "E25", "type": "maintenance", "severity": "critical", "source": "database", "message": "Deployment completed for v2.3.1"}
+{"id": "E26", "type": "alert", "severity": "medium", "source": "api-gateway", "message": "Backup job failed"}
+{"id": "E27", "type": "monitoring", "severity": "high", "source": "api-gateway", "message": "New deployment initiated for hotfix"}
+{"id": "E28", "type": "maintenance", "severity": "critical", "source": "web-server", "message": "Unauthorized access attempt detected"}
+{"id": "E29", "type": "alert", "severity": "critical", "source": "security", "message": "Service restarted successfully"}
+{"id": "E30", "type": "deployment", "severity": "medium", "source": "api-gateway", "message": "Database connection pool exhausted"}

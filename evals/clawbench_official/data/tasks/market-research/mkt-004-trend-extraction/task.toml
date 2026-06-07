@@ -1,0 +1,9 @@
+[task]
+id = "mkt-004-trend-extraction"
+title = "Sales Trend Analysis and Quarterly Forecast"
+domain = "market-research"
+level = "L2"
+track = "subject-matter"
+tags = ["market-research", "time-series", "forecasting"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "computation", "file-write"]

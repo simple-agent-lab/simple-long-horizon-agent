@@ -1,0 +1,9 @@
+[task]
+id = "acad-003-statistical-analysis"
+title = "Experimental Data Hypothesis Testing"
+domain = "academic-research"
+level = "L2"
+track = "subject-matter"
+tags = ["academic", "statistics", "hypothesis-testing"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "computation", "file-write"]

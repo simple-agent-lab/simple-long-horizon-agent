@@ -1,0 +1,9 @@
+[task]
+id = "med-005-trial-eligibility"
+title = "Clinical Trial Patient Screening"
+domain = "clinical-data"
+level = "L2"
+track = "subject-matter"
+tags = ["clinical", "clinical-trial", "screening"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "data-processing", "file-write"]

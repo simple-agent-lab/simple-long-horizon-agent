@@ -1,0 +1,9 @@
+[task]
+id = "law-004-ip-license-review"
+title = "Software License Rights and Restrictions Matrix"
+domain = "contract-review"
+level = "L2"
+track = "subject-matter"
+tags = ["legal", "licensing", "ip"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "text-processing", "file-write"]

@@ -1,0 +1,9 @@
+[task]
+id = "acct-003-depreciation"
+title = "Calculate Multi-Method Depreciation Schedules"
+domain = "accounting"
+level = "L2"
+track = "subject-matter"
+tags = ["accounting", "depreciation", "fixed-assets"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "computation", "file-write"]

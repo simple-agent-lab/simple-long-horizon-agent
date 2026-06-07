@@ -1,0 +1,9 @@
+[task]
+id = "mkt-003-pricing-analysis"
+title = "Price Elasticity and Revenue Optimization"
+domain = "market-research"
+level = "L3"
+track = "subject-matter"
+tags = ["market-research", "pricing", "elasticity"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "computation", "file-write"]

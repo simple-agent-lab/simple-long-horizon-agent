@@ -1,0 +1,248 @@
+"""Verifier for sys-013: Log Rotation Planner."""
+
+import json
+from pathlib import Path
+
+import pytest
+
+
+@pytest.fixture
+def workspace(request):
+    return request.config.getoption("--workspace")
+
+
+@pytest.fixture
+def plan(workspace):
+    path = Path(workspace) / "rotation_plan.json"
+    assert path.exists(), "rotation_plan.json not found in workspace"
+    return json.loads(path.read_text())
+
+
+def _get_file(plan, path):
+    for f in plan["files"]:
+        if f["path"] == path:
+            return f
+    return None
+
+
+def test_plan_file_exists(workspace):
+    assert (Path(workspace) / "rotation_plan.json").exists()
+
+
+def test_reference_date(plan):
+    assert plan["reference_date"] == "2025-03-01"
+
+
+def test_total_files(plan):
+    assert len(plan["files"]) == 12
+
+
+def test_summary_total(plan):
+    assert plan["summary"]["total_files"] == 12
+
+
+def test_files_have_required_fields(plan):
+    for f in plan["files"]:
+        assert "path" in f
+        assert "size_mb" in f
+        assert "age_days" in f
+        assert "retention_days" in f
+        assert "actions" in f
+
+
+def test_syslog_actions(plan):
+    """syslog: 250MB, age=1, ret=30 -> rotate, compress (large size)."""
+    f = _get_file(plan, "/var/log/syslog")
+    assert f is not None
+    assert "rotate" in f["actions"]
+    assert "compress" in f["actions"]
+    assert "delete" not in f["actions"]
+
+
+def test_auth_log_no_action(plan):
+    """auth.log: 45MB, age=9, ret=90 -> no action."""
+    f = _get_file(plan, "/var/log/auth.log")
+    assert f is not None
+    assert f["actions"] == []
+
+
+def test_kern_log_actions(plan):
+    """kern.log: 120MB, age=45, ret=60 -> rotate, compress."""
+    f = _get_file(plan, "/var/log/kern.log")
+    assert f is not None
+    assert "rotate" in f["actions"]
+    assert "compress" in f["actions"]
+    assert "delete" not in f["actions"]
+
+
+def test_apache_access_log_actions(plan):
+    """apache access.log: 500MB, age=90, ret=30 -> rotate, compress, delete."""
+    f = _get_file(plan, "/var/log/apache2/access.log")
+    assert f is not None
+    assert "rotate" in f["actions"]
+    assert "compress" in f["actions"]
+    assert "delete" in f["actions"]
+
+
+def test_apache_error_log_no_action(plan):
+    """apache error.log: 30MB, age=4, ret=30 -> no action."""
+    f = _get_file(plan, "/var/log/apache2/error.log")
+    assert f is not None
+    assert f["actions"] == []
+
+
+def test_mysql_slow_log_actions(plan):
+    """mysql slow.log: 80MB, age=106, ret=45 -> rotate, compress, delete."""
+    f = _get_file(plan, "/var/log/mysql/slow.log")
+    assert f is not None
+    assert "rotate" in f["actions"]
+    assert "compress" in f["actions"]
+    assert "delete" in f["actions"]
+
+
+def test_mail_log_actions(plan):
+    """mail.log: 200MB, age=151, ret=60 -> rotate, compress, delete."""
+    f = _get_file(plan, "/var/log/mail.log")
+    assert f is not None
+    assert "rotate" in f["actions"]
+    assert "compress" in f["actions"]
+    assert "delete" in f["actions"]
+
+
+def test_nginx_access_log_actions(plan):
+    """nginx access.log: 150MB, age=212, ret=30 -> rotate, compress, delete."""
+    f = _get_file(plan, "/var/log/nginx/access.log")
+    assert f is not None
+    assert "rotate" in f["actions"]
+    assert "compress" in f["actions"]
+    assert "delete" in f["actions"]
+
+
+def test_boot_log_no_action(plan):
+    """boot.log: 5MB, age=0, ret=30 -> no action."""
+    f = _get_file(plan, "/var/log/boot.log")
+    assert f is not None
+    assert f["actions"] == []
+
+
+def test_daemon_log_no_action(plan):
+    """daemon.log: 60MB, age=59, ret=90 -> no action."""
+    f = _get_file(plan, "/var/log/daemon.log")
+    assert f is not None
+    assert f["actions"] == []
+
+
+def test_summary_rotate_count(plan):
+    assert plan["summary"]["files_to_rotate"] == 6
+
+
+def test_summary_compress_count(plan):
+    assert plan["summary"]["files_to_compress"] == 6
+
+
+def test_summary_delete_count(plan):
+    assert plan["summary"]["files_to_delete"] == 4
+
+
+def test_summary_no_action_count(plan):
+    assert plan["summary"]["files_no_action"] == 6
+
+
+# ── Enhanced checks (auto-generated) ────────────────────────────────────────
+
+@pytest.mark.weight(1)
+def test_no_placeholder_values(workspace):
+    """Output files must not contain placeholder/TODO markers."""
+    placeholders = ["TODO", "FIXME", "XXX", "PLACEHOLDER", "CHANGEME", "your_"]
+    for f in workspace.iterdir():
+        if f.is_file() and f.suffix in (".json", ".csv", ".txt", ".md", ".py", ".yaml", ".yml", ".html", ".xml"):
+            content = f.read_text(errors="replace").lower()
+            for p in placeholders:
+                assert p.lower() not in content, f"Placeholder '{p}' found in {f.name}"
+
+@pytest.mark.weight(2)
+def test_no_empty_critical_fields(workspace):
+    """JSON output must not have empty-string or null values in top-level fields."""
+    import json
+    path = workspace / "log_inventory.json"
+    if not path.exists():
+        pytest.skip("output file not found")
+    data = json.loads(path.read_text())
+    items = data if isinstance(data, list) else [data]
+    for i, item in enumerate(items):
+        if not isinstance(item, dict):
+            continue
+        for k, v in item.items():
+            assert v is not None, f"Item {i}: field '{k}' is null"
+            if isinstance(v, str):
+                assert v.strip() != "", f"Item {i}: field '{k}' is empty string"
+
+@pytest.mark.weight(1)
+def test_encoding_valid(workspace):
+    """All text output files must be valid UTF-8."""
+    for f in workspace.iterdir():
+        if f.is_file() and f.suffix in (".json", ".csv", ".txt", ".md", ".py", ".yaml", ".yml", ".html"):
+            try:
+                f.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                pytest.fail(f"{f.name} contains invalid UTF-8 encoding")
+
+@pytest.mark.weight(1)
+def test_consistent_key_naming(workspace):
+    """JSON keys should use a consistent naming convention."""
+    import json, re
+    path = workspace / "log_inventory.json"
+    if not path.exists():
+        pytest.skip("output file not found")
+    data = json.loads(path.read_text())
+    items = data if isinstance(data, list) else [data]
+    all_keys = set()
+    for item in items:
+        if isinstance(item, dict):
+            all_keys.update(item.keys())
+    if len(all_keys) < 2:
+        return
+    snake = sum(1 for k in all_keys if re.match(r'^[a-z][a-z0-9_]*$', k))
+    camel = sum(1 for k in all_keys if re.match(r'^[a-z][a-zA-Z0-9]*$', k) and not re.match(r'^[a-z][a-z0-9_]*$', k))
+    pascal = sum(1 for k in all_keys if re.match(r'^[A-Z][a-zA-Z0-9]*$', k))
+    dominant = max(snake, camel, pascal)
+    consistency = dominant / len(all_keys) if all_keys else 1
+    assert consistency >= 0.7, f"Key naming inconsistent: {snake} snake, {camel} camel, {pascal} pascal out of {len(all_keys)} keys"
+
+@pytest.mark.weight(1)
+def test_no_duplicate_entries(workspace):
+    """Output should not contain exact duplicate rows/objects."""
+    import json
+    path = workspace / "log_inventory.json"
+    if not path.exists():
+        pytest.skip("output file not found")
+    text = path.read_text().strip()
+    if path.suffix == ".json":
+        data = json.loads(text)
+        if isinstance(data, list):
+            serialized = [json.dumps(item, sort_keys=True) for item in data]
+            dupes = len(serialized) - len(set(serialized))
+            assert dupes == 0, f"Found {dupes} duplicate entries in {path.name}"
+    elif path.suffix == ".csv":
+        lines_list = text.splitlines()
+        if len(lines_list) > 1:
+            data_lines = lines_list[1:]
+            dupes = len(data_lines) - len(set(data_lines))
+            assert dupes == 0, f"Found {dupes} duplicate rows in {path.name}"
+
+@pytest.mark.weight(1)
+def test_no_extraneous_files(workspace):
+    """Workspace should not contain debug/temp files."""
+    bad_patterns = [".pyc", "__pycache__", ".DS_Store", "Thumbs.db", ".log", ".bak", ".tmp"]
+    for f in workspace.rglob("*"):
+        if f.is_file():
+            for pat in bad_patterns:
+                assert pat not in f.name, f"Extraneous file found: {f.name}"
+
+@pytest.mark.weight(1)
+def test_output_not_excessively_large(workspace):
+    """Output files should be reasonably sized (< 5MB each)."""
+    for f in workspace.iterdir():
+        if f.is_file() and f.suffix in (".json", ".csv", ".txt", ".md", ".py", ".yaml", ".yml", ".html"):
+            size_mb = f.stat().st_size / (1024 * 1024)
+            assert size_mb < 5, f"{f.name} is {size_mb:.1f}MB, exceeds 5MB limit"

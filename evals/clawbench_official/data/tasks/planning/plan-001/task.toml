@@ -1,0 +1,10 @@
+id = "plan-001"
+title = "Extract User Stories from Requirements"
+domain = "planning"
+level = "L1"
+description = "Parse a product requirements document and extract structured user stories with role, action, and benefit"
+timeout = 180
+capabilities = ["file-read", "file-write"]
+skills_allowed = true
+tags = ["user-stories", "requirements", "agile", "planning", "beginner"]
+capability_types = ["reasoning", "tool-use"]

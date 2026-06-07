@@ -1,0 +1,9 @@
+[task]
+id = "bio-004-phylogenetic"
+title = "Phylogenetic Tree Construction from Sequences"
+domain = "bioinformatics"
+level = "L3"
+track = "subject-matter"
+tags = ["bioinformatics", "phylogenetics", "tree"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "computation", "file-write"]

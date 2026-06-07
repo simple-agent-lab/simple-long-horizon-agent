@@ -1,0 +1,15 @@
+Data science is an interdisciplinary field.
+Machine learning models can detect patterns.
+Machine learning models can detect patterns.
+Data science is an interdisciplinary field.
+TF-IDF stands for term frequency-inverse document frequency.
+Vector space models represent documents numerically.
+The quick brown fox jumps over the lazy dog.
+Cosine similarity measures the cosine of the angle between vectors.
+Deep learning has revolutionized many AI applications.
+Plagiarism detection is important in academia.
+Jaccard similarity is a statistic used for comparing sets.
+Machine learning models can detect patterns.
+Computational methods enable large scale text analysis.
+Jaccard similarity is a statistic used for comparing sets.
+Semantic similarity captures meaning beyond words.

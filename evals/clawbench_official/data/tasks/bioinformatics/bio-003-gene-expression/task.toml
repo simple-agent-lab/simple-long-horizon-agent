@@ -1,0 +1,9 @@
+[task]
+id = "bio-003-gene-expression"
+title = "Differential Gene Expression Analysis"
+domain = "bioinformatics"
+level = "L3"
+track = "subject-matter"
+tags = ["bioinformatics", "gene-expression", "statistics"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "computation", "data-processing", "file-write"]

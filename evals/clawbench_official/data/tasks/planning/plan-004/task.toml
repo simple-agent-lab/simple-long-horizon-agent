@@ -1,0 +1,10 @@
+id = "plan-004"
+title = "API Design from PRD"
+domain = "planning"
+level = "L3"
+description = "Design a complete RESTful API from a product requirements document for a bookstore application"
+timeout = 300
+capabilities = ["file-read", "file-write"]
+skills_allowed = true
+tags = ["api-design", "rest", "prd", "planning", "advanced"]
+capability_types = ["reasoning", "tool-use"]

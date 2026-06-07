@@ -1,0 +1,9 @@
+[task]
+id = "mkt-005-market-sizing"
+title = "Calculate TAM SAM SOM Market Sizing"
+domain = "market-research"
+level = "L3"
+track = "subject-matter"
+tags = ["market-research", "market-sizing"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "computation", "file-write"]

@@ -1,0 +1,1 @@
+{"instance_id": "data-analysis-cross-reference", "expected_outputs": [{"pattern": "discrepancy-report.md", "required": true, "validators": [{"type": "file-exists"}, {"type": "content-contains", "sections": ["not in inventory", "never ordered", "exceeds"]}]}], "scoring_weights": {"layer0_weight": 0.15, "layer1_weight": 0.25, "layer2_weight": 0.25, "layer3_weight": 0.35}}

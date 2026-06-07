@@ -1,0 +1,9 @@
+[task]
+id = "ds-005-anomaly-detection"
+title = "Sensor Data Anomaly Detection (IQR and Z-Score)"
+domain = "data-science"
+level = "L2"
+track = "subject-matter"
+tags = ["data-science", "anomaly-detection", "sensors"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "computation", "file-write"]

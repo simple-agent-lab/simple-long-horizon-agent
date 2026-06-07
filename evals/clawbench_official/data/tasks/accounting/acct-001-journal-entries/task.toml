@@ -1,0 +1,9 @@
+[task]
+id = "acct-001-journal-entries"
+title = "Process Transactions into Double-Entry Journal Entries"
+domain = "accounting"
+level = "L2"
+track = "subject-matter"
+tags = ["accounting", "bookkeeping", "journal"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "data-processing", "file-write"]

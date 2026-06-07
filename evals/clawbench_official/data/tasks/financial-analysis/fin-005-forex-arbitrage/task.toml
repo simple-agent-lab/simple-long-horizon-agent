@@ -1,0 +1,9 @@
+[task]
+id = "fin-005-forex-arbitrage"
+title = "Detect Triangular Arbitrage from Exchange Rate Matrix"
+domain = "financial-analysis"
+level = "L3"
+track = "subject-matter"
+tags = ["finance", "forex", "arbitrage", "graph"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "data-processing", "computation", "file-write"]

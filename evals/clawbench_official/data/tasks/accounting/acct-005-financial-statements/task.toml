@@ -1,0 +1,9 @@
+[task]
+id = "acct-005-financial-statements"
+title = "Generate Financial Statements from Trial Balance"
+domain = "accounting"
+level = "L3"
+track = "subject-matter"
+tags = ["accounting", "financial-statements", "reporting"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "data-processing", "computation", "file-write"]

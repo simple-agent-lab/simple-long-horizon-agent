@@ -1,0 +1,9 @@
+[task]
+id = "law-005-merger-due-diligence"
+title = "M&A Due Diligence Document Analysis"
+domain = "contract-review"
+level = "L3"
+track = "subject-matter"
+tags = ["legal", "m-and-a", "due-diligence"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "text-processing", "file-write"]

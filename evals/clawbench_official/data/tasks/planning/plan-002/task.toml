@@ -1,0 +1,10 @@
+id = "plan-002"
+title = "Project Milestone Timeline"
+domain = "planning"
+level = "L2"
+description = "Create a structured milestone timeline from a project brief with dates, deliverables, and dependencies"
+timeout = 240
+capabilities = ["file-read", "file-write"]
+skills_allowed = true
+tags = ["milestones", "timeline", "project-management", "planning", "intermediate"]
+capability_types = ["reasoning", "tool-use"]

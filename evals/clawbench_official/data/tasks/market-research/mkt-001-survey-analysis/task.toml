@@ -1,0 +1,9 @@
+[task]
+id = "mkt-001-survey-analysis"
+title = "Analyze Customer Survey and Compute NPS Score"
+domain = "market-research"
+level = "L2"
+track = "subject-matter"
+tags = ["market-research", "survey", "nps"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "data-processing", "computation", "file-write"]

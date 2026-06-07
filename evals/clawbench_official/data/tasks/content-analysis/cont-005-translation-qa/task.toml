@@ -1,0 +1,9 @@
+[task]
+id = "cont-005-translation-qa"
+title = "Translation Quality Assessment"
+domain = "content-analysis"
+level = "L2"
+track = "subject-matter"
+tags = ["content-analysis", "translation", "qa"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "computation", "file-write"]

@@ -1,0 +1,16 @@
+FROM clawbase-nanobot:v1
+
+# Remove NanoBotAgent / OpenClawPro dependencies
+RUN rm -rf /root/OpenClawPro /opt/OpenClawPro /app/OpenClawPro 2>/dev/null; \
+    pip uninstall -y openclawpro 2>/dev/null; \
+    true
+
+# Ensure core tools are present (lightweight — no torch/ML deps)
+RUN pip install --no-cache-dir \
+    pytest pytest-json-report pyyaml tomli flask httpx 2>/dev/null; \
+    true
+
+# Create mock services directory
+RUN mkdir -p /app/mocks
+
+WORKDIR /workspace

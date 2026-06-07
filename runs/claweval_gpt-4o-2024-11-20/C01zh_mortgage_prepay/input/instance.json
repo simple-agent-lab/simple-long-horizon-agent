@@ -1,0 +1,1 @@
+{"environment": {"max_turns": 25, "timeout_seconds": 900}, "instance_id": "C01zh_mortgage_prepay", "prompt_language": "zh", "prompt_text": "在考虑提前还房贷，当时签的LPR加了30个基点，手头攒了大概15万，帮我算算现在提前还划不划算。", "tools": [], "user_agent_enabled": true, "user_agent_max_rounds": 8}

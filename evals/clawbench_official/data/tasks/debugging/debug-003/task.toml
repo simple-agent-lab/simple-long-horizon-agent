@@ -1,0 +1,10 @@
+id = "debug-003"
+title = "Fix Runtime Crashes on Edge Cases"
+domain = "debugging"
+level = "L2"
+description = "Fix three runtime crash bugs: NoneType attribute access, KeyError on missing dict key, and IndexError on empty list"
+timeout = 120
+capabilities = ["file-read", "file-write"]
+skills_allowed = true
+tags = ["runtime", "exceptions", "python", "debugging", "intermediate"]
+capability_types = ["reasoning", "tool-use"]

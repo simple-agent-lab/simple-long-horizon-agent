@@ -1,0 +1,9 @@
+[task]
+id = "cs-003-log-analyzer"
+title = "Server Log Anomaly Detection and Incident Report"
+domain = "cs-engineering"
+level = "L2"
+track = "subject-matter"
+tags = ["engineering", "logging", "anomaly-detection"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "data-processing", "file-write"]

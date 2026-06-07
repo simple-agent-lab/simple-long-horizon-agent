@@ -1,0 +1,169 @@
+"""Verifier for code-015: Performance Optimization."""
+
+import importlib.util
+import time
+from pathlib import Path
+
+import pytest
+
+
+@pytest.fixture
+def workspace(request):
+    """Resolve the workspace path from the --workspace CLI flag."""
+    return Path(request.config.getoption("--workspace"))
+
+
+@pytest.fixture
+def slow_module(workspace):
+    """Import slow.py from the workspace."""
+    module_path = workspace / "slow.py"
+    assert module_path.exists(), "slow.py not found in workspace"
+    spec = importlib.util.spec_from_file_location("slow", str(module_path))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_file_exists(workspace):
+    """slow.py must exist in the workspace."""
+    assert (workspace / "slow.py").exists()
+
+
+# --- Correctness Tests ---
+
+def test_find_duplicates_correct(slow_module):
+    """find_duplicates must return correct results."""
+    assert slow_module.find_duplicates([1, 2, 3, 2, 4, 3]) == [2, 3]
+
+
+def test_find_duplicates_no_dupes(slow_module):
+    """find_duplicates with no duplicates."""
+    assert slow_module.find_duplicates([1, 2, 3]) == []
+
+
+def test_find_duplicates_all_same(slow_module):
+    """find_duplicates where all items are the same."""
+    assert slow_module.find_duplicates([5, 5, 5]) == [5]
+
+
+def test_find_duplicates_empty(slow_module):
+    """find_duplicates on empty list."""
+    assert slow_module.find_duplicates([]) == []
+
+
+def test_count_words_correct(slow_module):
+    """count_words must return correct word counts."""
+    result = slow_module.count_words("the cat sat on the mat")
+    assert result["the"] == 2
+    assert result["cat"] == 1
+    assert result["sat"] == 1
+
+
+def test_count_words_punctuation(slow_module):
+    """count_words should strip punctuation."""
+    result = slow_module.count_words("Hello, hello! HELLO.")
+    assert result["hello"] == 3
+
+
+def test_count_words_empty(slow_module):
+    """count_words on empty string."""
+    result = slow_module.count_words("")
+    assert result == {}
+
+
+def test_fibonacci_base_cases(slow_module):
+    """fibonacci base cases."""
+    assert slow_module.fibonacci(0) == 0
+    assert slow_module.fibonacci(1) == 1
+
+
+def test_fibonacci_small(slow_module):
+    """fibonacci for small n."""
+    assert slow_module.fibonacci(10) == 55
+
+
+def test_fibonacci_larger(slow_module):
+    """fibonacci for larger n."""
+    assert slow_module.fibonacci(30) == 832040
+
+
+# --- Performance Tests ---
+
+def test_find_duplicates_performance(slow_module):
+    """find_duplicates should handle 10000 items quickly."""
+    items = list(range(5000)) + list(range(5000))  # 5000 duplicates
+    start = time.time()
+    result = slow_module.find_duplicates(items)
+    elapsed = time.time() - start
+    assert len(result) == 5000
+    assert elapsed < 1.0, f"find_duplicates took {elapsed:.2f}s – should be under 1s"
+
+
+def test_count_words_performance(slow_module):
+    """count_words should handle large text quickly."""
+    text = " ".join(["word"] * 5000 + ["other"] * 3000 + ["test"] * 2000)
+    start = time.time()
+    result = slow_module.count_words(text)
+    elapsed = time.time() - start
+    assert result["word"] == 5000
+    assert elapsed < 1.0, f"count_words took {elapsed:.2f}s – should be under 1s"
+
+
+def test_fibonacci_performance(slow_module):
+    """fibonacci(35) should complete quickly with optimization."""
+    start = time.time()
+    result = slow_module.fibonacci(35)
+    elapsed = time.time() - start
+    assert result == 9227465
+    assert elapsed < 1.0, f"fibonacci(35) took {elapsed:.2f}s – should be under 1s"
+
+
+# ── Enhanced checks (auto-generated) ────────────────────────────────────────
+
+@pytest.mark.weight(1)
+def test_no_placeholder_values(workspace):
+    """Output files must not contain placeholder/TODO markers."""
+    placeholders = ["TODO", "FIXME", "XXX", "PLACEHOLDER", "CHANGEME", "your_"]
+    for f in workspace.iterdir():
+        if f.is_file() and f.suffix in (".json", ".csv", ".txt", ".md", ".py", ".yaml", ".yml", ".html", ".xml"):
+            content = f.read_text(errors="replace").lower()
+            for p in placeholders:
+                assert p.lower() not in content, f"Placeholder '{p}' found in {f.name}"
+
+@pytest.mark.weight(1)
+def test_encoding_valid(workspace):
+    """All text output files must be valid UTF-8."""
+    for f in workspace.iterdir():
+        if f.is_file() and f.suffix in (".json", ".csv", ".txt", ".md", ".py", ".yaml", ".yml", ".html"):
+            try:
+                f.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                pytest.fail(f"{f.name} contains invalid UTF-8 encoding")
+
+@pytest.mark.weight(1)
+def test_no_extraneous_files(workspace):
+    """Workspace should not contain debug/temp files."""
+    bad_patterns = [".pyc", "__pycache__", ".DS_Store", "Thumbs.db", ".log", ".bak", ".tmp"]
+    for f in workspace.rglob("*"):
+        if f.is_file():
+            for pat in bad_patterns:
+                assert pat not in f.name, f"Extraneous file found: {f.name}"
+
+@pytest.mark.weight(1)
+def test_output_not_excessively_large(workspace):
+    """Output files should be reasonably sized (< 5MB each)."""
+    for f in workspace.iterdir():
+        if f.is_file() and f.suffix in (".json", ".csv", ".txt", ".md", ".py", ".yaml", ".yml", ".html"):
+            size_mb = f.stat().st_size / (1024 * 1024)
+            assert size_mb < 5, f"{f.name} is {size_mb:.1f}MB, exceeds 5MB limit"
+
+@pytest.mark.weight(2)
+def test_json_parseable_if_present(workspace):
+    """Any .json files in workspace must be valid JSON."""
+    import json
+    for f in workspace.iterdir():
+        if f.is_file() and f.suffix == ".json":
+            try:
+                json.loads(f.read_text())
+            except json.JSONDecodeError:
+                pytest.fail(f"{f.name} is not valid JSON")

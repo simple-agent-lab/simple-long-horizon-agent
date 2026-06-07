@@ -1,0 +1,1 @@
+{"instance_id": "basic_chat", "expected": "42", "check_type": "contains", "desc": "15+27=42"}

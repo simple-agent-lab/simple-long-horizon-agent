@@ -1,0 +1,10 @@
+id = "plan-005"
+title = "System Architecture Document"
+domain = "planning"
+level = "L4"
+description = "Design a comprehensive system architecture for a real-time chat application from business requirements"
+timeout = 360
+capabilities = ["file-read", "file-write"]
+skills_allowed = true
+tags = ["architecture", "system-design", "real-time", "planning", "expert"]
+capability_types = ["reasoning", "tool-use"]

@@ -1,0 +1,15 @@
+The cat sat on the mat near the fireplace.
+The quick brown fox jumps over the lazy dog.
+Document clustering groups similar documents together.
+Plagiarism detection is important in academia.
+Text similarity measures help find copied content.
+Research papers require proper citation and originality.
+Computational methods enable large scale text analysis.
+Deep learning has revolutionized many AI applications.
+Vector space models represent documents numerically.
+Semantic similarity captures meaning beyond words.
+Vector space models represent documents numerically.
+Research papers require proper citation and originality.
+TF-IDF stands for term frequency-inverse document frequency.
+Natural language processing involves computational linguistics.
+Vector space models represent documents numerically.

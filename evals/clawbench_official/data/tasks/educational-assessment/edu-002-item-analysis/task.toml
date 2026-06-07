@@ -1,0 +1,9 @@
+[task]
+id = "edu-002-item-analysis"
+title = "Exam Item Difficulty and Discrimination Analysis"
+domain = "educational-assessment"
+level = "L2"
+track = "subject-matter"
+tags = ["education", "assessment", "psychometrics"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "computation", "file-write"]

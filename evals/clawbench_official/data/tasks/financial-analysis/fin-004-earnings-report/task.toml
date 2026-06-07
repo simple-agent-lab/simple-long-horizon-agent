@@ -1,0 +1,9 @@
+[task]
+id = "fin-004-earnings-report"
+title = "Parse Earnings Report and Generate KPI Comparison"
+domain = "financial-analysis"
+level = "L2"
+track = "subject-matter"
+tags = ["finance", "parsing", "kpi"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "text-processing", "data-processing", "file-write"]

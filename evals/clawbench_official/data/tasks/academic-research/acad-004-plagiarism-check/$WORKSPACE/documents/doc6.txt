@@ -1,0 +1,15 @@
+Computational methods enable large scale text analysis.
+Research papers require proper citation and originality.
+Computational methods enable large scale text analysis.
+The cat sat on the mat near the fireplace.
+Artificial intelligence is transforming industries.
+Cosine similarity measures the cosine of the angle between vectors.
+Plagiarism detection is important in academia.
+Vector space models represent documents numerically.
+Document clustering groups similar documents together.
+TF-IDF stands for term frequency-inverse document frequency.
+Text similarity measures help find copied content.
+Semantic similarity captures meaning beyond words.
+Students should avoid plagiarism in their assignments.
+TF-IDF stands for term frequency-inverse document frequency.
+Text preprocessing includes tokenization and normalization.

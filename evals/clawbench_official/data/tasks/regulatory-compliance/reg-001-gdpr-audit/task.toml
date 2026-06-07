@@ -1,0 +1,9 @@
+[task]
+id = "reg-001-gdpr-audit"
+title = "GDPR Data Processing Records Audit"
+domain = "regulatory-compliance"
+level = "L2"
+track = "subject-matter"
+tags = ["compliance", "gdpr", "privacy"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "data-processing", "file-write"]

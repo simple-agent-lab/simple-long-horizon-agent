@@ -1,0 +1,9 @@
+[task]
+id = "sci-003-matrix-decomposition"
+title = "SVD Matrix Decomposition and Reconstruction"
+domain = "scientific-computing"
+level = "L3"
+track = "subject-matter"
+tags = ["scientific-computing", "linear-algebra", "svd"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "computation", "file-write"]

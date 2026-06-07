@@ -1,0 +1,9 @@
+[task]
+id = "cont-004-media-bias"
+title = "News Article Bias Analysis"
+domain = "content-analysis"
+level = "L3"
+track = "subject-matter"
+tags = ["content-analysis", "bias", "media"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "text-processing", "computation", "file-write"]

@@ -1,0 +1,9 @@
+[task]
+id = "cs-002-db-migration"
+title = "SQLite Database Schema Migration"
+domain = "cs-engineering"
+level = "L3"
+track = "subject-matter"
+tags = ["engineering", "database", "sql", "migration"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "script-execution", "database-operation", "file-write"]

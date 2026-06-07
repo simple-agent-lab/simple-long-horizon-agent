@@ -1,0 +1,9 @@
+[task]
+id = "acct-002-trial-balance"
+title = "Generate Trial Balance and Detect Imbalances"
+domain = "accounting"
+level = "L2"
+track = "subject-matter"
+tags = ["accounting", "trial-balance", "validation"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "data-processing", "computation", "file-write"]

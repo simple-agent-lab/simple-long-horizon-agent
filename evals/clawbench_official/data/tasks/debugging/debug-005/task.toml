@@ -1,0 +1,10 @@
+id = "debug-005"
+title = "Performance Bug Fix — O(n²) to O(n)"
+domain = "debugging"
+level = "L4"
+description = "Optimize four O(n²) search functions to O(n) using hash sets while preserving correctness"
+timeout = 180
+capabilities = ["file-read", "file-write"]
+skills_allowed = true
+tags = ["performance", "optimization", "python", "debugging", "expert"]
+capability_types = ["reasoning", "tool-use"]

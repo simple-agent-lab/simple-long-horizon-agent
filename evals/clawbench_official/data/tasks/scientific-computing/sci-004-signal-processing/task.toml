@@ -1,0 +1,9 @@
+[task]
+id = "sci-004-signal-processing"
+title = "FFT Signal Analysis and Filtering"
+domain = "scientific-computing"
+level = "L3"
+track = "subject-matter"
+tags = ["scientific-computing", "fft", "signal-processing"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "computation", "file-write"]

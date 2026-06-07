@@ -1,0 +1,10 @@
+id = "plan-003"
+title = "Technology Selection Analysis"
+domain = "planning"
+level = "L2"
+description = "Analyze project constraints and produce a structured technology selection comparison with recommendations"
+timeout = 240
+capabilities = ["file-read", "file-write"]
+skills_allowed = true
+tags = ["technology", "analysis", "decision-making", "planning", "intermediate"]
+capability_types = ["reasoning", "tool-use"]

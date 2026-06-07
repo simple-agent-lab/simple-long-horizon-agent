@@ -1,0 +1,9 @@
+[task]
+id = "edu-004-curriculum-mapping"
+title = "Curriculum-to-Standards Alignment Matrix"
+domain = "educational-assessment"
+level = "L2"
+track = "subject-matter"
+tags = ["education", "curriculum", "standards"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "data-processing", "file-write"]

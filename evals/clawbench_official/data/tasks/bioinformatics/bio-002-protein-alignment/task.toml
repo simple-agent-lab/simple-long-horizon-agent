@@ -1,0 +1,9 @@
+[task]
+id = "bio-002-protein-alignment"
+title = "Pairwise Protein Sequence Alignment"
+domain = "bioinformatics"
+level = "L3"
+track = "subject-matter"
+tags = ["bioinformatics", "protein", "alignment"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "computation", "file-write"]

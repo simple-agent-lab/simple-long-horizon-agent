@@ -1,0 +1,9 @@
+[task]
+id = "ds-002-ab-testing"
+title = "A/B Test Statistical Analysis"
+domain = "data-science"
+level = "L2"
+track = "subject-matter"
+tags = ["data-science", "ab-testing", "statistics"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "computation", "file-write"]

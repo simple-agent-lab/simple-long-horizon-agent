@@ -1,0 +1,9 @@
+[task]
+id = "cont-003-readability-audit"
+title = "Document Readability Metrics Audit"
+domain = "content-analysis"
+level = "L2"
+track = "subject-matter"
+tags = ["content-analysis", "readability", "metrics"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "computation", "file-write"]

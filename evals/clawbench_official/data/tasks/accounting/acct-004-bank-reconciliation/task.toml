@@ -1,0 +1,9 @@
+[task]
+id = "acct-004-bank-reconciliation"
+title = "Bank Statement Reconciliation"
+domain = "accounting"
+level = "L3"
+track = "subject-matter"
+tags = ["accounting", "reconciliation", "audit"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "data-processing", "computation", "file-write"]

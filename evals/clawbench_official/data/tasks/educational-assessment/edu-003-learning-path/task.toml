@@ -1,0 +1,9 @@
+[task]
+id = "edu-003-learning-path"
+title = "Personalized Learning Path Recommendation"
+domain = "educational-assessment"
+level = "L3"
+track = "subject-matter"
+tags = ["education", "learning-analytics", "recommendation"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "data-processing", "file-write"]

@@ -1,0 +1,9 @@
+[task]
+id = "bio-001-sequence-analysis"
+title = "DNA Sequence GC Content and ORF Analysis"
+domain = "bioinformatics"
+level = "L2"
+track = "subject-matter"
+tags = ["bioinformatics", "dna", "sequence"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "computation", "file-write"]

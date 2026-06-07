@@ -1,0 +1,9 @@
+[task]
+id = "reg-004-hipaa-assessment"
+title = "HIPAA System Configuration Compliance Check"
+domain = "regulatory-compliance"
+level = "L3"
+track = "subject-matter"
+tags = ["compliance", "hipaa", "healthcare"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "data-processing", "file-write"]

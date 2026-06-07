@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nano Simple Agent Lab</title>
+  <style>
+    :root {
+      --ink: #202124;
+      --muted: #5f6673;
+      --line: #d6d9df;
+      --paper: #fbfbf8;
+      --panel: #ffffff;
+      --blue: #1f6feb;
+      --green: #2da44e;
+      --red: #cf222e;
+      --amber: #b7791f;
+      --violet: #8250df;
+      --shadow: 0 18px 45px rgba(21, 27, 38, 0.10);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background:
+        linear-gradient(180deg, rgba(31, 111, 235, 0.06), transparent 360px),
+        var(--paper);
+      line-height: 1.65;
+    }
+
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 40px 20px 72px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+      gap: 28px;
+      align-items: center;
+      min-height: 500px;
+    }
+
+    h1 {
+      margin: 0 0 18px;
+      font-size: clamp(42px, 7vw, 82px);
+      line-height: 0.98;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 0 0 18px;
+      font-size: 28px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 0 0 8px;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 0 0 14px;
+    }
+
+    .lead {
+      max-width: 720px;
+      font-size: 20px;
+      color: var(--muted);
+    }
+
+    .tagline {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 18px;
+      color: var(--blue);
+      font-weight: 700;
+      font-size: 14px;
+      text-transform: uppercase;
+    }
+
+    .tagline::before {
+      content: "";
+      width: 26px;
+      height: 3px;
+      background: var(--blue);
+      border-radius: 999px;
+    }
+
+    .machine {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      padding: 18px;
+      border-radius: 8px;
+    }
+
+    .screen {
+      display: grid;
+      gap: 10px;
+      border: 1px solid #c9ced8;
+      background: #f6f8fa;
+      padding: 14px;
+      border-radius: 6px;
+    }
+
+    .node {
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-left: 5px solid var(--blue);
+      border-radius: 6px;
+      background: white;
+      font-weight: 700;
+    }
+
+    .node small {
+      display: block;
+      margin-top: 3px;
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    .arrow {
+      text-align: center;
+      color: var(--muted);
+      font-weight: 800;
+    }
+
+    section {
+      margin-top: 56px;
+      padding-top: 24px;
+      border-top: 1px solid var(--line);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .grid > *,
+    .two > *,
+    .runtime > *,
+    .filelinks > * {
+      min-width: 0;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px;
+    }
+
+    .card strong {
+      color: var(--blue);
+    }
+
+    .runtime {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(130px, 1fr));
+      gap: 12px;
+      align-items: stretch;
+      margin-top: 18px;
+    }
+
+    .runtime .box {
+      min-height: 118px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: white;
+      position: relative;
+    }
+
+    .box b {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 15px;
+    }
+
+    .box span {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .box.message { border-top: 5px solid var(--blue); }
+    .box.model { border-top: 5px solid var(--violet); }
+    .box.tool { border-top: 5px solid var(--green); }
+    .box.state { border-top: 5px solid var(--amber); }
+    .box.final { border-top: 5px solid var(--red); }
+
+    .two {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 18px;
+    }
+
+    .code {
+      overflow: auto;
+      max-width: 100%;
+      margin: 0;
+      padding: 16px;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      background: #0d1117;
+      color: #e6edf3;
+      font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .matrix {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      overflow: hidden;
+      border-radius: 8px;
+      background: white;
+      border: 1px solid var(--line);
+    }
+
+    .matrix th,
+    .matrix td {
+      text-align: left;
+      vertical-align: top;
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--line);
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .matrix th {
+      background: #f3f5f7;
+      font-size: 14px;
+    }
+
+    .matrix tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .pillrow {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .pill {
+      border: 1px solid var(--line);
+      background: white;
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .filelinks {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .filelinks a {
+      display: block;
+      min-height: 84px;
+      padding: 14px;
+      color: var(--ink);
+      text-decoration: none;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: white;
+    }
+
+    .filelinks a:hover {
+      border-color: var(--blue);
+      box-shadow: 0 8px 22px rgba(31, 111, 235, 0.12);
+    }
+
+    @media (max-width: 860px) {
+      .hero,
+      .two,
+      .grid,
+      .filelinks {
+        grid-template-columns: 1fr;
+      }
+
+      .runtime {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="hero" aria-labelledby="title">
+      <div>
+        <div class="tagline">nano version</div>
+        <h1 id="title">Simple Agent Lab 的设计思想</h1>
+        <p class="lead">
+          这个框架的重点不是把 agent 包成黑盒，而是把每条边界都摊开：
+          消息、模型、工具、运行环境、评测产物，各自有清楚的位置。
+          Docker 只是运行后端，executor 只是执行机制，核心 loop 仍然很小。
+        </p>
+        <div class="pillrow">
+          <span class="pill">small core</span>
+          <span class="pill">explicit messages</span>
+          <span class="pill">tool executor</span>
+          <span class="pill">container backend</span>
+          <span class="pill">artifact store</span>
+        </div>
+      </div>
+      <div class="machine" aria-label="runtime diagram">
+        <div class="screen">
+          <div class="node">Message <small>runtime 自己的 transcript</small></div>
+          <div class="arrow">v</div>
+          <div class="node">Context View <small>投影出模型可见上下文</small></div>
+          <div class="arrow">v</div>
+          <div class="node">Agent.generate <small>模型或 fake agent 产出下一步</small></div>
+          <div class="arrow">v</div>
+          <div class="node">Tool / Final <small>执行工具，或结束</small></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>一句话架构</h2>
+      <p>
+        agent runtime 是一个透明循环：状态里有消息，loop 每轮构造上下文，调用 agent，
+        执行它请求的工具，把工具结果变回消息。评测系统则在外面包一层：
+        suite 描述任务，backend 决定在哪里跑，store 负责输入输出和轨迹。
+      </p>
+      <div class="runtime">
+        <div class="box message"><b>State / Message</b><span>保存历史，不直接等于 OpenAI payload。</span></div>
+        <div class="box model"><b>Provider Adapter</b><span>把项目消息投影成某个模型 API。</span></div>
+        <div class="box tool"><b>Tool Executor</b><span>并发或顺序执行工具调用。</span></div>
+        <div class="box state"><b>Artifact Store</b><span>input、result、trace 都是 put/get。</span></div>
+        <div class="box final"><b>Backend</b><span>local process、Docker、remote、k8s 都只是实现。</span></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>老板说的 Docker 到底在哪</h2>
+      <div class="two">
+        <div class="card">
+          <h3>不是核心 loop</h3>
+          <p>
+            `core.py` 里的 agent loop 不知道 Docker。它只知道 agent、message、state、tool。
+            这样普通教学 demo、bash agent、多 agent 委托都不需要容器概念。
+          </p>
+        </div>
+        <div class="card">
+          <h3>是 eval backend</h3>
+          <p>
+            Docker 出现在评测层：一个 benchmark instance 可以交给
+            `LocalDockerBackend` 跑。但同一个 suite 也可以换成
+            `LocalProcessBackend` 本地调试。
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>三个最重要的抽象</h2>
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th>抽象</th>
+            <th>它回答的问题</th>
+            <th>为什么要拆出来</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Suite</strong></td>
+            <td>这个 benchmark 的任务、镜像、gold 隐藏字段是什么？</td>
+            <td>避免每个评测都复制一份 launcher。</td>
+          </tr>
+          <tr>
+            <td><strong>ContainerBackend</strong></td>
+            <td>这次 run 到底在哪里执行？</td>
+            <td>local process、Docker、remote Docker、k8s 可以互换。</td>
+          </tr>
+          <tr>
+            <td><strong>ArtifactStore</strong></td>
+            <td>输入、输出、轨迹这些 bytes 放哪里？</td>
+            <td>bind mount、HTTP、S3 的差异不污染 suite 和 runner。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Host half / Container half</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>Host half</h3>
+          <p>
+            运行在调度机。负责选镜像、workdir、shell，准备 agent 可见输入，
+            并把 gold/private 数据放进单独的 eval input。
+          </p>
+        </div>
+        <div class="card">
+          <h3>Generic runner</h3>
+          <p>
+            运行在本进程或容器里。负责构造 agent、跑 loop、推 trajectory、
+            写 result。它不关心具体 benchmark 是什么。
+          </p>
+        </div>
+        <div class="card">
+          <h3>Container half</h3>
+          <p>
+            suite 提供的轻量函数：`build_task`、`extract_result`，
+            可选 `prepare` / `evaluate`。这才是 benchmark 特有逻辑。
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Nano 代码骨架</h2>
+      <div class="two">
+        <pre class="code"><code>def run(agent, task):
+    state.record(task_message(task))
+    for turn in range(max_turns):
+        visible = build_context_view(state)
+        output = agent.generate(visible)
+        state.record(output)
+        if output.tool_calls:
+            results = dispatch_tools(output.tool_calls)
+            state.record(tool_result_message(results))
+        if output.kind == "final":
+            break</code></pre>
+        <pre class="code"><code>def run_suite_instance(suite, backend, store):
+    visible = suite.task_input(instance)
+    store.put("input/instance.json", visible)
+    store.put("input/eval.json", suite.eval_inputs(instance))
+    spec = RunSpec(
+        launch=suite.launch_spec(instance),
+        container_module=suite.container_module,
+    )
+    backend.run(spec, store=store)</code></pre>
+      </div>
+    </section>
+
+    <section>
+      <h2>这个 nano 版怎么读</h2>
+      <div class="filelinks">
+        <a href="./README.md"><strong>README.md</strong><br>中文理念总结</a>
+        <a href="./nano_agent.py"><strong>nano_agent.py</strong><br>最小 agent loop</a>
+        <a href="./nano_eval.py"><strong>nano_eval.py</strong><br>backend/store/suite</a>
+        <a href="./mini_suite_example.py"><strong>mini_suite_example.py</strong><br>一个 suite 的样子</a>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

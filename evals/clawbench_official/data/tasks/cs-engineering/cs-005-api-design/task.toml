@@ -1,0 +1,9 @@
+[task]
+id = "cs-005-api-design"
+title = "REST API Design with OpenAPI Spec and Flask Stubs"
+domain = "cs-engineering"
+level = "L3"
+track = "subject-matter"
+tags = ["engineering", "api", "openapi", "flask"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "file-write", "script-execution"]

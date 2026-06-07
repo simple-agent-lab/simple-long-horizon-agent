@@ -1,0 +1,355 @@
+{
+  "total_tasks": 116,
+  "total_records": 696,
+  "models_per_task": 6,
+  "tasks": {
+    "zcb_001": {
+      "category": "Information Search & Gathering"
+    },
+    "zcb_002": {
+      "category": "Information Search & Gathering"
+    },
+    "zcb_003": {
+      "category": "Information Search & Gathering"
+    },
+    "zcb_004": {
+      "category": "Information Search & Gathering"
+    },
+    "zcb_005": {
+      "category": "Information Search & Gathering"
+    },
+    "zcb_006": {
+      "category": "Information Search & Gathering"
+    },
+    "zcb_007": {
+      "category": "Information Search & Gathering"
+    },
+    "zcb_008": {
+      "category": "Information Search & Gathering"
+    },
+    "zcb_009": {
+      "category": "Information Search & Gathering"
+    },
+    "zcb_010": {
+      "category": "Information Search & Gathering"
+    },
+    "zcb_011": {
+      "category": "Information Search & Gathering"
+    },
+    "zcb_012": {
+      "category": "Information Search & Gathering"
+    },
+    "zcb_013": {
+      "category": "Information Search & Gathering"
+    },
+    "zcb_014": {
+      "category": "Information Search & Gathering"
+    },
+    "zcb_015": {
+      "category": "Information Search & Gathering"
+    },
+    "zcb_016": {
+      "category": "Information Search & Gathering"
+    },
+    "zcb_017": {
+      "category": "Information Search & Gathering"
+    },
+    "zcb_018": {
+      "category": "Information Search & Gathering"
+    },
+    "zcb_019": {
+      "category": "Information Search & Gathering"
+    },
+    "zcb_020": {
+      "category": "Information Search & Gathering"
+    },
+    "zcb_021": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_022": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_023": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_024": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_025": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_026": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_027": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_028": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_029": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_030": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_031": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_032": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_033": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_034": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_035": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_036": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_037": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_038": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_039": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_040": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_041": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_042": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_043": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_044": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_045": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_046": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_047": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_048": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_049": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_050": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_051": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_052": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_053": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_054": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_055": {
+      "category": "Office & Daily Tasks"
+    },
+    "zcb_056": {
+      "category": "Data Analysis"
+    },
+    "zcb_057": {
+      "category": "Data Analysis"
+    },
+    "zcb_058": {
+      "category": "Data Analysis"
+    },
+    "zcb_059": {
+      "category": "Data Analysis"
+    },
+    "zcb_060": {
+      "category": "Data Analysis"
+    },
+    "zcb_061": {
+      "category": "Data Analysis"
+    },
+    "zcb_062": {
+      "category": "Data Analysis"
+    },
+    "zcb_063": {
+      "category": "Data Analysis"
+    },
+    "zcb_064": {
+      "category": "Data Analysis"
+    },
+    "zcb_065": {
+      "category": "Data Analysis"
+    },
+    "zcb_066": {
+      "category": "Data Analysis"
+    },
+    "zcb_067": {
+      "category": "Data Analysis"
+    },
+    "zcb_068": {
+      "category": "Development & Operations"
+    },
+    "zcb_069": {
+      "category": "Development & Operations"
+    },
+    "zcb_070": {
+      "category": "Development & Operations"
+    },
+    "zcb_071": {
+      "category": "Development & Operations"
+    },
+    "zcb_072": {
+      "category": "Development & Operations"
+    },
+    "zcb_073": {
+      "category": "Development & Operations"
+    },
+    "zcb_074": {
+      "category": "Development & Operations"
+    },
+    "zcb_075": {
+      "category": "Development & Operations"
+    },
+    "zcb_076": {
+      "category": "Development & Operations"
+    },
+    "zcb_077": {
+      "category": "Development & Operations"
+    },
+    "zcb_078": {
+      "category": "Development & Operations"
+    },
+    "zcb_079": {
+      "category": "Development & Operations"
+    },
+    "zcb_080": {
+      "category": "Development & Operations"
+    },
+    "zcb_081": {
+      "category": "Development & Operations"
+    },
+    "zcb_082": {
+      "category": "Development & Operations"
+    },
+    "zcb_083": {
+      "category": "Development & Operations"
+    },
+    "zcb_084": {
+      "category": "Development & Operations"
+    },
+    "zcb_085": {
+      "category": "Development & Operations"
+    },
+    "zcb_086": {
+      "category": "Development & Operations"
+    },
+    "zcb_087": {
+      "category": "Automation"
+    },
+    "zcb_088": {
+      "category": "Automation"
+    },
+    "zcb_089": {
+      "category": "Automation"
+    },
+    "zcb_090": {
+      "category": "Automation"
+    },
+    "zcb_091": {
+      "category": "Automation"
+    },
+    "zcb_092": {
+      "category": "Automation"
+    },
+    "zcb_093": {
+      "category": "Automation"
+    },
+    "zcb_094": {
+      "category": "Automation"
+    },
+    "zcb_095": {
+      "category": "Automation"
+    },
+    "zcb_096": {
+      "category": "Automation"
+    },
+    "zcb_097": {
+      "category": "Automation"
+    },
+    "zcb_098": {
+      "category": "Automation"
+    },
+    "zcb_099": {
+      "category": "Automation"
+    },
+    "zcb_100": {
+      "category": "Automation"
+    },
+    "zcb_101": {
+      "category": "Automation"
+    },
+    "zcb_102": {
+      "category": "Automation"
+    },
+    "zcb_103": {
+      "category": "Automation"
+    },
+    "zcb_104": {
+      "category": "Automation"
+    },
+    "zcb_105": {
+      "category": "Automation"
+    },
+    "zcb_106": {
+      "category": "Automation"
+    },
+    "zcb_107": {
+      "category": "Security"
+    },
+    "zcb_108": {
+      "category": "Security"
+    },
+    "zcb_109": {
+      "category": "Security"
+    },
+    "zcb_110": {
+      "category": "Security"
+    },
+    "zcb_111": {
+      "category": "Security"
+    },
+    "zcb_112": {
+      "category": "Security"
+    },
+    "zcb_113": {
+      "category": "Security"
+    },
+    "zcb_114": {
+      "category": "Security"
+    },
+    "zcb_115": {
+      "category": "Security"
+    },
+    "zcb_116": {
+      "category": "Security"
+    }
+  }
+}

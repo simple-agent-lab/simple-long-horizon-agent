@@ -1,0 +1,10 @@
+id = "debug-004"
+title = "Multi-File Bug Localization"
+domain = "debugging"
+level = "L3"
+description = "Identify and fix a cross-file bug where a wrong import in utils.py causes main.py to fail"
+timeout = 180
+capabilities = ["file-read", "file-write"]
+skills_allowed = true
+tags = ["multi-file", "imports", "python", "debugging", "advanced"]
+capability_types = ["reasoning", "tool-use"]

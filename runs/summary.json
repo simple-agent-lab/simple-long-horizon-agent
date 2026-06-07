@@ -1,0 +1,228 @@
+{
+  "agentbench": {
+    "num_traces": 3,
+    "traces": [
+      {
+        "task_id": "data-analysis-cross-reference",
+        "score": 0.0,
+        "msg_count": 17,
+        "workspace_files": [
+          "inventory.csv",
+          "inventory_ids.txt",
+          "inventory_stock.txt",
+          "order_ids.txt",
+          "order_totals.txt",
+          "orders.csv"
+        ]
+      },
+      {
+        "task_id": "data-analysis-find-anomalies",
+        "score": 100.0,
+        "msg_count": 8,
+        "workspace_files": [
+          "anomaly-report.md",
+          "sales-data.csv"
+        ]
+      },
+      {
+        "task_id": "data-analysis-log-pattern-detection",
+        "score": 0.0,
+        "msg_count": 4,
+        "workspace_files": []
+      }
+    ],
+    "avg_score": 33.333333333333336,
+    "max_score": 100.0,
+    "min_score": 0.0
+  },
+  "clawbench_official": {
+    "num_traces": 3,
+    "traces": [
+      {
+        "task_id": "acad-001-citation-network",
+        "score": 0.0,
+        "msg_count": 17,
+        "workspace_files": [
+          "references.bib",
+          "temp_parsed_bibtex.csv"
+        ]
+      },
+      {
+        "task_id": "acad-002-literature-review",
+        "score": 0.0,
+        "msg_count": 17,
+        "workspace_files": [
+          "abstracts.csv"
+        ]
+      },
+      {
+        "task_id": "acad-003-statistical-analysis",
+        "score": 0.0,
+        "msg_count": 6,
+        "workspace_files": []
+      }
+    ],
+    "avg_score": 0.0,
+    "max_score": 0.0,
+    "min_score": 0.0
+  },
+  "clawbench_tribe": {
+    "num_traces": 3,
+    "traces": [
+      {
+        "task_id": "basic_chat",
+        "score": null,
+        "msg_count": 2,
+        "workspace_files": []
+      },
+      {
+        "task_id": "instruction_following",
+        "score": null,
+        "msg_count": 2,
+        "workspace_files": []
+      },
+      {
+        "task_id": "reasoning_math",
+        "score": null,
+        "msg_count": 2,
+        "workspace_files": []
+      }
+    ],
+    "avg_score": null,
+    "max_score": null,
+    "min_score": null
+  },
+  "claweval": {
+    "num_traces": 3,
+    "traces": [
+      {
+        "task_id": "C01zh_mortgage_prepay",
+        "score": null,
+        "msg_count": 2,
+        "workspace_files": []
+      },
+      {
+        "task_id": "C02zh_personal_finance",
+        "score": null,
+        "msg_count": 2,
+        "workspace_files": []
+      },
+      {
+        "task_id": "C03en_real_estate_finance",
+        "score": null,
+        "msg_count": 2,
+        "workspace_files": []
+      }
+    ],
+    "avg_score": null,
+    "max_score": null,
+    "min_score": null
+  },
+  "pinchbench": {
+    "num_traces": 3,
+    "traces": [
+      {
+        "task_id": "task_00_sanity",
+        "score": 0.0,
+        "msg_count": 2,
+        "workspace_files": []
+      },
+      {
+        "task_id": "task_01_calendar",
+        "score": 100.0,
+        "msg_count": 6,
+        "workspace_files": [
+          "meeting.ics"
+        ]
+      },
+      {
+        "task_id": "task_02_stock",
+        "score": 0.0,
+        "msg_count": 8,
+        "workspace_files": []
+      }
+    ],
+    "avg_score": 33.333333333333336,
+    "max_score": 100.0,
+    "min_score": 0.0
+  },
+  "skillsbench": {
+    "num_traces": 3,
+    "traces": [
+      {
+        "task_id": "3d-scan-calc",
+        "score": 0.0,
+        "msg_count": 17,
+        "workspace_files": [
+          "SKILL.md",
+          "material_density_table.md",
+          "mesh_tool.py",
+          "parse_stl.py",
+          "scan_data.stl"
+        ]
+      },
+      {
+        "task_id": "adaptive-cruise-control",
+        "score": 16.7,
+        "msg_count": 17,
+        "workspace_files": [
+          "SKILL.md",
+          "acc_system.py",
+          "pid_controller.py",
+          "sensor_data.csv",
+          "simulation.py",
+          "tuning_results.yaml",
+          "vehicle_params.yaml"
+        ]
+      },
+      {
+        "task_id": "azure-bgp-oscillation-route-leak",
+        "score": 0.0,
+        "msg_count": 6,
+        "workspace_files": [
+          "SKILL.md",
+          "azuredeploy.json",
+          "azuredeploy.parameters.json",
+          "azurevirtualwanarchitecturefigure1.jpg",
+          "generate_data.py",
+          "metadata.json"
+        ]
+      }
+    ],
+    "avg_score": 5.566666666666666,
+    "max_score": 16.7,
+    "min_score": 0.0
+  },
+  "zclawbench": {
+    "num_traces": 3,
+    "traces": [
+      {
+        "task_id": "zcb_001",
+        "score": null,
+        "msg_count": 6,
+        "workspace_files": [
+          "workspace/output.md"
+        ]
+      },
+      {
+        "task_id": "zcb_002",
+        "score": null,
+        "msg_count": 6,
+        "workspace_files": [
+          "workspace/output.md"
+        ]
+      },
+      {
+        "task_id": "zcb_003",
+        "score": null,
+        "msg_count": 8,
+        "workspace_files": [
+          "workspace/output.md"
+        ]
+      }
+    ],
+    "avg_score": null,
+    "max_score": null,
+    "min_score": null
+  }
+}

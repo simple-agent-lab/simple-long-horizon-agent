@@ -1,0 +1,9 @@
+[task]
+id = "acad-002-literature-review"
+title = "Paper Abstract Clustering for Literature Review"
+domain = "academic-research"
+level = "L2"
+track = "subject-matter"
+tags = ["academic", "nlp", "clustering"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "data-processing", "computation", "file-write"]

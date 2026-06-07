@@ -1,0 +1,9 @@
+[task]
+id = "sci-001-ode-solver"
+title = "Runge-Kutta ODE Solver for Predator-Prey Model"
+domain = "scientific-computing"
+level = "L3"
+track = "subject-matter"
+tags = ["scientific-computing", "ode", "numerical-methods"]
+capabilities = ["tool-use"]
+required_actions = ["computation", "file-write"]

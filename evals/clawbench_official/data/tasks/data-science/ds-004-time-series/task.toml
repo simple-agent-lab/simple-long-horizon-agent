@@ -1,0 +1,9 @@
+[task]
+id = "ds-004-time-series"
+title = "Time Series Decomposition and Forecasting"
+domain = "data-science"
+level = "L2"
+track = "subject-matter"
+tags = ["data-science", "time-series", "forecasting"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "computation", "file-write"]

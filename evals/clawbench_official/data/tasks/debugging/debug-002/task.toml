@@ -1,0 +1,10 @@
+id = "debug-002"
+title = "Fix Logic Bugs in Calculator"
+domain = "debugging"
+level = "L2"
+description = "Fix three logic bugs: off-by-one in range(), wrong comparison operator, and integer division instead of float division"
+timeout = 120
+capabilities = ["file-read", "file-write"]
+skills_allowed = true
+tags = ["logic", "python", "debugging", "intermediate"]
+capability_types = ["reasoning", "tool-use"]

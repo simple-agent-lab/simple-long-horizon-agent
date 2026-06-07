@@ -1,0 +1,15 @@
+Jaccard similarity is a statistic used for comparing sets.
+Natural language processing involves computational linguistics.
+Data science is an interdisciplinary field.
+Plagiarism detection is important in academia.
+The quick brown fox jumps over the lazy dog.
+Machine learning models can detect patterns.
+Text similarity measures help find copied content.
+Jaccard similarity is a statistic used for comparing sets.
+Data science is an interdisciplinary field.
+Artificial intelligence is transforming industries.
+Document clustering groups similar documents together.
+Machine learning models can detect patterns.
+Machine learning models can detect patterns.
+Machine learning models can detect patterns.
+Machine learning models can detect patterns.

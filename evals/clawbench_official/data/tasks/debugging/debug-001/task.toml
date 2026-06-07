@@ -1,0 +1,10 @@
+id = "debug-001"
+title = "Fix Python Syntax Errors"
+domain = "debugging"
+level = "L1"
+description = "Fix three syntax errors in a Python file: bad indentation, missing colon, and unclosed parenthesis"
+timeout = 120
+capabilities = ["file-read", "file-write"]
+skills_allowed = true
+tags = ["syntax", "python", "debugging", "beginner"]
+capability_types = ["reasoning", "tool-use"]

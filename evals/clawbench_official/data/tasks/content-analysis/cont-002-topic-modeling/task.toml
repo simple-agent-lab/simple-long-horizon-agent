@@ -1,0 +1,9 @@
+[task]
+id = "cont-002-topic-modeling"
+title = "Document Corpus Topic Extraction"
+domain = "content-analysis"
+level = "L3"
+track = "subject-matter"
+tags = ["content-analysis", "topic-modeling", "nlp"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "computation", "file-write"]

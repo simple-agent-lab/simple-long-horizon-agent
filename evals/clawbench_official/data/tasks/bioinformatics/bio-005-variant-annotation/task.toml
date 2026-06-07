@@ -1,0 +1,9 @@
+[task]
+id = "bio-005-variant-annotation"
+title = "Genomic Variant Annotation and Classification"
+domain = "bioinformatics"
+level = "L2"
+track = "subject-matter"
+tags = ["bioinformatics", "variants", "annotation"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "data-processing", "file-write"]

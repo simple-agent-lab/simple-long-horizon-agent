@@ -1,0 +1,9 @@
+[task]
+id = "edu-001-rubric-grading"
+title = "Student Essay Rubric-Based Grading"
+domain = "educational-assessment"
+level = "L2"
+track = "subject-matter"
+tags = ["education", "grading", "rubric"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "text-processing", "computation", "file-write"]

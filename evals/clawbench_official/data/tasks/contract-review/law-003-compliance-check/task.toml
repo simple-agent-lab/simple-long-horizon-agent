@@ -1,0 +1,9 @@
+[task]
+id = "law-003-compliance-check"
+title = "Employment Contract Labor Law Compliance Check"
+domain = "contract-review"
+level = "L3"
+track = "subject-matter"
+tags = ["legal", "compliance", "employment"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "data-processing", "file-write"]

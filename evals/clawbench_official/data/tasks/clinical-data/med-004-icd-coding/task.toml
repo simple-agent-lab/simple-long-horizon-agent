@@ -1,0 +1,9 @@
+[task]
+id = "med-004-icd-coding"
+title = "Clinical Notes ICD-10 Coding"
+domain = "clinical-data"
+level = "L3"
+track = "subject-matter"
+tags = ["clinical", "coding", "icd-10"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "text-processing", "file-write"]

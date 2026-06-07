@@ -1,0 +1,9 @@
+[task]
+id = "acad-005-metadata-extraction"
+title = "Research Paper Metadata Extraction"
+domain = "academic-research"
+level = "L3"
+track = "subject-matter"
+tags = ["academic", "metadata", "parsing"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "text-processing", "file-write"]

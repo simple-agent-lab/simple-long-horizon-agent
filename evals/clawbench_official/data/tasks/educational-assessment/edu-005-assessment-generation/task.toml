@@ -1,0 +1,9 @@
+[task]
+id = "edu-005-assessment-generation"
+title = "Assessment Question Bank Generation from Learning Objectives"
+domain = "educational-assessment"
+level = "L3"
+track = "subject-matter"
+tags = ["education", "assessment", "question-generation"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "data-processing", "file-write"]

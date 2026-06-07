@@ -1,0 +1,9 @@
+[task]
+id = "fin-002-dcf-valuation"
+title = "Build DCF Valuation Model from Financial Statements"
+domain = "financial-analysis"
+level = "L3"
+track = "subject-matter"
+tags = ["finance", "valuation", "dcf"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "data-processing", "computation", "file-write"]

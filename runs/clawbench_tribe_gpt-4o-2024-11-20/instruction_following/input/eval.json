@@ -1,0 +1,1 @@
+{"instance_id": "instruction_following", "expected": "CLAWDBOT BENCHMARK PASSED", "check_type": "contains", "desc": "Exact text"}

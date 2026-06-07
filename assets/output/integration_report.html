@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ClawEvalkit → simple-agent-lab 集成汇报</title>
+<style>
+:root {
+  --bg: #0d1117; --card: #161b22; --card2: #1c2129; --border: #30363d;
+  --text: #e6edf3; --text2: #c9d1d9; --muted: #8b949e;
+  --accent: #58a6ff; --green: #3fb950; --red: #f85149; --yellow: #d29922;
+  --purple: #bc8cff; --orange: #f0883e; --cyan: #39d2c0;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; }
+
+.header {
+  background: linear-gradient(135deg, #161b22 0%, #1a2332 50%, #161b22 100%);
+  border-bottom: 1px solid var(--border);
+  padding: 40px 30px;
+  text-align: center;
+}
+.header h1 {
+  font-size: 32px; margin-bottom: 8px;
+  background: linear-gradient(135deg, var(--accent), var(--purple));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.header .subtitle { color: var(--muted); font-size: 15px; }
+.header .meta { margin-top: 12px; font-size: 13px; color: var(--muted); }
+
+.container { max-width: 1200px; margin: 0 auto; padding: 30px 20px; }
+
+/* Section */
+.section { margin-bottom: 40px; }
+.section-title {
+  font-size: 22px; margin-bottom: 20px; padding-left: 14px;
+  border-left: 4px solid var(--accent);
+  display: flex; align-items: center; gap: 10px;
+}
+.section-title .num {
+  background: var(--accent); color: #000; font-size: 13px;
+  width: 26px; height: 26px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; font-weight: bold;
+}
+
+/* Stats row */
+.stats-row { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 30px; }
+.stat-card {
+  background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+  padding: 16px 24px; text-align: center; flex: 1; min-width: 140px;
+}
+.stat-card .num { font-size: 32px; font-weight: bold; }
+.stat-card .label { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.c-accent .num { color: var(--accent); }
+.c-green .num { color: var(--green); }
+.c-purple .num { color: var(--purple); }
+.c-orange .num { color: var(--orange); }
+.c-cyan .num { color: var(--cyan); }
+
+/* Design diagram */
+.design-diagram {
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  padding: 24px; margin-bottom: 20px;
+}
+.design-diagram h3 { margin-bottom: 16px; color: var(--accent); font-size: 16px; }
+
+.flow-row { display: flex; gap: 8px; align-items: stretch; margin-bottom: 16px; flex-wrap: wrap; }
+.flow-box {
+  background: var(--card2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 16px; flex: 1; min-width: 140px;
+}
+.flow-box.host { border-color: var(--accent); }
+.flow-box.container { border-color: var(--purple); }
+.flow-box h4 { font-size: 13px; margin-bottom: 6px; }
+.flow-box.host h4 { color: var(--accent); }
+.flow-box.container h4 { color: var(--purple); }
+.flow-box .fn { font-family: 'SF Mono', Menlo, monospace; font-size: 12px; color: var(--text2); }
+.flow-box .fn .kw { color: var(--cyan); }
+.flow-box .fn .fn-name { color: var(--green); }
+
+.flow-arrow {
+  display: flex; align-items: center; font-size: 20px; color: var(--muted); min-width: 30px; justify-content: center;
+}
+
+/* Principle cards */
+.principle-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+.principle-card {
+  background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px;
+}
+.principle-card h3 { font-size: 15px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+.principle-card .tag {
+  font-size: 11px; padding: 2px 8px; border-radius: 8px; font-weight: normal;
+}
+.tag-framework { background: rgba(88,166,255,0.15); color: var(--accent); }
+.tag-match { background: rgba(63,185,80,0.15); color: var(--green); }
+.principle-card p { color: var(--text2); font-size: 13px; }
+.principle-card code {
+  background: rgba(88,166,255,0.1); padding: 1px 5px; border-radius: 3px;
+  font-family: 'SF Mono', Menlo, monospace; font-size: 12px; color: var(--cyan);
+}
+
+/* Bench cards */
+.bench-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(550px, 1fr)); gap: 14px; }
+.bench-card {
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px;
+}
+.bench-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.bench-header h3 { font-size: 17px; }
+.bench-tags { display: flex; gap: 6px; }
+.bench-tag {
+  font-size: 11px; padding: 2px 8px; border-radius: 8px;
+}
+.tag-scoring-in { background: rgba(188,140,255,0.15); color: var(--purple); }
+.tag-scoring-host { background: rgba(240,136,62,0.15); color: var(--orange); }
+.tag-scoring-hybrid { background: rgba(57,210,192,0.15); color: var(--cyan); }
+
+.bench-desc { color: var(--text2); font-size: 13px; margin-bottom: 12px; }
+
+.bench-detail { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+.detail-col h4 { font-size: 12px; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+.detail-col .fn-list { list-style: none; }
+.detail-col .fn-list li {
+  font-family: 'SF Mono', Menlo, monospace; font-size: 12px; color: var(--cyan);
+  padding: 2px 0;
+}
+.detail-col .fn-list li::before { content: "→ "; color: var(--muted); }
+
+.trace-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.trace-table th {
+  text-align: left; color: var(--muted); padding: 5px 8px;
+  border-bottom: 1px solid var(--border); font-weight: normal; text-transform: uppercase;
+  letter-spacing: 0.5px; font-size: 11px;
+}
+.trace-table td { padding: 5px 8px; border-bottom: 1px solid rgba(48,54,61,0.4); }
+.trace-table tr:last-child td { border-bottom: none; }
+.score-cell { display: flex; align-items: center; gap: 6px; }
+.score-bar { height: 5px; border-radius: 3px; min-width: 2px; }
+.score-val { font-family: monospace; min-width: 36px; font-size: 12px; }
+
+/* Comparison table */
+.compat-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
+.compat-table th {
+  text-align: left; color: var(--muted); padding: 8px 10px;
+  border-bottom: 2px solid var(--border); font-weight: normal; text-transform: uppercase;
+  letter-spacing: 0.5px; font-size: 11px;
+}
+.compat-table td { padding: 8px 10px; border-bottom: 1px solid rgba(48,54,61,0.4); }
+.compat-table tr:last-child td { border-bottom: none; }
+.compat-table .check { color: var(--green); }
+.compat-table .partial { color: var(--yellow); }
+
+/* Footer */
+.footer { text-align: center; padding: 30px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); margin-top: 40px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>ClawEvalkit → simple-agent-lab 集成汇报</h1>
+  <p class="subtitle">8 个 Agent Benchmark 迁移至 simple-agent-lab 新 Runtime 的设计分析与验证</p>
+  <p class="meta">Model: gpt-4o-2024-11-20 | 7/8 Bench 集成完成 | 21 Traces 产出 | 2026-06-05</p>
+</div>
+
+<div class="container">
+
+<!-- TLDR -->
+<div class="section">
+  <div class="section-title"><span class="num">0</span> TLDR</div>
+  <div class="stats-row">
+    <div class="stat-card c-accent"><div class="num">7</div><div class="label">集成 Benchmark</div></div>
+    <div class="stat-card c-green"><div class="num">877</div><div class="label">总 Task 数</div></div>
+    <div class="stat-card c-purple"><div class="num">21</div><div class="label">验证 Trace</div></div>
+    <div class="stat-card c-orange"><div class="num">3</div><div class="label">评分模式</div></div>
+    <div class="stat-card c-cyan"><div class="num">0</div><div class="label">ClawEvalkit 依赖</div></div>
+  </div>
+</div>
+
+<!-- Architecture -->
+<div class="section">
+  <div class="section-title"><span class="num">1</span> 框架设计思想与我们的契合点</div>
+
+  <div class="principle-grid">
+    <div class="principle-card">
+      <h3><span class="tag tag-framework">框架原则</span> 两半分离 (Host + Container)</h3>
+      <p>simple-agent-lab 核心架构是 <code>Host half</code> (Suite) + <code>Container half</code> (ContainerTask)。
+      Host 负责数据加载和编排，Container 负责任务执行。每个 bench 的 <code>evals/{bench}/suite.py</code> 和
+      <code>src/.../suites/{bench}/container.py</code> 正是这两个半。</p>
+    </div>
+    <div class="principle-card">
+      <h3><span class="tag tag-match">我们如何契合</span> 数据即配置</h3>
+      <p>框架提倡 <code>LaunchSpec</code> 用数据表达差异而非 if-else。我们的每个 Suite 都通过
+      <code>task_input()</code> 返回纯 dict（无行为），通过 <code>eval_inputs()</code> 传递评分数据。
+      7 个 bench 的 LaunchSpec 全部统一为同一 image + workdir。</p>
+    </div>
+    <div class="principle-card">
+      <h3><span class="tag tag-framework">框架原则</span> 容器无侵入</h3>
+      <p>框架要求 <code>不修改 benchmark image</code>，通过 runtime injection 注入 agent 代码。
+      我们复用 <code>clawbase-nanobot:v1</code> 但删除了 NanoBotAgent 依赖，agent 运行时通过
+      simple-agent-lab 的 in-container runner 注入。</p>
+    </div>
+    <div class="principle-card">
+      <h3><span class="tag tag-match">我们如何契合</span> 评分正交分离</h3>
+      <p>框架提供 3 种评分路径：(1) <code>evaluate()</code> hook 原地评分 (2) <code>eval_inputs=None</code> 留给 host-side judge
+      (3) Oracle 模式。我们精确使用了前两种：pinchbench/clawbench_official/skillsbench/agentbench 用 evaluate hook，
+      zclawbench/claweval 用 host-side judge，clawbench_tribe 用宿主评分。</p>
+    </div>
+    <div class="principle-card">
+      <h3><span class="tag tag-framework">框架原则</span> 正交后端</h3>
+      <p>框架通过 <code>ContainerBackend</code> (process/docker/remote) 和 <code>ArtifactStore</code> (local/http)
+      实现计算与存储的正交分离。我们的所有 bench 都同时兼容 <code>--backend process</code> 和 <code>--backend docker</code>，
+      零修改切换。</p>
+    </div>
+    <div class="principle-card">
+      <h3><span class="tag tag-match">我们如何契合</span> 自包含数据</h3>
+      <p>每个 bench 的 <code>evals/{bench}/data/</code> 包含完整任务数据，无运行时网络请求。
+      这与框架 "suite author 负责数据" 的设计一致。数据格式直接沿用原格式 (TOML/YAML/Markdown/JSON)，
+      无额外转换层。</p>
+    </div>
+  </div>
+</div>
+
+<!-- Architecture diagram -->
+<div class="section">
+  <div class="section-title"><span class="num">2</span> 两半架构映射图</div>
+
+  <div class="design-diagram">
+    <h3>Host Half (evals/{bench}/suite.py)</h3>
+    <div class="flow-row">
+      <div class="flow-box host">
+        <h4>load_instances()</h4>
+        <div class="fn"><span class="kw">def</span> <span class="fn-name">load_instances</span>() → list[dict]</div>
+        <div class="fn" style="margin-top:4px;color:var(--muted);font-size:11px">解析 data/ 下的任务文件，返回纯 dict 列表</div>
+      </div>
+      <div class="flow-box host">
+        <h4>task_input()</h4>
+        <div class="fn"><span class="kw">def</span> <span class="fn-name">task_input</span>(instance) → dict</div>
+        <div class="fn" style="margin-top:4px;color:var(--muted);font-size:11px">过滤敏感字段，返回 agent 可见输入</div>
+      </div>
+      <div class="flow-box host">
+        <h4>eval_inputs()</h4>
+        <div class="fn"><span class="kw">def</span> <span class="fn-name">eval_inputs</span>(instance) → dict|None</div>
+        <div class="fn" style="margin-top:4px;color:var(--muted);font-size:11px">返回评分金数据，None=host-side judge</div>
+      </div>
+      <div class="flow-box host">
+        <h4>launch_spec()</h4>
+        <div class="fn"><span class="kw">def</span> <span class="fn-name">launch_spec</span>(instance) → LaunchSpec</div>
+        <div class="fn" style="margin-top:4px;color:var(--muted);font-size:11px">声明镜像+工作目录，无行为逻辑</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="text-align:center;margin:10px 0;color:var(--muted);font-size:13px">
+    ↓ run_suite_instance() 编排 ↓ 传入 instance.json + eval.json ↓
+  </div>
+
+  <div class="design-diagram">
+    <h3>Container Half (src/.../suites/{bench}/container.py)</h3>
+    <div class="flow-row">
+      <div class="flow-box container">
+        <h4>agent_spec()</h4>
+        <div class="fn"><span class="kw">def</span> <span class="fn-name">agent_spec</span>() → AgentSpec</div>
+        <div class="fn" style="margin-top:4px;color:var(--muted);font-size:11px">声明 agent 人设、system prompt、flavor</div>
+      </div>
+      <div class="flow-box container">
+        <h4>build_task()</h4>
+        <div class="fn"><span class="kw">def</span> <span class="fn-name">build_task</span>(instance, workdir) → str</div>
+        <div class="fn" style="margin-top:4px;color:var(--muted);font-size:11px">构建 agent 可见 prompt + workspace 初始化</div>
+      </div>
+      <div class="flow-box container">
+        <h4>extract_result()</h4>
+        <div class="fn"><span class="kw">def</span> <span class="fn-name">extract_result</span>(workspace) → dict</div>
+        <div class="fn" style="margin-top:4px;color:var(--muted);font-size:11px">扫描 workspace 产出文件</div>
+      </div>
+      <div class="flow-box container">
+        <h4>evaluate() [可选]</h4>
+        <div class="fn"><span class="kw">def</span> <span class="fn-name">evaluate</span>(workspace, ctx) → dict</div>
+        <div class="fn" style="margin-top:4px;color:var(--muted);font-size:11px">原地评分: pytest / grade() / 结构检查</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Old vs New mapping -->
+<div class="section">
+  <div class="section-title"><span class="num">3</span> 旧→新架构映射</div>
+  <div class="design-diagram">
+    <table class="compat-table">
+      <tr><th>ClawEvalkit (旧)</th><th>simple-agent-lab (新)</th><th>契合度</th></tr>
+      <tr><td>BaseBenchmark.evaluate()</td><td>Suite 协议 (host half) + evaluate() hook (container half)</td><td class="check">✓ 完全对应</td></tr>
+      <tr><td>NanoBotAgent agent loop</td><td>core.run() + agents.bash/bash_task</td><td class="check">✓ 框架原生提供</td></tr>
+      <tr><td>clawbase-nanobot:v1 Docker image</td><td>clawbase-sal:v1 (去除了 NanoBotAgent)</td><td class="check">✓ 镜像复用+精简</td></tr>
+      <tr><td>评分散落在各 adaptor</td><td>evaluate() hook 或 host-side judge，正交分离</td><td class="check">✓ 更清晰</td></tr>
+      <tr><td>run.py 统一入口</td><td>run_suite_instance() + run_benches.py</td><td class="check">✓ 框架原生 + 薄封装</td></tr>
+      <tr><td>transcript 格式 (NanoBot)</td><td>trajectory.jsonl (trace_record)</td><td class="partial">△ 需格式转换层</td></tr>
+      <tr><td>adaptor 内评分逻辑</td><td>Container half 的 evaluate() hook</td><td class="check">✓ 位置对应</td></tr>
+      <tr><td>环境数据通过 Docker volume</td><td>build_task() 直接 copy 到 workspace</td><td class="check">✓ 更简单</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- Per-bench detail -->
+<div class="section">
+  <div class="section-title"><span class="num">4</span> 各 Benchmark 集成详情</div>
+  <div class="bench-grid" id="benchGrid"></div>
+</div>
+
+<!-- Scoring strategies -->
+<div class="section">
+  <div class="section-title"><span class="num">5</span> 三种评分策略</div>
+  <div class="principle-grid">
+    <div class="principle-card">
+      <h3><span class="tag tag-scoring-in" style="background:rgba(188,140,255,0.15);color:var(--purple)">策略 A</span> In-Container evaluate()</h3>
+      <p>Container half 实现 <code>evaluate()</code> 函数，框架自动在 agent 完成后调用。
+      评分逻辑在 container 内执行，可访问 workspace 文件系统。<br>
+      <b>适用</b>: pinchbench (grade函数), clawbench_official/skillsbench (pytest), agentbench (结构检查)</p>
+    </div>
+    <div class="principle-card">
+      <h3><span class="tag style="background:rgba(240,136,62,0.15);color:var(--orange)">策略 B</span> Host-side Judge</h3>
+      <p>Suite <code>eval_inputs()</code> 返回 <code>None</code>，跳过 in-container 评分。
+      评分在外部通过 LLM judge 完成，读取 trajectory.jsonl + rubric。<br>
+      <b>适用</b>: zclawbench (category-based), claweval (comprehensive rubric)</p>
+    </div>
+    <div class="principle-card">
+      <h3><span class="tag tag-scoring-hybrid" style="background:rgba(57,210,192,0.15);color:var(--cyan)">策略 C</span> Host-side Post-run</h3>
+      <p>run_benches.py 中的 <code>score_fn</code> 在 run_suite_instance() 完成后执行。
+      直接读取 trajectory.jsonl 解析最后一条 assistant 消息，做字符串匹配。<br>
+      <b>适用</b>: clawbench_tribe (简单 string match)</p>
+    </div>
+  </div>
+</div>
+
+<!-- Key fixes -->
+<div class="section">
+  <div class="section-title"><span class="num">6</span> 关键技术决策</div>
+  <div class="principle-grid">
+    <div class="principle-card">
+      <h3>路径映射: workspace/ → ./</h3>
+      <p>ClawEvalkit 中任务指令写 <code>workspace/references.bib</code> 和 <code>/root/scan_data.stl</code>。
+      在 simple-agent-lab 中 workdir 就是 workspace 本身。Container 的 <code>build_task()</code>
+      中做字符串替换，确保 agent 看到正确的相对路径。</p>
+    </div>
+    <div class="principle-card">
+      <h3>Transcript 格式转换</h3>
+      <p>PinchBench 的 <code>grade()</code> 函数期望 NanoBot 格式的 transcript。
+      Container 的 <code>_build_transcript()</code> 将 simple-agent-lab 的 <code>trajectory.jsonl</code>
+      转换为 NanoBot 格式（role/kind/content blocks → type/message 结构）。</p>
+    </div>
+    <div class="principle-card">
+      <h3>Pytest conftest 注入</h3>
+      <p>clawbench_official 的 verifier 使用 <code>@pytest.fixture workspace</code> 从
+      <code>--workspace</code> option 读取路径。Container 的 evaluate() 动态生成
+      <code>conftest.py</code> 注册此 option，避免修改原始测试代码。</p>
+    </div>
+    <div class="principle-card">
+      <h3>二进制文件传递</h3>
+      <p>SkillsBench 有 .stl 二进制输入文件。由于 instance 经过 JSON 序列化（写入 instance.json），
+      不能直接 embed bytes。改为传递 <code>data_dir</code> 路径，Container 的
+      <code>build_task()</code> 直接从 data dir 复制到 workspace。</p>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<div class="footer">
+  Generated for ClawEvalkit → simple-agent-lab integration report | 2026-06-05
+</div>
+
+<script>
+const DATA = {"agentbench": {"num_traces": 3, "traces": [{"task_id": "data-analysis-cross-reference", "score": 0.0, "msg_count": 17, "workspace_files": ["inventory.csv", "inventory_ids.txt", "inventory_stock.txt", "order_ids.txt", "order_totals.txt", "orders.csv"]}, {"task_id": "data-analysis-find-anomalies", "score": 100.0, "msg_count": 8, "workspace_files": ["anomaly-report.md", "sales-data.csv"]}, {"task_id": "data-analysis-log-pattern-detection", "score": 0.0, "msg_count": 4, "workspace_files": []}], "avg_score": 33.3}, "clawbench_official": {"num_traces": 3, "traces": [{"task_id": "acad-001-citation-network", "score": 0.0, "msg_count": 17, "workspace_files": ["references.bib", "temp_parsed_bibtex.csv"]}, {"task_id": "acad-002-literature-review", "score": 0.0, "msg_count": 17, "workspace_files": ["abstracts.csv"]}, {"task_id": "acad-003-statistical-analysis", "score": 0.0, "msg_count": 6, "workspace_files": []}], "avg_score": 0.0}, "clawbench_tribe": {"num_traces": 3, "traces": [{"task_id": "basic_chat", "score": null, "msg_count": 2, "workspace_files": []}, {"task_id": "instruction_following", "score": null, "msg_count": 2, "workspace_files": []}, {"task_id": "reasoning_math", "score": null, "msg_count": 2, "workspace_files": []}], "avg_score": null}, "claweval": {"num_traces": 3, "traces": [{"task_id": "C01zh_mortgage_prepay", "score": null, "msg_count": 2, "workspace_files": []}, {"task_id": "C02zh_personal_finance", "score": null, "msg_count": 2, "workspace_files": []}, {"task_id": "C03en_real_estate_finance", "score": null, "msg_count": 2, "workspace_files": []}], "avg_score": null}, "pinchbench": {"num_traces": 3, "traces": [{"task_id": "task_00_sanity", "score": 0.0, "msg_count": 2, "workspace_files": []}, {"task_id": "task_01_calendar", "score": 100.0, "msg_count": 6, "workspace_files": ["meeting.ics"]}, {"task_id": "task_02_stock", "score": 0.0, "msg_count": 8, "workspace_files": []}], "avg_score": 33.3}, "skillsbench": {"num_traces": 3, "traces": [{"task_id": "3d-scan-calc", "score": 0.0, "msg_count": 17, "workspace_files": ["SKILL.md", "material_density_table.md", "mesh_tool.py", "parse_stl.py", "scan_data.stl"]}, {"task_id": "adaptive-cruise-control", "score": 16.7, "msg_count": 17, "workspace_files": ["SKILL.md", "acc_system.py", "pid_controller.py", "sensor_data.csv", "simulation.py", "tuning_results.yaml", "vehicle_params.yaml"]}, {"task_id": "azure-bgp-oscillation-route-leak", "score": 0.0, "msg_count": 6, "workspace_files": ["SKILL.md", "azuredeploy.json", "azuredeploy.parameters.json", "azurevirtualwanarchitecturefigure1.jpg", "generate_data.py", "metadata.json"]}], "avg_score": 5.6}, "zclawbench": {"num_traces": 3, "traces": [{"task_id": "zcb_001", "score": null, "msg_count": 6, "workspace_files": ["workspace/output.md"]}, {"task_id": "zcb_002", "score": null, "msg_count": 6, "workspace_files": ["workspace/output.md"]}, {"task_id": "zcb_003", "score": null, "msg_count": 8, "workspace_files": ["workspace/output.md"]}], "avg_score": null}};
+
+const benchMeta = {
+  clawbench_tribe: {
+    label: 'ClawBench Tribe', tasks: 8, desc: '8 个纯推理测试（chat/reasoning/instruction_following），无文件操作。Host-side string match 评分。',
+    scoring: 'Host-side', scoringClass: 'tag-scoring-host',
+    host: ['load_instances() → 8 hardcoded dicts', 'task_input() → {instance_id, prompt}', 'eval_inputs() → {expected, check_type}'],
+    container: ['agent_spec() → bash flavor, helpful assistant', 'build_task() → prompt text', 'extract_result() → status only'],
+  },
+  pinchbench: {
+    label: 'PinchBench', tasks: 23, desc: '23 个 Markdown 任务文件，每个嵌入 grade(transcript, workspace) Python 函数。In-container 自动评分。',
+    scoring: 'In-container grade()', scoringClass: 'tag-scoring-in',
+    host: ['load_instances() → parse md frontmatter', 'task_input() → {instance_id, prompt}', 'eval_inputs() → {grade_code, grading_type}'],
+    container: ['agent_spec() → bash flavor', 'build_task() → prompt text', 'extract_result() → workspace files', 'evaluate() → exec(grade_code)'],
+  },
+  clawbench_official: {
+    label: 'ClawBench Official', tasks: 303, desc: '303 个真实任务，TOML 元数据 + Markdown 指令 + Pytest 验证器。setup_script 初始化环境数据。',
+    scoring: 'Pytest verifier', scoringClass: 'tag-scoring-in',
+    host: ['load_instances() → parse task.toml+instruction.md', 'task_input() → {instruction, setup_script}', 'eval_inputs() → {verifier_code}'],
+    container: ['agent_spec() → bash_task flavor', 'build_task() → run setup + fix paths', 'extract_result() → workspace files', 'evaluate() → pytest + conftest'],
+  },
+  skillsbench: {
+    label: 'SkillsBench', tasks: 88, desc: '88 个编程/算法任务，TOML 元数据 + 指令 + test_outputs.py + 环境文件（含二进制 STL 等）。',
+    scoring: 'Pytest test_outputs', scoringClass: 'tag-scoring-in',
+    host: ['load_instances() → parse task.toml+instruction.md', 'task_input() → {instruction, env_files, data_dir}', 'eval_inputs() → {test_code}'],
+    container: ['agent_spec() → bash_task flavor', 'build_task() → copy env files + fix /root/', 'extract_result() → workspace files', 'evaluate() → pytest with path fix'],
+  },
+  zclawbench: {
+    label: 'ZClawBench', tasks: 116, desc: '116 个任务，数据仅有 task_id → category 映射。Prompt 由 category template 生成。评分需 host-side LLM judge。',
+    scoring: 'LLM judge (pending)', scoringClass: 'tag-scoring-host',
+    host: ['load_instances() → parse tasks.json', 'task_input() → {instance_id, category}', 'eval_inputs() → None (host-side)'],
+    container: ['agent_spec() → bash flavor', 'build_task() → category-aware prompt', 'extract_result() → workspace files'],
+  },
+  agentbench: {
+    label: 'AgentBench', tasks: 39, desc: '39 个多领域任务，YAML 定义 user_message + expected_outputs + Layer 0 validators (file-exists/content-contains/word-count)。',
+    scoring: 'Hybrid (L0 container + L1-3 host)', scoringClass: 'tag-scoring-hybrid',
+    host: ['load_instances() → parse task.yaml', 'task_input() → {user_message, input_files, data_dir}', 'eval_inputs() → {expected_outputs}'],
+    container: ['agent_spec() → bash_task flavor', 'build_task() → seed input files', 'extract_result() → files with sizes', 'evaluate() → L0 structural checks'],
+  },
+  claweval: {
+    label: 'ClawEval', tasks: 300, desc: '300 个综合任务，YAML 定义 prompt + tools + user_agent 配置 + scoring_components + judge_rubric。含 38 个多轮对话。',
+    scoring: 'LLM judge (pending)', scoringClass: 'tag-scoring-host',
+    host: ['load_instances() → parse task.yaml', 'task_input() → {prompt_text, tools, user_agent}', 'eval_inputs() → {scoring_components, rubric}'],
+    container: ['agent_spec() → bash flavor, tool-aware', 'build_task() → prompt + multi-turn hint', 'extract_result() → files + metadata'],
+  },
+};
+
+const benchOrder = ['clawbench_tribe','pinchbench','clawbench_official','skillsbench','zclawbench','agentbench','claweval'];
+const grid = document.getElementById('benchGrid');
+
+for (const b of benchOrder) {
+  const d = DATA[b];
+  const m = benchMeta[b];
+  if (!d || !m) continue;
+
+  let rows = '';
+  for (const t of d.traces) {
+    const s = t.score !== null ? t.score : 'N/A';
+    const sNum = typeof s === 'number' ? s : 0;
+    const barW = Math.max(sNum * 0.8, 2);
+    let color = '#8b949e';
+    if (typeof t.score === 'number') {
+      color = t.score >= 80 ? '#3fb950' : t.score >= 40 ? '#d29922' : '#f85149';
+    }
+    rows += `<tr>
+      <td style="font-family:monospace;font-size:11px">${t.task_id}</td>
+      <td><div class="score-cell"><div class="score-bar" style="width:${barW}px;background:${color}"></div><span class="score-val">${s}</span></div></td>
+      <td style="color:var(--muted);font-family:monospace">${t.msg_count}</td>
+      <td style="color:var(--muted)">${t.workspace_files.length} files</td>
+    </tr>`;
+  }
+
+  const card = document.createElement('div');
+  card.className = 'bench-card';
+  card.innerHTML = `
+    <div class="bench-header">
+      <h3>${m.label} <span style="color:var(--muted);font-weight:normal;font-size:14px">(${m.tasks} tasks)</span></h3>
+      <div class="bench-tags">
+        <span class="bench-tag ${m.scoringClass}">${m.scoring}</span>
+        <span class="bench-tag" style="background:rgba(63,185,80,0.15);color:var(--green)">${d.num_traces} traces</span>
+      </div>
+    </div>
+    <div class="bench-desc">${m.desc}</div>
+    <div class="bench-detail">
+      <div class="detail-col">
+        <h4>Host Half</h4>
+        <ul class="fn-list">${m.host.map(f => '<li>'+f+'</li>').join('')}</ul>
+      </div>
+      <div class="detail-col">
+        <h4>Container Half</h4>
+        <ul class="fn-list">${m.container.map(f => '<li>'+f+'</li>').join('')}</ul>
+      </div>
+    </div>
+    <table class="trace-table">
+      <tr><th>Task ID</th><th>Score</th><th>Msgs</th><th>Output</th></tr>
+      ${rows}
+    </table>
+  `;
+  grid.appendChild(card);
+}
+</script>
+</body>
+</html>

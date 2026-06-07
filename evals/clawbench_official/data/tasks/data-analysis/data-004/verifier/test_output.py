@@ -1,0 +1,138 @@
+"""Verifier for data-004: Pivot Table."""
+
+from pathlib import Path
+import csv
+import pytest
+
+
+@pytest.fixture
+def workspace(request):
+    return Path(request.config.getoption("--workspace"))
+
+
+@pytest.fixture
+def pivot_rows(workspace):
+    path = workspace / "pivot.csv"
+    assert path.exists(), "pivot.csv not found in workspace"
+    with open(path) as f:
+        reader = csv.DictReader(f)
+        return list(reader)
+
+
+def test_pivot_file_exists(workspace):
+    assert (workspace / "pivot.csv").exists()
+
+
+def test_correct_row_count(pivot_rows):
+    """4 months + 1 total row = 5 data rows."""
+    assert len(pivot_rows) == 5, f"Expected 5 rows (4 months + total), got {len(pivot_rows)}"
+
+
+def test_months_in_order(pivot_rows):
+    month_rows = [r for r in pivot_rows if r["month"] != "Total"]
+    months = [r["month"] for r in month_rows]
+    assert months == sorted(months), f"Months not in chronological order: {months}"
+
+
+def test_has_total_row(pivot_rows):
+    total_rows = [r for r in pivot_rows if r["month"] == "Total"]
+    assert len(total_rows) == 1, "Missing Total row"
+
+
+def test_category_columns_present(workspace):
+    path = workspace / "pivot.csv"
+    header = path.read_text().strip().splitlines()[0]
+    for cat in ['Entertainment', 'Food', 'Transport']:
+        assert cat in header, f"Missing category column: {cat}"
+
+
+def test_total_row_sums(pivot_rows):
+    cats = [k for k in pivot_rows[0].keys() if k != "month"]
+    month_rows = [r for r in pivot_rows if r["month"] != "Total"]
+    total_row = [r for r in pivot_rows if r["month"] == "Total"][0]
+    for cat in cats:
+        expected = round(sum(float(r[cat]) for r in month_rows), 2)
+        actual = round(float(total_row[cat]), 2)
+        assert abs(actual - expected) < 0.02, f"Total for {cat}: expected {expected}, got {actual}"
+
+
+def test_specific_sums(pivot_rows):
+    expected = {"2025-01": {"Food": 376.93, "Transport": 401.85, "Entertainment": 376.53}, "2025-02": {"Food": 264.5, "Transport": 469.99, "Entertainment": 194.72}, "2025-03": {"Food": 198.23, "Transport": 265.86, "Entertainment": 300.26}, "2025-04": {"Food": 250.13, "Transport": 489.48, "Entertainment": 300.13}}
+    month_rows = {r["month"]: r for r in pivot_rows if r["month"] != "Total"}
+    for m, cats_dict in expected.items():
+        assert m in month_rows, f"Missing month {m}"
+        for cat, val in cats_dict.items():
+            actual = round(float(month_rows[m][cat]), 2)
+            assert abs(actual - val) < 0.02, f"{m}/{cat}: expected {val}, got {actual}"
+
+
+# ── Enhanced checks (auto-generated) ────────────────────────────────────────
+
+@pytest.mark.weight(1)
+def test_no_placeholder_values(workspace):
+    """Output files must not contain placeholder/TODO markers."""
+    placeholders = ["TODO", "FIXME", "XXX", "PLACEHOLDER", "CHANGEME", "your_"]
+    for f in workspace.iterdir():
+        if f.is_file() and f.suffix in (".json", ".csv", ".txt", ".md", ".py", ".yaml", ".yml", ".html", ".xml"):
+            content = f.read_text(errors="replace").lower()
+            for p in placeholders:
+                assert p.lower() not in content, f"Placeholder '{p}' found in {f.name}"
+
+@pytest.mark.weight(1)
+def test_encoding_valid(workspace):
+    """All text output files must be valid UTF-8."""
+    for f in workspace.iterdir():
+        if f.is_file() and f.suffix in (".json", ".csv", ".txt", ".md", ".py", ".yaml", ".yml", ".html"):
+            try:
+                f.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                pytest.fail(f"{f.name} contains invalid UTF-8 encoding")
+
+@pytest.mark.weight(1)
+def test_no_duplicate_entries(workspace):
+    """Output should not contain exact duplicate rows/objects."""
+    import json
+    path = workspace / "transactions.csv"
+    if not path.exists():
+        pytest.skip("output file not found")
+    text = path.read_text().strip()
+    if path.suffix == ".json":
+        data = json.loads(text)
+        if isinstance(data, list):
+            serialized = [json.dumps(item, sort_keys=True) for item in data]
+            dupes = len(serialized) - len(set(serialized))
+            assert dupes == 0, f"Found {dupes} duplicate entries in {path.name}"
+    elif path.suffix == ".csv":
+        lines_list = text.splitlines()
+        if len(lines_list) > 1:
+            data_lines = lines_list[1:]
+            dupes = len(data_lines) - len(set(data_lines))
+            assert dupes == 0, f"Found {dupes} duplicate rows in {path.name}"
+
+@pytest.mark.weight(1)
+def test_no_extraneous_files(workspace):
+    """Workspace should not contain debug/temp files."""
+    bad_patterns = [".pyc", "__pycache__", ".DS_Store", "Thumbs.db", ".log", ".bak", ".tmp"]
+    for f in workspace.rglob("*"):
+        if f.is_file():
+            for pat in bad_patterns:
+                assert pat not in f.name, f"Extraneous file found: {f.name}"
+
+@pytest.mark.weight(1)
+def test_output_not_excessively_large(workspace):
+    """Output files should be reasonably sized (< 5MB each)."""
+    for f in workspace.iterdir():
+        if f.is_file() and f.suffix in (".json", ".csv", ".txt", ".md", ".py", ".yaml", ".yml", ".html"):
+            size_mb = f.stat().st_size / (1024 * 1024)
+            assert size_mb < 5, f"{f.name} is {size_mb:.1f}MB, exceeds 5MB limit"
+
+@pytest.mark.weight(2)
+def test_json_parseable_if_present(workspace):
+    """Any .json files in workspace must be valid JSON."""
+    import json
+    for f in workspace.iterdir():
+        if f.is_file() and f.suffix == ".json":
+            try:
+                json.loads(f.read_text())
+            except json.JSONDecodeError:
+                pytest.fail(f"{f.name} is not valid JSON")

@@ -1,0 +1,9 @@
+[task]
+id = "med-003-drug-interaction"
+title = "Medication Interaction Checker"
+domain = "clinical-data"
+level = "L3"
+track = "subject-matter"
+tags = ["clinical", "pharmacology", "drug-interaction"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "data-processing", "file-write"]

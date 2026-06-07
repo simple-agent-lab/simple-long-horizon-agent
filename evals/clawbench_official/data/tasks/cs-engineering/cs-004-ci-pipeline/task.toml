@@ -1,0 +1,9 @@
+[task]
+id = "cs-004-ci-pipeline"
+title = "Create Makefile Build Pipeline for Python Project"
+domain = "cs-engineering"
+level = "L3"
+track = "subject-matter"
+tags = ["engineering", "ci-cd", "makefile"]
+capabilities = ["tool-use"]
+required_actions = ["file-write", "script-execution"]

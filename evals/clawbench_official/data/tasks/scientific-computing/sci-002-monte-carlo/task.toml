@@ -1,0 +1,9 @@
+[task]
+id = "sci-002-monte-carlo"
+title = "Monte Carlo Pi Estimation with Convergence Analysis"
+domain = "scientific-computing"
+level = "L2"
+track = "subject-matter"
+tags = ["scientific-computing", "monte-carlo", "simulation"]
+capabilities = ["tool-use"]
+required_actions = ["computation", "file-write"]

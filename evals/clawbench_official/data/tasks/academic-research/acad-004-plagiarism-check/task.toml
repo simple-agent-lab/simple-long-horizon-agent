@@ -1,0 +1,9 @@
+[task]
+id = "acad-004-plagiarism-check"
+title = "Document Similarity and Plagiarism Detection"
+domain = "academic-research"
+level = "L2"
+track = "subject-matter"
+tags = ["academic", "plagiarism", "text-similarity"]
+capabilities = ["tool-use"]
+required_actions = ["file-read", "computation", "file-write"]
