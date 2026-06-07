@@ -304,7 +304,11 @@ def run_in_container(
     evaluate = getattr(module, "evaluate", None)
     eval_inputs = _load_eval_inputs(store)
     if callable(evaluate) and eval_inputs:
-        eval_context = {**context, "eval": eval_inputs}
+        eval_context = {
+            **context,
+            "eval": eval_inputs,
+            "trajectory_jsonl": trace_bytes(in_progress=False).decode("utf-8"),
+        }
         verdict = evaluate(workdir, instance, **_context_kwargs(evaluate, eval_context))
         if verdict:
             result.update(dict(verdict))

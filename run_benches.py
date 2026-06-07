@@ -89,10 +89,99 @@ def score_tribe(run_dir: Path, instance: dict) -> dict:
     return {
         "passed": passed,
         "score": 100 if passed else 0,
+        "scoring_status": "scored",
+        "score_source": "host_trajectory_check",
         "response_preview": clean[:500],
         "check_type": check_type,
         "expected": expected,
     }
+
+
+def _load_result_json(run_dir: Path) -> dict:
+    result_path = run_dir / "out" / "result.json"
+    if not result_path.exists():
+        return {}
+    try:
+        return json.loads(result_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return {"error": f"invalid result.json: {exc}"}
+
+
+def _coerce_score(value: object) -> float | None:
+    if isinstance(value, bool):
+        return 100.0 if value else 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def summarize_result(run_dir: Path, instance: dict, *, bench: str) -> dict:
+    """Summarize the suite result artifact for CLI reporting.
+
+    This deliberately distinguishes real benchmark scores from "completed but
+    judge missing" cases, so zclawbench/claweval do not look better than they
+    are until their host-side judges are wired.
+    """
+    instance_id = instance.get("instance_id", run_dir.name)
+    result = _load_result_json(run_dir)
+    summary = {
+        "instance_id": instance_id,
+        "passed": False,
+        "score": 0.0,
+        "scoring_status": "scoring_pending",
+        "score_source": "none",
+    }
+    if not result:
+        summary["error"] = "missing result.json"
+        return summary
+    if "error" in result and "invalid result.json" in str(result["error"]):
+        summary["error"] = result["error"]
+        return summary
+
+    score_source = None
+    score = None
+    for key in ("score", "layer0_score"):
+        score = _coerce_score(result.get(key))
+        if score is not None:
+            score_source = key
+            break
+    if score is None and isinstance(result.get("mean"), (int, float)):
+        score = float(result["mean"]) * 100
+        score_source = "mean"
+
+    if score is None:
+        summary.update({
+            "status": result.get("status", "completed"),
+            "note": "result artifact exists, but no benchmark judge score is available yet",
+        })
+        if bench in {"zclawbench", "claweval"}:
+            summary["score_source"] = "missing_host_judge"
+            summary["note"] = "host-side LLM/user-agent judge is not implemented yet"
+        return summary
+
+    passed = bool(result.get("passed", score > 0))
+    summary.update({
+        "passed": passed,
+        "score": round(score, 4),
+        "scoring_status": "scored",
+        "score_source": score_source or "result",
+    })
+    for key in (
+        "status",
+        "tests_passed",
+        "tests_failed",
+        "tests_errors",
+        "tests_total",
+        "earned_points",
+        "total_points",
+    ):
+        if key in result:
+            summary[key] = result[key]
+    if bench in {"zclawbench", "claweval"}:
+        summary["scoring_status"] = "scoring_pending"
+        summary["score_source"] = "missing_host_judge"
+        summary["note"] = "host-side LLM/user-agent judge is not implemented yet"
+    return summary
 
 
 def main():
@@ -235,11 +324,33 @@ def main():
                 status = "PASSED" if score_result["passed"] else "FAILED"
                 print(f"  -> {status} (score: {score_result['score']})")
             else:
-                print(f"  -> completed (status: {artifacts.status_code})")
+                score_result = summarize_result(
+                    artifacts.run_dir, instance, bench=args.bench
+                )
+                results.append(score_result)
+                if score_result.get("scoring_status") == "scored":
+                    status = "PASSED" if score_result["passed"] else "FAILED"
+                    print(
+                        f"  -> {status} "
+                        f"(score: {score_result['score']}, "
+                        f"source: {score_result['score_source']})"
+                    )
+                else:
+                    print(
+                        "  -> completed "
+                        f"(status: {artifacts.status_code}, "
+                        f"scoring: {score_result['scoring_status']})"
+                    )
 
         except Exception as e:
             print(f"  -> ERROR: {e}")
-            results.append({"instance_id": instance_id, "passed": False, "error": str(e)})
+            results.append({
+                "instance_id": instance_id,
+                "passed": False,
+                "score": 0.0,
+                "scoring_status": "error",
+                "error": str(e),
+            })
 
     # Summary
     print(f"\n{'='*60}")
@@ -250,6 +361,26 @@ def main():
     print(f"Results: {passed}/{total} passed")
     print(f"Average score: {avg_score:.1f}")
     print(f"Run directory: {run_root}")
+    summary_path = run_root / "summary.json"
+    summary_path.write_text(
+        json.dumps(
+            {
+                "bench": args.bench,
+                "model": args.model,
+                "backend": args.backend,
+                "sample": args.sample,
+                "passed": passed,
+                "total": total,
+                "average_score": round(avg_score, 4),
+                "results": results,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    print(f"Summary JSON: {summary_path}")
 
 
 if __name__ == "__main__":

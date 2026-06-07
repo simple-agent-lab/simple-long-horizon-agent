@@ -64,9 +64,15 @@ def evaluate(
 
     instance_id = eval_data.get("instance_id", instance.get("instance_id", ""))
 
-    # Read trajectory to build transcript for grading
-    trajectory_path = workspace / "out" / "trajectory.jsonl"
-    transcript = _build_transcript(trajectory_path)
+    # Prefer the live trace passed by the generic runner. In the normal
+    # ArtifactStore layout, trajectory.jsonl lives in the run directory rather
+    # than under the task workspace.
+    trajectory_jsonl = (context or {}).get("trajectory_jsonl", "")
+    if trajectory_jsonl:
+        transcript = _build_transcript_from_jsonl(str(trajectory_jsonl))
+    else:
+        trajectory_path = workspace / "out" / "trajectory.jsonl"
+        transcript = _build_transcript(trajectory_path)
 
     # Execute grade function
     scores = _run_grade(grade_code, transcript, str(workspace))
@@ -93,8 +99,13 @@ def _build_transcript(trajectory_path: Path) -> list[dict]:
     if not trajectory_path.exists():
         return []
 
+    return _build_transcript_from_jsonl(trajectory_path.read_text())
+
+
+def _build_transcript_from_jsonl(trajectory_jsonl: str) -> list[dict]:
+    """Convert serialized trajectory JSONL into the grade() transcript shape."""
     transcript = []
-    for line in trajectory_path.read_text().strip().split("\n"):
+    for line in trajectory_jsonl.strip().split("\n"):
         try:
             entry = json.loads(line)
         except json.JSONDecodeError:
