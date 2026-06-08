@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import random
 import re
 import sys
 from pathlib import Path
@@ -115,7 +116,13 @@ def _coerce_score(value: object) -> float | None:
     return None
 
 
-def summarize_result(run_dir: Path, instance: dict, *, bench: str) -> dict:
+def summarize_result(
+    run_dir: Path,
+    instance: dict,
+    *,
+    bench: str,
+    pass_threshold: float,
+) -> dict:
     """Summarize the suite result artifact for CLI reporting.
 
     This deliberately distinguishes real benchmark scores from "completed but
@@ -159,12 +166,13 @@ def summarize_result(run_dir: Path, instance: dict, *, bench: str) -> dict:
             summary["note"] = "host-side LLM/user-agent judge is not implemented yet"
         return summary
 
-    passed = bool(result.get("passed", score > 0))
+    passed = bool(result["passed"]) if "passed" in result else score >= pass_threshold
     summary.update({
         "passed": passed,
         "score": round(score, 4),
         "scoring_status": "scored",
         "score_source": score_source or "result",
+        "pass_threshold": pass_threshold,
     })
     for key in (
         "status",
@@ -184,6 +192,50 @@ def summarize_result(run_dir: Path, instance: dict, *, bench: str) -> dict:
     return summary
 
 
+def select_instances(
+    instances: list[dict],
+    *,
+    sample: int,
+    strategy: str,
+    seed: int,
+) -> list[dict]:
+    """Select a benchmark subset.
+
+    The default "head" mode preserves the previous behavior. "spread" samples
+    evenly across the loaded instance order, which is useful for ClawBench-style
+    directories where sorted order clusters tasks by domain. "random" is
+    deterministic under --seed.
+    """
+    if sample <= 0 or sample >= len(instances):
+        return list(instances)
+    if strategy == "head":
+        return instances[:sample]
+    if strategy == "random":
+        rng = random.Random(seed)
+        picks = rng.sample(range(len(instances)), sample)
+        return [instances[i] for i in sorted(picks)]
+    if strategy == "spread":
+        if sample == 1:
+            return [instances[0]]
+        last = len(instances) - 1
+        indexes = [round(i * last / (sample - 1)) for i in range(sample)]
+        # round() can collide for small datasets; preserve order and backfill.
+        seen: set[int] = set()
+        ordered: list[int] = []
+        for idx in indexes:
+            if idx not in seen:
+                seen.add(idx)
+                ordered.append(idx)
+        for idx in range(len(instances)):
+            if len(ordered) >= sample:
+                break
+            if idx not in seen:
+                seen.add(idx)
+                ordered.append(idx)
+        return [instances[i] for i in sorted(ordered[:sample])]
+    raise ValueError(f"unknown sample strategy: {strategy}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run ClawEvalkit benches")
     parser.add_argument("--bench", required=True, help="Benchmark name")
@@ -197,6 +249,22 @@ def main():
     )
     parser.add_argument("--max-turns", type=int, default=10, help="Max agent turns")
     parser.add_argument("--run-root", default="runs", help="Output directory")
+    parser.add_argument(
+        "--pass-threshold",
+        type=float,
+        default=100.0,
+        help=(
+            "Score threshold for pass/fail when result.json has no explicit "
+            "'passed' field. Average score is unaffected."
+        ),
+    )
+    parser.add_argument(
+        "--sample-strategy",
+        choices=["head", "spread", "random"],
+        default="head",
+        help="Subset selection strategy; spread avoids domain-clustered first-N samples.",
+    )
+    parser.add_argument("--seed", type=int, default=0, help="Seed for random sampling")
     args = parser.parse_args()
 
     # Bypass proxy for internal API endpoints
@@ -244,47 +312,62 @@ def main():
         from evals.clawbench_tribe.suite import ClawBenchTribeSuite
 
         suite = ClawBenchTribeSuite()
-        instances = suite.load_instances()[: args.sample]
+        all_instances = suite.load_instances()
         score_fn = score_tribe
     elif args.bench == "pinchbench":
         from evals.pinchbench.suite import PinchBenchSuite
 
         suite = PinchBenchSuite()
-        instances = suite.load_instances()[: args.sample]
+        all_instances = suite.load_instances()
         score_fn = None  # scoring is done in-container via evaluate hook
     elif args.bench == "clawbench_official":
         from evals.clawbench_official.suite import ClawBenchOfficialSuite
 
         suite = ClawBenchOfficialSuite()
-        instances = suite.load_instances()[: args.sample]
+        all_instances = suite.load_instances()
         score_fn = None
     elif args.bench == "skillsbench":
         from evals.skillsbench.suite import SkillsBenchSuite
 
         suite = SkillsBenchSuite()
-        instances = suite.load_instances()[: args.sample]
+        all_instances = suite.load_instances()
         score_fn = None
     elif args.bench == "zclawbench":
         from evals.zclawbench.suite import ZClawBenchSuite
 
         suite = ZClawBenchSuite()
-        instances = suite.load_instances()[: args.sample]
+        all_instances = suite.load_instances()
         score_fn = None  # host-side LLM judge needed
     elif args.bench == "agentbench":
         from evals.agentbench.suite import AgentBenchSuite
 
         suite = AgentBenchSuite()
-        instances = suite.load_instances()[: args.sample]
+        all_instances = suite.load_instances()
         score_fn = None
     elif args.bench == "claweval":
         from evals.claweval.suite import ClawEvalSuite
 
         suite = ClawEvalSuite()
-        instances = suite.load_instances()[: args.sample]
+        all_instances = suite.load_instances()
         score_fn = None  # host-side LLM judge needed
     else:
         print(f"ERROR: Unknown bench '{args.bench}'")
         sys.exit(1)
+    instances = select_instances(
+        all_instances,
+        sample=args.sample,
+        strategy=args.sample_strategy,
+        seed=args.seed,
+    )
+    if len(all_instances) and len(instances) < args.sample:
+        print(
+            f"NOTE: requested {args.sample} tasks, but {args.bench} only has "
+            f"{len(all_instances)} instances; running {len(instances)}."
+        )
+    print(
+        f"Selected {len(instances)}/{len(all_instances)} instances "
+        f"(strategy={args.sample_strategy}, seed={args.seed})."
+    )
 
     # Set up backend and store
     run_root = PROJECT_ROOT / args.run_root
@@ -325,7 +408,10 @@ def main():
                 print(f"  -> {status} (score: {score_result['score']})")
             else:
                 score_result = summarize_result(
-                    artifacts.run_dir, instance, bench=args.bench
+                    artifacts.run_dir,
+                    instance,
+                    bench=args.bench,
+                    pass_threshold=args.pass_threshold,
                 )
                 results.append(score_result)
                 if score_result.get("scoring_status") == "scored":
@@ -369,6 +455,11 @@ def main():
                 "model": args.model,
                 "backend": args.backend,
                 "sample": args.sample,
+                "sample_strategy": args.sample_strategy,
+                "seed": args.seed,
+                "pass_threshold": args.pass_threshold,
+                "available_instances": len(all_instances),
+                "selected_instances": [i.get("instance_id") for i in instances],
                 "passed": passed,
                 "total": total,
                 "average_score": round(avg_score, 4),
