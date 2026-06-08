@@ -63,6 +63,7 @@ OPENAI_AUTH_ENV = "OPENAI_AUTH_TOKEN"
 OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
 OPENAI_SESSION_ID_ENV = "OPENAI_SESSION_ID"
 OPENAI_LOG_ID_ENV = "OPENAI_LOG_ID"
+OPENAI_REASONING_EFFORT_ENV = "OPENAI_REASONING_EFFORT"
 API_KIND_ENV = "API_KIND"
 API_KIND_CHOICES = ("openai-chat", "openai-responses")
 DEFAULT_RESPONSES_MAX_OUTPUT_TOKENS = 32768
@@ -196,18 +197,32 @@ def provider_from_env(
     )
 
 
-def request_extra_from_env(*, env: Mapping[str, str] | None = None) -> dict[str, Any]:
+def request_extra_from_env(
+    *, api_kind: str = "openai-chat", env: Mapping[str, str] | None = None
+) -> dict[str, Any]:
     source = env if env is not None else os.environ
+    extra: dict[str, Any] = {}
+
     session_id = source.get(OPENAI_SESSION_ID_ENV, "").strip()
     log_id = source.get(OPENAI_LOG_ID_ENV, "").strip()
-    if not session_id and not log_id:
-        return {}
-    return {
-        "extra_headers": {
+    if session_id or log_id:
+        extra["extra_headers"] = {
             "extra": json.dumps({"session_id": session_id}, separators=(",", ":")),
             "X-TT-logid": log_id,
         }
-    }
+
+    # Reasoning effort lands under the field each API expects: the Responses
+    # API takes a nested ``reasoning={"effort": ...}``, while Chat Completions
+    # takes a top-level ``reasoning_effort`` string. Efforts are model-dependent
+    # (e.g. "minimal" | "low" | "medium" | "high").
+    effort = source.get(OPENAI_REASONING_EFFORT_ENV, "").strip()
+    if effort:
+        if api_kind == "openai-responses":
+            extra["reasoning"] = {"effort": effort}
+        else:
+            extra["reasoning_effort"] = effort
+
+    return extra
 
 
 # --------------------------------------------------------------------------- #
@@ -374,7 +389,11 @@ def main(argv: list[str] | None = None) -> None:
         trace_id=f"{args.suite_name}.{args.instance_id}",
         producer=f"suite:{args.suite_name}",
         suite_name=args.suite_name,
-        request_extra=request_extra_from_env() if args.provider == "openai" else {},
+        request_extra=(
+            request_extra_from_env(api_kind=args.api_kind)
+            if args.provider == "openai"
+            else {}
+        ),
         oracle=oracle,
     )
     print(f"wrote result + trajectory for {args.instance_id} via artifact store")

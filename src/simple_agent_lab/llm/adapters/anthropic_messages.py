@@ -27,6 +27,14 @@ Pass-through request options via `LLMRequest.extra`:
     extra["top_p"]         : float
     extra["top_k"]         : int
     extra["stop_sequences"]: list[str]
+    extra["thinking"]      : dict          (reasoning depth; see note)
+    extra["output_config"] : dict          (adaptive-thinking effort)
+
+Reasoning has no single shape; it is passed through verbatim so the caller
+matches it to the model. Older models take
+``thinking={"type": "enabled", "budget_tokens": N}``; newer ones (Opus 4.7+)
+reject that with a 400 and instead take ``thinking={"type": "adaptive"}``
+plus ``output_config={"effort": "high"}``.
 """
 
 from __future__ import annotations
@@ -103,6 +111,8 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         "top_p",
         "top_k",
         "stop_sequences",
+        "thinking",
+        "output_config",
     ):
         if key in req.extra:
             kwargs[key] = req.extra[key]

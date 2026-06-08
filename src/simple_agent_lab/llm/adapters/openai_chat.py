@@ -45,6 +45,9 @@ Pass-through request options via `LLMRequest.extra`:
     extra["user"]            : str
     extra["response_format"] : dict
     extra["parallel_tool_calls"] : bool
+    extra["reasoning_effort"]    : str   (reasoning models; values are
+                                          model-dependent, e.g. "minimal",
+                                          "low", "medium", "high")
 """
 
 from __future__ import annotations
@@ -124,6 +127,7 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         "user",
         "response_format",
         "parallel_tool_calls",
+        "reasoning_effort",
     ):
         if key in req.extra:
             kwargs[key] = req.extra[key]

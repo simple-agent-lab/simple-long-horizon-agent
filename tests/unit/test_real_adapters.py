@@ -303,6 +303,28 @@ class AnthropicAdapterTest(unittest.TestCase):
         # Only the original user message should be sent.
         self.assertEqual(len(captured["messages"]), 1)
 
+    def test_passes_thinking_and_output_config_to_messages_create(self) -> None:
+        # Reasoning has no single shape; the adapter forwards both keys
+        # verbatim so the caller matches the model (adaptive thinking +
+        # effort here; older models would send thinking.budget_tokens).
+        captured: dict[str, Any] = {}
+        module = _stub_anthropic(_anthropic_response(text="ok"), captured)
+        req = LLMRequest(
+            provider=ANTHROPIC_PROVIDER,
+            messages=[LLMMessage(role="user", content="hi")],
+            extra={
+                "thinking": {"type": "adaptive"},
+                "output_config": {"effort": "high"},
+            },
+        )
+        with (
+            _stub_module("anthropic", module),
+            mock.patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "k"}, clear=False),
+        ):
+            complete(req)
+        self.assertEqual(captured["thinking"], {"type": "adaptive"})
+        self.assertEqual(captured["output_config"], {"effort": "high"})
+
 
 # ---------------------------------------------------------------------------
 # OpenAI Chat
@@ -507,6 +529,21 @@ class OpenAIChatAdapterTest(unittest.TestCase):
         response = events[-1].payload["response"]
         self.assertEqual(response.text, "")
         self.assertEqual(response.stop_reason, "max_tokens")
+
+    def test_passes_reasoning_effort_to_chat_create(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(_chat_response(text="ok"), captured, kind="chat")
+        req = LLMRequest(
+            provider=OPENAI_CHAT_PROVIDER,
+            messages=[LLMMessage(role="user", content="hi")],
+            extra={"reasoning_effort": "high"},
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            complete(req)
+        self.assertEqual(captured["reasoning_effort"], "high")
 
     def test_missing_api_key_raises_clear_error(self) -> None:
         captured: dict[str, Any] = {}
