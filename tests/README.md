@@ -11,6 +11,7 @@ Useful test targets:
 - Agent loop control flow.
 - Message and state shape.
 - Context visibility.
+- Memory extension behavior.
 - Model adapter boundaries.
 - Trace or run record behavior.
 - Example workflows.

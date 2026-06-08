@@ -45,12 +45,20 @@ from ..state import State
 from ..tools.bash import make_bash_tool
 from ..tools.read import make_read_tool
 from ..trajectory import run_trace_from_state, trace_record
-from .protocols import RESULT_KEY, TRACE_KEY, AgentSpec, ArtifactStore, ContainerTask
+from .protocols import (
+    MEMORY_HOME_ENV,
+    RESULT_KEY,
+    TRACE_KEY,
+    AgentSpec,
+    ArtifactStore,
+    ContainerTask,
+)
 from .stores import container_store_from_env
 
 __all__ = [
     "build_agent",
     "main",
+    "memory_home_from_env",
     "provider_from_env",
     "run_in_container",
 ]
@@ -70,6 +78,16 @@ OPENAI_REASONING_EFFORT_ENV = "OPENAI_REASONING_EFFORT"
 API_KIND_ENV = "API_KIND"
 API_KIND_CHOICES = ("openai-chat", "openai-responses")
 DEFAULT_RESPONSES_MAX_OUTPUT_TOKENS = 32768
+
+
+def memory_home_from_env(env: Mapping[str, str] | None = None) -> Path | None:
+    """Return the optional in-container persistent-memory directory."""
+
+    source = env if env is not None else os.environ
+    value = source.get(MEMORY_HOME_ENV, "").strip()
+    if not value:
+        return None
+    return Path(value).expanduser()
 
 
 # --------------------------------------------------------------------------- #

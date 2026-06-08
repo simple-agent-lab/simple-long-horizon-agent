@@ -49,6 +49,11 @@ The current source-of-truth layers are:
 - `src/simple_agent_lab/context_view.py`: model-visible context projection.
 - `src/simple_agent_lab/compression/`: context-compression strategies applied
   before each model request (visibility shaping lives behind `ContextPolicy`).
+- `src/simple_agent_lab/memory/`: small memory extension boundary plus
+  `NotesMemory` (`MEMORY.md` + SQLite FTS session search) and
+  `FilesystemMemory` (scoped Markdown directory + run-end evidence writes).
+  Keep each starter memory mechanism in one implementation file: `notes.py`
+  and `filesystem.py`.
 - `src/simple_agent_lab/tools/`: shared tool/result values plus concrete tool
   implementations such as bash and the sub-agent `task` tool.
 - `src/simple_agent_lab/agents/`: preset agents built on the core layers
@@ -114,6 +119,7 @@ Stop and collect more evidence before changing behavior when:
 | Core runtime shape | ADR 0001, ADR 0005, ADR 0009, `src/simple_agent_lab/core.py` | Canonical runtime boundary and stateful run-loop rationale. |
 | Message protocol or provider conversion | `CONTEXT.md`, ADR 0006, ADR 0012, ADR 0014, `src/simple_agent_lab/messages.py`, `src/simple_agent_lab/llm/README.md` | Runtime-vs-model message boundary and vocabulary. |
 | Context visibility or budgeting | ADR 0010, `src/simple_agent_lab/context_view.py`, `tests/unit/test_core.py`, `tests/unit/test_token_usage.py` | Projection behavior and token-estimate constraints. |
+| Memory, recall, or persistent context | `docs/agent-native/memory-extension.md`, `src/simple_agent_lab/memory/`, ADR 0001, ADR 0010, ADR 0015 | Memory extension API and implementations, plus the runtime, context-view, and trace boundaries they must preserve. |
 | Tool execution or bash demo | `src/simple_agent_lab/tools/`, `src/simple_agent_lab/agents/bash/` (preset agent), `tests/unit/test_bash_agent.py` | Tool result semantics and deterministic demo checks. |
 | Multi-agent delegation (`task` tool) | `src/simple_agent_lab/tools/task.py`, `src/simple_agent_lab/agents/bash_task/` (parent + explorer worker), `tests/unit/test_bash_task_agent.py`, `src/simple_agent_lab/core.py` docstring | Sub-agent delegation shape: a parent picks one worker via `subagent_type` and gets its final message back as the tool result. |
 | MCP tools (incl. multimodal) | ADR 0018, `src/simple_agent_lab/mcp/README.md`, `tests/unit/test_mcp.py`, `scripts/run_mcp_agent_demo.py` | MCP servers wrapped as `AgentTool`s at the tool boundary; image results map straight to `ImageBlock`. Optional `mcp` extra. |

@@ -45,6 +45,12 @@ EVAL_KEY = (
 RESULT_KEY = "out/result.json"  # container puts (raw extract_result), host gets
 TRACE_KEY = "out/trajectory.jsonl"  # container re-puts on a cadence = live trace
 
+# Optional persistent-memory contract for containerized eval runs. The memory
+# package remains local-filesystem-only; container backends may bind-mount a host
+# directory and point in-container agent assembly at it with this env var.
+MEMORY_HOME_ENV = "SAL_MEMORY_HOME"
+DEFAULT_MEMORY_CONTAINER_HOME = "/agent/memory"
+
 
 @dataclass(frozen=True)
 class LaunchSpec:

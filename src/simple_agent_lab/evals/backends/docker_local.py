@@ -25,6 +25,8 @@ from ..bootstrap import UV_CONTAINER_PATH
 from ..protocols import (
     ArtifactStore,
     ContainerBinding,
+    DEFAULT_MEMORY_CONTAINER_HOME,
+    MEMORY_HOME_ENV,
     RunHandle,
     RunOutcome,
     RunSpec,
@@ -138,8 +140,10 @@ def with_local_mounts(
     wheelhouse: str | Path | None,
     wheelhouse_mount: str | None,
     uv_binary: str | Path | None,
+    memory_home: str | Path | None = None,
+    memory_mount: str = DEFAULT_MEMORY_CONTAINER_HOME,
 ) -> ContainerBinding:
-    """Add read-only bind mounts for the offline wheelhouse and an optional uv.
+    """Add local-only bind mounts for offline installs and persistent memory.
 
     `LocalDockerBackend` assumes a shared filesystem (the same assumption as
     `LocalDirStore`'s bind mount), so the offline-install path is wired by
@@ -149,9 +153,15 @@ def with_local_mounts(
     first) so images that ship neither ``uv`` nor a Python 3.11 can still build
     the agent venv the wheels target. Both are read-only; the container never
     writes back to them.
+
+    `memory_home`, when set, is a host directory bind-mounted read-write at
+    ``memory_mount``. The backend also sets ``SAL_MEMORY_HOME`` so an in-container
+    suite can pass that path to `NotesMemory(home=...)` or
+    `FilesystemMemory(root=...)` without teaching memory about Docker.
     """
 
     extra: dict[str, dict[str, str]] = {}
+    env = dict(binding.env)
     if wheelhouse:
         if not wheelhouse_mount:
             raise ValueError(
@@ -167,9 +177,19 @@ def with_local_mounts(
             "bind": UV_CONTAINER_PATH,
             "mode": "ro",
         }
-    if not extra:
+    if memory_home:
+        if not memory_mount:
+            raise ValueError("LocalDockerBackend(memory_home=...) needs memory_mount")
+        memory_path = Path(memory_home).expanduser()
+        memory_path.mkdir(parents=True, exist_ok=True)
+        extra[str(memory_path.resolve())] = {
+            "bind": memory_mount,
+            "mode": "rw",
+        }
+        env[MEMORY_HOME_ENV] = memory_mount
+    if not extra and env == binding.env:
         return binding
-    return replace(binding, mounts={**binding.mounts, **extra})
+    return replace(binding, mounts={**binding.mounts, **extra}, env=env)
 
 
 class LocalDockerBackend:
@@ -185,6 +205,9 @@ class LocalDockerBackend:
     bootstrap installs ``simple-agent-lab`` with ``--no-index --find-links`` (no
     PyPI). `uv_binary`: host path to a Linux ``uv`` binary, bind-mounted at
     ``/tmp/uv``, for images whose own Python predates the wheels' 3.11 target.
+    `memory_home`: optional host directory mounted read-write at
+    ``memory_mount`` and exported as ``SAL_MEMORY_HOME`` for container-side
+    memory construction.
     """
 
     def __init__(
@@ -196,6 +219,8 @@ class LocalDockerBackend:
         wheelhouse: str | Path | None = None,
         uv_binary: str | Path | None = None,
         docker_timeout_s: float = DEFAULT_DOCKER_TIMEOUT_S,
+        memory_home: str | Path | None = None,
+        memory_mount: str = DEFAULT_MEMORY_CONTAINER_HOME,
     ) -> None:
         self.user = user
         self.keep_container = keep_container
@@ -203,6 +228,8 @@ class LocalDockerBackend:
         self.wheelhouse = wheelhouse
         self.uv_binary = uv_binary
         self.docker_timeout_s = docker_timeout_s
+        self.memory_home = memory_home
+        self.memory_mount = memory_mount
 
     def _client(self) -> Any:
         return _require_docker().from_env(timeout=self.docker_timeout_s)
@@ -223,6 +250,8 @@ class LocalDockerBackend:
             wheelhouse=self.wheelhouse,
             wheelhouse_mount=spec.wheelhouse_mount,
             uv_binary=self.uv_binary,
+            memory_home=self.memory_home,
+            memory_mount=self.memory_mount,
         )
         start_container(
             client,

@@ -18,8 +18,10 @@ from typing import Any, Mapping
 from unittest import mock
 
 from simple_agent_lab.evals import (
+    DEFAULT_MEMORY_CONTAINER_HOME,
     EVAL_KEY,
     INSTANCE_KEY,
+    MEMORY_HOME_ENV,
     RESULT_KEY,
     TRACE_KEY,
     FakeBackend,
@@ -822,6 +824,37 @@ class ReviewFixesTest(unittest.TestCase):
         self.assertEqual(
             bound.mounts[str(uv.resolve())],
             {"bind": UV_CONTAINER_PATH, "mode": "ro"},
+        )
+
+    def test_memory_home_is_bind_mounted_read_write(self) -> None:
+        from simple_agent_lab.evals.backends.docker_local import with_local_mounts
+        from simple_agent_lab.evals.protocols import ContainerBinding
+
+        with tempfile.TemporaryDirectory() as tmp:
+            memory_home = Path(tmp) / "memory"
+            bound = with_local_mounts(
+                ContainerBinding(env={"SAL_STORE": "localdir"}),
+                wheelhouse=None,
+                wheelhouse_mount="/agent/wheelhouse",
+                uv_binary=None,
+                memory_home=memory_home,
+            )
+
+            self.assertTrue(memory_home.exists())
+            self.assertEqual(
+                bound.mounts[str(memory_home.resolve())],
+                {"bind": DEFAULT_MEMORY_CONTAINER_HOME, "mode": "rw"},
+            )
+            self.assertEqual(bound.env["SAL_STORE"], "localdir")
+            self.assertEqual(bound.env[MEMORY_HOME_ENV], DEFAULT_MEMORY_CONTAINER_HOME)
+
+    def test_memory_home_from_env_reads_optional_mount_path(self) -> None:
+        from simple_agent_lab.evals.in_container import memory_home_from_env
+
+        self.assertIsNone(memory_home_from_env(env={}))
+        self.assertEqual(
+            memory_home_from_env(env={MEMORY_HOME_ENV: "/agent/memory"}),
+            Path("/agent/memory"),
         )
 
     def test_wheelhouse_without_mount_path_fails_clearly(self) -> None:
