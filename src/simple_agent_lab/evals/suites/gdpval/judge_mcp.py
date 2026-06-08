@@ -198,6 +198,7 @@ def open_gdpval_judge_tools(
     reference_dir: str | Path,
     mode: str | None = None,
     include_local_write_tools: bool = True,
+    include_local_workspace_tools: bool = True,
     include_excel_helpers: bool = False,
 ) -> Iterator[tuple[AgentTool, ...]]:
     """Open GDPVal judge tools, keeping MCP connections alive for the run."""
@@ -206,7 +207,7 @@ def open_gdpval_judge_tools(
     references = Path(reference_dir).resolve()
     tool_mode = normalize_judge_tool_mode(mode)
     local_tools: tuple[AgentTool, ...] = ()
-    if tool_mode in {"local", "hybrid"}:
+    if tool_mode in {"local", "hybrid"} and include_local_workspace_tools:
         selected_local_tools = list(
             make_gdpval_tools(workdir=workspace, reference_dir=references)
         )
@@ -216,11 +217,12 @@ def open_gdpval_judge_tools(
                 for tool in selected_local_tools
                 if tool.name not in _LOCAL_WRITE_TOOL_NAMES
             ]
-        if include_excel_helpers:
-            selected_local_tools.extend(
-                make_judge_excel_tools(workdir=workspace, reference_dir=references)
-            )
         local_tools = tuple(selected_local_tools)
+    if include_excel_helpers:
+        local_tools = (
+            *local_tools,
+            *make_judge_excel_tools(workdir=workspace, reference_dir=references),
+        )
     connections = []
     mcp_tools: list[AgentTool] = []
     warnings: list[dict[str, str]] = []
@@ -290,6 +292,7 @@ def gdpval_judge_agent_context(
     role: str,
     system_prompt: str,
     include_local_write_tools: bool = True,
+    include_local_workspace_tools: bool = True,
     include_excel_helpers: bool = False,
 ) -> Iterator:
     """Yield a judge Agent with local and optional MCP tools bound for one run."""
@@ -304,6 +307,7 @@ def gdpval_judge_agent_context(
         reference_dir=reference_dir,
         mode=mode,
         include_local_write_tools=include_local_write_tools,
+        include_local_workspace_tools=include_local_workspace_tools,
         include_excel_helpers=include_excel_helpers,
     ) as tools:
         yield make_llm_agent(

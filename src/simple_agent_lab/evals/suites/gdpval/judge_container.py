@@ -20,14 +20,18 @@ from typing import Any
 from simple_agent_lab.core import Agent
 from simple_agent_lab.llm.provider import Provider
 from simple_agent_lab.llm_agent import make_llm_agent
+from simple_agent_lab.messages import text_of
+from simple_agent_lab.state import State
 
 from .assets import write_reference_files
+from .judge_excel_tools import make_judge_excel_tools
 from .judge_mcp import gdpval_judge_agent_context
 from .judge_prompts import GDPVAL_JUDGE_SYSTEM_PROMPT
 from .judge_scoring import normalize_rubrics, parse_judge_payload, score_judgment
 from .tools import make_gdpval_tools
 
 JUDGE_RESULT_FILE = "_gdpval_judge_result.json"
+_LOCAL_READ_ONLY_TOOL_NAMES = {"list_dir", "read_file", "grep_files"}
 
 
 def build_agent(
@@ -43,8 +47,8 @@ def build_agent(
     return make_llm_agent(
         name="gdpval_judge",
         provider=provider,
-        role="Judge GDPVal deliverables and write a JSON verdict.",
-        tools=make_gdpval_tools(workdir=workdir, reference_dir=input_dir),
+        role="Judge GDPVal deliverables and emit a JSON verdict.",
+        tools=_local_read_only_judge_tools(workdir, input_dir),
         system_prompt=GDPVAL_JUDGE_SYSTEM_PROMPT,
         target="user",
         request_extra=request_extra,
@@ -68,8 +72,11 @@ def agent_context(
         instance=instance,
         context=context,
         name="gdpval_judge",
-        role="Judge GDPVal deliverables and write a JSON verdict.",
+        role="Judge GDPVal deliverables and emit a JSON verdict.",
         system_prompt=GDPVAL_JUDGE_SYSTEM_PROMPT,
+        include_local_write_tools=False,
+        include_local_workspace_tools=False,
+        include_excel_helpers=True,
     )
 
 
@@ -110,7 +117,6 @@ def build_task(instance: Mapping[str, Any], *, workdir: str) -> str:
     workdir_path = Path(workdir)
     input_dir = _input_dir_for(workdir_path)
     rubrics = normalize_rubrics(instance.get("rubrics"))
-    result_path = workdir_path / JUDGE_RESULT_FILE
     candidate_result = instance.get("candidate_result") or {}
     return "\n".join(
         [
@@ -122,7 +128,6 @@ def build_task(instance: Mapping[str, Any], *, workdir: str) -> str:
             f"- GOLD_DIR: {input_dir / 'gold'}",
             f"- REFERENCE_DIR: {input_dir / 'reference'}",
             f"- ZIP_EXTRACTS: {input_dir / '__zip_extracts'}",
-            f"- REQUIRED_OUTPUT_JSON: {result_path}",
             "",
             "## Original Task Prompt",
             str(instance.get("prompt") or ""),
@@ -137,11 +142,98 @@ def build_task(instance: Mapping[str, Any], *, workdir: str) -> str:
             "",
             "## Instructions",
             "- Inspect the candidate files and gold/reference files as needed.",
-            "- Write the judgment JSON to REQUIRED_OUTPUT_JSON.",
             "- Include exactly one rubric_results item for each rubric index above.",
-            "- Do not write the judgment anywhere else.",
+            "- Finish by outputting the judgment JSON object inside "
+            "<judge_result> and </judge_result> tags.",
+            "- Do not write files; the harness will parse your final message.",
         ]
     )
+
+
+def run_agent(
+    *,
+    provider: Provider,
+    cwd: Path,
+    request_extra: Mapping[str, Any] | None,
+    instance: Mapping[str, Any],
+    context: Mapping[str, Any],
+    task: str,
+    max_turns: int,
+) -> tuple[State, Any]:
+    """Run the rubric judge and persist the final-message verdict for scoring."""
+
+    workdir = Path(cwd)
+    state = State(task=task)
+
+    def events():
+        with gdpval_judge_agent_context(
+            provider=provider,
+            cwd=workdir,
+            request_extra=request_extra,
+            instance=instance,
+            context=context,
+            name="gdpval_judge",
+            role="Judge GDPVal deliverables and emit a JSON verdict.",
+            system_prompt=GDPVAL_JUDGE_SYSTEM_PROMPT,
+            include_local_write_tools=False,
+            include_local_workspace_tools=False,
+            include_excel_helpers=True,
+        ) as agent:
+            source_state, source_events = agent.run(task, max_turns=max_turns)
+            copied = yield from _copy_new_events(source_state, state, start=0)
+            for _ in source_events:
+                copied = yield from _copy_new_events(
+                    source_state,
+                    state,
+                    start=copied,
+                )
+
+        raw = _last_assistant_text(source_state)
+        result_file = workdir / JUDGE_RESULT_FILE
+        result_file.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            payload = parse_judge_payload(raw)
+        except ValueError:
+            result_file.write_text(raw, encoding="utf-8")
+        else:
+            result_file.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+
+    return state, events()
+
+
+def _local_read_only_judge_tools(workdir: Path, input_dir: Path):
+    workspace_tools = tuple(
+        tool
+        for tool in make_gdpval_tools(workdir=workdir, reference_dir=input_dir)
+        if tool.name in _LOCAL_READ_ONLY_TOOL_NAMES
+    )
+    return (
+        *workspace_tools,
+        *make_judge_excel_tools(workdir=workdir, reference_dir=input_dir),
+    )
+
+
+def _copy_new_events(
+    source_state: State,
+    combined_state: State,
+    *,
+    start: int,
+):
+    for event in source_state.events[start:]:
+        yield combined_state.record_event(event)
+    return len(source_state.events)
+
+
+def _last_assistant_text(state: State) -> str:
+    for message in reversed(state.messages):
+        if message.sender.startswith("gdpval_judge"):
+            text = text_of(message.content).strip()
+            if text:
+                return text
+    return ""
 
 
 def apply_oracle(workspace: Path, instance: Mapping[str, Any]) -> None:

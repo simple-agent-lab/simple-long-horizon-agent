@@ -21,15 +21,15 @@ Judging rules:
   Word documents, ppt_* tools for PowerPoint files, and filesystem_* tools for
   controlled filesystem reads.
 - If an MCP tool errors, returns incomplete content, or does not support the file,
-  continue judging with local file tools, bash, Python libraries, and file
-  enumeration. Do not fail the judge run solely because an MCP tool failed.
+  use another read-only document/filesystem tool or the local judge Excel helper
+  tools. Do not fail the judge run solely because one tool failed.
 - For spreadsheets, documents, presentations, notebooks, PDFs, archives, and
-  code, inspect targeted content with MCP/local shell/Python tools instead of
-  reading large files wholesale.
+  code, inspect targeted content with MCP read-only tools or local judge
+  inspection helpers instead of reading large files wholesale.
 - For zip archives, inspect extracted archive contents when they are available.
 - For Chinese filenames, non-Office deliverables, notebooks, code, .overpassql,
-  and other raw text or data files, use file enumeration plus targeted raw reads
-  so every relevant file type is covered.
+  and other raw text or data files, use filesystem_* read-only tools such as
+  directory listing and targeted raw reads so every relevant file type is covered.
 
 Output format:
 - Wrap a JSON array in <rubrics_result> and </rubrics_result>.

@@ -61,6 +61,10 @@ def parse_judge_payload(raw: Any) -> dict[str, Any]:
     if not text:
         raise ValueError("judge payload is empty")
 
+    tagged = _extract_tag_json(text, "judge_result")
+    if isinstance(tagged, Mapping):
+        return dict(tagged)
+
     candidates: list[str] = []
     for fence in re.finditer(
         r"```(?:json)?\s*([\s\S]*?)```", text, flags=re.IGNORECASE
@@ -376,7 +380,7 @@ def _extract_tag_json(text: str, tag: str) -> Any:
     try:
         return json.loads(body)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"GSB tag {tag!r} did not contain valid JSON") from exc
+        raise ValueError(f"tag {tag!r} did not contain valid JSON") from exc
 
 
 def _parse_rubrics_result(text: str) -> list[dict[str, Any]] | None:

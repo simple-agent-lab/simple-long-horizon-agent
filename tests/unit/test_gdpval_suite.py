@@ -408,8 +408,12 @@ class GdpvalSuiteTest(unittest.TestCase):
         )
         self.assertNotIn("read_file", {tool.name for tool in solver.tools})
         self.assertNotIn("write_file", {tool.name for tool in solver.tools})
-        self.assertIn("write_file", {tool.name for tool in judge.tools})
-        self.assertIn("write_file", {tool.name for tool in gsb_judge.tools})
+        self.assertNotIn("write_file", {tool.name for tool in judge.tools})
+        self.assertNotIn("execute_bash", {tool.name for tool in judge.tools})
+        self.assertNotIn("write_file", {tool.name for tool in gsb_judge.tools})
+        self.assertNotIn("execute_bash", {tool.name for tool in gsb_judge.tools})
+        self.assertIn("read_file", {tool.name for tool in judge.tools})
+        self.assertIn("excel_profile_sheet", {tool.name for tool in gsb_judge.tools})
 
     def test_judge_suite_threads_tool_mode_into_instance(self) -> None:
         suite = GdpvalGsbJudgeSuite(judge_tool_mode="local")
@@ -541,6 +545,31 @@ class GdpvalSuiteTest(unittest.TestCase):
         self.assertEqual(normalize_judge_tool_mode("MCP"), "mcp")
         with self.assertRaises(ValueError):
             normalize_judge_tool_mode("remote")
+
+    def test_gsb_judge_local_tool_surface_excludes_solver_bash(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with judge_mcp.open_gdpval_judge_tools(
+                workdir=root / "workdir",
+                reference_dir=root / "judge_inputs",
+                mode="local",
+                include_local_workspace_tools=False,
+                include_excel_helpers=True,
+            ) as tools:
+                tool_names = {tool.name for tool in tools}
+
+        self.assertIn("excel_profile_sheet", tool_names)
+        self.assertIn("read_data_from_excel_compact", tool_names)
+        self.assertNotIn("execute_bash", tool_names)
+        self.assertNotIn("read_file", tool_names)
+        self.assertNotIn("write_file", tool_names)
+
+    def test_gsb_judge_prompt_prefers_read_only_filesystem_tools(self) -> None:
+        prompt = judge_gsb_container.GDPVAL_GSB_JUDGE_SYSTEM_PROMPT
+
+        self.assertIn("filesystem_* read-only tools", prompt)
+        self.assertNotIn("bash", prompt.lower())
+        self.assertNotIn("python libraries", prompt.lower())
 
     def test_judge_excel_tools_auto_correct_header_and_token_match_sheet(
         self,
@@ -680,6 +709,23 @@ class GdpvalSuiteTest(unittest.TestCase):
         self.assertAlmostEqual(result["earned_score"], 3.5)
         self.assertAlmostEqual(result["max_score"], 5.0)
         self.assertAlmostEqual(result["score"], 0.7)
+
+    def test_judge_parser_accepts_judge_result_tags(self) -> None:
+        payload = parse_judge_payload(
+            """
+            <judge_result>
+            {
+              "rubric_results": [
+                {"index": 0, "grade": 1, "explanation": "ok"}
+              ],
+              "overall_explanation": "done"
+            }
+            </judge_result>
+            """
+        )
+
+        self.assertEqual(payload["rubric_results"][0]["grade"], 1)
+        self.assertEqual(payload["overall_explanation"], "done")
 
     def test_gsb_judge_scoring_uses_forward_and_reverse_maps(self) -> None:
         rubrics = [{"score": 1, "criterion": "Candidate is better"}]
@@ -972,7 +1018,9 @@ class GdpvalSuiteTest(unittest.TestCase):
                 (reference_dir / "refs" / "brief.txt").read_text(encoding="utf-8"),
                 "brief",
             )
-            self.assertIn(str(judge_workdir / judge_container.JUDGE_RESULT_FILE), task)
+            self.assertNotIn(judge_container.JUDGE_RESULT_FILE, task)
+            self.assertIn("<judge_result>", task)
+            self.assertIn("Do not write files", task)
 
     def test_gsb_judge_prepare_and_task_use_gold_as_standard_answer(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

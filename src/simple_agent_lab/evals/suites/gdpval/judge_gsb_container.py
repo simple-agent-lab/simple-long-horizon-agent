@@ -22,7 +22,12 @@ from simple_agent_lab.messages import text_of
 from simple_agent_lab.protocols import ToolExecutionStartEvent
 from simple_agent_lab.state import State
 
-from .judge_container import _candidate_summary, _input_dir_for, prepare as prepare
+from .judge_container import (
+    _candidate_summary,
+    _input_dir_for,
+    _local_read_only_judge_tools,
+    prepare as prepare,
+)
 from .judge_gsb_prompts import (
     GDPVAL_GSB_JUDGE_EXCEL_HANDLING_PROMPT,
     GDPVAL_GSB_JUDGE_SYSTEM_PROMPT,
@@ -34,7 +39,6 @@ from .judge_scoring import (
     parse_gsb_judge_payload,
     score_gsb_judgment,
 )
-from .tools import make_gdpval_tools
 
 JUDGE_RESULT_FILE = "_gdpval_gsb_judge_result.json"
 JUDGE_ATTEMPTS_FILE = "_gdpval_gsb_judge_attempts.json"
@@ -73,7 +77,7 @@ def build_agent(
         name="gdpval_gsb_judge",
         provider=provider,
         role="Compare GDPVal deliverables and write a GSB JSON verdict.",
-        tools=make_gdpval_tools(workdir=workdir, reference_dir=input_dir),
+        tools=_local_read_only_judge_tools(workdir, input_dir),
         system_prompt=GDPVAL_GSB_JUDGE_SYSTEM_PROMPT,
         target="user",
         request_extra=request_extra,
@@ -100,6 +104,7 @@ def agent_context(
         role="Compare GDPVal deliverables and write a GSB JSON verdict.",
         system_prompt=GDPVAL_GSB_JUDGE_SYSTEM_PROMPT,
         include_local_write_tools=False,
+        include_local_workspace_tools=False,
         include_excel_helpers=True,
     )
 
@@ -426,6 +431,7 @@ def _run_direction(
             role="Compare GDPVal deliverables and emit one GSB direction.",
             system_prompt=GDPVAL_GSB_JUDGE_SYSTEM_PROMPT,
             include_local_write_tools=False,
+            include_local_workspace_tools=False,
             include_excel_helpers=True,
         ) as agent:
             source_state, source_events = agent.run(prompt, max_turns=max_turns)
