@@ -11,11 +11,13 @@
 # Examples:
 #   bash runs/run_swebench_suite.sh django__django-12113
 #   bash runs/run_swebench_suite.sh django__django-12113 20 my-experiment bash_task
+#   MCP_CONFIG=evals/swebench/mcp.example.json bash runs/run_swebench_suite.sh sympy__sympy-23824 3 mcp-smoke bash
 #
 # Prerequisites:
 #   - Docker running (colima / Docker Desktop / Docker Engine)
 #   - SWE-bench instance image already built (see runs/setup_swebench_docker.sh)
 #   - .env with OPENAI_MODEL, OPENAI_AUTH_TOKEN, and optionally OPENAI_BASE_URL
+#   - Optional: MCP_CONFIG pointing to a JSON MCP server config
 #   - Wheelhouse prepared (the script does this automatically if missing)
 set -euo pipefail
 
@@ -84,10 +86,16 @@ fi
 swebench_ensure_linux_uv
 
 # --- Run the agent through the Suite framework ---
+MCP_ARGS=()
+if [ -n "${MCP_CONFIG:-}" ]; then
+  MCP_ARGS+=(--mcp-config "$MCP_CONFIG")
+fi
+
 "${PYTHON[@]}" runs/run_swebench_suite.py "$INSTANCE_ID" \
   --max-turns "$MAX_TURNS" \
   --run-id "$RUN_ID" \
   --agent-flavor "$AGENT_FLAVOR" \
   --uv-binary "$SWEBENCH_UV_BIN" \
   --network-mode host \
+  "${MCP_ARGS[@]}" \
   --force

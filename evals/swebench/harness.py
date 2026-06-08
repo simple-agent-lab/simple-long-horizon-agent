@@ -53,6 +53,7 @@ OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
 OPENAI_SESSION_ID_ENV = "OPENAI_SESSION_ID"
 OPENAI_LOG_ID_ENV = "OPENAI_LOG_ID"
 API_KIND_ENV = "API_KIND"
+MCP_CONFIG_ENV = "MCP_CONFIG"
 API_KIND_CHOICES = ("openai-chat", "openai-responses")
 AGENT_FLAVOR_CHOICES = ("bash", "bash_task", "bash_skills")
 DEFAULT_AGENT_FLAVOR = "bash"
@@ -349,6 +350,34 @@ def resolve_api_kind(value: str | None) -> str:
     return api_kind
 
 
+def resolve_mcp_config_path(value: str | None) -> str | None:
+    """Return the requested MCP config path, preferring CLI over MCP_CONFIG."""
+
+    config = (value or os.environ.get(MCP_CONFIG_ENV) or "").strip()
+    return config or None
+
+
+def load_mcp_config_payload(path: str | Path) -> dict[str, Any]:
+    """Load and validate an MCP config file, returning its JSON object payload."""
+
+    config_path = Path(path)
+    try:
+        text = config_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise SystemExit(f"MCP config {config_path}: {exc}") from exc
+
+    try:
+        from simple_agent_lab.mcp.config_file import mcp_server_configs_from_json
+
+        mcp_server_configs_from_json(text, source=f"MCP config {config_path}")
+        payload = json.loads(text)
+    except (ValueError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"MCP config {config_path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise SystemExit(f"MCP config {config_path}: expected a JSON object")
+    return dict(payload)
+
+
 # --------------------------------------------------------------------------- #
 # Prediction shaping (official harness input record)
 # --------------------------------------------------------------------------- #
@@ -375,13 +404,21 @@ def prediction_record(
 # --------------------------------------------------------------------------- #
 # Offline wheelhouse (provider wheels + the current project wheel)
 # --------------------------------------------------------------------------- #
-def prepare_wheelhouse_for_run(wheelhouse: Path | None, *, prepare_all: bool) -> None:
+def prepare_wheelhouse_for_run(
+    wheelhouse: Path | None,
+    *,
+    prepare_all: bool,
+    extras: tuple[str, ...] = (),
+) -> None:
     """Prepare mounted wheels, keeping local project code fresh for each run."""
 
     if wheelhouse is None:
         return
     if prepare_all:
-        prepare_wheelhouse(wheelhouse)
+        if extras:
+            prepare_wheelhouse(wheelhouse, extras=extras)
+        else:
+            prepare_wheelhouse(wheelhouse)
     else:
         prepare_project_wheel(wheelhouse)
 
@@ -402,6 +439,7 @@ def prepare_wheelhouse(
     path: Path,
     *,
     runner: Callable[[list[str]], None] | None = None,
+    extras: tuple[str, ...] = (),
 ) -> None:
     """Download provider wheels for the container's CPython 3.11 runtime."""
 
@@ -410,12 +448,19 @@ def prepare_wheelhouse(
 
     uv = shutil.which("uv")
     if uv is not None:
-        requirements_file = _export_locked_requirements(uv, path, run=run)
+        requirements_file = _export_locked_requirements(
+            uv, path, run=run, extras=extras
+        )
         requirement_args = ["-r", str(requirements_file)]
     else:
         requirement_args = _project_runtime_dependencies()
 
-    for platform in ("manylinux2014_x86_64", "musllinux_1_1_x86_64"):
+    platforms = (
+        ("manylinux2014_x86_64",)
+        if extras
+        else ("manylinux2014_x86_64", "musllinux_1_1_x86_64")
+    )
+    for platform in platforms:
         pip_args = [
             "download",
             "--only-binary=:all:",
@@ -444,10 +489,12 @@ def _export_locked_requirements(
     destination: Path,
     *,
     run: Callable[[list[str]], None],
+    extras: tuple[str, ...] = (),
 ) -> Path:
     """Export the project's locked runtime closure from ``uv.lock``."""
 
     requirements = destination / "requirements.lock.txt"
+    extra_args = [arg for extra in extras for arg in ("--extra", extra)]
     run(
         [
             uv,
@@ -455,6 +502,7 @@ def _export_locked_requirements(
             "--frozen",
             "--no-dev",
             "--no-emit-project",
+            *extra_args,
             "--no-hashes",
             "--no-annotate",
             "--no-header",
