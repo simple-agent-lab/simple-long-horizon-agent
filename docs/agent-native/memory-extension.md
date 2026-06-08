@@ -82,14 +82,11 @@ together:
    product dominate by default.
 3. The existing Simple Agent Lab memory implementation and its tests, so
    refinements build on the current teaching shape instead of replacing it
-   wholesale. The retired `MEMORY.md` plus session-search mechanism was
-   checkpointed in git commit `acd00c7` before removal.
+   wholesale.
 
 The owner preference for starter memory mechanisms is one Python file per
 mechanism. Keep the active filesystem implementation in `filesystem.py` unless a
-split becomes clearly more readable than the extra indirection. If the retired
-notes mechanism is restored from `acd00c7`, keep its bounded `MEMORY.md` notes
-file and session-search archive together in one implementation file.
+split becomes clearly more readable than the extra indirection.
 
 The durable lesson is not to maximize recall. The durable lesson is to control
 memory quality:
@@ -286,58 +283,13 @@ memory spans in `trajectory/spans.py`.
 ## Imported Mechanism Fit
 
 The migrated reproduction spec under
-`docs/reference-architectures/memory-reproduction-spec.md` describes two memory
-mechanisms from a SWE-bench-focused agent project. Treat its benchmark-specific
-wording as an example domain, not as a Simple Agent Lab requirement. The
-engineering shape is useful because it exercises several extension modes at
-once: prompt injection, ordinary tools, filesystem-backed memory, post-run
-learning, and memory-only model calls.
+`docs/reference-architectures/memory-reproduction-spec.md` includes
+SWE-bench-focused memory patterns. Treat its benchmark-specific wording as an
+example domain, not as a Simple Agent Lab requirement. The filesystem-memory
+shape is useful because it exercises prompt injection, ordinary file tools,
+filesystem-backed storage, post-run learning, and memory-only model calls.
 
-### Method A: `MEMORY.md` Plus Session Search
-
-Fit: retired from the active code after checkpoint commit `acd00c7`. Use this
-section as design context only unless the mechanism is restored from git.
-
-Generalized shape:
-
-- A bounded distilled-notes artifact is loaded once at run start and injected
-  as stable context.
-- A memory edit tool lets the model request `add`, `replace`, and `remove`
-  operations.
-- A searchable raw-session archive is exposed through a recall tool.
-- At run end, the host indexes the visible transcript for future recall.
-- Optional consolidation uses a no-tools model pass to edit distilled notes.
-
-Mapping to this sketch:
-
-- `MEMORY.md` is a `MemorySource`, `MemorySink`, and `MemoryToolProvider`.
-- The frozen prompt snapshot is `initial(...)` plus `MemoryInjector`.
-- The search tool is a `MemorySource` exposed as an ordinary `AgentTool`.
-- Transcript indexing is `finish(...)` through a `MemoryLearner`/`MemorySink`.
-- Periodic consolidation can use `record(...)` for counters and `finish(...)`
-  for the final pass.
-
-Domain-specific details to generalize:
-
-- Replace SWE-only save guidance with domain-specific memory policy text.
-- Replace the extractive session summary sections with a pluggable
-  `summarize_session` function.
-- Replace `session_id == benchmark instance id` with a generic run or task id.
-- Keep the invariant that only model-visible text is indexed; provider raw
-  dumps and debug-only sidecars should stay out of memory.
-
-Abstraction notes:
-
-- The sketch should allow both message injection and system-prompt block
-  injection. Message injection is easier to trace; system-prompt injection may
-  be useful when byte-stable prefix caching matters.
-- Tool registration should be additive: a memory extension contributes ordinary
-  `AgentTool` values before the run starts.
-- Memory tool errors can be transport-success tool results with structured
-  error content, so the model can recover without the runtime treating memory
-  as a crashed tool.
-
-### Method B: Filesystem Memory
+### Filesystem Memory
 
 Fit: implemented as `FilesystemMemory`.
 
@@ -508,9 +460,7 @@ Completed starting point:
    without changing the current agent runtime.
 3. Focused tests for binding shape, transcript extraction, and filesystem
    evidence/distillation writes.
-4. Concrete `FilesystemMemory` implementation. The earlier `NotesMemory`
-   implementation was checkpointed in `acd00c7` and then removed from active
-   code.
+4. Concrete `FilesystemMemory` implementation.
 
 Possible next steps:
 
