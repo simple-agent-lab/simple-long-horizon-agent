@@ -49,7 +49,14 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--prepare-timeout-seconds", type=float, default=300.0)
     parser.add_argument("--judge-max-turns", type=int, default=50)
     parser.add_argument("--judge-semantic-max-attempts", type=int, default=2)
-    parser.add_argument("--judge-tool-mode", choices=["local", "mcp", "hybrid"], default="hybrid")
+    parser.add_argument(
+        "--judge-api-kind",
+        choices=["openai-chat", "openai-responses"],
+        default="openai-chat",
+    )
+    parser.add_argument(
+        "--judge-tool-mode", choices=["local", "mcp", "hybrid"], default="hybrid"
+    )
     parser.add_argument("--pull", choices=["missing", "always", "never"], default="never")
     parser.add_argument("--network-mode", default="host")
     parser.add_argument("--platform", default=None)
@@ -112,7 +119,7 @@ def main() -> None:
         timeout_seconds=args.prepare_timeout_seconds,
     )
 
-    provider_env = _judge_provider_env()
+    provider_env = _judge_provider_env(judge_api_kind=args.judge_api_kind)
     print("", flush=True)
     print("==> Running GDPVal judge from existing artifacts", flush=True)
     print(f"    selected:    {len(judge_instances)}", flush=True)
@@ -121,7 +128,7 @@ def main() -> None:
     print("    mode:        gsb", flush=True)
     print(f"    tools:       {args.judge_tool_mode}", flush=True)
     print("    provider:    openai", flush=True)
-    print("    api-kind:    openai-chat", flush=True)
+    print(f"    api-kind:    {args.judge_api_kind}", flush=True)
     print(f"    model:       {provider_env.get('OPENAI_MODEL', '<unset>')}", flush=True)
     print(f"    concurrency: {args.concurrency}", flush=True)
     print("", flush=True)
@@ -142,7 +149,7 @@ def main() -> None:
             base_judge_run_id=args.judge_run_id,
             wheelhouse=wheelhouse,
             judge_provider="openai",
-            judge_api_kind="openai-chat",
+            judge_api_kind=args.judge_api_kind,
             provider_env=provider_env,
             on_judge_result=on_judge_result,
         )
@@ -293,7 +300,7 @@ def _runner_args(args: argparse.Namespace, *, run_root: Path, task_ids: list[str
         judge_semantic_max_attempts=args.judge_semantic_max_attempts,
         judge_max_turns=args.judge_max_turns,
         judge_provider="openai",
-        judge_api_kind="openai-chat",
+        judge_api_kind=args.judge_api_kind,
         provider="openai",
         api_kind="openai-responses",
         max_turns=100,
@@ -326,11 +333,13 @@ def _runner_args(args: argparse.Namespace, *, run_root: Path, task_ids: list[str
     )
 
 
-def _judge_provider_env() -> dict[str, str]:
+def _judge_provider_env(*, judge_api_kind: str = "openai-chat") -> dict[str, str]:
     names = (
         "OPENAI_MODEL",
         "OPENAI_AUTH_TOKEN",
         "OPENAI_BASE_URL",
+        "OPENAI_SESSION_ID",
+        "OPENAI_LOG_ID",
         "OPENAI_REASONING_EFFORT",
         "AZURE_OPENAI_ENDPOINT",
         "AZURE_OPENAI_API_VERSION",
@@ -341,7 +350,25 @@ def _judge_provider_env() -> dict[str, str]:
     missing = [name for name in ("OPENAI_MODEL", "OPENAI_AUTH_TOKEN") if name not in env]
     if missing:
         raise SystemExit(f"missing judge provider env keys: {', '.join(missing)}")
+    if judge_api_kind == "openai-responses" and env.get("OPENAI_BASE_URL"):
+        env["OPENAI_BASE_URL"] = _responses_base_url_for_sdk(env["OPENAI_BASE_URL"])
     return env
+
+
+def _responses_base_url_for_sdk(base_url: str) -> str:
+    """Accept either a Responses endpoint or the SDK base URL.
+
+    ``OpenAI(...).responses.create(...)`` appends ``/responses`` internally.
+    Some provider docs publish the full endpoint ending in ``/responses``; trim
+    that suffix before passing it as ``base_url`` to avoid
+    ``/responses/responses``.
+    """
+
+    stripped = base_url.rstrip("/")
+    suffix = "/responses"
+    if stripped.endswith(suffix):
+        return stripped[: -len(suffix)]
+    return base_url
 
 
 if __name__ == "__main__":

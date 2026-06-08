@@ -10,13 +10,13 @@ from pathlib import Path
 from unittest import mock
 
 from simple_agent_lab.evals import (
-    DatasetReport,
     InstanceResult,
     RESULT_KEY,
     RunArtifacts,
 )
 
 from runs import run_gdpval
+from runs import run_gdpval_judge_existing
 
 
 class RunGdpvalJudgeRetryTest(unittest.TestCase):
@@ -87,6 +87,30 @@ class RunGdpvalJudgeRetryTest(unittest.TestCase):
                 },
             )
 
+    def test_existing_judge_responses_env_keeps_session_and_normalizes_base_url(
+        self,
+    ) -> None:
+        with mock.patch.dict(
+            "os.environ",
+            {
+                "OPENAI_MODEL": "judge-model",
+                "OPENAI_AUTH_TOKEN": "token",
+                "OPENAI_BASE_URL": "https://example.test/api/responses",
+                "OPENAI_SESSION_ID": "judge-session",
+                "OPENAI_REASONING_EFFORT": "high",
+            },
+            clear=True,
+        ):
+            env = run_gdpval_judge_existing._judge_provider_env(
+                judge_api_kind="openai-responses"
+            )
+
+        self.assertEqual(env["OPENAI_MODEL"], "judge-model")
+        self.assertEqual(env["OPENAI_AUTH_TOKEN"], "token")
+        self.assertEqual(env["OPENAI_BASE_URL"], "https://example.test/api")
+        self.assertEqual(env["OPENAI_SESSION_ID"], "judge-session")
+        self.assertEqual(env["OPENAI_REASONING_EFFORT"], "high")
+
     def test_solver_and_judge_provider_env_can_differ_from_cli(self) -> None:
         args = run_gdpval._build_parser().parse_args(
             [
@@ -154,10 +178,10 @@ class RunGdpvalJudgeRetryTest(unittest.TestCase):
         self.assertEqual(judge_env["AZURE_OPENAI_API_VERSION"], "2024-02-01")
         self.assertEqual(judge_env["AZURE_OPENAI_LOGID"], "judge-log")
 
-    def test_semantic_retry_only_reruns_invalid_judge_results(self) -> None:
+    def test_semantic_retry_streams_invalid_judge_results(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            calls: list[tuple[str, list[str]]] = []
+            calls: list[tuple[str, str]] = []
 
             def result(run_id: str, task_id: str, status: str, score: float):
                 run_dir = root / run_id / task_id
@@ -187,25 +211,14 @@ class RunGdpvalJudgeRetryTest(unittest.TestCase):
                     attempts=1,
                 )
 
-            def fake_run_dataset(**kwargs):
+            def fake_run_suite_instance(**kwargs):
                 run_id = kwargs["run_id"]
-                ids = [str(item["instance_id"]) for item in kwargs["instances"]]
-                calls.append((run_id, ids))
-                if run_id == "judge-base":
-                    return DatasetReport(
-                        [
-                            result("judge-base", "good", "gsb_judged", 0.5),
-                            result(
-                                "judge-base",
-                                "flaky",
-                                "judge_result_missing",
-                                0.0,
-                            ),
-                        ]
-                    )
-                self.assertEqual(run_id, "judge-base-semantic-retry-2")
-                self.assertEqual(ids, ["flaky"])
-                return DatasetReport([result(run_id, "flaky", "gsb_judged", 1.0)])
+                task_id = str(kwargs["instance"]["instance_id"])
+                calls.append((run_id, task_id))
+                if run_id == "judge-base" and task_id == "flaky":
+                    return result(run_id, task_id, "judge_result_missing", 0.0).artifacts
+                score = 1.0 if task_id == "flaky" else 0.5
+                return result(run_id, task_id, "gsb_judged", score).artifacts
 
             args = argparse.Namespace(
                 judge_semantic_max_attempts=2,
@@ -218,7 +231,9 @@ class RunGdpvalJudgeRetryTest(unittest.TestCase):
 
             with (
                 mock.patch.object(
-                    run_gdpval, "run_dataset", side_effect=fake_run_dataset
+                    run_gdpval,
+                    "run_suite_instance",
+                    side_effect=fake_run_suite_instance,
                 ),
                 mock.patch.object(run_gdpval, "_backend_for", return_value=object()),
                 contextlib.redirect_stdout(io.StringIO()),
@@ -230,6 +245,7 @@ class RunGdpvalJudgeRetryTest(unittest.TestCase):
                         judge_instances=[
                             {"instance_id": "good"},
                             {"instance_id": "flaky"},
+                            {"instance_id": "later"},
                         ],
                         run_root=root,
                         base_judge_run_id="judge-base",
@@ -244,18 +260,24 @@ class RunGdpvalJudgeRetryTest(unittest.TestCase):
             self.assertEqual(
                 calls,
                 [
-                    ("judge-base", ["good", "flaky"]),
-                    ("judge-base-semantic-retry-2", ["flaky"]),
+                    ("judge-base", "good"),
+                    ("judge-base", "flaky"),
+                    ("judge-base-semantic-retry-2", "flaky"),
+                    ("judge-base", "later"),
                 ],
             )
-            self.assertEqual([item.instance_id for item in results], ["good", "flaky"])
+            self.assertEqual(
+                [item.instance_id for item in results],
+                ["good", "flaky", "later"],
+            )
             self.assertEqual(run_ids, ["judge-base", "judge-base-semantic-retry-2"])
-            self.assertEqual(attempt_counts, {"good": 1, "flaky": 2})
+            self.assertEqual(attempt_counts, {"good": 1, "flaky": 2, "later": 1})
             self.assertEqual(
                 histories,
                 {
                     "good": ["gsb_judged"],
                     "flaky": ["judge_result_missing", "gsb_judged"],
+                    "later": ["gsb_judged"],
                 },
             )
 
@@ -270,8 +292,8 @@ class RunGdpvalJudgeRetryTest(unittest.TestCase):
                 attempt_counts=attempt_counts,
                 semantic_histories=histories,
             )
-            self.assertEqual(summary["judged"], 2)
-            self.assertEqual(summary["mean_score"], 0.75)
+            self.assertEqual(summary["judged"], 3)
+            self.assertEqual(summary["mean_score"], 2.0 / 3.0)
 
             payload = json.loads((root / "solver" / "judge_summary.json").read_text())
             by_id = {row["task_id"]: row for row in payload["rows"]}

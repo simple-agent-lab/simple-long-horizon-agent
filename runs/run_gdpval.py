@@ -6,6 +6,8 @@ import argparse
 import json
 import os
 import sys
+from collections import deque
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime
 from pathlib import Path
 
@@ -28,8 +30,10 @@ from simple_agent_lab.evals import (  # noqa: E402
     LocalDirStore,
     LocalDockerBackend,
     LocalProcessBackend,
+    InstanceResult,
     RunArtifacts,
     run_dataset,
+    run_suite_instance,
 )
 
 DEFAULT_WHEELHOUSE_MOUNT = "/agent/wheelhouse"
@@ -597,68 +601,86 @@ def _run_judge_with_semantic_retries(
     provider_env: dict[str, str],
     on_judge_result,
 ) -> tuple[list, list[str], dict[str, int], dict[str, list[str]]]:
-    pending = list(judge_instances)
-    latest_by_id = {}
+    pending = deque((instance, 1) for instance in judge_instances)
+    latest_by_id: dict[str, InstanceResult] = {}
     attempt_counts: dict[str, int] = {}
     semantic_histories: dict[str, list[str]] = {}
     run_ids: list[str] = []
+    seen_run_ids: set[str] = set()
     max_semantic_attempts = max(1, int(args.judge_semantic_max_attempts or 1))
+    concurrency = max(1, int(args.judge_concurrency or args.concurrency or 1))
 
-    for semantic_attempt in range(1, max_semantic_attempts + 1):
-        attempt_run_id = _judge_attempt_run_id(base_judge_run_id, semantic_attempt)
-        run_ids.append(attempt_run_id)
-        if semantic_attempt > 1:
-            print("")
-            print(
-                "==> Retrying GDPVal judge semantic failures "
-                f"(attempt {semantic_attempt}/{max_semantic_attempts})"
-            )
-            print(f"    selected:    {len(pending)}")
-            print(f"    run-id:      {attempt_run_id}")
-            print("")
-        backend = _backend_for(args, run_id=attempt_run_id, wheelhouse=wheelhouse)
-        judge_report = run_dataset(
-            suite=suite,
-            instances=pending,
-            backend=backend,
-            store=LocalDirStore(run_root),
-            run_root=run_root,
-            run_id=attempt_run_id,
-            concurrency=args.judge_concurrency or args.concurrency,
-            max_attempts=args.judge_max_attempts,
-            on_result=on_judge_result,
-            provider=judge_provider,
-            api_kind=judge_api_kind,
-            max_turns=args.judge_max_turns,
-            provider_env=provider_env,
-            wheelhouse_mount=args.wheelhouse_mount if wheelhouse else None,
-        )
-        latest_by_id.update({item.instance_id: item for item in judge_report.results})
-        for item in judge_report.results:
-            task_id = str(item.instance_id)
-            attempt_counts[task_id] = attempt_counts.get(task_id, 0) + item.attempts
-            semantic_histories.setdefault(task_id, []).append(
-                _judge_result_status(item)
-            )
+    def note_run_id(semantic_attempt: int) -> str:
+        run_id = _judge_attempt_run_id(base_judge_run_id, semantic_attempt)
+        if run_id not in seen_run_ids:
+            seen_run_ids.add(run_id)
+            run_ids.append(run_id)
+            if semantic_attempt > 1:
+                print("")
+                print(
+                    "==> Retrying GDPVal judge semantic failures "
+                    f"(attempt {semantic_attempt}/{max_semantic_attempts})"
+                )
+                print(f"    run-id:      {run_id}")
+                print("")
+        return run_id
 
-        failed_ids = {
-            item.instance_id
-            for item in judge_report.results
-            if not _judge_result_is_semantic_success(item)
-        }
-        if not failed_ids:
-            break
-        if semantic_attempt >= max_semantic_attempts:
-            break
+    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+        in_flight = {}
 
-        pending = [
-            instance
-            for instance in pending
-            if str(instance["instance_id"]) in failed_ids
-        ]
-        for instance_id in sorted(failed_ids):
-            status = _judge_result_status(latest_by_id[instance_id])
-            print(f"    semantic retry queued {instance_id}: status={status}")
+        def submit_ready() -> None:
+            while pending and len(in_flight) < concurrency:
+                instance, semantic_attempt = pending.popleft()
+                attempt_run_id = note_run_id(semantic_attempt)
+                backend = _backend_for(
+                    args,
+                    run_id=attempt_run_id,
+                    wheelhouse=wheelhouse,
+                )
+                future = pool.submit(
+                    _run_one_judge_attempt,
+                    args=args,
+                    suite=suite,
+                    instance=instance,
+                    backend=backend,
+                    run_root=run_root,
+                    run_id=attempt_run_id,
+                    wheelhouse=wheelhouse,
+                    judge_provider=judge_provider,
+                    judge_api_kind=judge_api_kind,
+                    provider_env=provider_env,
+                )
+                in_flight[future] = (instance, semantic_attempt)
+
+        submit_ready()
+        while in_flight:
+            done, _ = wait(in_flight, return_when=FIRST_COMPLETED)
+            for future in done:
+                instance, semantic_attempt = in_flight.pop(future)
+                item = future.result()
+                latest_by_id[str(item.instance_id)] = item
+
+                task_id = str(item.instance_id)
+                attempt_counts[task_id] = (
+                    attempt_counts.get(task_id, 0) + item.attempts
+                )
+                status = _judge_result_status(item)
+                semantic_histories.setdefault(task_id, []).append(status)
+                on_judge_result(item)
+
+                if (
+                    not _judge_result_is_semantic_success(item)
+                    and semantic_attempt < max_semantic_attempts
+                ):
+                    next_attempt = semantic_attempt + 1
+                    print(
+                        "    semantic retry queued "
+                        f"{item.instance_id}: status={status}"
+                    )
+                    # Retry before starting more first-pass work so failures do
+                    # not wait behind the rest of a long dataset.
+                    pending.appendleft((instance, next_attempt))
+            submit_ready()
 
     ordered = [
         latest_by_id[str(instance["instance_id"])]
@@ -666,6 +688,43 @@ def _run_judge_with_semantic_retries(
         if str(instance["instance_id"]) in latest_by_id
     ]
     return ordered, run_ids, attempt_counts, semantic_histories
+
+
+def _run_one_judge_attempt(
+    *,
+    args: argparse.Namespace,
+    suite,
+    instance: dict,
+    backend,
+    run_root: Path,
+    run_id: str,
+    wheelhouse: Path | None,
+    judge_provider: str,
+    judge_api_kind: str,
+    provider_env: dict[str, str],
+) -> InstanceResult:
+    instance_id = str(instance["instance_id"])
+    last_error: str | None = None
+    max_attempts = max(1, int(args.judge_max_attempts or 1))
+    for attempt in range(1, max_attempts + 1):
+        try:
+            artifacts = run_suite_instance(
+                suite=suite,
+                instance=instance,
+                backend=backend,
+                store=LocalDirStore(run_root),
+                run_root=run_root,
+                run_id=run_id,
+                provider=judge_provider,
+                api_kind=judge_api_kind,
+                max_turns=args.judge_max_turns,
+                provider_env=provider_env,
+                wheelhouse_mount=args.wheelhouse_mount if wheelhouse else None,
+            )
+            return InstanceResult(instance_id, artifacts, None, attempt)
+        except Exception as exc:  # transient/infra failure
+            last_error = f"{type(exc).__name__}: {exc}"
+    return InstanceResult(instance_id, None, last_error, max_attempts)
 
 
 def _judge_attempt_run_id(base_judge_run_id: str, semantic_attempt: int) -> str:
