@@ -1,8 +1,7 @@
-"""Small stdio MCP server for SWE-bench workspace inspection.
+"""Small stdio MCP server for workspace inspection tests.
 
 The server is intentionally read-only and dependency-light beyond the optional
-`mcp` package. It runs inside the benchmark environment, so relative paths are
-resolved from the server process cwd, normally `/testbed`.
+`mcp` package. It runs in whichever workspace is set as the process cwd.
 """
 
 from __future__ import annotations
@@ -11,10 +10,10 @@ from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
-server = FastMCP("swebench-workspace", log_level="WARNING")
+server = FastMCP("workspace", log_level="WARNING")
 
 
-@server.tool(description="List files in the SWE-bench workspace directory.")
+@server.tool(description="List files in the current workspace directory.")
 def list_files(relative_path: str = ".", max_entries: int = 50) -> str:
     """Return a compact newline-separated directory listing."""
 
