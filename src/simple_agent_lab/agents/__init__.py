@@ -17,7 +17,7 @@ current kinds:
 Capabilities that own no live resource are built as a plain ``Agent`` via
 ``make_agent`` (general) or the named factories ``make_bash_agent`` /
 ``make_bash_task_agent`` / ``make_skill_agent``. Skills count as resource-free:
-``make_skill_agent`` installs a skills *seed* on the agent, so a bare
+``make_skill_agent`` installs a skills state initializer on the agent, so a bare
 ``agent.run(task)`` is skills-aware with no session. Only MCP (a live
 connection) needs ``agent_session``/``mcp_session``. These factories are not
 auto-imported by the top-level ``simple_agent_lab`` namespace — importing them

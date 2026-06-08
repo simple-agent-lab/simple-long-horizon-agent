@@ -3,8 +3,8 @@
 This module replaces the per-kind subfolders. A single :class:`AgentSession`
 (the runner) opens any :class:`~simple_agent_lab.agents.toolsets.Toolset`
 resources, assembles the full tool list, builds an ``Agent`` via the existing
-:func:`~simple_agent_lab.llm_agent.make_llm_agent`, and dispatches ``run`` to
-either the plain loop or the skills loop. The composable
+:func:`~simple_agent_lab.llm_agent.make_llm_agent`, and runs it through
+``agent.run``. The composable
 :func:`agent_session` front door configures that session by combining
 capabilities (bash, read, explorer, skills, MCP) additively.
 
@@ -17,13 +17,13 @@ and closes.
 resource-free capability flags, but it returns a bare ``Agent`` you run
 yourself (no session). The ``make_bash_agent`` / ``make_bash_task_agent`` /
 :func:`make_skill_agent` factories are thin wrappers over it — including
-skills, because a skill is not a live resource but a *seed* (it records a menu
-before the task). ``make_skill_agent`` installs that seed via the core
-``Agent.seed`` hook, so a bare ``agent.run(task)`` is skills-aware with no
-session and no separate run path. :func:`mcp_session` is a thin wrapper over
-:func:`agent_session` for the MCP case, which *does* own a live resource and so
-still needs the :class:`AgentSession` ``with`` block for deterministic
-open/close.
+skills, because a skill is not a live resource but an initial-state concern (it
+records a menu before the task). ``make_skill_agent`` installs that initializer
+via the core ``Agent.init_state`` hook, so a bare ``agent.run(task)`` is
+skills-aware with no session and no separate run path. :func:`mcp_session` is a
+thin wrapper over :func:`agent_session` for the MCP case, which *does* own a
+live resource and so still needs the :class:`AgentSession` ``with`` block for
+deterministic open/close.
 """
 
 from __future__ import annotations
@@ -34,12 +34,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Mapping, Sequence
 
 from simple_agent_lab.context_view import ContextPolicy
-from simple_agent_lab.core import Agent, SeedFn
+from simple_agent_lab.core import Agent, StateInitFn
 from simple_agent_lab.llm import Provider as LLMProvider
 from simple_agent_lab.llm_agent import make_llm_agent
 from simple_agent_lab.messages import ContentInput
 from simple_agent_lab.protocols import Event
-from simple_agent_lab.skills import SkillMetadata, SkillRoot, seed_state_with_skills
+from simple_agent_lab.skills import SkillMetadata, SkillRoot, init_state_with_skills
 from simple_agent_lab.state import State
 from simple_agent_lab.tools import AbortFlag, AgentTool
 from simple_agent_lab.tools.bash import make_bash_tool
@@ -57,8 +57,9 @@ class SkillConfig:
     """How a session advertises and injects agent skills.
 
     Mirrors the keyword surface of
-    :func:`~simple_agent_lab.skills.run_with_skills`: ``skills`` (pre-discovered
-    metadata) takes precedence over ``roots`` (discovery roots); ``preload``
+    :func:`~simple_agent_lab.skills.init_state_with_skills`: ``skills``
+    (pre-discovered metadata) takes precedence over ``roots`` (discovery roots);
+    ``preload``
     names have their bodies injected up front; ``cwd`` scopes default
     discovery. When ``enabled`` is false the session runs the plain loop even
     though a config is present.
@@ -71,21 +72,21 @@ class SkillConfig:
     cwd: str = "."
 
 
-def _skills_seed(config: SkillConfig) -> SeedFn:
-    """Adapt a `SkillConfig` into a core `Agent.seed` callable.
+def _skills_init_state(config: SkillConfig) -> StateInitFn:
+    """Adapt a `SkillConfig` into a core `Agent.init_state` callable.
 
-    The bridge between the agents layer and the core seed hook: it binds the
-    config's discovery keywords and forwards to
-    :func:`~simple_agent_lab.skills.seed_state_with_skills`, so the resulting
+    The bridge between the agents layer and the core state initializer hook: it
+    binds the config's discovery keywords and forwards to
+    :func:`~simple_agent_lab.skills.init_state_with_skills`, so the resulting
     agent advertises skills on every ``run`` without a session. Skills are
     text-only, so a multimodal task is rejected (the directive parser needs a
     string).
     """
 
-    def seed(agent: Agent, task: ContentInput) -> State:
+    def init_state(agent: Agent, task: ContentInput) -> State:
         if not isinstance(task, str):
             raise TypeError("skills require a text task, not multimodal content")
-        return seed_state_with_skills(
+        return init_state_with_skills(
             agent,
             task,
             skills=config.skills,
@@ -94,7 +95,7 @@ def _skills_seed(config: SkillConfig) -> SeedFn:
             cwd=config.cwd,
         )
 
-    return seed
+    return init_state
 
 
 class AgentSession:
@@ -149,11 +150,12 @@ class AgentSession:
     def __enter__(self) -> "AgentSession":
         stack = ExitStack()
         tools: list[AgentTool] = list(self._static_tools)
-        # Skills are a seed, not a resource: install them on the built agent so
-        # `run` is a single `agent.run` for every capability mix. MCP toolsets
-        # (opened below) are the only thing that needs the `with` lifetime.
-        seed = (
-            _skills_seed(self._skills)
+        # Skills initialize state; they are not resources. Install them on the
+        # built agent so `run` is a single `agent.run` for every capability mix.
+        # MCP toolsets (opened below) are the only thing that needs the `with`
+        # lifetime.
+        init_state = (
+            _skills_init_state(self._skills)
             if self._skills is not None and self._skills.enabled
             else None
         )
@@ -170,7 +172,7 @@ class AgentSession:
                 target=self._target,
                 context_policy=self._context_policy,
                 request_extra=self._request_extra,
-                seed=seed,
+                init_state=init_state,
             )
         except BaseException:
             # A toolset that opened before the failure must still be closed.
@@ -194,7 +196,7 @@ class AgentSession:
     ) -> tuple[State, Iterator[Event]]:
         """Run the built agent on ``task``.
 
-        A single ``agent.run``: any skills behavior comes from the seed
+        A single ``agent.run``: any skills behavior comes from the initializer
         installed in :meth:`__enter__`, so this method no longer branches on
         skills. Returns ``(state, events)`` exactly like ``Agent.run`` —
         ``events`` is a lazy generator the caller iterates to advance the loop,
@@ -345,7 +347,7 @@ def make_agent(
     system_prompt: str | None = None,
     context_policy: ContextPolicy | None = None,
     request_extra: Mapping[str, Any] | None = None,
-    seed: SeedFn | None = None,
+    init_state: StateInitFn | None = None,
 ) -> Agent:
     """Build a stateless `Agent` by composing resource-free capabilities.
 
@@ -353,7 +355,7 @@ def make_agent(
     ``bash``/``read``/``explorer``/``tools`` flags and prompt composition but
     returns a bare ``Agent`` you run yourself (``agent.run(...)``). It omits
     ``mcp_servers`` on purpose — those own a live resource and so require the
-    :class:`AgentSession` runner. Skills, by contrast, are a ``seed`` (see
+    :class:`AgentSession` runner. Skills, by contrast, are state initialization (see
     :func:`make_skill_agent`), so they *can* live on a bare agent. When
     ``system_prompt`` is None the prompt is composed from the enabled
     capabilities' fragments; otherwise the explicit value is used verbatim.
@@ -381,7 +383,7 @@ def make_agent(
         target="user",
         context_policy=context_policy,
         request_extra=request_extra,
-        seed=seed,
+        init_state=init_state,
     )
 
 
@@ -404,16 +406,17 @@ def make_skill_agent(
     """Build a bare, skills-aware `Agent` — the skills twin of `make_bash_agent`.
 
     Returns a plain ``Agent`` (no session, no runner wrapper), but installs a
-    skills ``seed`` so ``agent.run(task)`` advertises the skills menu and
-    injects mentioned/preloaded bodies on *every* run. That works because a
+    skills state initializer so ``agent.run(task)`` advertises the skills menu
+    and injects mentioned/preloaded bodies on *every* run. That works because a
     skill is not a live resource that must be opened and closed — it is a way
-    to seed the conversation, which the core ``Agent.seed`` hook supports
-    directly. Skills imply the ``read`` tool (a skill reads its SKILL.md before
-    running scripts), so ``read`` defaults to ``True`` here.
+    to initialize the conversation, which the core ``Agent.init_state`` hook
+    supports directly. Skills imply the ``read`` tool (a skill reads its
+    SKILL.md before running scripts), so ``read`` defaults to ``True`` here.
 
     For skills combined with a live resource like MCP, use
     ``agent_session(skills=..., mcp_servers=[...])`` — that needs the session's
-    ``with`` block for the MCP connection, and reuses the same seed internally.
+    ``with`` block for the MCP connection, and reuses the same initializer
+    internally.
     """
 
     resolved_cwd = str(cwd) if cwd is not None else "."
@@ -436,7 +439,7 @@ def make_skill_agent(
         system_prompt=system_prompt,
         context_policy=context_policy,
         request_extra=request_extra,
-        seed=_skills_seed(config),
+        init_state=_skills_init_state(config),
     )
 
 
@@ -465,9 +468,9 @@ def agent_session(
     local tools, ``explorer`` adds a `task` tool delegating to a bash explorer,
     ``tools`` appends arbitrary `AgentTool`s, ``mcp_servers`` each become an
     `MCPToolset` the session opens/closes, and ``skills`` (``True`` for defaults
-    or a `SkillConfig`) routes `run` through the skills loop. Enabling skills
-    implies the read tool (a skill reads its SKILL.md before running its
-    scripts), so ``read`` need not be passed alongside ``skills``. When
+    or a `SkillConfig`) installs a state initializer on the built agent.
+    Enabling skills implies the read tool (a skill reads its SKILL.md before
+    running its scripts), so ``read`` need not be passed alongside ``skills``. When
     ``system_prompt`` is None the prompt is composed from per-capability
     fragments; otherwise the explicit value is used verbatim. ``connect`` is the
     MCP test seam (in-memory transport).

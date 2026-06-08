@@ -49,9 +49,9 @@ Named plain-agent factories are available for common shapes:
 - `make_skill_agent(...)` builds a bash+read agent that advertises skills on
   each `agent.run(...)`.
 
-Skills are resource-free. `make_skill_agent(...)` installs a skills seed through
-the core `Agent.seed` hook, so there is no special skills run loop and no session
-required:
+Skills are resource-free. `make_skill_agent(...)` installs a skills state
+initializer through the core `Agent.init_state` hook, so there is no special
+skills run loop and no session required:
 
 ```python
 from simple_agent_lab.agents import make_skill_agent
@@ -63,7 +63,7 @@ for _ in events:
 ```
 
 Skills require a text task, because the skills directive parser reads the task
-string before seeding the conversation.
+string before initializing the conversation.
 
 ## Sessions And MCP
 
@@ -71,8 +71,8 @@ Use `agent_session()` when you need to scope resource-bearing toolsets. MCP is
 the built-in case: the session opens the MCP connection before building the
 agent and closes it when the `with` block exits.
 
-Inside a session, skills still use the same seed mechanism as `make_skill_agent`;
-MCP is the part that requires the session lifetime.
+Inside a session, skills still use the same state-initializer mechanism as
+`make_skill_agent`; MCP is the part that requires the session lifetime.
 
 ## MCP Example
 

@@ -29,6 +29,7 @@ import random
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -200,8 +201,8 @@ def main() -> None:
         out_path.unlink()
 
     state = State(task="Fix the failing wc-line regression and ship a tiny test.")
-    # Seed the conversation with the original task as a user message so the
-    # viewer's "task" preview lines up with what the agent actually sees.
+    # Initialize the conversation with the original task as a user message so
+    # the viewer's "task" preview lines up with what the agent actually sees.
     state.send("task", "user", args.agent, state.task)
     state.record_event(AgentStartEvent())
 
@@ -260,13 +261,19 @@ def main() -> None:
         )
         state.record_event(AgentEndEvent(reason="done"))
 
+    meta_fn = trace_meta.meta_fn
+
+    def final_meta() -> dict[str, Any]:
+        base_meta = meta_fn() if meta_fn is not None else {}
+        return {**dict(base_meta or {}), "in_progress": False}
+
     write_canonical_trace(
         out_path,
         state=state,
         trace_meta=TraceMeta(
             trace_id=trace_meta.trace_id,
             producer=trace_meta.producer,
-            meta_fn=lambda: {**dict(trace_meta.meta_fn() or {}), "in_progress": False},
+            meta_fn=final_meta,
         ),
     )
 
