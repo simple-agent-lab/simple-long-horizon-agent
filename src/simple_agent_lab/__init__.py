@@ -10,7 +10,7 @@ surface. Import them explicitly, e.g.::
 
 from .core import Agent, run
 from .state import State
-from .llm_agent import make_llm_agent
+from .llm_agent import RoundContext, make_llm_agent
 from .messages import make_message
 from .protocols import (
     AgentEndEvent,
@@ -161,6 +161,7 @@ __all__ = [
     "estimate_message_tokens",
     "make_message",
     "make_llm_agent",
+    "RoundContext",
     "message_text",
     "print_trace",
     "run",

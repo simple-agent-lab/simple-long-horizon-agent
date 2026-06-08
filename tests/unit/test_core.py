@@ -361,6 +361,7 @@ class CoreTest(unittest.TestCase):
             "ModelResponseEvent",
             "ModelTurn",
             "Role",
+            "RoundContext",
             "RunTrace",
             "SkillMetadata",
             "SkillRoot",
