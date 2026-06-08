@@ -391,6 +391,7 @@ class CoreTest(unittest.TestCase):
             "estimate_message_tokens",
             "event_record",
             "is_tool_result_message",
+            "make_edit_tool",
             "make_llm_agent",
             "make_message",
             "make_read_tool",
