@@ -187,6 +187,9 @@ def run_agent(
             return
 
         paths = _judge_paths(context)
+        if not paths["candidate"]:
+            return
+
         rubrics = normalize_rubrics(instance.get("rubrics"))
         max_direction_attempts = _max_gsb_direction_attempts(instance)
         final_answer_summary = json.dumps(
@@ -220,7 +223,7 @@ def run_agent(
         all_attempts.extend(reverse.attempts)
 
         forward: _DirectionRunResult | None = None
-        if paths["candidate"]:
+        if paths["candidate"] and not reverse.failure_reason:
             forward = yield from _run_direction(
                 provider=provider,
                 cwd=workdir,
@@ -272,15 +275,16 @@ def extract_result(
 
     workdir = Path(workspace)
     result_file = workdir / JUDGE_RESULT_FILE
-    max_score = sum(
-        item["weight"] for item in normalize_rubrics(instance.get("rubrics"))
-    )
+    rubrics = normalize_rubrics(instance.get("rubrics"))
+    max_score = sum(item["weight"] for item in rubrics)
     base: dict[str, Any] = {
         "task_id": str(instance.get("task_id") or instance.get("instance_id") or ""),
         "judge_mode": "gsb",
         "judge_result_file": str(result_file),
     }
+    paths: dict[str, list[str]] = {"candidate": [], "gold": []}
     if context:
+        paths = _judge_paths(context)
         base["input_dir"] = str(context.get("input_dir") or "")
         base["candidate_dir"] = str(context.get("candidate_dir") or "")
         base["gold_dir"] = str(context.get("gold_dir") or "")
@@ -298,6 +302,20 @@ def extract_result(
                 ),
                 "overall_explanation_forward": (
                     "no readable standard-answer deliverable files were staged"
+                ),
+            }
+        if not paths["candidate"]:
+            return {
+                **base,
+                "status": "candidate_deliverables_missing",
+                "score": 0.0,
+                "earned_score": 0.0,
+                "max_score": max_score,
+                "overall_explanation_reverse": (
+                    "no readable candidate deliverable files were staged"
+                ),
+                "overall_explanation_forward": (
+                    "no readable candidate deliverable files were staged"
                 ),
             }
 
@@ -318,6 +336,23 @@ def extract_result(
     raw = result_file.read_text(encoding="utf-8", errors="replace")
     try:
         payload = parse_gsb_judge_payload(raw)
+        failure_reason = _payload_failure_reason(
+            payload,
+            require_forward=bool(paths["candidate"]),
+            require_rubrics=bool(rubrics),
+        )
+        if failure_reason:
+            return {
+                **base,
+                "status": "judge_result_invalid",
+                "score": 0.0,
+                "earned_score": 0.0,
+                "max_score": max_score,
+                "overall_explanation_reverse": failure_reason,
+                "overall_explanation_forward": failure_reason,
+                "raw_judge_result": raw[:20_000],
+                **_attempt_result_fields(workdir),
+            }
         scored = score_gsb_judgment(payload, instance.get("rubrics"))
     except ValueError as exc:
         return {
@@ -329,6 +364,7 @@ def extract_result(
             "overall_explanation_reverse": f"{type(exc).__name__}: {exc}",
             "overall_explanation_forward": f"{type(exc).__name__}: {exc}",
             "raw_judge_result": raw[:20_000],
+            **_attempt_result_fields(workdir),
         }
     return {
         **base,
@@ -401,7 +437,7 @@ def _run_direction(
 
         last_response = _last_assistant_text(source_state)
         tool_names = _tool_names(source_state)
-        payload = parse_gsb_direction_payload(last_response)
+        payload, parse_error = _parse_direction_payload_safely(last_response)
         last_payload = payload
         final_gsb = str((payload.get("overall") or {}).get("final_gsb") or "").strip()
         has_rubrics = bool(payload.get("rubrics_result"))
@@ -414,7 +450,7 @@ def _run_direction(
             reason = "no_tool_messages"
             warning = "no_tool"
         elif not valid_output:
-            reason = "invalid_output"
+            reason = parse_error or "invalid_output"
             warning = "invalid_output"
         else:
             record = _attempt_record(
@@ -460,6 +496,68 @@ def _run_direction(
         attempts=attempts,
         failure_reason=failure_reason,
     )
+
+
+def _parse_direction_payload_safely(raw_response: str) -> tuple[dict[str, Any], str]:
+    try:
+        return parse_gsb_direction_payload(raw_response), ""
+    except ValueError as exc:
+        return {}, f"invalid_output: {type(exc).__name__}: {exc}"
+
+
+def _payload_failure_reason(
+    payload: Mapping[str, Any],
+    *,
+    require_forward: bool = True,
+    require_rubrics: bool = False,
+) -> str:
+    summary = payload.get("_sal_judge_attempt_summary")
+    if not isinstance(summary, Mapping):
+        summary = {}
+    for direction in ("reverse", "forward"):
+        item = summary.get(direction)
+        if not isinstance(item, Mapping):
+            continue
+        reason = str(item.get("last_failure_reason") or "").strip()
+        if reason:
+            return f"{direction} judge failed: {reason}"
+    for direction in ("reverse", "forward"):
+        if direction == "forward" and not require_forward:
+            continue
+        reason = _direction_payload_failure_reason(
+            payload.get(direction),
+            direction=direction,
+            require_rubrics=require_rubrics,
+        )
+        if reason:
+            return reason
+    return ""
+
+
+def _direction_payload_failure_reason(
+    payload: Any,
+    *,
+    direction: str,
+    require_rubrics: bool,
+) -> str:
+    if not isinstance(payload, Mapping) or not payload:
+        return f"{direction} judge payload is missing"
+    raw_rubrics = payload.get("rubrics_result") or payload.get("rubric_results")
+    if require_rubrics and not _has_rubric_results(raw_rubrics):
+        return f"{direction} judge rubrics_result is missing"
+    overall = payload.get("overall")
+    if not isinstance(overall, Mapping):
+        overall = payload
+    final_gsb = str((overall or {}).get("final_gsb") or "").strip()
+    if final_gsb not in _GSB_LABELS:
+        return f"{direction} judge final_gsb is missing or invalid"
+    return ""
+
+
+def _has_rubric_results(value: Any) -> bool:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return False
+    return any(isinstance(item, Mapping) for item in value)
 
 
 def _copy_new_events(

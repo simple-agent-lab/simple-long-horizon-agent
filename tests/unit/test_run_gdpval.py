@@ -28,6 +28,39 @@ class RunGdpvalJudgeRetryTest(unittest.TestCase):
             "hub.byted.org/boyuan/gdpval-agent-base:latest",
         )
         self.assertEqual(args.judge_tool_mode, "hybrid")
+        self.assertFalse(args.include_known_bad_tasks)
+
+    def test_candidate_missing_judge_status_is_semantic_success(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "judge" / "missing"
+            out_dir = run_dir / "out"
+            out_dir.mkdir(parents=True)
+            (run_dir / RESULT_KEY).write_text(
+                json.dumps(
+                    {
+                        "status": "candidate_deliverables_missing",
+                        "score": 0.0,
+                        "earned_score": 0.0,
+                        "max_score": 1.0,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            item = InstanceResult(
+                "missing",
+                RunArtifacts(
+                    instance_id="missing",
+                    run_dir=run_dir,
+                    trajectory_path=out_dir / "trajectory.jsonl",
+                    status_code=0,
+                ),
+                None,
+                attempts=1,
+            )
+
+            self.assertTrue(run_gdpval._judge_result_is_semantic_success(item))
 
     def test_provider_env_includes_azure_openai_settings(self) -> None:
         with mock.patch.dict(

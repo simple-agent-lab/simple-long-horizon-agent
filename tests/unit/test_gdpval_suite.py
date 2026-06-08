@@ -11,7 +11,7 @@ from pathlib import Path
 from threading import Thread
 from unittest.mock import patch
 
-from evals.gdpval.load_instances import load_instances
+from evals.gdpval.load_instances import KNOWN_BAD_TASK_IDS, load_instances
 from evals.gdpval.judge_suite import GdpvalGsbJudgeSuite, GdpvalJudgeSuite
 from evals.gdpval.suite import GdpvalSuite
 from simple_agent_lab.evals import (
@@ -194,6 +194,42 @@ class GdpvalSuiteTest(unittest.TestCase):
             rows = load_instances(path, require_deliverables=False)
 
             self.assertEqual([row["task_id"] for row in rows], ["empty", "nonempty"])
+
+    def test_load_instances_skips_known_bad_tasks_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bad_task_id = next(iter(KNOWN_BAD_TASK_IDS))
+            path = Path(tmp) / "rows.jsonl"
+            path.write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "task_id": bad_task_id,
+                                "prompt": "PrivateCrypMix",
+                                "deliverable_files": ["bad.zip"],
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "task_id": "good",
+                                "prompt": "p",
+                                "deliverable_files": ["good.txt"],
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            rows = load_instances(path)
+            included_rows = load_instances(path, include_known_bad=True)
+
+            self.assertEqual([row["task_id"] for row in rows], ["good"])
+            self.assertEqual(
+                [row["task_id"] for row in included_rows],
+                [bad_task_id, "good"],
+            )
 
     def test_prepare_writes_reference_files_and_task_mentions_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -718,6 +754,31 @@ class GdpvalSuiteTest(unittest.TestCase):
             "invalid_output",
         )
 
+    def test_gsb_empty_direction_output_is_invalid_not_an_exception(self) -> None:
+        payload, reason = judge_gsb_container._parse_direction_payload_safely("")
+
+        self.assertEqual(payload, {})
+        self.assertIn("invalid_output", reason)
+        self.assertIn("GSB direction payload is empty", reason)
+
+    def test_gsb_payload_attempt_failure_marks_result_invalid(self) -> None:
+        reason = judge_gsb_container._payload_failure_reason(
+            {
+                "_sal_judge_attempt_summary": {
+                    "reverse": {
+                        "attempts": 1,
+                        "last_failure_reason": (
+                            "invalid_output: ValueError: "
+                            "GSB direction payload is empty"
+                        ),
+                    }
+                }
+            }
+        )
+
+        self.assertIn("reverse judge failed", reason)
+        self.assertIn("GSB direction payload is empty", reason)
+
     def test_gsb_scoring_counts_missing_direction_like_swalm(self) -> None:
         result = score_gsb_judgment(
             {
@@ -953,6 +1014,104 @@ class GdpvalSuiteTest(unittest.TestCase):
             self.assertEqual(result["score"], 0.5)
             self.assertEqual(result["combined_weighted_score"], 0.5)
 
+    def test_gsb_extract_result_marks_missing_candidate_deliverables(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workdir = root / "judge_workdir"
+            workdir.mkdir()
+            gold = root / "gold.txt"
+            gold.write_text("gold", encoding="utf-8")
+
+            result = judge_gsb_container.extract_result(
+                workdir,
+                {
+                    "task_id": "task-1",
+                    "rubrics": [{"score": 2, "criterion": "Answer exists"}],
+                },
+                context={
+                    "candidate_manifest": [],
+                    "gold_manifest": [
+                        {
+                            "name": "gold.txt",
+                            "path": str(gold),
+                            "missing": False,
+                        }
+                    ],
+                },
+            )
+
+            self.assertEqual(result["status"], "candidate_deliverables_missing")
+            self.assertEqual(result["score"], 0.0)
+            self.assertEqual(result["max_score"], 2.0)
+            self.assertIn(
+                "no readable candidate deliverable",
+                result["overall_explanation_reverse"],
+            )
+
+    def test_gsb_extract_result_rejects_missing_forward_direction(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workdir = root / "judge_workdir"
+            workdir.mkdir()
+            candidate = root / "candidate.txt"
+            gold = root / "gold.txt"
+            candidate.write_text("candidate", encoding="utf-8")
+            gold.write_text("gold", encoding="utf-8")
+            (workdir / judge_gsb_container.JUDGE_RESULT_FILE).write_text(
+                json.dumps(
+                    {
+                        "reverse": {
+                            "rubrics_result": [
+                                {
+                                    "score": 1,
+                                    "criterion": "Answer exists",
+                                    "grade_A": 1,
+                                    "grade_B": 0,
+                                    "gsb": "A>B",
+                                }
+                            ],
+                            "overall": {
+                                "overall_explanation": "gold is better",
+                                "final_gsb": "A>B",
+                            },
+                        }
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            result = judge_gsb_container.extract_result(
+                workdir,
+                {
+                    "task_id": "task-1",
+                    "rubrics": [{"score": 1, "criterion": "Answer exists"}],
+                },
+                context={
+                    "candidate_manifest": [
+                        {
+                            "name": "candidate.txt",
+                            "path": str(candidate),
+                            "missing": False,
+                        }
+                    ],
+                    "gold_manifest": [
+                        {
+                            "name": "gold.txt",
+                            "path": str(gold),
+                            "missing": False,
+                        }
+                    ],
+                },
+            )
+
+            self.assertEqual(result["status"], "judge_result_invalid")
+            self.assertEqual(result["score"], 0.0)
+            self.assertIn(
+                "forward judge payload is missing",
+                result["overall_explanation_reverse"],
+            )
+
     def test_gsb_judge_fake_provider_records_no_tool_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1002,12 +1161,13 @@ class GdpvalSuiteTest(unittest.TestCase):
 
             self.assertEqual(artifacts.status_code, 0)
             result = json.loads((artifacts.run_dir / RESULT_KEY).read_text())
-            self.assertEqual(result["status"], "gsb_judged")
+            self.assertEqual(result["status"], "judge_result_invalid")
             self.assertEqual(result["score"], 0.0)
             retry_summary = result["judge_retry_summary"]
             self.assertEqual(retry_summary["reverse"]["attempts"], 1)
-            self.assertEqual(retry_summary["forward"]["attempts"], 1)
+            self.assertNotIn("forward", retry_summary)
             self.assertFalse(retry_summary["reverse"]["had_tool_messages"])
+            self.assertIn("reverse judge failed", result["overall_explanation_reverse"])
             self.assertEqual(
                 result["judge_attempts"][0]["failure_reason"], "no_tool_messages"
             )

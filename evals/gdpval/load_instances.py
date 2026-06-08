@@ -10,6 +10,13 @@ from typing import Any
 
 DEFAULT_HF_DATASET = "openai/gdpval"
 DEFAULT_HF_SPLIT = "train"
+KNOWN_BAD_TASK_IDS = frozenset(
+    {
+        # The gold deliverable for this row is a 32 MiB object named
+        # PrivateCrypMixV2.zip, but the archive is not a valid zip file.
+        "0e386e32-df20-4d1f-b536-7159bc409ad5",
+    }
+)
 
 
 def load_instances(
@@ -21,6 +28,7 @@ def load_instances(
     hf_dataset: str = DEFAULT_HF_DATASET,
     hf_split: str = DEFAULT_HF_SPLIT,
     hf_cache_dir: str | Path | None = None,
+    include_known_bad: bool = False,
 ) -> list[dict[str, Any]]:
     """Load GDPVal rows from Hugging Face or a local JSONL/JSON/Parquet file.
 
@@ -31,6 +39,7 @@ def load_instances(
     """
 
     wanted = {str(task_id) for task_id in task_ids or []}
+    skipped = set() if include_known_bad else set(KNOWN_BAD_TASK_IDS)
     rows: list[dict[str, Any]] = []
     raw_rows = (
         _read_huggingface_rows(
@@ -44,6 +53,8 @@ def load_instances(
     for row in raw_rows:
         normalized = _normalize_row(row)
         if wanted and str(normalized["instance_id"]) not in wanted:
+            continue
+        if str(normalized["instance_id"]) in skipped:
             continue
         if require_deliverables and not _has_deliverable_files(normalized):
             continue

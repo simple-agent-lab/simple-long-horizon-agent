@@ -24,11 +24,18 @@ run it through the generic eval runner.
 ## Run
 
 By default, the runner downloads `openai/gdpval` from Hugging Face, uses the
-`train` split, and keeps only rows whose `deliverable_files` field is non-empty:
+`train` split, keeps only rows whose `deliverable_files` field is non-empty,
+and skips known rows whose gold deliverables are unreadable:
 
 ```bash
 uv run --with datasets python runs/run_gdpval.py --limit 10
 ```
+
+Known-bad GDPVal rows are excluded so default full runs do not hang on broken
+gold artifacts. As of this integration, `0e386e32-df20-4d1f-b536-7159bc409ad5`
+is skipped because its standard-answer `PrivateCrypMixV2.zip` object is not a
+valid zip archive. Pass `--include-known-bad-tasks` only when you explicitly
+need to reproduce the raw upstream row set.
 
 Add `--judge` to run the GSB judge after successful solver cases:
 

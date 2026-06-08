@@ -18,6 +18,7 @@ for path in (ROOT, SRC):
 from evals.gdpval.load_instances import (  # noqa: E402
     DEFAULT_HF_DATASET,
     DEFAULT_HF_SPLIT,
+    KNOWN_BAD_TASK_IDS,
     load_instances,
 )
 from evals.gdpval.judge_suite import GdpvalGsbJudgeSuite, GdpvalJudgeSuite  # noqa: E402
@@ -33,7 +34,12 @@ from simple_agent_lab.evals import (  # noqa: E402
 
 DEFAULT_WHEELHOUSE_MOUNT = "/agent/wheelhouse"
 DEFAULT_GDPVAL_IMAGE = "hub.byted.org/boyuan/gdpval-agent-base:latest"
-JUDGE_SUCCESS_STATUSES = {"judged", "gsb_judged", "no_rubrics"}
+JUDGE_SUCCESS_STATUSES = {
+    "candidate_deliverables_missing",
+    "judged",
+    "gsb_judged",
+    "no_rubrics",
+}
 PROVIDER_ENV_FIELDS = (
     ("OPENAI_MODEL", "model"),
     ("OPENAI_AUTH_TOKEN", "api_key"),
@@ -65,6 +71,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "--include-empty-deliverables",
         action="store_true",
         help="Do not filter out rows whose deliverable_files field is empty.",
+    )
+    parser.add_argument(
+        "--include-known-bad-tasks",
+        action="store_true",
+        help=(
+            "Include GDPVal rows known to have unreadable or corrupted gold "
+            "deliverables. They are skipped by default."
+        ),
     )
     parser.add_argument("--reference-root", default=None)
     parser.add_argument("--image", default=DEFAULT_GDPVAL_IMAGE)
@@ -281,6 +295,7 @@ def main() -> None:
         hf_dataset=args.hf_dataset,
         hf_split=args.hf_split,
         hf_cache_dir=args.hf_cache_dir,
+        include_known_bad=args.include_known_bad_tasks,
     )
     if not instances:
         raise SystemExit("No GDPVal instances selected.")
@@ -304,6 +319,9 @@ def main() -> None:
     if args.input is None:
         print(f"    hf-cache:    {args.hf_cache_dir}")
     print(f"    deliverable filter: {not args.include_empty_deliverables}")
+    print(f"    known-bad filter:   {not args.include_known_bad_tasks}")
+    if not args.include_known_bad_tasks:
+        print(f"    known-bad skipped:  {len(KNOWN_BAD_TASK_IDS)}")
     print(f"    selected:    {len(instances)}")
     print(f"    run-id:      {args.run_id}")
     print(f"    backend:     {args.backend}")
@@ -734,9 +752,26 @@ def _write_judge_summary(
                         "rubrics_weighted_score_forward",
                         "llm_gsb_score_reverse",
                         "llm_gsb_score_forward",
+                        "final_gsb_reverse",
+                        "final_gsb_forward",
                     ):
                         if key in payload:
                             row[key] = payload[key]
+                    attempts = payload.get("judge_attempts")
+                    if isinstance(attempts, list):
+                        tool_message_count = 0
+                        mcp_tool_count = 0
+                        for attempt in attempts:
+                            if not isinstance(attempt, dict):
+                                continue
+                            tool_message_count += int(
+                                attempt.get("tool_message_count") or 0
+                            )
+                            mcp_tool_count += int(attempt.get("mcp_tool_count") or 0)
+                        row["tool_message_count"] = tool_message_count
+                        row["mcp_tool_count"] = mcp_tool_count
+                    if "judge_retry_summary" in payload:
+                        row["judge_retry_summary"] = payload["judge_retry_summary"]
             else:
                 row["status"] = "judge_result_missing"
         rows.append(row)
