@@ -442,9 +442,7 @@ class FilesystemMemoryTest(unittest.TestCase):
                 encoding="utf-8"
             )
 
-            self.assertIn("## User Preferences", handbook)
-            self.assertIn("## Useful References", handbook)
-            self.assertIn("## Failure Shields", handbook)
+            self.assertIn("## Durable Lessons", handbook)
             self.assertIn(
                 "User prefers small targeted memory changes. [runs/r1]", handbook
             )

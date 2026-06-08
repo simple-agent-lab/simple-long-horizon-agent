@@ -64,6 +64,7 @@ MODULE_ZONES = {
     "mcp": PERIPHERAL,
     "tui_gateway": PERIPHERAL,
     "skills": PERIPHERAL,
+    "memory": PERIPHERAL,
 }
 
 # External (third-party) top-level package -> the only internal path prefix

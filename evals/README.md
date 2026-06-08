@@ -112,7 +112,7 @@ backend = LocalDockerBackend(memory_home=run_root / "memory")
 
 Container-side agent construction can then pass that env path to filesystem
 memory, for example
-`FilesystemMemory(root=Path(os.environ["SAL_MEMORY_HOME"]) / "memory")`.
+`FilesystemMemory(root=os.environ["SAL_MEMORY_HOME"])`.
 Remote Docker does not use host bind mounts; use a backend/store topology that
 can persist the memory directory before relying on cross-run memory there.
 
