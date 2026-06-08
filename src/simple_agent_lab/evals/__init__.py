@@ -30,8 +30,10 @@ from .backends import (
 )
 from .batch import reconcile_dataset, submit_dataset
 from .protocols import (
+    DEFAULT_MEMORY_CONTAINER_HOME,
     EVAL_KEY,
     INSTANCE_KEY,
+    MEMORY_HOME_ENV,
     RESULT_KEY,
     TRACE_KEY,
     AgentSpec,
@@ -59,7 +61,9 @@ from .stores import HostHttpStore, LocalDirStore
 # simple_agent_lab.evals" reads as the user surface, not the plumbing.
 __all__ = [
     "EVAL_KEY",
+    "DEFAULT_MEMORY_CONTAINER_HOME",
     "INSTANCE_KEY",
+    "MEMORY_HOME_ENV",
     "RESULT_KEY",
     "TRACE_KEY",
     "AgentSpec",

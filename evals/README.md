@@ -101,6 +101,22 @@ suite scores in the run environment (the `evaluate` hook) its verdict is merged
 into the same `result.json`, otherwise scoring is a follow-up run or the official
 harness (see [Scoring](#scoring)).
 
+Persistent memory stays a local-filesystem concern. When the agent process runs
+inside local Docker and should keep `MEMORY.md`, `sessions.db`, or filesystem
+memory across container deletion, pass a host directory to `LocalDockerBackend`;
+the backend bind-mounts it read-write and sets `SAL_MEMORY_HOME` inside the
+container:
+
+```python
+backend = LocalDockerBackend(memory_home=run_root / "memory")
+```
+
+Container-side agent construction can then pass that env path to a memory
+implementation, for example `NotesMemory(home=os.environ["SAL_MEMORY_HOME"])`
+or `FilesystemMemory(root=Path(os.environ["SAL_MEMORY_HOME"]) / "memory")`.
+Remote Docker does not use host bind mounts; use a backend/store topology that
+can persist the memory directory before relying on cross-run memory there.
+
 The same suite runs against a remote daemon by swapping `backend` / `store` —
 both are `Protocol`s, so the suite and runner do not change. `HostHttpStore`
 needs **no third-party middleware** (the host runs a stdlib HTTP server).
