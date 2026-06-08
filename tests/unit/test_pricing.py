@@ -25,17 +25,13 @@ from simple_agent_lab.trajectory.run_trace import RunTrace
 
 
 class ModelPriceTest(unittest.TestCase):
-    def test_cache_rates_derive_from_input_rate(self) -> None:
-        # The whole point the user cared about: cache read AND write are priced
-        # off the input rate, each with its own multiplier, never folded in.
-        price = ModelPrice.from_input_output(5.0, 25.0)
-        self.assertEqual(price.cache_read, round(5.0 * CACHE_READ_RATIO, 6))
-        self.assertEqual(price.cache_write, round(5.0 * CACHE_WRITE_RATIO, 6))
-        self.assertEqual(price.cache_read, 0.5)
-        self.assertEqual(price.cache_write, 6.25)
-
-    def test_from_mapping_defaults_cache_when_absent(self) -> None:
+    def test_from_mapping_defaults_cache_to_standard_multiples(self) -> None:
+        # cache read AND write are priced off the input rate, each with its own
+        # multiplier, never folded in. An override that gives only input/output
+        # gets the standard cache multiples filled in.
         price = ModelPrice.from_mapping({"input": 1.0, "output": 5.0})
+        self.assertEqual(price.cache_read, round(1.0 * CACHE_READ_RATIO, 6))
+        self.assertEqual(price.cache_write, round(1.0 * CACHE_WRITE_RATIO, 6))
         self.assertEqual(price.cache_read, 0.1)
         self.assertEqual(price.cache_write, 1.25)
 
@@ -64,7 +60,7 @@ class UsageCostTest(unittest.TestCase):
         self.assertEqual(cost.total_usd, 36.75)
 
     def test_partial_million_scales_linearly(self) -> None:
-        price = ModelPrice.from_input_output(5.0, 25.0)
+        price = ModelPrice(input=5.0, output=25.0, cache_read=0.5, cache_write=6.25)
         cost = usage_cost(TokenUsage(input_tokens=200, output_tokens=88), price)
         self.assertAlmostEqual(cost.input_usd, 200 * 5.0 / 1_000_000)
         self.assertAlmostEqual(cost.output_usd, 88 * 25.0 / 1_000_000)

@@ -31,7 +31,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -66,29 +66,6 @@ class ModelPrice:
     cache_write: float
 
     @classmethod
-    def from_input_output(
-        cls,
-        input: float,
-        output: float,
-        *,
-        cache_read_ratio: float = CACHE_READ_RATIO,
-        cache_write_ratio: float = CACHE_WRITE_RATIO,
-    ) -> "ModelPrice":
-        """Derive cache rates from the input rate via the standard multipliers.
-
-        Most providers don't publish cache rates as independent numbers — they
-        are a fixed multiple of the base input rate. This keeps the rate card
-        readable (just input/output per model) while still pricing the cache
-        buckets correctly.
-        """
-        return cls(
-            input=input,
-            output=output,
-            cache_read=round(input * cache_read_ratio, 6),
-            cache_write=round(input * cache_write_ratio, 6),
-        )
-
-    @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> "ModelPrice":
         """Build from a JSON-style rate object (used by env/file overrides).
 
@@ -97,31 +74,28 @@ class ModelPrice:
         to list the two headline numbers.
         """
         base_input = float(data["input"])
-        base_output = float(data["output"])
-        # Start from the standard derived rates, then patch in whichever cache
-        # rates the override spelled out explicitly.
-        price = cls.from_input_output(base_input, base_output)
-        overrides: dict[str, float] = {}
-        if "cache_read" in data:
-            overrides["cache_read"] = float(data["cache_read"])
-        if "cache_write" in data:
-            overrides["cache_write"] = float(data["cache_write"])
-        return replace(price, **overrides) if overrides else price
+        return cls(
+            input=base_input,
+            output=float(data["output"]),
+            cache_read=float(data.get("cache_read", base_input * CACHE_READ_RATIO)),
+            cache_write=float(data.get("cache_write", base_input * CACHE_WRITE_RATIO)),
+        )
 
 
 # Built-in rate card (USD per million tokens), current Anthropic list pricing.
-# Cache rates are derived from input via the standard multipliers above. Keys
-# are bare model aliases; `PriceBook` matches dated snapshots and provider
-# prefixes against them, so `claude-opus-4-8-20260101` and
-# `anthropic/claude-opus-4-8` both resolve here.
+# Cache read is ~0.1x input, 5-minute cache write ~1.25x input. Keys are bare
+# model aliases; `PriceBook` matches dated snapshots and provider prefixes
+# against them, so `claude-opus-4-8-20260101` and `anthropic/claude-opus-4-8`
+# both resolve here.
 DEFAULT_PRICES: dict[str, ModelPrice] = {
-    "claude-opus-4-8": ModelPrice.from_input_output(5.0, 25.0),
-    "claude-opus-4-7": ModelPrice.from_input_output(5.0, 25.0),
-    "claude-opus-4-6": ModelPrice.from_input_output(5.0, 25.0),
-    "claude-opus-4-5": ModelPrice.from_input_output(5.0, 25.0),
-    "claude-sonnet-4-6": ModelPrice.from_input_output(3.0, 15.0),
-    "claude-sonnet-4-5": ModelPrice.from_input_output(3.0, 15.0),
-    "claude-haiku-4-5": ModelPrice.from_input_output(1.0, 5.0),
+    #                          input  output  cache_read  cache_write
+    "claude-opus-4-8": ModelPrice(5.0, 25.0, 0.5, 6.25),
+    "claude-opus-4-7": ModelPrice(5.0, 25.0, 0.5, 6.25),
+    "claude-opus-4-6": ModelPrice(5.0, 25.0, 0.5, 6.25),
+    "claude-opus-4-5": ModelPrice(5.0, 25.0, 0.5, 6.25),
+    "claude-sonnet-4-6": ModelPrice(3.0, 15.0, 0.3, 3.75),
+    "claude-sonnet-4-5": ModelPrice(3.0, 15.0, 0.3, 3.75),
+    "claude-haiku-4-5": ModelPrice(1.0, 5.0, 0.1, 1.25),
 }
 
 
