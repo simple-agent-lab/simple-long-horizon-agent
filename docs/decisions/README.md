@@ -28,7 +28,7 @@ Use [0000-template.md](0000-template.md) for new records. Number accepted decisi
 - [ADR 0020: Collapse the Scorer Seam into the Run Primitive](0020-collapse-scorer-seam-into-run-primitive.md) — amends ADR 0019 and ADR 0017, builds on ADR 0018
 - [ADR 0021: Add Agent Skills (read-based, on by default)](0021-add-agent-skills.md)
 - [ADR 0022: Consolidate Agent Presets behind one AgentSession + Toolsets](0022-consolidate-agent-presets.md) — builds on ADR 0018 and ADR 0021, amended by ADR 0023
-- [ADR 0023: A Pluggable Seed Hook Makes Skills a Bare-Agent Capability](0023-pluggable-seed-hook.md) — amends ADR 0021 and ADR 0022
+- [ADR 0023: A Pluggable State Initializer Makes Skills a Bare-Agent Capability](0023-pluggable-state-init-hook.md) — amends ADR 0021 and ADR 0022
 
 ## Proposed
 

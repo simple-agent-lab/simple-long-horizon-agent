@@ -75,8 +75,8 @@ class CoreTest(unittest.TestCase):
         self.assertEqual(state.events[-1].kind, "agent_end")
 
     def test_run_accepts_a_multimodal_content_list_task(self) -> None:
-        """`Agent.run` takes `str` or content blocks; a text+image task is seeded
-        as one user message carrying both blocks (the multimodal task path)."""
+        """`Agent.run` takes `str` or content blocks; a text+image task is
+        recorded as one user message carrying both blocks."""
         from simple_agent_lab.messages import ImageBlock
 
         def writer(visible: list[Message]) -> Message:
@@ -94,7 +94,7 @@ class CoreTest(unittest.TestCase):
         for _ in events:
             pass
 
-        # The seeded task message preserves both content blocks (text + image).
+        # The initial task message preserves both content blocks (text + image).
         blocks = state.messages[0].content
         self.assertEqual(len(blocks), 2)
         self.assertIsInstance(blocks[0], TextBlock)
@@ -196,23 +196,24 @@ class CoreTest(unittest.TestCase):
         final = next(message for message in state.messages if message.kind == "final")
         self.assertEqual(message_text(final), "done")
 
-    def test_seed_hook_builds_the_initial_state(self) -> None:
-        # A `seed` callable lets a higher layer (e.g. skills) record extra
-        # context messages before the task without touching `run`. Default
-        # `run` seeds only the task message; a seed can prepend its own.
+    def test_init_state_hook_builds_the_initial_state(self) -> None:
+        # An `init_state` callable lets a higher layer (e.g. skills) record
+        # extra context messages before the task without touching `run`.
+        # Default `run` records only the task message; an initializer can
+        # prepend its own.
         def writer(visible: list[Message]) -> Message:
             del visible
             return assistant_message(
-                "done", sender="seeded", target="user", kind="final"
+                "done", sender="stateful", target="user", kind="final"
             )
 
-        def seed(agent: Agent, task: Any) -> State:
+        def init_state(agent: Agent, task: Any) -> State:
             state = State(task=task)
             state.send("context", "primer", agent.name, "PRELUDE")
             state.send("task", "user", agent.name, task)
             return state
 
-        agent = Agent("seeded", writer, seed=seed)
+        agent = Agent("stateful", writer, init_state=init_state)
         state, events = agent.run("real task")
         for _ in events:
             pass
@@ -223,8 +224,9 @@ class CoreTest(unittest.TestCase):
             ["PRELUDE", "real task"],
         )
 
-    def test_default_seed_records_only_the_task(self) -> None:
-        # With no seed, `run` keeps its original behavior: one task message.
+    def test_default_init_state_records_only_the_task(self) -> None:
+        # With no initializer, `run` keeps its original behavior: one task
+        # message.
         def writer(visible: list[Message]) -> Message:
             del visible
             return assistant_message("ok", sender="plain", target="user", kind="final")

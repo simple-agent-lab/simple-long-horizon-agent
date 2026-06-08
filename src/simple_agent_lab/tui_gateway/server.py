@@ -131,7 +131,7 @@ class Session:
     """One agent + its running conversation state.
 
     ``state`` is lazily created on the first prompt (the runtime's
-    :class:`State` is constructed around the seed task). ``abort`` is an
+    :class:`State` is constructed around the initial task). ``abort`` is an
     :class:`threading.Event` the agent loop polls via its ``abort`` callback;
     ``session.interrupt`` sets it. ``busy`` guards against overlapping turns.
     """
@@ -286,12 +286,12 @@ class Gateway:
     # -- turn execution ----------------------------------------------------
 
     def _run_turn(self, session: Session, text: str, max_turns: int) -> None:
-        """Worker-thread body: seed the prompt, run the loop, pump events."""
+        """Worker-thread body: initialize the prompt, run the loop, pump events."""
         try:
             agent = session.agent
             if session.state is None:
-                # First prompt seeds the State around the task (kind="task"),
-                # mirroring Agent.run's seeding.
+                # First prompt initializes the State around the task
+                # (kind="task"), mirroring Agent.run's default initializer.
                 session.state = State(task=text)
                 session.state.send("task", "user", agent.name, text)
             else:

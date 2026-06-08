@@ -199,7 +199,7 @@ class AgentSessionTest(unittest.TestCase):
                 pass
         self.assertFalse(any(m.sender == "skills" for m in state.messages))
 
-    def test_skills_enabled_routes_through_run_with_skills(self) -> None:
+    def test_skills_enabled_installs_state_initializer(self) -> None:
         with AgentSession(
             provider=FAKE_PROVIDER,
             name="t",
@@ -337,7 +337,7 @@ class AgentSessionFactoryTest(unittest.TestCase):
                 sorted(t.name for t in session.agent.tools), ["bash", "read"]
             )
 
-    def test_skills_config_routes_through_run_with_skills(self) -> None:
+    def test_skills_config_installs_state_initializer(self) -> None:
         from simple_agent_lab.agents.starter import SKILLS_ADDENDUM, agent_session
 
         with agent_session(
@@ -413,11 +413,11 @@ class MakeSkillAgentTest(unittest.TestCase):
         from simple_agent_lab.agents.starter import SKILLS_ADDENDUM, make_skill_agent
 
         # Returns a plain Agent (no session, no runner wrapper) — skills ride
-        # on the core `seed` hook, not a separate run path.
+        # on the core `init_state` hook, not a separate run path.
         agent = make_skill_agent(FAKE_PROVIDER, cwd=str(FIXTURE_SKILLS))
         self.assertIn(SKILLS_ADDENDUM, agent.system_prompt)
         self.assertEqual(sorted(t.name for t in agent.tools), ["bash", "read"])
-        self.assertIsNotNone(agent.seed)
+        self.assertIsNotNone(agent.init_state)
 
     def test_bare_run_advertises_skills_menu(self) -> None:
         from simple_agent_lab.agents.starter import make_skill_agent
