@@ -314,7 +314,7 @@ class LocalProcessBackendTest(unittest.TestCase):
                             "command": sys.executable,
                             "args": [
                                 "-m",
-                                "simple_agent_lab.evals.suites.swebench.mcp_workspace_server",
+                                "simple_agent_lab.mcp.workspace_server",
                             ],
                             "cwd": str(repo),
                         }
