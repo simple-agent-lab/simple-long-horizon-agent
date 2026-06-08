@@ -28,9 +28,13 @@ if [ -n "${ENV_FILE:-}" ]; then
   set +a
 fi
 
+RUN_ID="${RUN_ID:-gdpval-full-$(date +%Y%m%d-%H%M%S)-azure-judge}"
+
 # Solver endpoint.
-export OPENAI_MODEL="${OPENAI_MODEL:-ep-20250827110100-x6vlt}"
-export OPENAI_BASE_URL="${OPENAI_BASE_URL:-https://ark-cn-beijing.bytedance.net/api/v3}"
+export OPENAI_MODEL="${OPENAI_MODEL:-gpt-5.5-2026-04-24}"
+export OPENAI_BASE_URL="${OPENAI_BASE_URL:-https://aidp.bytedance.net/api/modelhub/online}"
+export OPENAI_REASONING_EFFORT="${OPENAI_REASONING_EFFORT:-high}"
+export OPENAI_SESSION_ID="${OPENAI_SESSION_ID:-$RUN_ID}"
 : "${OPENAI_AUTH_TOKEN:?Set OPENAI_AUTH_TOKEN for the solver endpoint.}"
 export OPENAI_AUTH_TOKEN
 
@@ -42,7 +46,6 @@ export JUDGE_AZURE_OPENAI_API_VERSION="${JUDGE_AZURE_OPENAI_API_VERSION:-2024-03
 export JUDGE_OPENAI_AUTH_TOKEN
 unset JUDGE_OPENAI_BASE_URL
 
-RUN_ID="${RUN_ID:-gdpval-full-$(date +%Y%m%d-%H%M%S)-azure-judge}"
 IMAGE="${IMAGE:-hub.byted.org/boyuan/gdpval-agent-base:v20260604.8}"
 PULL="${PULL:-never}"
 CONCURRENCY="${CONCURRENCY:-10}"
@@ -81,6 +84,7 @@ fi
 
 echo "GDPVal run id: $RUN_ID"
 echo "solver model: $OPENAI_MODEL"
+echo "solver session: $OPENAI_SESSION_ID"
 echo "judge model:  $JUDGE_OPENAI_MODEL"
 echo "judge client: AzureOpenAI"
 echo "image:        $IMAGE"

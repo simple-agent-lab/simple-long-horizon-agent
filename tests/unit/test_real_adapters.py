@@ -585,16 +585,21 @@ def _responses_response(
     cached: int = 0,
     reasoning_summary: str | None = None,
     reasoning_id: str = "rs_1",
+    reasoning_encrypted_content: str | None = None,
 ) -> Any:
     output_items: list[Any] = []
-    if reasoning_summary is not None:
+    if reasoning_summary is not None or reasoning_encrypted_content is not None:
         output_items.append(
             SimpleNamespace(
                 type="reasoning",
                 id=reasoning_id,
-                summary=[SimpleNamespace(type="summary_text", text=reasoning_summary)],
+                summary=(
+                    [SimpleNamespace(type="summary_text", text=reasoning_summary)]
+                    if reasoning_summary is not None
+                    else []
+                ),
                 content=None,
-                encrypted_content=None,
+                encrypted_content=reasoning_encrypted_content,
                 status=None,
             )
         )
@@ -690,6 +695,7 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
                 }
             ],
         )
+        self.assertEqual(captured["include"], ["reasoning.encrypted_content"])
         input_items = captured["input"]
         # user message → input_text content item.
         self.assertEqual(input_items[0]["type"], "message")
@@ -744,6 +750,42 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
         block = response.thinking_blocks[0]
         self.assertEqual(block.text, "23*19 is 437.")
         self.assertEqual(block.signature, "rs_abc")
+        self.assertIsNone(block.encrypted_content)
+        self.assertEqual(block.source_field, "reasoning")
+
+    def test_inbound_reasoning_item_keeps_encrypted_content(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(
+            _responses_response(
+                reasoning_id="rs_secret",
+                reasoning_encrypted_content="encrypted-secret",
+                function_calls=[
+                    {
+                        "call_id": "call_1",
+                        "name": "bash",
+                        "arguments": json.dumps({"command": "echo ok"}),
+                    }
+                ],
+            ),
+            captured,
+            kind="responses",
+        )
+        req = LLMRequest(
+            provider=OPENAI_RESPONSES_PROVIDER,
+            messages=[LLMMessage(role="user", content="use a tool")],
+            tools=[_bash_tool()],
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            response = complete(req)
+
+        self.assertEqual(len(response.thinking_blocks), 1)
+        block = response.thinking_blocks[0]
+        self.assertEqual(block.text, "")
+        self.assertEqual(block.signature, "rs_secret")
+        self.assertEqual(block.encrypted_content, "encrypted-secret")
         self.assertEqual(block.source_field, "reasoning")
 
     def test_outbound_replays_reasoning_item_before_tool_call(self) -> None:
@@ -794,6 +836,55 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
         )
         # The reasoning item must precede the function_call it belonged to.
         reasoning_pos = input_items.index(reasoning_items[0])
+        call_pos = next(
+            i for i, item in enumerate(input_items) if item["type"] == "function_call"
+        )
+        self.assertLess(reasoning_pos, call_pos)
+
+    def test_outbound_replays_encrypted_reasoning_item_before_tool_call(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(
+            _responses_response(text_blocks=["done"]), captured, kind="responses"
+        )
+        req = LLMRequest(
+            provider=OPENAI_RESPONSES_PROVIDER,
+            messages=[
+                LLMMessage(role="user", content="multiply 23 and 19"),
+                LLMMessage(
+                    role="assistant",
+                    content=[
+                        ThinkingBlock(
+                            signature="rs_secret",
+                            encrypted_content="encrypted-secret",
+                        ),
+                        ToolCall(id="c1", name="bash", arguments={"command": "echo"}),
+                    ],
+                ),
+                LLMMessage(
+                    role="user",
+                    content=[
+                        ToolResultBlock(
+                            tool_call_id="c1",
+                            tool_name="bash",
+                            content=(TextBlock("437"),),
+                        )
+                    ],
+                ),
+            ],
+            tools=[_bash_tool()],
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            complete(req)
+
+        input_items = captured["input"]
+        reasoning_item = next(i for i in input_items if i["type"] == "reasoning")
+        self.assertEqual(reasoning_item["id"], "rs_secret")
+        self.assertEqual(reasoning_item["summary"], [])
+        self.assertEqual(reasoning_item["encrypted_content"], "encrypted-secret")
+        reasoning_pos = input_items.index(reasoning_item)
         call_pos = next(
             i for i, item in enumerate(input_items) if item["type"] == "function_call"
         )

@@ -68,6 +68,7 @@ class RunGdpvalJudgeRetryTest(unittest.TestCase):
             {
                 "OPENAI_MODEL": "gpt-test",
                 "OPENAI_AUTH_TOKEN": "token",
+                "OPENAI_REASONING_EFFORT": "high",
                 "AZURE_OPENAI_ENDPOINT": "https://azure.example.test",
                 "AZURE_OPENAI_API_VERSION": "2024-02-01",
                 "AZURE_OPENAI_LOGID": "log-123",
@@ -79,6 +80,7 @@ class RunGdpvalJudgeRetryTest(unittest.TestCase):
                 {
                     "OPENAI_MODEL": "gpt-test",
                     "OPENAI_AUTH_TOKEN": "token",
+                    "OPENAI_REASONING_EFFORT": "high",
                     "AZURE_OPENAI_ENDPOINT": "https://azure.example.test",
                     "AZURE_OPENAI_API_VERSION": "2024-02-01",
                     "AZURE_OPENAI_LOGID": "log-123",

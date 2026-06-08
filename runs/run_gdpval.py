@@ -46,6 +46,7 @@ PROVIDER_ENV_FIELDS = (
     ("OPENAI_BASE_URL", "base_url"),
     ("OPENAI_SESSION_ID", "session_id"),
     ("OPENAI_LOG_ID", "log_id"),
+    ("OPENAI_REASONING_EFFORT", "reasoning_effort"),
     ("AZURE_OPENAI_ENDPOINT", "azure_endpoint"),
     ("AZURE_OPENAI_API_VERSION", "azure_api_version"),
     ("AZURE_OPENAI_LOGID", "azure_logid"),

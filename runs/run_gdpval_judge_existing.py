@@ -331,6 +331,7 @@ def _judge_provider_env() -> dict[str, str]:
         "OPENAI_MODEL",
         "OPENAI_AUTH_TOKEN",
         "OPENAI_BASE_URL",
+        "OPENAI_REASONING_EFFORT",
         "AZURE_OPENAI_ENDPOINT",
         "AZURE_OPENAI_API_VERSION",
         "AZURE_OPENAI_LOGID",

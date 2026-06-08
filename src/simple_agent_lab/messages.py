@@ -77,6 +77,14 @@ class ImageBlock:
 class ThinkingBlock:
     """A model's chain-of-thought / reasoning step.
 
+    ``signature`` is the provider's continuity handle for this reasoning
+    block, when one exists. Anthropic uses a signed thinking signature;
+    OpenAI Responses uses the reasoning item id.
+
+    ``encrypted_content`` carries encrypted reasoning state for providers
+    that support stateless reasoning replay, such as OpenAI Responses with
+    ``include=["reasoning.encrypted_content"]``.
+
     ``source_field`` is an adapter-side memo of which top-level wire
     field carried this reasoning on the *response* path (e.g. OpenAI
     Chat's ``"reasoning_content"`` vs. some DeepSeek-via-gateway
@@ -89,6 +97,7 @@ class ThinkingBlock:
 
     text: str = ""
     signature: str | None = None
+    encrypted_content: str | None = None
     redacted: bool = False
     source_field: str | None = None
 
