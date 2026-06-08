@@ -246,6 +246,10 @@ API_KIND=openai-chat
 
 `OPENAI_BASE_URL` is optional. `API_KIND` is optional and defaults to
 `openai-chat`; set it to `openai-responses` to use the OpenAI Responses API.
+`OPENAI_REASONING_EFFORT` is optional (model-dependent, e.g.
+`minimal`/`low`/`medium`/`high`); it is routed to the field each API expects
+based on `API_KIND` (`openai-responses` -> `reasoning.effort`, `openai-chat`
+-> top-level `reasoning_effort`).
 The run entry also passes `NO_PROXY` and `no_proxy` through when they exist.
 
 The recommended entry points are the run scripts. With no instance argument,
