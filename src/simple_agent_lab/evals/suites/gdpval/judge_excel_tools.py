@@ -386,7 +386,13 @@ def _action_filter_rows(
     max_scan_rows = max(1, int(args.get("max_scan_rows", 20000) or 20000))
     case_sensitive = bool(args.get("case_sensitive", False))
 
-    headers = _unique_headers(_read_row_values(sheet, header_row))
+    requested_columns = _collect_requested_columns(args)
+    original_header_row = header_row
+    header_row, headers, header_auto_correction = _apply_header_auto_correction(
+        sheet,
+        header_row,
+        requested_columns,
+    )
     if columns:
         selected_indices = [_resolve_column(column, headers) for column in columns]
     else:
@@ -424,6 +430,8 @@ def _action_filter_rows(
         "filepath": str(path),
         "sheet_name": sheet_name,
         "header_row": header_row,
+        "requested_header_row": original_header_row,
+        "header_auto_correction": header_auto_correction,
         "headers": headers,
         "filters": dict(filters),
         "scanned_rows": scanned,
@@ -454,7 +462,13 @@ def _action_aggregate(
     max_scan_rows = max(1, int(args.get("max_scan_rows", 10000) or 10000))
     case_sensitive = bool(args.get("case_sensitive", False))
 
-    headers = _unique_headers(_read_row_values(sheet, header_row))
+    requested_columns = _collect_requested_columns(args, include_return_columns=False)
+    original_header_row = header_row
+    header_row, headers, header_auto_correction = _apply_header_auto_correction(
+        sheet,
+        header_row,
+        requested_columns,
+    )
     group_indices = [_resolve_column(column, headers) for column in group_by]
     metric_specs = [_metric_spec(metric, headers) for metric in metrics]
 
@@ -501,6 +515,8 @@ def _action_aggregate(
         "filepath": str(path),
         "sheet_name": sheet_name,
         "header_row": header_row,
+        "requested_header_row": original_header_row,
+        "header_auto_correction": header_auto_correction,
         "headers": headers,
         "group_by": group_by,
         "filters": dict(filters),
@@ -525,20 +541,29 @@ def _resolve_workbook_path(
         raise ValueError("Missing required filepath")
     text = str(value)
     path = Path(text)
-    candidates = []
     if path.is_absolute():
-        candidates.append(path)
+        if path.is_file():
+            return path.resolve()
+    label_prefix = ""
+    rel_text = text
+    if re.match(r"^[AB][\\/]", text):
+        label_prefix = text[0].upper()
+        rel_text = text[2:]
+    rel_path = Path(rel_text)
+
+    candidates = []
+    if not path.is_absolute():
+        if not label_prefix:
+            candidates.extend((workspace / path, references / path))
+        candidates.extend((workspace / rel_path, references / rel_path))
     else:
-        candidates.extend((workspace / path, references / path))
-        if re.match(r"^[AB][\\/]", text):
-            rel = Path(text[2:])
-            candidates.extend((workspace / rel, references / rel))
+        candidates.append(path)
     for candidate in candidates:
         resolved = candidate.resolve()
         if resolved.is_file():
             return resolved
 
-    basename = path.name
+    basename = rel_path.name or path.name
     if not basename:
         return path.resolve()
     roots = [
@@ -560,10 +585,11 @@ def _resolve_workbook_path(
                 matches.append(candidate.resolve())
                 if len(matches) >= 50:
                     break
-        if matches:
-            break
     if matches:
-        return sorted(matches, key=lambda item: (len(str(item)), str(item)))[0]
+        return sorted(
+            matches,
+            key=lambda item: _workbook_path_priority(item, label_prefix=label_prefix),
+        )[0]
     raise FileNotFoundError(text)
 
 
@@ -580,6 +606,10 @@ def _choose_sheet_name(workbook: Any, requested: Any) -> str:
     normalized = _normalize_name(text)
     for name in workbook.sheetnames:
         if _normalize_name(name) == normalized:
+            return name
+    tokenized = _normalize_name_tokens(text)
+    for name in workbook.sheetnames:
+        if _normalize_name_tokens(name) == tokenized:
             return name
     if len(workbook.sheetnames) == 1:
         return workbook.sheetnames[0]
@@ -700,6 +730,198 @@ def _resolve_column(column: Any, headers: Sequence[str]) -> int:
     raise ValueError(f"Column {column!r} not found in headers: {list(headers)}")
 
 
+def _can_resolve_column(column: Any, headers: Sequence[str]) -> bool:
+    try:
+        _resolve_column(column, headers)
+    except Exception:  # noqa: BLE001 - diagnostic helper
+        return False
+    return True
+
+
+def _unresolved_columns(columns: Sequence[Any], headers: Sequence[str]) -> list[Any]:
+    missing = []
+    for column in columns:
+        if column in (None, ""):
+            continue
+        if not _can_resolve_column(column, headers):
+            missing.append(column)
+    return missing
+
+
+def _column_candidates(
+    column: Any,
+    headers: Sequence[str],
+    *,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    from openpyxl.utils import get_column_letter
+
+    target = str(column).strip().lower()
+    target_norm = _normalize_name(target)
+    candidates = []
+    for idx, header in enumerate(headers, start=1):
+        header_text = str(header).strip()
+        header_lower = header_text.lower()
+        header_norm = _normalize_name(header_text)
+        score = 0
+        if header_lower == target:
+            score = 100
+        elif header_norm == target_norm and target_norm:
+            score = 95
+        elif target and target in header_lower:
+            score = 80
+        elif header_lower and header_lower in target:
+            score = 70
+        elif target_norm and target_norm in header_norm:
+            score = 60
+        if score:
+            candidates.append(
+                {
+                    "header": header,
+                    "column": get_column_letter(idx),
+                    "index": idx,
+                    "score": score,
+                }
+            )
+    return sorted(candidates, key=lambda item: (-item["score"], item["index"]))[:limit]
+
+
+def _collect_requested_columns(
+    args: Mapping[str, Any],
+    *,
+    include_return_columns: bool = True,
+) -> list[Any]:
+    requested = []
+    filters = args.get("filters") or {}
+    if isinstance(filters, Mapping):
+        requested.extend(filters.keys())
+    if include_return_columns:
+        requested.extend(_as_list(args.get("columns")))
+    requested.extend(_as_list(args.get("group_by")))
+    metrics = args.get("metrics") or []
+    if isinstance(metrics, Mapping):
+        metrics = [metrics]
+    if isinstance(metrics, Sequence) and not isinstance(metrics, (str, bytes)):
+        for metric in metrics:
+            if isinstance(metric, Mapping):
+                metric_mapping = cast("Mapping[str, Any]", metric)
+                if metric_mapping.get("column") not in (None, ""):
+                    requested.append(metric_mapping.get("column"))
+            elif not isinstance(metric, Mapping) and metric not in (None, ""):
+                requested.append(metric)
+    deduped = []
+    seen = set()
+    for item in requested:
+        if item in (None, ""):
+            continue
+        key = str(item)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped
+
+
+def _find_header_row_for_columns(
+    sheet: Any,
+    requested_columns: Sequence[Any],
+    *,
+    max_rows: int = 30,
+) -> dict[str, Any] | None:
+    columns = [column for column in requested_columns if column not in (None, "")]
+    if not columns:
+        return None
+    best = None
+    limit = min(_safe_max_row(sheet), max(1, int(max_rows or 30)))
+    for row_idx in range(1, limit + 1):
+        headers = _unique_headers(_read_row_values(sheet, row_idx))
+        missing = _unresolved_columns(columns, headers)
+        non_empty = sum(
+            1 for header in headers if header is not None and str(header).strip()
+        )
+        score = len(columns) - len(missing)
+        if score <= 0:
+            continue
+        item: dict[str, Any] = {
+            "row": row_idx,
+            "score": score,
+            "requested_count": len(columns),
+            "missing": missing,
+            "headers": headers[:50],
+            "non_empty_headers": non_empty,
+        }
+        if best is None or (item["score"], item["non_empty_headers"]) > (
+            best["score"],
+            best["non_empty_headers"],
+        ):
+            best = item
+        if not missing:
+            break
+    return best
+
+
+def _apply_header_auto_correction(
+    sheet: Any,
+    header_row: int,
+    requested_columns: Sequence[Any],
+) -> tuple[int, list[str], dict[str, Any] | None]:
+    headers = _unique_headers(_read_row_values(sheet, header_row))
+    missing = _unresolved_columns(requested_columns, headers)
+    if not missing:
+        return header_row, headers, None
+    candidate = _find_header_row_for_columns(sheet, requested_columns)
+    if candidate and candidate["row"] != header_row:
+        corrected_headers = _unique_headers(_read_row_values(sheet, candidate["row"]))
+        corrected_missing = _unresolved_columns(requested_columns, corrected_headers)
+        if len(corrected_missing) < len(missing):
+            return (
+                int(candidate["row"]),
+                corrected_headers,
+                {
+                    "from_header_row": header_row,
+                    "to_header_row": candidate["row"],
+                    "original_missing_columns": missing,
+                    "remaining_missing_columns": corrected_missing,
+                    "candidate": candidate,
+                },
+            )
+    return header_row, headers, None
+
+
+def _header_row_candidates(
+    sheet: Any,
+    *,
+    requested_columns: Sequence[Any] | None = None,
+    max_rows: int = 30,
+    limit: int = 8,
+) -> list[dict[str, Any]]:
+    columns = list(requested_columns or [])
+    candidates = []
+    max_row = min(_safe_max_row(sheet), max(1, int(max_rows or 30)))
+    for row_idx in range(1, max_row + 1):
+        headers = _unique_headers(_read_row_values(sheet, row_idx))
+        non_empty = sum(
+            1 for header in headers if header is not None and str(header).strip()
+        )
+        if not non_empty:
+            continue
+        missing = _unresolved_columns(columns, headers) if columns else []
+        score = (len(columns) - len(missing)) if columns else min(non_empty, 10)
+        item: dict[str, Any] = {
+            "row": row_idx,
+            "score": score,
+            "non_empty_headers": non_empty,
+            "missing_requested_columns": missing,
+            "headers": headers[:50],
+        }
+        if missing:
+            item["column_candidates"] = {
+                str(column): _column_candidates(column, headers) for column in missing
+            }
+        candidates.append(item)
+    return sorted(candidates, key=lambda item: (-item["score"], item["row"]))[:limit]
+
+
 def _row_matches(
     row_values: Sequence[Any],
     filters: Mapping[str, Any],
@@ -813,11 +1035,34 @@ def _excel_error_diagnostics(
         from openpyxl import load_workbook
 
         workbook = load_workbook(filename=path, read_only=True, data_only=True)
-        return {
+        requested_sheet = args.get("sheet_name") or args.get("sheet")
+        requested_columns = _collect_requested_columns(args)
+        diagnostics: dict[str, Any] = {
             "resolved_path": str(path),
             "available_sheets": workbook.sheetnames,
-            "requested_sheet": args.get("sheet_name") or args.get("sheet"),
+            "requested_sheet": requested_sheet,
         }
+        if requested_columns:
+            diagnostics["requested_columns"] = requested_columns
+        sheet_names = []
+        try:
+            sheet_names.append(_choose_sheet_name(workbook, requested_sheet))
+        except Exception:  # noqa: BLE001 - diagnostics should not mask primary error
+            sheet_names.extend(workbook.sheetnames[:5])
+        samples = []
+        for sheet_name in sheet_names[:5]:
+            sheet = workbook[sheet_name]
+            samples.append(
+                {
+                    "sheet_name": sheet_name,
+                    "header_row_candidates": _header_row_candidates(
+                        sheet,
+                        requested_columns=requested_columns,
+                    ),
+                }
+            )
+        diagnostics["sheet_diagnostics"] = samples
+        return diagnostics
     except Exception as exc:  # noqa: BLE001 - diagnostic only
         return {"resolved_path": str(path), "error": f"{type(exc).__name__}: {exc}"}
 
@@ -864,6 +1109,27 @@ def _safe_max_col(sheet: Any) -> int:
 
 def _normalize_name(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+
+def _normalize_name_tokens(value: str) -> str:
+    return " ".join(sorted(re.findall(r"[a-z0-9]+", value.lower())))
+
+
+def _workbook_path_priority(
+    path: Path, *, label_prefix: str = ""
+) -> tuple[int, int, str]:
+    text = str(path)
+    if label_prefix == "A":
+        buckets = ("deliverable_task_id_files", "reference_task_id_files", "workdir")
+    elif label_prefix == "B":
+        buckets = ("workdir", "deliverable_task_id_files", "reference_task_id_files")
+    else:
+        buckets = ("workdir", "deliverable_task_id_files", "reference_task_id_files")
+    bucket_rank = next(
+        (idx for idx, marker in enumerate(buckets) if marker in text),
+        len(buckets),
+    )
+    return (bucket_rank, len(text), text)
 
 
 def _as_list(value: Any) -> list[Any]:

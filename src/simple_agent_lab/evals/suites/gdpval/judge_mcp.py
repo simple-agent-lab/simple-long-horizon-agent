@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
@@ -97,6 +98,7 @@ _PPT_MCP_SERVER_NAMES = {"ppt", "ppt_mcp_server"}
 _LOCAL_WRITE_TOOL_NAMES = {"write_file", "edit_file", "multi_edit_file", "TodoWrite"}
 _MAX_JUDGE_TOOL_TEXT_CHARS = 200_000
 _MAX_JUDGE_TOOL_FILE_TEXT_CHARS = 400_000
+_DETERMINISTIC_TABULAR_COMPACT_PREFIX = "[Deterministic tabular compact;"
 _BINARY_JSON_KEYS = {
     "base64",
     "blob",
@@ -395,6 +397,12 @@ def _preprocess_judge_tool_text(text: str) -> str:
     if not text:
         return text
     cleaned = _strip_large_binary_json(text)
+    compacted = _maybe_compact_large_excel_cells_payload(
+        cleaned,
+        min_chars=_MAX_JUDGE_TOOL_FILE_TEXT_CHARS,
+    )
+    if compacted is not None:
+        return compacted
     max_chars = (
         _MAX_JUDGE_TOOL_FILE_TEXT_CHARS
         if _looks_like_file_payload(cleaned)
@@ -462,6 +470,308 @@ def _sanitize_binary_json_value(value: Any) -> tuple[Any, bool]:
 def _looks_like_file_payload(text: str) -> bool:
     lowered = text[:2000].lower()
     return any(marker in lowered for marker in ("filepath", "filename", "file:"))
+
+
+def _maybe_compact_large_excel_cells_payload(
+    text: str,
+    *,
+    min_chars: int,
+) -> str | None:
+    if len(text) <= min_chars:
+        return None
+    if text.lstrip().startswith(_DETERMINISTIC_TABULAR_COMPACT_PREFIX):
+        return None
+    if '"cells"' not in text and '\\"cells\\"' not in text:
+        return None
+    try:
+        parsed = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    payload = _find_excel_cells_payload(parsed)
+    if payload is None:
+        return None
+    return _compact_excel_cells_payload(payload, original_chars=len(text))
+
+
+def _find_excel_cells_payload(obj: Any, max_depth: int = 8) -> Mapping[str, Any] | None:
+    stack: list[tuple[Any, int]] = [(obj, 0)]
+    seen_ids: set[int] = set()
+    while stack:
+        current, depth = stack.pop()
+        if id(current) in seen_ids:
+            continue
+        seen_ids.add(id(current))
+        if isinstance(current, Mapping):
+            cells = current.get("cells")
+            if (
+                isinstance(cells, list)
+                and cells
+                and all(
+                    isinstance(cell, Mapping) for cell in cells[: min(10, len(cells))]
+                )
+            ):
+                return current
+            if depth >= max_depth:
+                continue
+            stack.extend(
+                (parsed, depth + 1) for parsed in _extract_text_item_jsons(current)
+            )
+            for value in current.values():
+                if isinstance(value, Mapping | list):
+                    stack.append((value, depth + 1))
+                elif isinstance(value, str) and (
+                    '"cells"' in value or '\\"cells\\"' in value
+                ):
+                    try:
+                        stack.append((json.loads(value), depth + 1))
+                    except json.JSONDecodeError:
+                        continue
+        elif isinstance(current, list) and depth < max_depth:
+            for value in current:
+                if isinstance(value, Mapping | list):
+                    stack.append((value, depth + 1))
+                elif isinstance(value, str) and (
+                    '"cells"' in value or '\\"cells\\"' in value
+                ):
+                    try:
+                        stack.append((json.loads(value), depth + 1))
+                    except json.JSONDecodeError:
+                        continue
+        elif (
+            isinstance(current, str)
+            and depth < max_depth
+            and ('"cells"' in current or '\\"cells\\"' in current)
+        ):
+            try:
+                stack.append((json.loads(current), depth + 1))
+            except json.JSONDecodeError:
+                continue
+    return None
+
+
+def _extract_text_item_jsons(obj: Mapping[str, Any]) -> list[Any]:
+    content = obj.get("content")
+    if not isinstance(content, list):
+        return []
+    extracted = []
+    for item in content:
+        if not isinstance(item, Mapping):
+            continue
+        text = item.get("text")
+        if not isinstance(text, str) or '"cells"' not in text:
+            continue
+        try:
+            extracted.append(json.loads(text))
+        except json.JSONDecodeError:
+            continue
+    return extracted
+
+
+def _compact_excel_cells_payload(
+    payload: Mapping[str, Any],
+    *,
+    original_chars: int,
+) -> str | None:
+    cells = payload.get("cells")
+    if not isinstance(cells, list) or not cells:
+        return None
+    rows: dict[int, dict[int, Any]] = {}
+    formula_count = 0
+    non_empty_cells = 0
+    positioned_cells = 0
+    for raw_cell in cells:
+        if not isinstance(raw_cell, Mapping):
+            continue
+        row_idx, col_idx = _excel_cell_position(raw_cell)
+        if row_idx is None or col_idx is None:
+            continue
+        value = _excel_cell_value(raw_cell)
+        if value not in (None, ""):
+            non_empty_cells += 1
+        if raw_cell.get("formula") not in (None, ""):
+            formula_count += 1
+        rows.setdefault(row_idx, {})[col_idx] = value
+        positioned_cells += 1
+    if not rows:
+        return None
+
+    all_rows = sorted(rows)
+    all_cols = sorted({col for row_cells in rows.values() for col in row_cells})
+    if not all_cols:
+        return None
+    if len(all_cols) <= 40:
+        sampled_cols = all_cols
+        omitted_cols = 0
+    else:
+        sampled_cols = [*all_cols[:30], *all_cols[-10:]]
+        omitted_cols = len(all_cols) - len(sampled_cols)
+
+    first_rows = all_rows[:25]
+    last_rows = [row for row in all_rows[-10:] if row not in set(first_rows)]
+    header_row = min(all_rows)
+    filepath = _first_present_mapping(
+        payload,
+        keys=("filepath", "file_path", "path", "workbook"),
+    )
+    sheet_name = _first_present_mapping(
+        payload, keys=("sheet_name", "sheet", "worksheet")
+    )
+    cell_range = _first_present_mapping(payload, keys=("range", "cell_range"))
+
+    lines = [
+        (
+            f"{_DETERMINISTIC_TABULAR_COMPACT_PREFIX} "
+            f"reason=large_excel_cells_output, original_chars={original_chars}, "
+            f"cells_reported={len(cells)}, positioned_cells={positioned_cells}]"
+        ),
+        (
+            "Full per-cell metadata was too large for prompt history and was "
+            "replaced with this deterministic outline."
+        ),
+    ]
+    if filepath:
+        lines.append(f"file={filepath}")
+    if sheet_name:
+        lines.append(f"sheet={sheet_name}")
+    if cell_range:
+        lines.append(f"range={cell_range}")
+    row_span = f"{all_rows[0]}..{all_rows[-1]}"
+    col_span = (
+        f"{_excel_index_to_column(all_cols[0])}..{_excel_index_to_column(all_cols[-1])}"
+    )
+    lines.extend(
+        [
+            (
+                f"detected_rows={len(all_rows)} ({row_span}); "
+                f"detected_columns={len(all_cols)} ({col_span}); "
+                f"non_empty_cells={non_empty_cells}; formula_cells={formula_count}"
+            ),
+            "sampled_columns="
+            + ", ".join(f"{_excel_index_to_column(col)}({col})" for col in sampled_cols)
+            + (f"; omitted_columns={omitted_cols}" if omitted_cols else ""),
+            "",
+            f"header_or_first_row: {_format_compact_excel_row(header_row, rows[header_row], sampled_cols)}",
+            "",
+            "first_rows:",
+        ]
+    )
+    lines.extend(
+        _format_compact_excel_row(row, rows[row], sampled_cols) for row in first_rows
+    )
+    if last_rows:
+        lines.extend(["", "last_rows:"])
+        lines.extend(
+            _format_compact_excel_row(row, rows[row], sampled_cols) for row in last_rows
+        )
+    omitted_rows = len(all_rows) - len(first_rows) - len(last_rows)
+    if omitted_rows > 0:
+        lines.append(f"\nrows_omitted_from_prompt={omitted_rows}")
+    lines.append(
+        "For exact verification, call excel_profile_sheet, "
+        "read_data_from_excel_compact, excel_filter_rows, or excel_aggregate "
+        "on the needed bounded range/filter."
+    )
+    return "\n".join(lines)
+
+
+def _excel_cell_position(cell: Mapping[str, Any]) -> tuple[int | None, int | None]:
+    row = cell.get("row") or cell.get("row_index") or cell.get("rowIndex")
+    col = (
+        cell.get("column")
+        or cell.get("col")
+        or cell.get("column_index")
+        or cell.get("columnIndex")
+    )
+    try:
+        row_int = int(row) if row is not None else None
+    except (TypeError, ValueError):
+        row_int = None
+    col_int = _excel_column_to_index(col)
+    address = cell.get("address") or cell.get("cell") or cell.get("coordinate")
+    if isinstance(address, str):
+        match = re.match(r"^\$?([A-Za-z]+)\$?(\d+)$", address.strip())
+        if match:
+            col_int = col_int or _excel_column_to_index(match.group(1))
+            row_int = row_int or int(match.group(2))
+    return row_int, col_int
+
+
+def _excel_column_to_index(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    text = str(value).strip()
+    if text.isdigit():
+        col = int(text)
+        return col if col > 0 else None
+    letters = "".join(ch for ch in text.upper() if "A" <= ch <= "Z")
+    if not letters:
+        return None
+    col = 0
+    for ch in letters:
+        col = col * 26 + ord(ch) - ord("A") + 1
+    return col
+
+
+def _excel_index_to_column(index: int) -> str:
+    if index <= 0:
+        return str(index)
+    letters = ""
+    while index:
+        index, rem = divmod(index - 1, 26)
+        letters = chr(ord("A") + rem) + letters
+    return letters
+
+
+def _excel_cell_value(cell: Mapping[str, Any]) -> Any:
+    for key in (
+        "formatted_value",
+        "formattedValue",
+        "display_value",
+        "displayValue",
+        "value",
+        "text",
+        "raw_value",
+        "rawValue",
+    ):
+        if key in cell and cell[key] is not None:
+            return cell[key]
+    formula = cell.get("formula")
+    if formula is not None:
+        return formula
+    return ""
+
+
+def _short_excel_cell_value(value: Any, max_chars: int = 180) -> str:
+    if value is None:
+        return ""
+    text = repr(value) if isinstance(value, float) else str(value)
+    text = text.replace("\r", "\\r").replace("\n", "\\n")
+    return _truncate_middle(text, max_chars=max_chars, marker="...[omitted]...")
+
+
+def _format_compact_excel_row(
+    row_index: int,
+    row_cells: Mapping[int, Any],
+    columns: list[int],
+) -> str:
+    values = [_short_excel_cell_value(row_cells.get(col, "")) for col in columns]
+    return f"row {row_index}: " + json.dumps(values, ensure_ascii=False)
+
+
+def _first_present_mapping(
+    *mappings: Mapping[str, Any] | None,
+    keys: tuple[str, ...],
+) -> Any:
+    for mapping in mappings:
+        if not isinstance(mapping, Mapping):
+            continue
+        for key in keys:
+            value = mapping.get(key)
+            if value not in (None, ""):
+                return value
+    return None
 
 
 def _truncate_middle(text: str, *, max_chars: int, marker: str) -> str:

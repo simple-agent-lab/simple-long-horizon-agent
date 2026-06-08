@@ -24,8 +24,10 @@ from simple_agent_lab.evals import (
 )
 from simple_agent_lab.evals.suites.gdpval import (
     container,
+    judge_excel_tools,
     judge_container,
     judge_gsb_container,
+    judge_mcp,
 )
 from simple_agent_lab.evals.suites.gdpval.judge_scoring import (
     normalize_rubrics,
@@ -540,6 +542,113 @@ class GdpvalSuiteTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             normalize_judge_tool_mode("remote")
 
+    def test_judge_excel_tools_auto_correct_header_and_token_match_sheet(
+        self,
+    ) -> None:
+        try:
+            from openpyxl import Workbook
+        except ModuleNotFoundError:
+            self.skipTest("openpyxl is not installed")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workbook_path = root / "book.xlsx"
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet.title = "Annual Revenue Report"
+            sheet["A1"] = "generated report title"
+            sheet["A2"] = "Entity"
+            sheet["B2"] = "Amount"
+            sheet["A3"] = "Acme"
+            sheet["B3"] = 10
+            workbook.save(workbook_path)
+
+            filtered = judge_excel_tools._run_excel_action(
+                "filter_rows",
+                {
+                    "filepath": str(workbook_path),
+                    "sheet_name": "Revenue Report Annual",
+                    "header_row": 1,
+                    "filters": {"Entity": "Acme"},
+                    "columns": ["Amount"],
+                },
+                workspace=root,
+                references=root,
+            )
+            aggregated = judge_excel_tools._run_excel_action(
+                "aggregate",
+                {
+                    "filepath": str(workbook_path),
+                    "sheet_name": "Revenue Report Annual",
+                    "header_row": 1,
+                    "metrics": [
+                        {"column": "Amount", "op": "sum", "name": "sum_amount"}
+                    ],
+                },
+                workspace=root,
+                references=root,
+            )
+
+        self.assertEqual(filtered["sheet_name"], "Annual Revenue Report")
+        self.assertEqual(filtered["requested_header_row"], 1)
+        self.assertEqual(filtered["header_row"], 2)
+        self.assertEqual(filtered["header_auto_correction"]["to_header_row"], 2)
+        self.assertEqual(filtered["rows"][0]["Amount"], 10)
+        self.assertEqual(aggregated["header_row"], 2)
+        self.assertEqual(aggregated["groups"][0]["sum_amount"], 10.0)
+
+    def test_judge_excel_path_resolution_matches_swalm_ab_priority(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workdir = root / "workdir"
+            deliverable = root / "deliverable_task_id_files"
+            reference = root / "reference_task_id_files"
+            workdir.mkdir()
+            deliverable.mkdir()
+            reference.mkdir()
+            (workdir / "report.xlsx").write_bytes(b"candidate")
+            (deliverable / "report.xlsx").write_bytes(b"standard")
+            (reference / "report.xlsx").write_bytes(b"reference")
+
+            a_path = judge_excel_tools._resolve_workbook_path(
+                {"filepath": "A/report.xlsx"},
+                workspace=root,
+                references=root,
+            )
+            b_path = judge_excel_tools._resolve_workbook_path(
+                {"filepath": "B/report.xlsx"},
+                workspace=root,
+                references=root,
+            )
+
+        self.assertEqual(a_path, deliverable / "report.xlsx")
+        self.assertEqual(b_path, workdir / "report.xlsx")
+
+    def test_judge_mcp_compacts_large_excel_cells_payload(self) -> None:
+        raw = json.dumps(
+            {
+                "filepath": "/workspace/report.xlsx",
+                "sheet_name": "Sheet1",
+                "cells": [
+                    {"address": "A1", "value": "Name"},
+                    {"address": "B1", "value": "Amount"},
+                    {"address": "A2", "value": "Acme"},
+                    {"address": "B2", "value": 123.0},
+                ],
+            }
+        )
+
+        compacted = judge_mcp._maybe_compact_large_excel_cells_payload(
+            raw,
+            min_chars=0,
+        )
+
+        self.assertIsNotNone(compacted)
+        assert compacted is not None
+        self.assertIn("reason=large_excel_cells_output", compacted)
+        self.assertIn("header_or_first_row", compacted)
+        self.assertIn('row 2: ["Acme", "123.0"]', compacted)
+
     def test_judge_scoring_normalizes_rubrics_and_weighted_score(self) -> None:
         rubrics = json.dumps(
             [
@@ -768,8 +877,7 @@ class GdpvalSuiteTest(unittest.TestCase):
                     "reverse": {
                         "attempts": 1,
                         "last_failure_reason": (
-                            "invalid_output: ValueError: "
-                            "GSB direction payload is empty"
+                            "invalid_output: ValueError: GSB direction payload is empty"
                         ),
                     }
                 }
