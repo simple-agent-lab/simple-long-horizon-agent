@@ -32,6 +32,7 @@ from .batch import reconcile_dataset, submit_dataset
 from .protocols import (
     EVAL_KEY,
     INSTANCE_KEY,
+    MCP_KEY,
     RESULT_KEY,
     TRACE_KEY,
     AgentSpec,
@@ -60,6 +61,7 @@ from .stores import HostHttpStore, LocalDirStore
 __all__ = [
     "EVAL_KEY",
     "INSTANCE_KEY",
+    "MCP_KEY",
     "RESULT_KEY",
     "TRACE_KEY",
     "AgentSpec",

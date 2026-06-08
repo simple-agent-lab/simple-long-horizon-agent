@@ -77,6 +77,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Image pull policy before create.",
     )
     parser.add_argument("--dotenv", default=str(ROOT / ".env"))
+    parser.add_argument(
+        "--mcp-config",
+        default=None,
+        help="Optional MCP server config JSON; defaults to MCP_CONFIG when set.",
+    )
     parser.add_argument("--run-root", default=None)
     parser.add_argument("--wheelhouse", default=None)
     parser.add_argument("--uv-binary", default=harness.DEFAULT_UV_BINARY)
@@ -145,7 +150,16 @@ def main() -> None:
     provider_env["AGENT_FLAVOR"] = args.agent_flavor
 
     run_root, wheelhouse = _resolve_paths(args, instance)
-    harness.prepare_wheelhouse_for_run(wheelhouse, prepare_all=args.prepare_wheelhouse)
+    mcp_config_path = harness.resolve_mcp_config_path(args.mcp_config)
+    mcp_config = (
+        harness.load_mcp_config_payload(mcp_config_path) if mcp_config_path else None
+    )
+    package_extras = ("mcp",) if mcp_config else ()
+    harness.prepare_wheelhouse_for_run(
+        wheelhouse,
+        prepare_all=args.prepare_wheelhouse or bool(package_extras),
+        extras=package_extras,
+    )
 
     suite = SwebenchSuite(
         dataset_name=args.dataset_name,
@@ -171,6 +185,8 @@ def main() -> None:
     print(f"    max-turns:  {args.max_turns}")
     print(f"    run-id:     {args.run_id}")
     print(f"    agent:      {args.agent_flavor}")
+    if mcp_config_path:
+        print(f"    mcp config: {mcp_config_path}")
     print(f"    container:  {name}")
     print(f"    docker api timeout: {args.docker_timeout_seconds:g}s")
     print("")
@@ -186,8 +202,10 @@ def main() -> None:
         api_kind=provider_env[harness.API_KIND_ENV],
         max_turns=args.max_turns,
         provider_env=provider_env,
+        package_extras=package_extras,
         wheelhouse_mount=harness.DEFAULT_WHEELHOUSE_MOUNT,
         name=name,
+        mcp_config=mcp_config,
     )
 
     if result.logs:
