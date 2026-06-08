@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -19,18 +18,12 @@ from simple_agent_lab.memory import (
     FilesystemMemoryPayload,
     Memory,
     MemoryContext,
-    NotesMemory,
 )
 from simple_agent_lab.memory.filesystem import sanitize_summary
-from simple_agent_lab.memory.notes import (
-    DEFAULT_CHAR_LIMIT,
-    ENTRY_SEPARATOR,
-    MemoryFile,
-    SessionSearchStore,
-)
 from simple_agent_lab.memory.transcript import extract_memory_text
-from simple_agent_lab.messages import TextBlock, ToolCallBlock, system_message
+from simple_agent_lab.messages import system_message
 from simple_agent_lab.protocols import ModelRequestEvent
+from simple_agent_lab.tools import AgentTool, text_result
 
 
 class MemoryBaseTest(unittest.TestCase):
@@ -112,29 +105,42 @@ class MemoryBaseTest(unittest.TestCase):
         self.assertEqual(memory.final_count, 1)
 
     def test_llm_agent_factory_closes_over_bound_memory_tools(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            memory = NotesMemory(home=tmp)
-            binding = memory.bind(
-                MemoryContext(
-                    agent="agent",
-                    task="",
-                    memory_name="demo",
+        class ToolMemory(Memory):
+            def tools(self, ctx: MemoryContext):
+                del ctx
+                return (
+                    AgentTool(
+                        name="memory_probe",
+                        description="Probe memory tool binding.",
+                        parameters={"type": "object", "additionalProperties": False},
+                        execute=lambda call_id, args, abort, on_update: text_result(
+                            "ok"
+                        ),
+                    ),
                 )
-            )
-            provider = Provider(id="fake", api="fake", model="fake-model")
-            agent = make_llm_agent(
-                name="agent",
-                provider=provider,
-                tools=binding.tools,
-            )
 
-            state, events = agent.run("answer directly")
-            seen_events = list(events)
+        memory = ToolMemory()
+        binding = memory.bind(
+            MemoryContext(
+                agent="agent",
+                task="",
+                memory_name="demo",
+            )
+        )
+        provider = Provider(id="fake", api="fake", model="fake-model")
+        agent = make_llm_agent(
+            name="agent",
+            provider=provider,
+            tools=binding.tools,
+        )
+
+        state, events = agent.run("answer directly")
+        seen_events = list(events)
 
         request = next(
             event for event in seen_events if isinstance(event, ModelRequestEvent)
         )
-        self.assertIn("memory", [tool["name"] for tool in request.tools])
+        self.assertIn("memory_probe", [tool["name"] for tool in request.tools])
         self.assertEqual(state.messages[-1].kind, "final")
 
     def test_bound_memory_hooks_are_not_executed_without_hook_runtime(self) -> None:
@@ -170,233 +176,6 @@ class MemoryBaseTest(unittest.TestCase):
             "remembered initial context",
             [message_text(message) for message in state.messages],
         )
-
-
-class NotesMemoryTest(unittest.TestCase):
-    def test_memory_file_uses_frozen_snapshot_and_live_writes(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            store = MemoryFile(Path(tmp) / "MEMORY.md", char_limit=100)
-            self.assertTrue(store.add("alpha fact")["success"])
-            snapshot = store.load_snapshot()
-            self.assertIn("alpha fact", snapshot)
-
-            self.assertTrue(store.add("beta fact")["success"])
-            self.assertNotIn("beta fact", store.render_snapshot())
-            self.assertIn("beta fact", store.load())
-
-            self.assertTrue(store.replace("beta", "beta refined")["success"])
-            self.assertIn("beta refined", store.load())
-            self.assertTrue(store.remove("alpha")["success"])
-            self.assertEqual(store.load(), ["beta refined"])
-
-            blocked = store.add("bad\u200bentry")
-            self.assertFalse(blocked["success"])
-            self.assertIn("invisible unicode", blocked["error"])
-
-    def test_memory_file_blocks_separator_and_duplicate_replace(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            store = MemoryFile(Path(tmp) / "MEMORY.md", char_limit=200)
-            self.assertTrue(store.add("alpha fact")["success"])
-            self.assertTrue(store.add("beta fact")["success"])
-
-            separator = store.add("gamma\n---\ndelta")
-            duplicate = store.replace("beta", "alpha fact")
-
-        self.assertFalse(separator["success"])
-        self.assertIn("memory entry separator", separator["error"])
-        self.assertFalse(duplicate["success"])
-        self.assertIn("already exists", duplicate["error"])
-
-    def test_memory_file_defaults_and_capacity_error(self) -> None:
-        self.assertEqual(DEFAULT_CHAR_LIMIT, 2_200)
-        self.assertEqual(ENTRY_SEPARATOR, "\n\n---\n\n")
-
-        with tempfile.TemporaryDirectory() as tmp:
-            store = MemoryFile(Path(tmp) / "MEMORY.md", char_limit=20)
-            self.assertTrue(store.add("short note")["success"])
-
-            blocked = store.add("this note is too long for the tiny test limit")
-
-        self.assertFalse(blocked["success"])
-        self.assertIn("exceeding the limit", blocked["error"])
-        self.assertIn("Replace or remove existing entries first", blocked["error"])
-        self.assertEqual(blocked["entries"], ["short note"])
-        self.assertEqual(blocked["entry_count"], 1)
-        self.assertIn("/20 chars", blocked["usage"])
-
-    def test_memory_tool_returns_structured_transport_success(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            memory = NotesMemory(home=tmp)
-            tool = memory.tools(MemoryContext(agent="a", task="t"))[0]
-            result = tool.execute(
-                "m1",
-                {"action": "add", "content": "prefer focused checks"},
-                lambda: False,
-                None,
-            )
-
-        self.assertFalse(result.is_error)
-        payload = json.loads(result.content[0].text)
-        self.assertTrue(payload["success"])
-        self.assertIn("prefer focused checks", payload["entries"])
-
-    def test_notes_memory_default_includes_session_search(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            memory = NotesMemory(home=tmp)
-
-            self.assertIsNotNone(memory.sessions)
-            self.assertTrue((Path(tmp) / "sessions.db").exists())
-            self.assertEqual(
-                [tool.name for tool in memory.tools(MemoryContext("a", "t"))],
-                ["memory", "session_search"],
-            )
-
-    def test_session_search_tool_browses_recent_sessions_without_query(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            memory = NotesMemory(home=tmp)
-            tool = memory.tools(MemoryContext("a", "t"))[1]
-
-            first = State("first task")
-            first.send("task", "user", "agent", "first task")
-            first.record(assistant_message("first done", sender="agent", target="user"))
-            second = State("second task")
-            second.send("task", "user", "agent", "second task")
-            second.record(
-                assistant_message("second done", sender="agent", target="user")
-            )
-            memory.sessions.record_session(
-                "session-1",
-                first.messages,
-                summary="First session",
-            )
-            memory.sessions.record_session(
-                "session-2",
-                second.messages,
-                summary="Second session",
-            )
-
-            result = tool.execute("s1", {"limit": 2}, lambda: False, None)
-
-        payload = json.loads(result.content[0].text)
-        self.assertTrue(payload["success"])
-        self.assertEqual(payload["mode"], "browse")
-        self.assertEqual(payload["session_count"], 2)
-        self.assertEqual(payload["sessions"][0]["session_id"], "session-2")
-        self.assertEqual(payload["sessions"][1]["session_id"], "session-1")
-
-    def test_session_search_indexes_visible_transcript_text_by_session(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            store = SessionSearchStore(Path(tmp) / "sessions.db")
-            state = State("debug auth")
-            state.send("task", "user", "agent", "fix OAuth callback")
-            state.record(
-                assistant_message(
-                    [
-                        TextBlock("checking logs"),
-                        ToolCallBlock("c1", "bash", {"command": "pytest auth"}),
-                    ],
-                    sender="agent",
-                    target="agent",
-                    kind="step",
-                    sidecar={"raw": "hidden raw provider payload"},
-                )
-            )
-            state.record(
-                assistant_message(
-                    "fixed callback",
-                    sender="agent",
-                    target="user",
-                    kind="final",
-                )
-            )
-
-            count = store.record_session(
-                "session-1",
-                state.messages,
-                summary="OAuth callback summary",
-            )
-            results = store.search("OAuth", limit=5)
-            fallback_limit = store.search("OAuth", limit="not an int")
-            hidden = store.search("hidden", limit=5)
-
-        self.assertEqual(count, 3)
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["session_id"], "session-1")
-        self.assertEqual(results[0]["summary"], "OAuth callback summary")
-        self.assertEqual(results[0]["matches"][0]["message_index"], 0)
-        self.assertEqual(len(fallback_limit), 1)
-        self.assertEqual(hidden, [])
-
-    def test_session_search_tool_scrolls_a_found_session(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            memory = NotesMemory(home=tmp)
-            tool = memory.tools(MemoryContext("a", "t"))[1]
-            state = State("scroll context")
-            state.send("task", "user", "agent", "start investigation")
-            state.record(
-                assistant_message("inspect config", sender="agent", target="user")
-            )
-            state.send("user", "user", "agent", "needle error happened")
-            state.record(
-                assistant_message("found cause", sender="agent", target="user")
-            )
-            state.send("user", "user", "agent", "next steps")
-            memory.sessions.record_session(
-                "session-scroll",
-                state.messages,
-                summary="Scroll summary",
-            )
-
-            discovery = tool.execute(
-                "s1",
-                {"query": "needle", "limit": 1},
-                lambda: False,
-                None,
-            )
-            discovered = json.loads(discovery.content[0].text)
-            anchor = discovered["sessions"][0]["matches"][0]["message_index"]
-            result = tool.execute(
-                "s2",
-                {
-                    "session_id": "session-scroll",
-                    "around_message_index": anchor,
-                    "window": 1,
-                },
-                lambda: False,
-                None,
-            )
-
-        payload = json.loads(result.content[0].text)
-        self.assertTrue(payload["success"])
-        self.assertEqual(payload["mode"], "scroll")
-        self.assertEqual(payload["session_id"], "session-scroll")
-        self.assertEqual(payload["session"]["summary"], "Scroll summary")
-        self.assertEqual(
-            [message["message_index"] for message in payload["messages"]],
-            [anchor - 1, anchor, anchor + 1],
-        )
-        self.assertIn("needle error", payload["messages"][1]["content"])
-
-    def test_notes_memory_finish_records_session_best_effort(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            memory = NotesMemory(home=tmp)
-            state = State("use docs")
-            state.send("task", "user", "agent", "use docs")
-            state.record(
-                assistant_message("done", sender="agent", target="user", kind="final")
-            )
-            memory.finish(
-                MemoryContext(
-                    agent="agent",
-                    task="use docs",
-                    session_id="s1",
-                    state=state,
-                )
-            )
-            results = memory.sessions.search("docs")
-
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["session_id"], "s1")
 
 
 class FilesystemMemoryTest(unittest.TestCase):

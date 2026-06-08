@@ -48,10 +48,9 @@ The current source-of-truth layers are:
 - `src/simple_agent_lab/compression/`: context-compression strategies applied
   before each model request (visibility shaping lives behind `ContextPolicy`).
 - `src/simple_agent_lab/memory/`: small memory extension boundary plus
-  `NotesMemory` (`MEMORY.md` + SQLite FTS session search) and
   `FilesystemMemory` (scoped Markdown directory + run-end evidence writes).
-  Keep each starter memory mechanism in one implementation file: `notes.py`
-  and `filesystem.py`.
+  Keep the starter filesystem mechanism in one implementation file:
+  `filesystem.py`.
 - `src/simple_agent_lab/tools/`: shared tool/result values plus concrete tool
   implementations such as bash and the sub-agent `task` tool.
 - `src/simple_agent_lab/agents/`: preset agents built on the core layers

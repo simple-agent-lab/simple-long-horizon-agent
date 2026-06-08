@@ -156,8 +156,8 @@ def with_local_mounts(
 
     `memory_home`, when set, is a host directory bind-mounted read-write at
     ``memory_mount``. The backend also sets ``SAL_MEMORY_HOME`` so an in-container
-    suite can pass that path to `NotesMemory(home=...)` or
-    `FilesystemMemory(root=...)` without teaching memory about Docker.
+    suite can pass that path to `FilesystemMemory(root=...)` without teaching
+    memory about Docker.
     """
 
     extra: dict[str, dict[str, str]] = {}
