@@ -15,7 +15,7 @@ import shlex
 import tempfile
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -34,6 +34,14 @@ if TYPE_CHECKING:
 DEFAULT_FILESYSTEM_MEMORY_ROOT = "~/.simple/memory"
 MEMORY_SUMMARY_FILENAME = "memory_summary.md"
 MEMORY_HANDBOOK_FILENAME = "MEMORY.md"
+
+# Default character cap on transcript text passed to the distiller (the full
+# transcript still lands in ``transcript.md``). Truncated transcripts distill
+# poorly, so the default is large and acts as an extreme-run guard, not a routine
+# trim: ~500k characters is roughly 125k English tokens (more for CJK), leaving
+# room for the rest of the prompt and the output inside a modern 200k+ token
+# window. Override per instance via ``FilesystemMemory(distiller_transcript_limit=...)``.
+DEFAULT_DISTILLER_TRANSCRIPT_LIMIT = 500_000
 
 
 @dataclass(frozen=True)
@@ -95,11 +103,13 @@ class FilesystemMemory(Memory):
         distiller: Distiller | None = None,
         artifact_builder: ArtifactBuilder | None = None,
         enabled: bool = True,
+        distiller_transcript_limit: int = DEFAULT_DISTILLER_TRANSCRIPT_LIMIT,
     ) -> None:
         self.root = Path(root).expanduser()
         self.distiller = distiller
         self.artifact_builder = artifact_builder or default_artifacts
         self.enabled = enabled
+        self.distiller_transcript_limit = distiller_transcript_limit
 
     def initial(self, ctx: MemoryContext) -> tuple[Message, ...]:
         if not self.enabled:
@@ -202,7 +212,9 @@ class FilesystemMemory(Memory):
                 memory_summary, index, handbook = self._distillation_context_files(ctx)
                 payload = FilesystemMemoryPayload(
                     task=task,
-                    transcript=transcript,
+                    transcript=_truncate_for_distiller(
+                        transcript, limit=self.distiller_transcript_limit
+                    ),
                     artifacts=artifacts,
                     memory_summary=memory_summary,
                     index=index,
@@ -269,7 +281,6 @@ class FilesystemMemory(Memory):
         )
         upsert_index_row(
             memory_dir / "INDEX.md",
-            step=ctx.step_index,
             run=run_id,
             row=row,
             summary_path=summary_path,
@@ -684,14 +695,12 @@ def unique_component(value: str, used: set[str]) -> str:
 def upsert_index_row(
     index_path: Path,
     *,
-    step: int | None,
     run: str,
     row: FilesystemIndexRow,
     summary_path: str,
 ) -> None:
     """Insert or replace one INDEX.md row by its path cell."""
 
-    del step
     text = (
         index_path.read_text(encoding="utf-8")
         if index_path.exists()
@@ -746,19 +755,14 @@ def upsert_memory_updates(path: Path, run_path: str, updates: str) -> None:
 
 
 def _consolidate_memory_handbook(path: Path, *, keep_run_updates: int = 5) -> None:
-    """Fold high-signal run update bullets into the stable handbook sections."""
+    """Fold high-signal run update bullets into the durable lessons section."""
 
     text = path.read_text(encoding="utf-8") if path.exists() else _handbook_skeleton()
     text = _ensure_handbook_sections(text)
     blocks = _run_update_blocks(text)
-    buckets = _promoted_handbook_bullets(blocks)
-    for heading in (
-        "Patterns",
-        "User Preferences",
-        "Useful References",
-        "Failure Shields",
-    ):
-        text = _append_unique_section_bullets(text, heading, buckets[heading])
+    text = _append_unique_section_bullets(
+        text, "Durable Lessons", _promoted_handbook_bullets(blocks)
+    )
 
     keep_count = max(0, keep_run_updates)
     retained = blocks[-keep_count:] if keep_count else []
@@ -772,15 +776,9 @@ def _ensure_handbook_sections(text: str) -> str:
     if not text.strip():
         text = _handbook_skeleton()
     lines = text.rstrip().splitlines()
-    for heading in (
-        "Patterns",
-        "User Preferences",
-        "Useful References",
-        "Failure Shields",
-    ):
-        if _section_span(lines, heading) is None:
-            insert_at = _handbook_insert_before_run_updates(lines)
-            lines[insert_at:insert_at] = ["", f"## {heading}", ""]
+    if _section_span(lines, "Durable Lessons") is None:
+        insert_at = _handbook_insert_before_run_updates(lines)
+        lines[insert_at:insert_at] = ["", "## Durable Lessons", ""]
     if _section_span(lines, "Run Updates") is None:
         if lines and lines[-1].strip():
             lines.append("")
@@ -855,15 +853,8 @@ def _render_run_update_blocks(blocks: list[tuple[str, str]]) -> str:
     )
 
 
-def _promoted_handbook_bullets(
-    blocks: list[tuple[str, str]],
-) -> dict[str, list[str]]:
-    buckets = {
-        "Patterns": [],
-        "User Preferences": [],
-        "Useful References": [],
-        "Failure Shields": [],
-    }
+def _promoted_handbook_bullets(blocks: list[tuple[str, str]]) -> list[str]:
+    promoted: list[str] = []
     seen: set[str] = set()
     for run_path, body in blocks:
         for bullet in _extract_bullets(body):
@@ -874,8 +865,8 @@ def _promoted_handbook_bullets(
             if not key or key in seen:
                 continue
             seen.add(key)
-            buckets[_classify_handbook_bullet(bullet)].append(bullet)
-    return buckets
+            promoted.append(bullet)
+    return promoted
 
 
 def _extract_bullets(text: str) -> list[str]:
@@ -902,65 +893,6 @@ def _with_run_provenance(bullet: str, run_path: str) -> str:
     if re.search(r"\b(runs/|transcript\.md|summary\.md|artifacts/)", bullet):
         return bullet
     return f"{bullet.rstrip()} [{run_path}]"
-
-
-def _classify_handbook_bullet(bullet: str) -> str:
-    lowered = bullet.lower()
-    if any(
-        token in lowered
-        for token in (
-            "user prefer",
-            "owner prefer",
-            "preference",
-            "user wants",
-            "user expects",
-            "explicitly asked",
-            "explicitly requested",
-            "用户",
-            "偏好",
-            "希望",
-            "要求",
-        )
-    ):
-        return "User Preferences"
-    if any(
-        token in lowered
-        for token in (
-            "avoid",
-            "fail",
-            "error",
-            "risk",
-            "regression",
-            "blocked",
-            "wrong",
-            "bug",
-            "pitfall",
-            "fallback",
-            "失败",
-            "错误",
-            "风险",
-            "避免",
-            "回退",
-        )
-    ):
-        return "Failure Shields"
-    if (
-        any(
-            token in lowered
-            for token in (
-                "docs/",
-                ".md",
-                "http://",
-                "https://",
-                "reference",
-                "source",
-                "adr",
-            )
-        )
-        or "`/" in bullet
-    ):
-        return "Useful References"
-    return "Patterns"
 
 
 def _memory_bullet_key(bullet: str) -> str:
@@ -1089,7 +1021,7 @@ def first_summary_line(text: str) -> str:
 
 
 def _run_id(ctx: MemoryContext) -> str:
-    fallback = datetime.now(UTC).strftime("run-%Y%m%dT%H%M%SZ")
+    fallback = datetime.now(timezone.utc).strftime("run-%Y%m%dT%H%M%SZ")
     return safe_component(ctx.run_id or ctx.session_id or fallback)
 
 
@@ -1285,13 +1217,7 @@ def _handbook_skeleton() -> str:
             "",
             "Use this file for durable lessons that should change future agent behavior.",
             "",
-            "## Patterns",
-            "",
-            "## User Preferences",
-            "",
-            "## Useful References",
-            "",
-            "## Failure Shields",
+            "## Durable Lessons",
             "",
             "## Run Updates",
             "",
@@ -1360,3 +1286,21 @@ def _read_limited(path: Path, *, limit: int = 8_000) -> str:
     if len(text) <= limit:
         return text
     return text[:limit].rstrip() + "\n\n... truncated ...\n"
+
+
+def _truncate_for_distiller(text: str, *, limit: int) -> str:
+    """Bound transcript text sent to the distiller, keeping head and tail.
+
+    The full transcript is still written to disk; this only limits the
+    model-call input so long runs do not overflow the distiller context.
+    """
+
+    if len(text) <= limit:
+        return text
+    head = limit * 2 // 3
+    tail = limit - head
+    return (
+        text[:head].rstrip()
+        + "\n\n... transcript truncated for distillation ...\n\n"
+        + text[-tail:].lstrip()
+    )
