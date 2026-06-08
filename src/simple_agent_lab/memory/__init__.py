@@ -26,7 +26,6 @@ from .filesystem import (
     FilesystemMemoryPayload,
     make_filesystem_distiller,
 )
-from .notes import NotesMemory
 
 __all__ = [
     "FilesystemArtifact",
@@ -44,7 +43,6 @@ __all__ = [
     "MemoryContext",
     "MemoryHooks",
     "NoMemory",
-    "NotesMemory",
     "make_filesystem_distiller",
     "memory_context_message",
 ]

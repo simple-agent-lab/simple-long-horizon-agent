@@ -80,16 +80,16 @@ together:
    source clones. Treat the Claude Code, Codex, Hermes, and other surveyed
    harness directions as comparable reference signals rather than letting one
    product dominate by default.
-3. The existing Simple Agent Lab memory implementation, including
-   `NotesMemory`, `FilesystemMemory`, and their tests, so refinements build on
-   the current teaching shape instead of replacing it wholesale.
+3. The existing Simple Agent Lab memory implementation and its tests, so
+   refinements build on the current teaching shape instead of replacing it
+   wholesale. The retired `MEMORY.md` plus session-search mechanism was
+   checkpointed in git commit `acd00c7` before removal.
 
-The owner preference for the two starter memory mechanisms is one Python file
-per mechanism. Keep the notes implementation in `notes.py` and the filesystem
-implementation in `filesystem.py` unless a split becomes clearly more readable
-than the extra indirection. `NotesMemory` still includes both the bounded
-`MEMORY.md` notes file and session-search archive; the simplicity target here
-is code organization, not removing the search half of the mechanism.
+The owner preference for starter memory mechanisms is one Python file per
+mechanism. Keep the active filesystem implementation in `filesystem.py` unless a
+split becomes clearly more readable than the extra indirection. If the retired
+notes mechanism is restored from `acd00c7`, keep its bounded `MEMORY.md` notes
+file and session-search archive together in one implementation file.
 
 The durable lesson is not to maximize recall. The durable lesson is to control
 memory quality:
@@ -237,9 +237,6 @@ model, and `dispatch_tool_calls` already records tool execution events.
 Backends are implementation details. Possible backends include:
 
 - no-op or in-memory stores for tests and demos;
-- `NotesMemory`, which combines a bounded `MEMORY.md` notes file with a SQLite
-  FTS transcript archive and `memory` / `session_search` tools. Its
-  implementation-specific helpers stay in `notes.py`;
 - `FilesystemMemory`, which injects a filesystem memory directory policy, writes
   host-owned evidence files at run end, always keeps `INDEX.md` summary links
   valid, and can apply an optional distiller result to `summary.md`, `INDEX.md`,
@@ -298,7 +295,8 @@ learning, and memory-only model calls.
 
 ### Method A: `MEMORY.md` Plus Session Search
 
-Fit: implemented as `NotesMemory`.
+Fit: retired from the active code after checkpoint commit `acd00c7`. Use this
+section as design context only unless the mechanism is restored from git.
 
 Generalized shape:
 
@@ -314,7 +312,7 @@ Mapping to this sketch:
 
 - `MEMORY.md` is a `MemorySource`, `MemorySink`, and `MemoryToolProvider`.
 - The frozen prompt snapshot is `initial(...)` plus `MemoryInjector`.
-- `session_search` is a `MemorySource` exposed as an ordinary `AgentTool`.
+- The search tool is a `MemorySource` exposed as an ordinary `AgentTool`.
 - Transcript indexing is `finish(...)` through a `MemoryLearner`/`MemorySink`.
 - Periodic consolidation can use `record(...)` for counters and `finish(...)`
   for the final pass.
@@ -437,8 +435,7 @@ as a memory-path choice and let evals handle the container mechanics:
 `LocalDockerBackend(memory_home=host_memory_dir)` bind-mounts the directory
 read-write and exposes `SAL_MEMORY_HOME` inside the container. Memory
 implementations should not import Docker or evals; they should only receive the
-local path chosen by the assembly code, such as `NotesMemory(home=...)` or
-`FilesystemMemory(root=...)`.
+local path chosen by the assembly code, such as `FilesystemMemory(root=...)`.
 
 The run directory is `runs/{run_id}`; if `run_id` is omitted, the implementation
 falls back to `session_id`, then a timestamp. Existing run directories are not
@@ -509,9 +506,11 @@ Completed starting point:
 1. Protocol/data types and a no-op extension.
 2. MCP-like memory binding that produces `tools` plus future lifecycle hooks,
    without changing the current agent runtime.
-3. Focused tests for binding shape, transport-success memory tools, transcript
-   indexing, and filesystem evidence/distillation writes.
-4. Concrete `NotesMemory` and `FilesystemMemory` implementations.
+3. Focused tests for binding shape, transcript extraction, and filesystem
+   evidence/distillation writes.
+4. Concrete `FilesystemMemory` implementation. The earlier `NotesMemory`
+   implementation was checkpointed in `acd00c7` and then removed from active
+   code.
 
 Possible next steps:
 
