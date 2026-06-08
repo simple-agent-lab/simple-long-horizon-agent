@@ -2,7 +2,7 @@
 
 <callout emoji="🎯" background-color="light-blue" border-color="light-blue">
 <text color="blue">**结论先行**</text>
-<text color="gray">之前 1 题 smoke 出现很多 0，不应该被当成 benchmark 结论。主要原因是样本太小、first-N 采样偏置、max-turns 太低，以及部分 bench 根本还没有正式 judge。这次已经按 spread strategy 跑了每个 bench 的 20 题子集（tribe 只有 8 题），结果显示：official / agentbench / pinchbench 都有非零分，skillsbench 仍偏低但不是全 0，zclawbench 和 claweval 是 pending judge，不是模型真实 0 分。</text>
+<text color="gray">之前 1 题 smoke 出现很多 0，不应该被当成 benchmark 结论。主要原因是样本太小、first-N 采样偏置、max-turns 太低，以及部分 bench 当时没有 judge。这次已经按 spread strategy 跑了每个 bench 的 20 题子集（tribe 只有 8 题），并进一步给 pinchbench/claweval/zclawbench 补了 post-hoc judge。结果显示：official / agentbench / pinchbench / claweval 都有非零分，skillsbench 仍偏低但不是全 0，zclawbench 仍全 0 的主因是当前适配缺具体任务 prompt/rubric，而不是 runner 不能跑。</text>
 </callout>
 
 本文档对应 repo：
@@ -16,6 +16,12 @@ branch: dev/claw
 
 ```text
 .tmp/openclaw_20_spread_m10/
+```
+
+本轮后处理 judge：
+
+```text
+scripts/judge_openclaw_pending.py
 ```
 
 ---
@@ -106,7 +112,7 @@ instances = suite.load_instances()[:args.sample]
 
 本轮改成 `max-turns=10`，已经明显改善 official 和 agentbench 的非零分数。但这仍低于 clawRecipe 使用的 max 40 steps，所以它更像 mini diagnostic subset，不是最终 paper-grade 实验。
 
-## 2.4 scoring_pending 不是 0 分
+## 2.4 scoring_pending 不是 0 分，但可以补 post-hoc judge
 
 `zclawbench` 和 `claweval` 当前适配能跑出 `result.json` 和 `trajectory.jsonl`，但缺 host-side judge：
 
@@ -115,11 +121,17 @@ instances = suite.load_instances()[:args.sample]
 
 所以它们现在显示 average score 0，是因为 runner 没有 judge 分数，不代表模型实际 0。
 
-本轮文档里把它们单独标为：
+第一版文档里我先把它们单独标为：
 
 ```text
 scoring_pending
 ```
+
+之后我补了 `scripts/judge_openclaw_pending.py`：
+
+- `pinchbench`：对缺 automated grade 的任务，用任务自带 LLM Judge Rubric 评分。
+- `claweval`：用 task.yaml 里的 `judge_rubric`、`reference_solution`、`scoring_components` 评分。
+- `zclawbench`：当前数据只有 `task_id/category`，没有 gold/rubric，只能做 generic completion judge，并明确标为 `generic_host_llm_judge`，不能当 official score。
 
 ## 2.5 之前 pass/fail 口径也需要修正
 
@@ -147,15 +159,16 @@ passed = score > 0
 
 ---
 
-# <text color="blue">3. 本轮 20 题子集总览</text>
+# <text color="blue">3. 本轮 20 题子集总览：补 judge 后</text>
 
 <lark-table>
   <lark-tr>
     <lark-td>**Bench**</lark-td>
     <lark-td>**可用任务**</lark-td>
     <lark-td>**本轮任务**</lark-td>
-    <lark-td>**Scored**</lark-td>
-    <lark-td>**Pending judge**</lark-td>
+    <lark-td>**Deterministic**</lark-td>
+    <lark-td>**Rubric LLM judge**</lark-td>
+    <lark-td>**Generic judge**</lark-td>
     <lark-td>**平均分**</lark-td>
     <lark-td>**非零分题数**</lark-td>
     <lark-td>**严格通过(=100)**</lark-td>
@@ -166,6 +179,7 @@ passed = score > 0
     <lark-td>8</lark-td>
     <lark-td>8</lark-td>
     <lark-td>8</lark-td>
+    <lark-td>0</lark-td>
     <lark-td>0</lark-td>
     <lark-td>100.0</lark-td>
     <lark-td>8</lark-td>
@@ -178,16 +192,18 @@ passed = score > 0
     <lark-td>20</lark-td>
     <lark-td>13</lark-td>
     <lark-td>7</lark-td>
-    <lark-td>15.0</lark-td>
+    <lark-td>0</lark-td>
+    <lark-td>23.5</lark-td>
+    <lark-td>5</lark-td>
     <lark-td>3</lark-td>
-    <lark-td>3</lark-td>
-    <lark-td>部分任务没有 automated grade code。</lark-td>
+    <lark-td>7 题用 LLM rubric 补分。</lark-td>
   </lark-tr>
   <lark-tr>
     <lark-td>`clawbench_official`</lark-td>
     <lark-td>303</lark-td>
     <lark-td>20</lark-td>
     <lark-td>20</lark-td>
+    <lark-td>0</lark-td>
     <lark-td>0</lark-td>
     <lark-td>35.5</lark-td>
     <lark-td>17</lark-td>
@@ -200,6 +216,7 @@ passed = score > 0
     <lark-td>20</lark-td>
     <lark-td>20</lark-td>
     <lark-td>0</lark-td>
+    <lark-td>0</lark-td>
     <lark-td>6.9</lark-td>
     <lark-td>2</lark-td>
     <lark-td>0</lark-td>
@@ -211,6 +228,7 @@ passed = score > 0
     <lark-td>20</lark-td>
     <lark-td>20</lark-td>
     <lark-td>0</lark-td>
+    <lark-td>0</lark-td>
     <lark-td>29.2</lark-td>
     <lark-td>6</lark-td>
     <lark-td>5</lark-td>
@@ -221,11 +239,12 @@ passed = score > 0
     <lark-td>116</lark-td>
     <lark-td>20</lark-td>
     <lark-td>0</lark-td>
+    <lark-td>0</lark-td>
     <lark-td>20</lark-td>
     <lark-td>0.0</lark-td>
     <lark-td>0</lark-td>
     <lark-td>0</lark-td>
-    <lark-td>20 题跑通，但缺 judge。</lark-td>
+    <lark-td>20 题跑通；generic judge 全 0，非 official。</lark-td>
   </lark-tr>
   <lark-tr>
     <lark-td>`claweval`</lark-td>
@@ -233,12 +252,20 @@ passed = score > 0
     <lark-td>20</lark-td>
     <lark-td>0</lark-td>
     <lark-td>20</lark-td>
-    <lark-td>0.0</lark-td>
     <lark-td>0</lark-td>
+    <lark-td>7.5</lark-td>
+    <lark-td>4</lark-td>
     <lark-td>0</lark-td>
-    <lark-td>20 题跑通，但缺 user-agent / LLM judge。</lark-td>
+    <lark-td>20 题用 rubric LLM judge 补分。</lark-td>
   </lark-tr>
 </lark-table>
+
+补充口径：
+
+- deterministic：原生 verifier / automated grade / Layer-0 structural score。
+- rubric LLM judge：任务自带 rubric/reference 的 host-side LLM judge。
+- generic judge：没有官方 rubric，只能判断是否做出具体 deliverable，不能当 official benchmark score。
+- `score>=60` 的宽松通过数：tribe 8、pinch 5、official 4、skills 2、agentbench 6、zclawbench 0、claweval 1。
 
 ---
 
@@ -267,10 +294,10 @@ strict pass = 8
 
 ```text
 20 selected
-13 scored
-7 scoring_pending
-average_score = 15.0
-nonzero = 3
+13 deterministic scored
+7 rubric LLM judged
+average_score = 23.5
+nonzero = 5
 strict pass = 3
 ```
 
@@ -289,10 +316,17 @@ task_09_files
 - `task_10_workflow`：典型 B 型，需要先读配置/credential，再生成脚本，适合 H2 preflight。
 - `task_08_memory`：C 型，当前 baseline 没有 structured state。
 
+post-hoc judge 后新增非零：
+
+```text
+task_03_blog: 85.0
+task_07_email: 85.0
+```
+
 注意：
 
-- 有 7 个任务没有 automated grade code，所以本轮显示 pending。
-- 要做正式 CRR，需要给这些任务补 LLM judge 或只在 automated subset 上算。
+- 这 7 个任务不是 deterministic score，而是 rubric LLM judge。
+- 做正式 CRR 时要在表格里区分 deterministic 和 LLM judge，避免混淆。
 
 ## 4.3 clawbench_official
 
@@ -407,20 +441,22 @@ research-compare-technologies
 ```text
 20 selected
 20 completed
-20 scoring_pending
+20 generic judged
+average_score = 0.0
 ```
 
 解释：
 
 - 当前 container half 只负责 build task / extract result。
-- 没有 host-side LLM judge。
-- 所以它不是 0 分，而是“待评分”。
+- `tasks.json` 只有 task_id/category，没有具体 task prompt、gold、rubric。
+- 我补了 generic completion judge 后，20 题仍全 0。
+- 这不是 runner 不能跑，而是当前 zclawbench 适配给 agent 的任务太抽象，agent 大多在问“请提供具体 topic”，没有生成 substantive deliverable。
 
 下一步：
 
-- 接入 rubric / expected outcome。
-- judge 输出结构化：`score`, `passed`, `rationale`, `components`。
-- judge prompt 必须 frozen，避免实验后调 prompt。
+- 找到或恢复 zclawbench 原始 task prompt / rubric / expected outcome。
+- 在 suite 里把具体 prompt 传给 container，而不是只传 category。
+- 再用 frozen official judge 或至少 rubric judge 评分。
 
 ## 4.7 claweval
 
@@ -429,20 +465,24 @@ research-compare-technologies
 ```text
 20 selected
 20 completed
-20 scoring_pending
+20 rubric LLM judged
+average_score = 7.5
+nonzero = 4
+score>=60 = 1
 ```
 
 解释：
 
 - ClawEval 包含多轮 user-agent simulation、tool scenario 和 mock services。
-- 当前适配没有真正启动 user simulator/mock services，也没有接 judge rubric。
-- 所以它现在只能作为 trace collection，不应该进入 CRR/NIR。
+- 当前适配仍没有真正启动 user simulator/mock services，但 task.yaml 里有 judge rubric/reference，所以可以做 post-hoc rubric judge。
+- 本轮 20 题里，`C32zh_saas_metrics` 得 75，`C17en_devops_sop_design` 得 45，`C01zh_mortgage_prepay` 得 20，`T148_system_health_check` 得 10，其余多为 0。
+- 大量 0 的原因不是 judge 缺失，而是工具/mock service/fixtures 未接入，agent 只能泛泛回答或遇到缺文件。
 
 下一步：
 
 - 补 user-agent simulator。
 - 补 mock service/tool state。
-- 接入 scoring_components / judge_rubric。
+- 当前 rubric judge 已接入 post-hoc 脚本；下一步要把它纳入 runner 的正式 score_fn。
 - final answer + trajectory + artifacts 一起给 judge。
 
 ---
@@ -453,9 +493,10 @@ research-compare-technologies
 
 - 从 1 题 smoke 改成 20 题 spread subset。
 - 同一模型、同一 backend、同一 max-turns。
-- 把 scored / pending judge 分开。
+- 把 deterministic / rubric judge / generic judge 分开。
 - 同时报告 average score、nonzero score、strict pass。
 - 修正 runner 的 pass threshold，避免 `score > 0` 被误叫 pass。
+- 对 pinchbench/claweval 补了任务 rubric judge。
 
 还没有达到 clawRecipe 的地方：
 
@@ -463,7 +504,7 @@ research-compare-technologies
 - 没有 H1/H2/H3/H4/H5/H6/H7 harness variants。
 - 没有 CRR/NIR。
 - 没有重复运行和置信区间。
-- zclawbench / claweval 缺正式 judge。
+- zclawbench 缺原始 prompt/rubric，只能 generic judge；claweval 还缺 user simulator/mock services。
 - max-turns=10 低于 clawRecipe 的 max 40 steps。
 
 所以这轮应定位为：
@@ -536,15 +577,19 @@ skillsbench 的低分很可能不是单纯 turns 不够，而是：
 - 再尝试 Docker backend；
 - 标 F 类 infra failure，避免混入 agent failure。
 
-## 6.5 补 zclawbench / claweval judge
+## 6.5 把 post-hoc judge 升级成正式 judge
 
-否则这两个 bench 永远只能写：
+当前已经补了 post-hoc judge：
 
-```text
-20 completed, 20 scoring_pending
-```
+- pinchbench：rubric judge。
+- claweval：rubric judge。
+- zclawbench：generic judge。
 
-这对“每个 bench 跑出分数”不够。
+但要成为正式 benchmark score，还需要：
+
+- zclawbench 找回具体 prompt/rubric。
+- claweval 接入 user simulator/mock services。
+- judge prompt frozen 并进入 runner，而不是只做后处理。
 
 ---
 
@@ -611,6 +656,7 @@ skillsbench 的低分很可能不是单纯 turns 不够，而是：
 新增 --sample-strategy head|spread|random
 新增 --seed
 新增 --pass-threshold
+新增 scripts/judge_openclaw_pending.py
 summary.json 记录 available_instances / selected_instances / sample_strategy / pass_threshold
 ```
 
@@ -620,6 +666,7 @@ summary.json 记录 available_instances / selected_instances / sample_strategy /
 - `seed` 保证 random subset 可复现。
 - `pass-threshold` 让 CRR/NIR 口径能对齐 clawRecipe。
 - `selected_instances` 保证以后同一 subset 可以复跑。
+- `judge_openclaw_pending.py` 可以把 pending entries 补成 rubric/generic judge 分数。
 
 ---
 
@@ -647,11 +694,12 @@ summary.json 记录 available_instances / selected_instances / sample_strategy /
 - 更准确说法是：
 
 ```text
-1. 有些 bench 有正式分数，但 baseline harness 分数偏低；
-2. 有些 bench 是 pending judge，不能算 0；
+1. 有些 bench 有 deterministic 正式分数，但 baseline harness 分数偏低；
+2. 有些 bench 需要 rubric LLM judge，不能和 deterministic verifier 混为一谈；
 3. skillsbench 的低分主要是 skill/tool/procedure/infra 问题；
 4. official/agentbench 已经有大量非零分，说明 runner/scoring pipeline 不是坏的；
-5. 要对齐 clawRecipe，下一步必须做 failure label + harness variants + CRR/NIR。
+5. zclawbench 现在全 0 是 prompt/rubric 缺失导致的适配问题；
+6. 要对齐 clawRecipe，下一步必须做 failure label + harness variants + CRR/NIR。
 ```
 
 <callout emoji="gem" background-color="light-green" border-color="light-green">
