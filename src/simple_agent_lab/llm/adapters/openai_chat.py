@@ -45,9 +45,15 @@ Pass-through request options via `LLMRequest.extra`:
     extra["user"]            : str
     extra["response_format"] : dict
     extra["parallel_tool_calls"] : bool
-    extra["reasoning_effort"]    : str   (reasoning models; values are
-                                          model-dependent, e.g. "minimal",
+    extra["reasoning_effort"]    : str   (raw override of the normalized
+                                          ``LLMRequest.reasoning`` knob; values
+                                          are model-dependent, e.g. "minimal",
                                           "low", "medium", "high")
+
+Prefer the typed ``LLMRequest.reasoning`` / ``Provider.default_reasoning`` knob
+over ``extra["reasoning_effort"]``; the adapter forwards it as the top-level
+``reasoning_effort`` field. The raw ``extra`` key stays as an escape hatch and
+takes precedence when both are set.
 """
 
 from __future__ import annotations
@@ -120,6 +126,11 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         kwargs["max_tokens"] = max_tokens
     if req.timeout_seconds:
         kwargs["timeout"] = req.timeout_seconds
+    # Chat Completions takes a top-level effort string. A raw
+    # extra["reasoning_effort"] (below) overrides the normalized knob.
+    effort = req.reasoning or req.provider.default_reasoning
+    if effort:
+        kwargs["reasoning_effort"] = effort
     for key in (
         "seed",
         "top_p",

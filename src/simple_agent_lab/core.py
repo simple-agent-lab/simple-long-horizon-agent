@@ -123,6 +123,40 @@ class Agent:
         )
         return state, events
 
+    def resume(
+        self,
+        state: State,
+        followup: ContentInput,
+        *,
+        max_turns: int = 10,
+        abort: AbortFlag = lambda: False,
+    ) -> tuple[State, Iterator[Event]]:
+        """Continue an existing `state` with a follow-up user message.
+
+        Unlike `run`, which seeds a fresh `State`, this appends `followup`
+        to the conversation already on `state` and drives the loop over it.
+        Both the session (the prior messages stay visible) and the trace
+        (events keep accumulating on the same `state.events`) carry over — so
+        a `run_trace_from_state(state)` after this spans both turns.
+
+        This is the seam for swapping the agent between turns while keeping
+        continuity — e.g. rebuild with a different `reasoning` effort and
+        `resume` the same `state`. Build the new agent with the SAME `name`,
+        since context visibility/routing is keyed on the agent name; a
+        mismatched name would change which prior messages are visible.
+
+        Returns `(state, events)` like `run`, so callers can treat the two
+        interchangeably (the returned `state` is the one passed in).
+        """
+        state.send("task", "user", self.name, followup)
+        events = run(
+            self,
+            state,
+            max_turns=max_turns,
+            abort=abort,
+        )
+        return state, events
+
 
 def run(
     agent: Agent,

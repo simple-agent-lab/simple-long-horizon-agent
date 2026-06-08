@@ -11,6 +11,7 @@ from typing import Any, Mapping
 
 from simple_agent_lab.core import Agent
 from simple_agent_lab.llm import Provider as LLMProvider
+from simple_agent_lab.llm import ReasoningEffort
 from simple_agent_lab.llm_agent import make_llm_agent
 from simple_agent_lab.tools.bash import make_bash_tool
 
@@ -34,6 +35,7 @@ def make_bash_agent(
     role: str = BASH_AGENT_DEFAULT_ROLE,
     system_prompt: str = BASH_AGENT_SYSTEM_PROMPT,
     request_extra: Mapping[str, Any] | None = None,
+    reasoning: ReasoningEffort | None = None,
 ) -> Agent:
     """Build a bash-using `Agent` with the bash tool already bound.
 
@@ -48,4 +50,5 @@ def make_bash_agent(
         system_prompt=system_prompt,
         target="user",
         request_extra=request_extra,
+        reasoning=reasoning,
     )

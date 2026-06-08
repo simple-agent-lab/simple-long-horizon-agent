@@ -325,6 +325,74 @@ class AnthropicAdapterTest(unittest.TestCase):
         self.assertEqual(captured["thinking"], {"type": "adaptive"})
         self.assertEqual(captured["output_config"], {"effort": "high"})
 
+    def _capture_reasoning(self, *, model: str, **req_kw: Any) -> dict[str, Any]:
+        captured: dict[str, Any] = {}
+        module = _stub_anthropic(_anthropic_response(text="ok"), captured)
+        provider = Provider(
+            id="claude-test",
+            api="anthropic-messages",
+            model=model,
+            api_key_env="TEST_ANTHROPIC_KEY",
+            **{k: v for k, v in req_kw.items() if k == "default_reasoning"},
+        )
+        req = LLMRequest(
+            provider=provider,
+            messages=[LLMMessage(role="user", content="hi")],
+            **{k: v for k, v in req_kw.items() if k != "default_reasoning"},
+        )
+        with (
+            _stub_module("anthropic", module),
+            mock.patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "k"}, clear=False),
+        ):
+            complete(req)
+        return captured
+
+    def test_normalized_reasoning_uses_adaptive_for_46_plus(self) -> None:
+        captured = self._capture_reasoning(model="claude-opus-4-7", reasoning="high")
+        self.assertEqual(captured["thinking"], {"type": "adaptive"})
+        self.assertEqual(captured["output_config"], {"effort": "high"})
+
+    def test_normalized_reasoning_uses_budget_tokens_for_old_model(self) -> None:
+        captured = self._capture_reasoning(model="claude-sonnet-4-5", reasoning="high")
+        self.assertEqual(
+            captured["thinking"], {"type": "enabled", "budget_tokens": 4096}
+        )
+        self.assertNotIn("output_config", captured)
+
+    def test_old_model_budget_clamps_to_floor(self) -> None:
+        captured = self._capture_reasoning(
+            model="claude-sonnet-4-5", reasoning="minimal"
+        )
+        self.assertEqual(captured["thinking"]["budget_tokens"], 1024)
+
+    def test_provider_default_reasoning_applies(self) -> None:
+        captured = self._capture_reasoning(
+            model="claude-opus-4-7", default_reasoning="medium"
+        )
+        self.assertEqual(captured["output_config"], {"effort": "medium"})
+
+    def test_request_reasoning_overrides_provider_default(self) -> None:
+        captured = self._capture_reasoning(
+            model="claude-opus-4-7", default_reasoning="low", reasoning="high"
+        )
+        self.assertEqual(captured["output_config"], {"effort": "high"})
+
+    def test_extra_thinking_escape_hatch_wins_over_normalized(self) -> None:
+        captured = self._capture_reasoning(
+            model="claude-opus-4-7",
+            reasoning="high",
+            extra={"thinking": {"type": "enabled", "budget_tokens": 2048}},
+        )
+        # Raw extra overrides the normalized knob's adaptive shape.
+        self.assertEqual(
+            captured["thinking"], {"type": "enabled", "budget_tokens": 2048}
+        )
+
+    def test_no_reasoning_sends_no_thinking(self) -> None:
+        captured = self._capture_reasoning(model="claude-opus-4-7")
+        self.assertNotIn("thinking", captured)
+        self.assertNotIn("output_config", captured)
+
 
 # ---------------------------------------------------------------------------
 # OpenAI Chat
@@ -545,6 +613,37 @@ class OpenAIChatAdapterTest(unittest.TestCase):
             complete(req)
         self.assertEqual(captured["reasoning_effort"], "high")
 
+    def test_normalized_reasoning_becomes_top_level_effort(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(_chat_response(text="ok"), captured, kind="chat")
+        req = LLMRequest(
+            provider=OPENAI_CHAT_PROVIDER,
+            messages=[LLMMessage(role="user", content="hi")],
+            reasoning="high",
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            complete(req)
+        self.assertEqual(captured["reasoning_effort"], "high")
+
+    def test_extra_reasoning_effort_overrides_normalized(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(_chat_response(text="ok"), captured, kind="chat")
+        req = LLMRequest(
+            provider=OPENAI_CHAT_PROVIDER,
+            messages=[LLMMessage(role="user", content="hi")],
+            reasoning="low",
+            extra={"reasoning_effort": "high"},
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            complete(req)
+        self.assertEqual(captured["reasoning_effort"], "high")
+
     def test_missing_api_key_raises_clear_error(self) -> None:
         captured: dict[str, Any] = {}
         module = _stub_openai(_chat_response(), captured, kind="chat")
@@ -623,6 +722,41 @@ def _responses_response(
 
 
 class OpenAIResponsesAdapterTest(unittest.TestCase):
+    def test_normalized_reasoning_nests_under_effort(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(
+            _responses_response(text_blocks=["ok"]), captured, kind="responses"
+        )
+        req = LLMRequest(
+            provider=OPENAI_RESPONSES_PROVIDER,
+            messages=[LLMMessage(role="user", content="hi")],
+            reasoning="high",
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            complete(req)
+        self.assertEqual(captured["reasoning"], {"effort": "high"})
+
+    def test_extra_reasoning_overrides_normalized(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(
+            _responses_response(text_blocks=["ok"]), captured, kind="responses"
+        )
+        req = LLMRequest(
+            provider=OPENAI_RESPONSES_PROVIDER,
+            messages=[LLMMessage(role="user", content="hi")],
+            reasoning="low",
+            extra={"reasoning": {"effort": "high"}},
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            complete(req)
+        self.assertEqual(captured["reasoning"], {"effort": "high"})
+
     def test_builds_request_with_instructions_and_flat_tools(self) -> None:
         captured: dict[str, Any] = {}
         module = _stub_openai(

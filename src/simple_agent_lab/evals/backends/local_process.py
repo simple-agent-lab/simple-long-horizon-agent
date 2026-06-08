@@ -93,7 +93,7 @@ class LocalProcessBackend:
         )
         workdir = self._resolve_workspace(spec)
         request_extra = (
-            request_extra_from_env(api_kind=spec.api_kind, env=spec.provider_env)
+            request_extra_from_env(env=spec.provider_env)
             if spec.provider == "openai"
             else {}
         )

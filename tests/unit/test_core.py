@@ -196,6 +196,45 @@ class CoreTest(unittest.TestCase):
         final = next(message for message in state.messages if message.kind == "final")
         self.assertEqual(message_text(final), "done")
 
+    def test_resume_continues_session_and_trace_with_a_rebuilt_agent(self) -> None:
+        # A follow-up can swap the agent (e.g. a different reasoning effort)
+        # while reusing the same `state`: the new agent sees the prior turn,
+        # and the trajectory keeps accumulating on one `state.events`.
+        from simple_agent_lab import AgentStartEvent
+
+        def first(visible: list[Message]) -> Message:
+            del visible
+            return assistant_message("one", sender="w", target="user", kind="final")
+
+        seen: dict[str, Any] = {}
+
+        def second(visible: list[Message]) -> Message:
+            seen["texts"] = [message_text(m) for m in visible]
+            return assistant_message("two", sender="w", target="user", kind="final")
+
+        agent_a = Agent("w", first)
+        state, events = agent_a.run("first task")
+        for _ in events:
+            pass
+
+        # Rebuild with the SAME name; resume the SAME state.
+        agent_b = Agent("w", second)
+        returned_state, events2 = agent_b.resume(state, "follow up")
+        for _ in events2:
+            pass
+
+        # Same state object handed back.
+        self.assertIs(returned_state, state)
+        # Session continuity: the rebuilt agent saw the prior answer + the
+        # follow-up message it must now act on.
+        self.assertIn("one", seen["texts"])
+        self.assertIn("follow up", seen["texts"])
+        # Trace continuity: both turns live on one trajectory.
+        starts = [e for e in state.events if isinstance(e, AgentStartEvent)]
+        self.assertEqual(len(starts), 2)
+        finals = [m for m in state.messages if m.kind == "final"]
+        self.assertEqual([message_text(m) for m in finals], ["one", "two"])
+
     def test_max_turns_exhausted_reports_truncation_in_agent_end(self) -> None:
         # If the agent never emits `final`, the run was truncated by the
         # turn budget. The trace must say so — otherwise downstream analysis

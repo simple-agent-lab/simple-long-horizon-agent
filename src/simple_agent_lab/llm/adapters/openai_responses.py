@@ -28,7 +28,9 @@ Provider config:
 
 Pass-through request options via `LLMRequest.extra`:
 
-    extra["reasoning"]    : dict          (e.g. {"effort": "low"})
+    extra["reasoning"]    : dict          (raw override of the normalized
+                                           ``LLMRequest.reasoning`` knob,
+                                           e.g. {"effort": "low"})
     extra["extra_headers"]: dict          (request headers)
     extra["metadata"]     : dict
     extra["store"]        : bool
@@ -104,6 +106,11 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         kwargs["max_output_tokens"] = max_tokens
     if req.timeout_seconds:
         kwargs["timeout"] = req.timeout_seconds
+    # The Responses API nests effort under ``reasoning={"effort": ...}``. A raw
+    # extra["reasoning"] (below) overrides the normalized knob.
+    effort = req.reasoning or req.provider.default_reasoning
+    if effort:
+        kwargs["reasoning"] = {"effort": effort}
     for key in (
         "reasoning",
         "extra_headers",

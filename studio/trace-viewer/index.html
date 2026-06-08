@@ -1468,15 +1468,28 @@
       flex: 0 0 auto;
       max-width: 100%;
       height: 26px;
-      padding: 0 8px;
+      padding: 0 10px;
       display: inline-flex;
       align-items: center;
-      font-size: 9px;
+      gap: 4px;
+      font-size: 10px;
+      font-weight: 600;
       letter-spacing: 0.04em;
       vertical-align: unset;
+      /* A frequently-used affordance: lift it out of the dim default so it
+         reads as the model call's primary action. Carries the lapis MODEL_CALL
+         accent (matches the kind colour) and fills in on hover. */
+      color: var(--lapis);
+      border-color: var(--lapis);
+      background: rgba(124, 163, 255, 0.14);
+    }
+    .ins-export-btn.replay-trigger:hover {
+      color: var(--ink-0);
+      background: var(--lapis);
+      border-color: var(--lapis);
     }
     .ins-export-btn.replay-trigger:focus-visible {
-      outline: 2px solid var(--phosphor);
+      outline: 2px solid var(--lapis);
       outline-offset: 2px;
     }
     .inspector dl {
@@ -3353,9 +3366,42 @@
     return turns;
   }
 
+  // ---------- schema normalization ----------
+  // The runtime renamed the open `Message.data` bag to a typed `MessageSidecar`
+  // (commit d15cd89), so every real trajectory now carries the raw wire blob and
+  // sub-agent details under `message.sidecar`. This viewer still reads that slot
+  // as `message.data` (raw panel, model name, sub-agent drill-down). Rather than
+  // touch the ~9 downstream `.data` reads, alias `sidecar` onto `data` on every
+  // message once at ingestion. Idempotent, and back-compatible with older traces
+  // (and the bundled sample) that still use `data`.
+  function aliasMessageSidecar(trace) {
+    if (!trace) return;
+    const seen = new Set();
+    const visitMessage = (m) => {
+      if (!m || typeof m !== "object" || seen.has(m)) return;
+      seen.add(m);
+      if (m.sidecar && m.data == null) m.data = m.sidecar;
+      const details = m.data && m.data.details;
+      if (details && typeof details === "object") {
+        for (const callId of Object.keys(details)) {
+          visitEvents(details[callId] && details[callId].sub_events);
+        }
+      }
+    };
+    const visitEvents = (events) => {
+      if (!Array.isArray(events)) return;
+      for (const ev of events) {
+        if (ev && ev.message) visitMessage(ev.message);
+      }
+    };
+    visitEvents(trace.events);
+    if (Array.isArray(trace.messages)) trace.messages.forEach(visitMessage);
+  }
+
   // ---------- rendering ----------
   function setTrace(trace, { incremental = false } = {}) {
     perfMark("setTrace_start");
+    aliasMessageSidecar(trace);
     invalidateTraceCache();
     // Incremental refresh: a poll detected the file grew, so we re-render
     // the trace in-place. Preserve user state so the screen doesn't jolt:

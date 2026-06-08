@@ -24,6 +24,7 @@ from .llm.bridge import (
     tool_to_llm_tool,
 )
 from .llm.provider import Provider as LLMProvider
+from .llm.provider import ReasoningEffort
 from .llm.retry import complete_with_tool_call_retry
 from .llm.types import LLMRequest
 from .messages import Message
@@ -40,6 +41,7 @@ def make_llm_agent(
     target: str = "all",
     context_policy: ContextPolicy | None = None,
     request_extra: Mapping[str, Any] | None = None,
+    reasoning: ReasoningEffort | None = None,
 ) -> Agent:
     """Build an `Agent` whose `generate` is backed by `provider`.
 
@@ -66,6 +68,7 @@ def make_llm_agent(
             messages=messages_to_llm_messages(visible),
             tools=[tool_to_llm_tool(tool) for tool in tools_tuple],
             system_prompt=effective_system_prompt or None,
+            reasoning=reasoning,
             extra=dict(request_extra or {}),
         )
         response = complete_with_tool_call_retry(request)

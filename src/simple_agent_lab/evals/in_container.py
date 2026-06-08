@@ -38,7 +38,7 @@ from typing import Any, Callable, cast
 from ..agents.bash import make_bash_agent
 from ..agents.bash_task import make_bash_task_agent
 from ..core import Agent
-from ..llm import ApiKind, Provider
+from ..llm import REASONING_EFFORTS, ApiKind, Provider, ReasoningEffort
 from ..llm_agent import make_llm_agent
 from ..skills import system_prompt_with_skills
 from ..state import State
@@ -63,6 +63,9 @@ OPENAI_AUTH_ENV = "OPENAI_AUTH_TOKEN"
 OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
 OPENAI_SESSION_ID_ENV = "OPENAI_SESSION_ID"
 OPENAI_LOG_ID_ENV = "OPENAI_LOG_ID"
+# Provider-agnostic reasoning depth, set on the provider so every adapter maps
+# it to its own wire shape. The legacy OpenAI-specific name is still honored.
+REASONING_EFFORT_ENV = "REASONING_EFFORT"
 OPENAI_REASONING_EFFORT_ENV = "OPENAI_REASONING_EFFORT"
 API_KIND_ENV = "API_KIND"
 API_KIND_CHOICES = ("openai-chat", "openai-responses")
@@ -194,35 +197,43 @@ def provider_from_env(
             else None
         ),
         default_temperature=1.0,
+        default_reasoning=_reasoning_from_env(source),
     )
 
 
-def request_extra_from_env(
-    *, api_kind: str = "openai-chat", env: Mapping[str, str] | None = None
-) -> dict[str, Any]:
-    source = env if env is not None else os.environ
-    extra: dict[str, Any] = {}
+def _reasoning_from_env(source: Mapping[str, str]) -> ReasoningEffort | None:
+    """Read the normalized reasoning effort; the adapter maps it per-model.
 
+    Honors the provider-agnostic ``REASONING_EFFORT`` and the legacy
+    ``OPENAI_REASONING_EFFORT`` name. An unrecognized value is a hard error so
+    a typo fails fast rather than silently reaching the model unmapped.
+    """
+    effort = (
+        source.get(REASONING_EFFORT_ENV, "")
+        or source.get(OPENAI_REASONING_EFFORT_ENV, "")
+    ).strip()
+    if not effort:
+        return None
+    if effort not in REASONING_EFFORTS:
+        raise SystemExit(
+            f"Unsupported reasoning effort {effort!r}; "
+            f"expected one of {REASONING_EFFORTS}."
+        )
+    return cast(ReasoningEffort, effort)
+
+
+def request_extra_from_env(*, env: Mapping[str, str] | None = None) -> dict[str, Any]:
+    source = env if env is not None else os.environ
     session_id = source.get(OPENAI_SESSION_ID_ENV, "").strip()
     log_id = source.get(OPENAI_LOG_ID_ENV, "").strip()
-    if session_id or log_id:
-        extra["extra_headers"] = {
+    if not session_id and not log_id:
+        return {}
+    return {
+        "extra_headers": {
             "extra": json.dumps({"session_id": session_id}, separators=(",", ":")),
             "X-TT-logid": log_id,
         }
-
-    # Reasoning effort lands under the field each API expects: the Responses
-    # API takes a nested ``reasoning={"effort": ...}``, while Chat Completions
-    # takes a top-level ``reasoning_effort`` string. Efforts are model-dependent
-    # (e.g. "minimal" | "low" | "medium" | "high").
-    effort = source.get(OPENAI_REASONING_EFFORT_ENV, "").strip()
-    if effort:
-        if api_kind == "openai-responses":
-            extra["reasoning"] = {"effort": effort}
-        else:
-            extra["reasoning_effort"] = effort
-
-    return extra
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -389,11 +400,7 @@ def main(argv: list[str] | None = None) -> None:
         trace_id=f"{args.suite_name}.{args.instance_id}",
         producer=f"suite:{args.suite_name}",
         suite_name=args.suite_name,
-        request_extra=(
-            request_extra_from_env(api_kind=args.api_kind)
-            if args.provider == "openai"
-            else {}
-        ),
+        request_extra=(request_extra_from_env() if args.provider == "openai" else {}),
         oracle=oracle,
     )
     print(f"wrote result + trajectory for {args.instance_id} via artifact store")

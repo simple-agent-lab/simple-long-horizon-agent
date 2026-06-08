@@ -1180,47 +1180,74 @@ class CreateKwargsTest(unittest.TestCase):
 
 
 class RequestExtraFromEnvTest(unittest.TestCase):
-    """OPENAI_REASONING_EFFORT maps to the field each API expects."""
+    """request_extra now carries only session headers; reasoning moved to the
+    provider so adapters map it per-model (no API-kind branching here)."""
 
-    def test_responses_uses_nested_reasoning(self) -> None:
+    def test_no_headers_yields_empty(self) -> None:
+        from simple_agent_lab.evals.in_container import request_extra_from_env
+
+        self.assertEqual(request_extra_from_env(env={}), {})
+
+    def test_session_headers_only(self) -> None:
         from simple_agent_lab.evals.in_container import request_extra_from_env
 
         extra = request_extra_from_env(
-            api_kind="openai-responses",
-            env={"OPENAI_REASONING_EFFORT": "high"},
+            env={"OPENAI_SESSION_ID": "s", "OPENAI_LOG_ID": "l"}
         )
-        self.assertEqual(extra, {"reasoning": {"effort": "high"}})
-
-    def test_chat_uses_top_level_reasoning_effort(self) -> None:
-        from simple_agent_lab.evals.in_container import request_extra_from_env
-
-        extra = request_extra_from_env(
-            api_kind="openai-chat",
-            env={"OPENAI_REASONING_EFFORT": "high"},
-        )
-        self.assertEqual(extra, {"reasoning_effort": "high"})
-
-    def test_no_effort_yields_no_reasoning_keys(self) -> None:
-        from simple_agent_lab.evals.in_container import request_extra_from_env
-
-        self.assertEqual(request_extra_from_env(api_kind="openai-chat", env={}), {})
-
-    def test_effort_coexists_with_session_headers(self) -> None:
-        from simple_agent_lab.evals.in_container import request_extra_from_env
-
-        extra = request_extra_from_env(
-            api_kind="openai-responses",
-            env={
-                "OPENAI_REASONING_EFFORT": "low",
-                "OPENAI_SESSION_ID": "s",
-                "OPENAI_LOG_ID": "l",
-            },
-        )
-        self.assertEqual(extra["reasoning"], {"effort": "low"})
         self.assertEqual(
-            extra["extra_headers"],
-            {"extra": '{"session_id":"s"}', "X-TT-logid": "l"},
+            extra,
+            {"extra_headers": {"extra": '{"session_id":"s"}', "X-TT-logid": "l"}},
         )
+
+    def test_reasoning_no_longer_in_request_extra(self) -> None:
+        from simple_agent_lab.evals.in_container import request_extra_from_env
+
+        # Effort is now a provider field, not a request_extra key.
+        self.assertEqual(request_extra_from_env(env={"REASONING_EFFORT": "high"}), {})
+
+
+class ProviderReasoningFromEnvTest(unittest.TestCase):
+    """OPENAI provider picks up a normalized, validated reasoning effort that is
+    independent of the API kind — the adapter maps it to the wire shape."""
+
+    _BASE = {"OPENAI_MODEL": "gpt-x", "OPENAI_AUTH_TOKEN": "tok"}
+
+    def _provider(self, **extra: str):
+        from simple_agent_lab.evals.in_container import provider_from_env
+
+        return provider_from_env(kind="openai", env={**self._BASE, **extra})
+
+    def test_default_reasoning_from_neutral_env(self) -> None:
+        self.assertEqual(
+            self._provider(REASONING_EFFORT="high").default_reasoning, "high"
+        )
+
+    def test_legacy_openai_env_still_honored(self) -> None:
+        self.assertEqual(
+            self._provider(OPENAI_REASONING_EFFORT="low").default_reasoning, "low"
+        )
+
+    def test_neutral_env_wins_over_legacy(self) -> None:
+        prov = self._provider(REASONING_EFFORT="high", OPENAI_REASONING_EFFORT="low")
+        self.assertEqual(prov.default_reasoning, "high")
+
+    def test_unset_is_none(self) -> None:
+        self.assertIsNone(self._provider().default_reasoning)
+
+    def test_invalid_effort_raises(self) -> None:
+        with self.assertRaises(SystemExit):
+            self._provider(REASONING_EFFORT="ultra")
+
+    def test_effort_is_api_kind_independent(self) -> None:
+        from simple_agent_lab.evals.in_container import provider_from_env
+
+        for api_kind in ("openai-chat", "openai-responses"):
+            prov = provider_from_env(
+                kind="openai",
+                api_kind=api_kind,
+                env={**self._BASE, "REASONING_EFFORT": "medium"},
+            )
+            self.assertEqual(prov.default_reasoning, "medium")
 
 
 if __name__ == "__main__":

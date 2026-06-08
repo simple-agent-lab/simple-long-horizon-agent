@@ -29,6 +29,7 @@ from typing import Any, Mapping
 from simple_agent_lab.agents.bash import BASH_AGENT_SYSTEM_PROMPT, make_bash_agent
 from simple_agent_lab.core import Agent
 from simple_agent_lab.llm import Provider as LLMProvider
+from simple_agent_lab.llm import ReasoningEffort
 from simple_agent_lab.llm_agent import make_llm_agent
 from simple_agent_lab.tools.bash import make_bash_tool
 from simple_agent_lab.tools.task import task_tool
@@ -84,6 +85,7 @@ def make_bash_task_agent(
     explorer_system_prompt: str = EXPLORER_AGENT_SYSTEM_PROMPT,
     task_max_turns: int = DEFAULT_TASK_MAX_TURNS,
     request_extra: Mapping[str, Any] | None = None,
+    reasoning: ReasoningEffort | None = None,
 ) -> Agent:
     """Build a parent ``Agent`` with bash + task(explorer) tools.
 
@@ -91,8 +93,8 @@ def make_bash_task_agent(
     the same workspace state the parent's edits affect. Both run with
     the same provider — callers can pass distinct providers by composing
     the inner ``make_bash_agent`` directly if they want a cheaper model
-    for exploration. ``request_extra`` flows to both so every model call
-    carries the same per-request extras.
+    for exploration. ``request_extra`` and ``reasoning`` flow to both so every
+    model call carries the same per-request extras and reasoning depth.
     """
 
     explorer = make_bash_agent(
@@ -102,6 +104,7 @@ def make_bash_task_agent(
         role=explorer_role,
         system_prompt=explorer_system_prompt,
         request_extra=request_extra,
+        reasoning=reasoning,
     )
     return make_llm_agent(
         name=name,
@@ -114,4 +117,5 @@ def make_bash_task_agent(
         system_prompt=system_prompt,
         target="user",
         request_extra=request_extra,
+        reasoning=reasoning,
     )
