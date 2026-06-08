@@ -433,6 +433,7 @@ def _run_direction(
             include_local_write_tools=False,
             include_local_workspace_tools=False,
             include_excel_helpers=True,
+            path_label_roles=_path_label_roles_for_direction(direction),
         ) as agent:
             source_state, source_events = agent.run(prompt, max_turns=max_turns)
             copied = yield from _copy_new_events(source_state, combined_state, start=0)
@@ -509,6 +510,12 @@ def _parse_direction_payload_safely(raw_response: str) -> tuple[dict[str, Any], 
         return parse_gsb_direction_payload(raw_response), ""
     except ValueError as exc:
         return {}, f"invalid_output: {type(exc).__name__}: {exc}"
+
+
+def _path_label_roles_for_direction(direction: str) -> dict[str, str]:
+    if direction == "forward":
+        return {"A": "candidate", "B": "gold"}
+    return {"A": "gold", "B": "candidate"}
 
 
 def _payload_failure_reason(

@@ -6,6 +6,7 @@ import os
 import shutil
 import tempfile
 import unittest
+import zipfile
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
@@ -46,7 +47,7 @@ from simple_agent_lab.evals.suites.gdpval.prompts import GDPVAL_SYSTEM_PROMPT
 from simple_agent_lab.evals.suites.gdpval.tools import make_gdpval_tools
 from simple_agent_lab.llm.provider import Provider
 from simple_agent_lab.state import State
-from simple_agent_lab.tools import tool_result_text
+from simple_agent_lab.tools import AgentTool, text_result, tool_result_text
 
 
 class _QuietHandler(SimpleHTTPRequestHandler):
@@ -567,9 +568,119 @@ class GdpvalSuiteTest(unittest.TestCase):
     def test_gsb_judge_prompt_prefers_read_only_filesystem_tools(self) -> None:
         prompt = judge_gsb_container.GDPVAL_GSB_JUDGE_SYSTEM_PROMPT
 
+        self.assertIn("senior industry expert", prompt)
+        self.assertIn("File deliverables take precedence", prompt)
+        self.assertIn("Special note", prompt)
         self.assertIn("filesystem_* read-only tools", prompt)
         self.assertNotIn("bash", prompt.lower())
         self.assertNotIn("python libraries", prompt.lower())
+
+    def test_judge_mcp_repairs_ab_label_paths_by_direction(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workdir"
+            reference = root / "judge_inputs"
+            gold = reference / "gold"
+            candidate = reference / "candidate"
+            gold.mkdir(parents=True)
+            candidate.mkdir(parents=True)
+            workspace.mkdir()
+            gold_file = gold / "report.txt"
+            candidate_file = candidate / "report.txt"
+            gold_file.write_text("gold", encoding="utf-8")
+            candidate_file.write_text("candidate", encoding="utf-8")
+            seen_args: dict[str, str] = {}
+
+            def execute(call_id, args, abort, on_update):
+                del call_id, abort, on_update
+                seen_args.update(args)
+                return text_result("ok")
+
+            tool = judge_mcp._sanitize_judge_tool_output(
+                AgentTool(
+                    name="filesystem_read_file",
+                    description="read",
+                    parameters={"type": "object"},
+                    execute=execute,
+                ),
+                workspace=workspace,
+                reference_dir=reference,
+                path_label_roles={"A": "gold", "B": "candidate"},
+            )
+
+            result = tool.execute(
+                "call-1", {"path": "A/report.txt"}, lambda: False, None
+            )
+
+        self.assertFalse(result.is_error)
+        self.assertEqual(Path(seen_args["path"]), gold_file.resolve())
+
+    def test_judge_mcp_word_fallback_extracts_docx_text(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workdir"
+            reference = root / "judge_inputs"
+            workspace.mkdir()
+            reference.mkdir()
+            docx_path = reference / "answer.docx"
+            with zipfile.ZipFile(docx_path, "w") as archive:
+                archive.writestr(
+                    "word/document.xml",
+                    (
+                        "<w:document><w:body><w:p><w:r><w:t>"
+                        "Fallback paragraph"
+                        "</w:t></w:r></w:p></w:body></w:document>"
+                    ),
+                )
+
+            def execute(call_id, args, abort, on_update):
+                del call_id, args, abort, on_update
+                return text_result("attributes construct error", is_error=True)
+
+            tool = judge_mcp._sanitize_judge_tool_output(
+                AgentTool(
+                    name="word_get_document_text",
+                    description="word text",
+                    parameters={"type": "object"},
+                    execute=execute,
+                ),
+                workspace=workspace,
+                reference_dir=reference,
+            )
+
+            result = tool.execute(
+                "call-1",
+                {"document_path": str(docx_path)},
+                lambda: False,
+                None,
+            )
+
+        self.assertFalse(result.is_error)
+        text = tool_result_text(result)
+        self.assertIn("Fallback DOCX extraction succeeded", text)
+        self.assertIn("Fallback paragraph", text)
+
+    def test_judge_mcp_compacts_large_notebook_text(self) -> None:
+        notebook = {
+            "nbformat": 4,
+            "cells": [
+                {
+                    "cell_type": "code",
+                    "source": ["print('hello')\n", "x = '" + ("a" * 170_000) + "'"],
+                    "outputs": [
+                        {
+                            "output_type": "stream",
+                            "text": "hello\n" + ("b" * 10_000),
+                        }
+                    ],
+                }
+            ],
+        }
+
+        processed = judge_mcp._preprocess_judge_tool_text(json.dumps(notebook))
+
+        self.assertIn("Notebook compacted", processed)
+        self.assertLess(len(processed), 130_000)
 
     def test_judge_excel_tools_auto_correct_header_and_token_match_sheet(
         self,
