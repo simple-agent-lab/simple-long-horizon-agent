@@ -61,7 +61,7 @@ class CompressionDecision:
     `compress_indices` lists the positions in `state.messages` that should
     be removed from the active view. `replacement` is the single message
     the framework writes in their place (typically a `kind="summary"`
-    system message).
+    runtime message).
 
     `rewrite` switches the decision from an N->1 fold to a 1->1, in-place
     substitution. When set, `compress_indices` must name exactly one target

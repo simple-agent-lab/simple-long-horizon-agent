@@ -14,7 +14,13 @@ the LLM access layer. The `tool_result` role and the standalone
 `ToolResultMessage` subtype are superseded by ADR 0014, which folds
 tool results into the `ContentBlock` union as `ToolResultBlock` (one
 user-message bundle per parallel-call assistant turn) and shrinks
-`Role` to `system | user | assistant`.
+`Role` to `system | user | assistant`. The `SystemMessage` subtype and
+its `system_message(...)` helper named below were later renamed to
+`RuntimeMessage` / `runtime_message(...)` — the type names the *actor*
+(messages the runtime injects: sub-agent preludes, skill menus,
+summaries, hook emissions), while the wire `role` stays `"system"`. This
+also disambiguates it from `Agent.system_prompt`, the fixed per-request
+preamble that never enters the transcript.
 
 ## Context
 

@@ -54,7 +54,7 @@ The shared message protocol is deliberately small and role-specific:
 ```text
 Message =
   UserMessage
-  | SystemMessage
+  | RuntimeMessage
   | AssistantMessage
 
 ContentBlock =

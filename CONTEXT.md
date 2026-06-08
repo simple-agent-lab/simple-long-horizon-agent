@@ -30,7 +30,7 @@ _Avoid_: Example-local message protocol
 A **Message** variant representing user-provided input, task context, or tool-result bundles.
 _Avoid_: Generic message with unused assistant fields
 
-**SystemMessage**:
+**RuntimeMessage**:
 A **Message** variant representing system, instruction, summary, or runtime guidance that should remain visible in transcript state.
 _Avoid_: Hidden prompt-only instruction
 
@@ -52,9 +52,9 @@ _Avoid_: Primary message field, common protocol field
 - A **Provider Adapter** may translate an **LLMMessage** differently for each model provider.
 - A **Message** remains in runtime state; an **LLMMessage** belongs at the provider-agnostic LLM boundary.
 - **Message** should be a role-specific union of message variants rather than one wide dataclass with many optional fields.
-- **SystemMessage** belongs in the same **Message** union so instruction, summary, and runtime guidance can remain inspectable in state and trace.
+- **RuntimeMessage** belongs in the same **Message** union so instruction, summary, and runtime guidance can remain inspectable in state and trace.
 - **LLMMessage** carries model-facing role and content, but not runtime routing fields such as `sender`, `target`, `kind`, or `channel`.
-- Request-level system prompt is for static agent or run instructions. **SystemMessage** is for dynamic transcript-visible instruction, summary, lesson, or runtime guidance.
+- Request-level system prompt is for static agent or run instructions. **RuntimeMessage** is for dynamic transcript-visible instruction, summary, lesson, or runtime guidance.
 - An **LLMMessage** uses **Content Blocks** so multimodal providers can share one project-owned boundary.
 - The current **Content Block** set is text, image, thinking, tool call, and tool result. File, audio, and video blocks wait for concrete use cases.
 - **Content Blocks**, **Message**, and **LLMMessage** should be frozen dataclasses so provider adapters convert immutable project-owned values into provider wire payloads explicitly.
@@ -75,7 +75,7 @@ _Avoid_: Primary message field, common protocol field
 - A tool-result **UserMessage** normally has `role="user"` and `kind="tool_result"`. Provider adapters may translate each **ToolResultBlock** to provider wire shapes such as OpenAI's `role="tool"` entries or Anthropic's `tool_result` content blocks.
 - Each **Message Type** should have a documented field catalog plus named construction, projection, or validation helpers where plain construction would be ambiguous.
 - **Message Type** behavior should stay in module-level construction, projection, validation, and helper functions.
-- Shared **Message** constructor helpers are `user_message(...)`, `system_message(...)`, `assistant_message(...)`, `tool_result_message(...)`, and `tool_results_message(...)`.
+- Shared **Message** constructor helpers are `user_message(...)`, `runtime_message(...)`, `assistant_message(...)`, `tool_result_message(...)`, and `tool_results_message(...)`.
 - `llm.llm_message(...)` constructs an **LLMMessage**. Runtime projection uses `llm.bridge.message_to_llm_message(...)` and `messages_to_llm_messages(...)`.
 - `role` is model-facing and `kind` is runtime-facing. Projection code should not use `kind` as a provider role.
 
@@ -94,7 +94,7 @@ _Avoid_: Primary message field, common protocol field
 - Dropping model thinking was considered to keep transcript messages simple. Resolved: preserve **ThinkingBlock** as structured model output; decide display separately.
 - `data` was considered as the general home for custom message semantics. Resolved: use it only as **Message Sidecar**; common protocol concepts need explicit fields or named types.
 - Method-heavy dataclasses were considered for message behavior. Resolved: keep dataclasses value-like and use module-level helpers.
-- A single wide **Message** dataclass was considered for explicit tool/thinking fields. Resolved: use role-specific variants such as **UserMessage**, **SystemMessage**, and **AssistantMessage** so each type has a clear field catalog.
+- A single wide **Message** dataclass was considered for explicit tool/thinking fields. Resolved: use role-specific variants such as **UserMessage**, **RuntimeMessage**, and **AssistantMessage** so each type has a clear field catalog.
 - A `Message` namespace class with `Message.user(...)` factories was considered. Resolved: keep **Message** as a type alias union and use module-level constructor helpers.
-- Keeping system prompts outside transcript messages was considered. Resolved: include **SystemMessage** in the shared **Message** union so system, instruction, and summary entries can be inspected like other runtime context.
+- Keeping system prompts outside transcript messages was considered. Resolved: include **RuntimeMessage** in the shared **Message** union so system, instruction, and summary entries can be inspected like other runtime context.
 - A parallel **ModelMessage** union was considered. Resolved: drop that layer and project runtime **Message** directly to **LLMMessage**.
