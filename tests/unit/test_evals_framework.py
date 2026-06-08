@@ -1179,5 +1179,49 @@ class CreateKwargsTest(unittest.TestCase):
         self.assertNotIn("platform", kwargs)  # omitted when unset
 
 
+class RequestExtraFromEnvTest(unittest.TestCase):
+    """OPENAI_REASONING_EFFORT maps to the field each API expects."""
+
+    def test_responses_uses_nested_reasoning(self) -> None:
+        from simple_agent_lab.evals.in_container import request_extra_from_env
+
+        extra = request_extra_from_env(
+            api_kind="openai-responses",
+            env={"OPENAI_REASONING_EFFORT": "high"},
+        )
+        self.assertEqual(extra, {"reasoning": {"effort": "high"}})
+
+    def test_chat_uses_top_level_reasoning_effort(self) -> None:
+        from simple_agent_lab.evals.in_container import request_extra_from_env
+
+        extra = request_extra_from_env(
+            api_kind="openai-chat",
+            env={"OPENAI_REASONING_EFFORT": "high"},
+        )
+        self.assertEqual(extra, {"reasoning_effort": "high"})
+
+    def test_no_effort_yields_no_reasoning_keys(self) -> None:
+        from simple_agent_lab.evals.in_container import request_extra_from_env
+
+        self.assertEqual(request_extra_from_env(api_kind="openai-chat", env={}), {})
+
+    def test_effort_coexists_with_session_headers(self) -> None:
+        from simple_agent_lab.evals.in_container import request_extra_from_env
+
+        extra = request_extra_from_env(
+            api_kind="openai-responses",
+            env={
+                "OPENAI_REASONING_EFFORT": "low",
+                "OPENAI_SESSION_ID": "s",
+                "OPENAI_LOG_ID": "l",
+            },
+        )
+        self.assertEqual(extra["reasoning"], {"effort": "low"})
+        self.assertEqual(
+            extra["extra_headers"],
+            {"extra": '{"session_id":"s"}', "X-TT-logid": "l"},
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
