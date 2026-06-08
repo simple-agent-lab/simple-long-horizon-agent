@@ -31,7 +31,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -98,16 +98,15 @@ class ModelPrice:
         """
         base_input = float(data["input"])
         base_output = float(data["output"])
-        if "cache_read" in data or "cache_write" in data:
-            return cls(
-                input=base_input,
-                output=base_output,
-                cache_read=float(data.get("cache_read", base_input * CACHE_READ_RATIO)),
-                cache_write=float(
-                    data.get("cache_write", base_input * CACHE_WRITE_RATIO)
-                ),
-            )
-        return cls.from_input_output(base_input, base_output)
+        # Start from the standard derived rates, then patch in whichever cache
+        # rates the override spelled out explicitly.
+        price = cls.from_input_output(base_input, base_output)
+        overrides: dict[str, float] = {}
+        if "cache_read" in data:
+            overrides["cache_read"] = float(data["cache_read"])
+        if "cache_write" in data:
+            overrides["cache_write"] = float(data["cache_write"])
+        return replace(price, **overrides) if overrides else price
 
 
 # Built-in rate card (USD per million tokens), current Anthropic list pricing.
@@ -239,15 +238,23 @@ def default_price_book() -> PriceBook:
 
 
 def _sum_usage(usages: Iterable[TokenUsage]) -> TokenUsage:
-    total = TokenUsage()
-    for usage in usages:
-        total = TokenUsage(
-            input_tokens=total.input_tokens + usage.input_tokens,
-            output_tokens=total.output_tokens + usage.output_tokens,
-            cache_read_tokens=total.cache_read_tokens + usage.cache_read_tokens,
-            cache_write_tokens=total.cache_write_tokens + usage.cache_write_tokens,
-        )
-    return total
+    items = list(usages)
+    return TokenUsage(
+        input_tokens=sum(u.input_tokens for u in items),
+        output_tokens=sum(u.output_tokens for u in items),
+        cache_read_tokens=sum(u.cache_read_tokens for u in items),
+        cache_write_tokens=sum(u.cache_write_tokens for u in items),
+    )
+
+
+def _usage_dict(tokens: TokenUsage) -> dict[str, int]:
+    """The JSON-safe four-bucket shape shared by every cost record."""
+    return {
+        "input_tokens": tokens.input_tokens,
+        "output_tokens": tokens.output_tokens,
+        "cache_read_tokens": tokens.cache_read_tokens,
+        "cache_write_tokens": tokens.cache_write_tokens,
+    }
 
 
 @dataclass(frozen=True)
@@ -263,12 +270,7 @@ class ModelCost:
         return {
             "model": self.model,
             "calls": self.calls,
-            "tokens": {
-                "input_tokens": self.tokens.input_tokens,
-                "output_tokens": self.tokens.output_tokens,
-                "cache_read_tokens": self.tokens.cache_read_tokens,
-                "cache_write_tokens": self.tokens.cache_write_tokens,
-            },
+            "tokens": _usage_dict(self.tokens),
             "cost": self.cost.as_dict(),
         }
 
@@ -306,17 +308,13 @@ class RunCost:
         return sum(entry.calls for entry in self.by_model)
 
     def as_dict(self) -> dict[str, Any]:
-        tokens = self.total_tokens
+        # Fold the per-model entries once, not once per aggregate property.
+        total_cost = self.total_cost
         return {
-            "total_usd": round(self.total_usd, 6),
+            "total_usd": round(total_cost.total_usd, 6),
             "calls": self.calls,
-            "total_tokens": {
-                "input_tokens": tokens.input_tokens,
-                "output_tokens": tokens.output_tokens,
-                "cache_read_tokens": tokens.cache_read_tokens,
-                "cache_write_tokens": tokens.cache_write_tokens,
-            },
-            "cost": self.total_cost.as_dict(),
+            "total_tokens": _usage_dict(self.total_tokens),
+            "cost": total_cost.as_dict(),
             "by_model": [entry.as_dict() for entry in self.by_model],
             "unpriced_models": list(self.unpriced_models),
         }

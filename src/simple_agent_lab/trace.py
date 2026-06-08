@@ -24,7 +24,7 @@ from typing import Any
 
 from .llm.adapters.openai_chat import to_openai_chat_messages, to_openai_chat_tools
 from .llm.bridge import messages_to_llm_messages, tool_to_llm_tool
-from .messages import AssistantMessage, message_text
+from .messages import AssistantMessage, TokenUsage, message_text
 from .pricing import PriceBook, RunCost
 from .protocols import (
     ContextCompressionEvent,
@@ -116,27 +116,30 @@ def print_trace(
         _print_cost_summary(RunCost.from_run(state.events, state.messages, price_book))
 
 
+def _format_tokens(tokens: TokenUsage) -> str:
+    """The shared per-bucket token line used in both cost rows."""
+    return (
+        f"in={tokens.input_tokens} out={tokens.output_tokens} "
+        f"cache_r={tokens.cache_read_tokens} cache_w={tokens.cache_write_tokens}"
+    )
+
+
 def _print_cost_summary(run_cost: RunCost) -> None:
     """Render the per-model token + dollar rollup under the event list."""
     if not run_cost.by_model:
         return
-    tokens = run_cost.total_tokens
     print("\ncost")
     print("----")
     print(
         f"total ${run_cost.total_usd:.4f} "
         f"over {run_cost.calls} call(s) "
-        f"(in={tokens.input_tokens} out={tokens.output_tokens} "
-        f"cache_r={tokens.cache_read_tokens} cache_w={tokens.cache_write_tokens})"
+        f"({_format_tokens(run_cost.total_tokens)})"
     )
     for entry in run_cost.by_model:
         flag = " (unpriced)" if entry.model in run_cost.unpriced_models else ""
         print(
             f"  {entry.model:<28} ${entry.cost.total_usd:.4f} "
-            f"x{entry.calls} "
-            f"in={entry.tokens.input_tokens} out={entry.tokens.output_tokens} "
-            f"cache_r={entry.tokens.cache_read_tokens} "
-            f"cache_w={entry.tokens.cache_write_tokens}{flag}"
+            f"x{entry.calls} {_format_tokens(entry.tokens)}{flag}"
         )
     if run_cost.unpriced_models:
         print(
