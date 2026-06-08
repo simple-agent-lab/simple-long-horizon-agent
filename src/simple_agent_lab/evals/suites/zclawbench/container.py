@@ -21,34 +21,42 @@ from simple_agent_lab.evals.protocols import AgentSpec
 # These are fallback prompts when no external prompt source is available.
 _CATEGORY_PROMPTS: dict[str, str] = {
     "Information Search & Gathering": (
-        "You need to find and organize specific information. "
-        "Search for relevant data about the given topic, verify accuracy, "
-        "and compile a structured report of your findings. "
-        "Save your findings to workspace/output.md."
+        "Create a self-contained research brief that demonstrates information "
+        "search and synthesis for this category-derived task. Choose a concrete "
+        "topic inside the category, state your assumptions, organize verified "
+        "facts, and include a short source/evidence checklist. Save the report "
+        "to output.md in the current workspace."
     ),
     "Office & Daily Tasks": (
-        "Complete the following office or daily productivity task. "
-        "Follow the instructions precisely and save all output files "
-        "to the workspace directory."
+        "Create a realistic office productivity deliverable for this "
+        "category-derived task. Pick a concrete scenario, define the requested "
+        "recipient/user need, and produce the final artifact plus a brief action "
+        "checklist. Save everything to output.md in the current workspace."
     ),
     "Data Analysis": (
-        "Analyze the provided data to extract meaningful insights. "
-        "Perform statistical analysis, create visualizations if needed, "
-        "and write a summary report to workspace/analysis.md."
+        "Design and complete a compact data-analysis task for this category. "
+        "Use a small synthetic dataset if no input data is provided, show the "
+        "calculation or analysis steps, summarize findings, and save the final "
+        "analysis to output.md in the current workspace."
     ),
     "Development & Operations": (
-        "Complete the following development or operations task. "
-        "Write clean, well-documented code. Test your solution "
-        "and save all files to the workspace directory."
+        "Complete a concrete development/operations deliverable for this "
+        "category-derived task. Choose a realistic maintenance, debugging, or "
+        "deployment scenario, write a concise solution plan or script snippet, "
+        "include verification steps, and save it to output.md in the current "
+        "workspace."
     ),
     "Automation": (
-        "Automate the described workflow or process. "
-        "Create scripts or configurations that accomplish the task "
-        "and save them to the workspace directory."
+        "Design an automation for a concrete workflow in this category. Include "
+        "trigger, inputs, processing steps, outputs, error handling, and a small "
+        "script or pseudocode block. Save the deliverable to output.md in the "
+        "current workspace."
     ),
     "Security": (
-        "Perform the security analysis or task as described. "
-        "Document your findings and recommendations in workspace/report.md."
+        "Perform a concrete security review for this category-derived task. "
+        "Pick a realistic asset or workflow, identify risks, prioritize findings, "
+        "recommend mitigations, and save the report to output.md in the current "
+        "workspace."
     ),
 }
 
@@ -82,11 +90,18 @@ def build_task(instance: Mapping[str, Any], *, workdir: str) -> str:
     # Use category-specific prompt, or generic fallback
     prompt = _CATEGORY_PROMPTS.get(
         category,
-        f"Complete the task for category '{category}'. "
-        f"Save your output to the workspace directory.",
+        f"Create a concrete deliverable for category '{category}'. "
+        "Choose a realistic scenario, state assumptions, produce a useful final "
+        "artifact, and save it to output.md in the current workspace.",
     )
 
-    return f"[Task: {task_id} | Category: {category}]\n\n{prompt}"
+    return (
+        f"[Task: {task_id} | Category: {category}]\n\n"
+        "This adapter currently has category metadata but no original task prompt. "
+        "Do not ask the user for more details. Instead, make a reasonable, explicit "
+        "assumption and complete the requested category-derived deliverable.\n\n"
+        f"{prompt}"
+    )
 
 
 def extract_result(

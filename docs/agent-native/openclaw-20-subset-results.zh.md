@@ -2,7 +2,7 @@
 
 <callout emoji="🎯" background-color="light-blue" border-color="light-blue">
 <text color="blue">**结论先行**</text>
-<text color="gray">之前 1 题 smoke 出现很多 0，不应该被当成 benchmark 结论。主要原因是样本太小、first-N 采样偏置、max-turns 太低，以及部分 bench 当时没有 judge。这次已经按 spread strategy 跑了每个 bench 的 20 题子集（tribe 只有 8 题），并进一步给 pinchbench/claweval/zclawbench 补了 post-hoc judge。结果显示：official / agentbench / pinchbench / claweval 都有非零分，skillsbench 仍偏低但不是全 0，zclawbench 仍全 0 的主因是当前适配缺具体任务 prompt/rubric，而不是 runner 不能跑。</text>
+<text color="gray">之前 1 题 smoke 出现很多 0，不应该被当成 benchmark 结论。主要原因是样本太小、first-N 采样偏置、max-turns 太低，以及部分 bench 当时没有 judge。这次已经按 spread strategy 跑了每个 bench 的 20 题子集（tribe 只有 8 题），进一步给 pinchbench/claweval/zclawbench 补了 post-hoc judge，并修复了 zclawbench 当前适配 prompt 过空的问题。结果显示：official / agentbench / pinchbench / claweval 都有非零分，zclawbench prompt-fix 后也有非零分；skillsbench 仍偏低但不是全 0。</text>
 </callout>
 
 本文档对应 repo：
@@ -131,7 +131,7 @@ scoring_pending
 
 - `pinchbench`：对缺 automated grade 的任务，用任务自带 LLM Judge Rubric 评分。
 - `claweval`：用 task.yaml 里的 `judge_rubric`、`reference_solution`、`scoring_components` 评分。
-- `zclawbench`：当前数据只有 `task_id/category`，没有 gold/rubric，只能做 generic completion judge，并明确标为 `generic_host_llm_judge`，不能当 official score。
+- `zclawbench`：当前数据只有 `task_id/category`，没有 gold/rubric，只能做 generic completion judge，并明确标为 `generic_host_llm_judge`，不能当 official score。第一轮 generic judge 全 0 后，我进一步修复了当前 adapter 的 category-derived prompt，使其不再要求用户提供缺失 topic，而是直接完成一个明确 deliverable。
 
 ## 2.5 之前 pass/fail 口径也需要修正
 
@@ -235,16 +235,16 @@ passed = score > 0
     <lark-td>只有 Layer-0 structural score，不是完整 AgentBench。</lark-td>
   </lark-tr>
   <lark-tr>
-    <lark-td>`zclawbench`</lark-td>
+    <lark-td>`zclawbench_promptfix`</lark-td>
     <lark-td>116</lark-td>
     <lark-td>20</lark-td>
     <lark-td>0</lark-td>
     <lark-td>0</lark-td>
     <lark-td>20</lark-td>
-    <lark-td>0.0</lark-td>
-    <lark-td>0</lark-td>
-    <lark-td>0</lark-td>
-    <lark-td>20 题跑通；generic judge 全 0，非 official。</lark-td>
+    <lark-td>95.0</lark-td>
+    <lark-td>19</lark-td>
+    <lark-td>19</lark-td>
+    <lark-td>修复 category-derived prompt 后重跑；generic judge，非 official。</lark-td>
   </lark-tr>
   <lark-tr>
     <lark-td>`claweval`</lark-td>
@@ -265,7 +265,7 @@ passed = score > 0
 - deterministic：原生 verifier / automated grade / Layer-0 structural score。
 - rubric LLM judge：任务自带 rubric/reference 的 host-side LLM judge。
 - generic judge：没有官方 rubric，只能判断是否做出具体 deliverable，不能当 official benchmark score。
-- `score>=60` 的宽松通过数：tribe 8、pinch 5、official 4、skills 2、agentbench 6、zclawbench 0、claweval 1。
+- `score>=60` 的宽松通过数：tribe 8、pinch 5、official 4、skills 2、agentbench 6、zclawbench_promptfix 19、claweval 1。
 
 ---
 
@@ -442,21 +442,26 @@ research-compare-technologies
 20 selected
 20 completed
 20 generic judged
-average_score = 0.0
+average_score = 95.0 after prompt fix
+nonzero = 19
+score>=60 = 19
 ```
 
 解释：
 
 - 当前 container half 只负责 build task / extract result。
 - `tasks.json` 只有 task_id/category，没有具体 task prompt、gold、rubric。
-- 我补了 generic completion judge 后，20 题仍全 0。
+- 第一轮 generic completion judge 后，20 题仍全 0。
 - 这不是 runner 不能跑，而是当前 zclawbench 适配给 agent 的任务太抽象，agent 大多在问“请提供具体 topic”，没有生成 substantive deliverable。
+- 我随后修复了 zclawbench adapter prompt：明确告诉 agent 不要反问用户，而是根据 category 做一个 category-derived deliverable，并保存到 `output.md`。
+- 修复后重跑同一 20 题 subset，generic judge 得到均分 95.0，19/20 非零。
 
 下一步：
 
 - 找到或恢复 zclawbench 原始 task prompt / rubric / expected outcome。
 - 在 suite 里把具体 prompt 传给 container，而不是只传 category。
 - 再用 frozen official judge 或至少 rubric judge 评分。
+- 当前 95.0 只能说明“修复 adapter prompt 后 agent 能完成 category-derived deliverable”，不能当 zclawbench 官方分数。
 
 ## 4.7 claweval
 
@@ -577,17 +582,17 @@ skillsbench 的低分很可能不是单纯 turns 不够，而是：
 - 再尝试 Docker backend；
 - 标 F 类 infra failure，避免混入 agent failure。
 
-## 6.5 把 post-hoc judge 升级成正式 judge
+## 6.5 把 post-hoc judge / promptfix 升级成正式 judge
 
 当前已经补了 post-hoc judge：
 
 - pinchbench：rubric judge。
 - claweval：rubric judge。
-- zclawbench：generic judge。
+- zclawbench：generic judge；并修了当前 adapter 的 category-derived prompt。
 
 但要成为正式 benchmark score，还需要：
 
-- zclawbench 找回具体 prompt/rubric。
+- zclawbench 找回具体 prompt/rubric，而不是只用 category-derived prompt。
 - claweval 接入 user simulator/mock services。
 - judge prompt frozen 并进入 runner，而不是只做后处理。
 
@@ -698,7 +703,7 @@ summary.json 记录 available_instances / selected_instances / sample_strategy /
 2. 有些 bench 需要 rubric LLM judge，不能和 deterministic verifier 混为一谈；
 3. skillsbench 的低分主要是 skill/tool/procedure/infra 问题；
 4. official/agentbench 已经有大量非零分，说明 runner/scoring pipeline 不是坏的；
-5. zclawbench 现在全 0 是 prompt/rubric 缺失导致的适配问题；
+5. zclawbench 原本全 0 是 prompt/rubric 缺失导致的适配问题，promptfix 后已不再全 0，但仍不是 official score；
 6. 要对齐 clawRecipe，下一步必须做 failure label + harness variants + CRR/NIR。
 ```
 
