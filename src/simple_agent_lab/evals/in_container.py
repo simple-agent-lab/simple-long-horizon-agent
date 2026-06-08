@@ -30,13 +30,18 @@ import inspect
 import json
 import os
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, cast
 
-from ..agents.bash import make_bash_agent
-from ..agents.bash_task import make_bash_task_agent
+from ..agents.starter import (
+    MCP_ADDENDUM,
+    AgentSession,
+    agent_session,
+    make_bash_agent,
+    make_bash_task_agent,
+)
 from ..core import Agent
 from ..llm import ApiKind, Provider
 from ..llm_agent import make_llm_agent
@@ -163,6 +168,79 @@ def _resolve_agent(
     )
 
 
+def _agent_spec(module: ModuleType) -> AgentSpec:
+    factory = getattr(module, "agent_spec", None)
+    return factory() if callable(factory) else AgentSpec()
+
+
+def _resolve_mcp_session(
+    module: ModuleType,
+    *,
+    provider: Provider,
+    cwd: Path,
+    request_extra: Mapping[str, Any] | None,
+    mcp_servers: Sequence[Any],
+    max_turns: int,
+) -> AgentSession:
+    """Build an MCP-owning session for the suite's supported agent flavor."""
+
+    if callable(getattr(module, "build_agent", None)):
+        raise SystemExit(
+            "MCP config is not supported with a custom container build_agent hook; "
+            "use agent_spec() with a supported flavor instead."
+        )
+
+    spec = _agent_spec(module)
+    system_prompt = _with_mcp_addendum(spec.system_prompt)
+    if spec.flavor == "bash":
+        return agent_session(
+            provider,
+            cwd=cwd,
+            name=spec.name,
+            role=spec.role,
+            system_prompt=system_prompt,
+            mcp_servers=mcp_servers,
+            request_extra=request_extra,
+            max_turns=max_turns,
+        )
+    if spec.flavor == "bash_task":
+        return agent_session(
+            provider,
+            cwd=cwd,
+            explorer=True,
+            name=spec.name,
+            role=spec.role,
+            system_prompt=system_prompt,
+            mcp_servers=mcp_servers,
+            request_extra=request_extra,
+            max_turns=max_turns,
+        )
+    if spec.flavor == "bash_skills":
+        return agent_session(
+            provider,
+            cwd=cwd,
+            read=True,
+            name=spec.name,
+            role=spec.role,
+            system_prompt=_with_mcp_addendum(
+                system_prompt_with_skills(spec.system_prompt, cwd=cwd)
+            ),
+            mcp_servers=mcp_servers,
+            request_extra=request_extra,
+            max_turns=max_turns,
+        )
+    raise SystemExit(
+        f"Unsupported agent flavor {spec.flavor!r}; "
+        "expected 'bash', 'bash_task', or 'bash_skills'."
+    )
+
+
+def _with_mcp_addendum(system_prompt: str) -> str:
+    if MCP_ADDENDUM in system_prompt:
+        return system_prompt
+    return "\n\n".join(part for part in (system_prompt, MCP_ADDENDUM) if part)
+
+
 # --------------------------------------------------------------------------- #
 # Provider from env (generic OpenAI-compatible + fake)
 # --------------------------------------------------------------------------- #
@@ -280,16 +358,35 @@ def run_in_container(
     else:
         if provider is None:
             raise SystemExit("a Provider is required unless oracle=True")
-        agent = _resolve_agent(
-            module, provider=provider, cwd=workdir, request_extra=request_extra
-        )
-        state, events = agent.run(task, max_turns=max_turns)
+        mcp_servers = _load_mcp_servers(store)
         last = 0.0
-        for _ in events:
-            now = time.monotonic()
-            if now - last >= flush_interval_s:
-                store.put(TRACE_KEY, trace_bytes(in_progress=True))
-                last = now
+        if mcp_servers:
+            if not isinstance(task, str):
+                raise SystemExit("MCP-enabled eval runs currently require a text task")
+            with _resolve_mcp_session(
+                module,
+                provider=provider,
+                cwd=workdir,
+                request_extra=request_extra,
+                mcp_servers=mcp_servers,
+                max_turns=max_turns,
+            ) as session:
+                state, events = session.run(task, max_turns=max_turns)
+                for _ in events:
+                    now = time.monotonic()
+                    if now - last >= flush_interval_s:
+                        store.put(TRACE_KEY, trace_bytes(in_progress=True))
+                        last = now
+        else:
+            agent = _resolve_agent(
+                module, provider=provider, cwd=workdir, request_extra=request_extra
+            )
+            state, events = agent.run(task, max_turns=max_turns)
+            for _ in events:
+                now = time.monotonic()
+                if now - last >= flush_interval_s:
+                    store.put(TRACE_KEY, trace_bytes(in_progress=True))
+                    last = now
 
     extract = tasks.extract_result
     result = dict(extract(workdir, instance, **_context_kwargs(extract, context)))
@@ -335,6 +432,20 @@ def _load_eval_inputs(store: ArtifactStore) -> dict[str, Any]:
     except (FileNotFoundError, OSError):
         return {}
     return json.loads(raw.decode("utf-8") or "{}")
+
+
+def _load_mcp_servers(store: ArtifactStore) -> tuple[Any, ...]:
+    """Read optional staged MCP config and return validated server configs."""
+
+    from .protocols import MCP_KEY
+
+    try:
+        raw = store.get(MCP_KEY)
+    except (FileNotFoundError, OSError):
+        return ()
+    from simple_agent_lab.mcp.config_file import mcp_server_configs_from_json
+
+    return mcp_server_configs_from_json(raw.decode("utf-8"), source=MCP_KEY)
 
 
 def main(argv: list[str] | None = None) -> None:

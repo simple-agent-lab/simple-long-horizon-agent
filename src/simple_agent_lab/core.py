@@ -11,9 +11,9 @@ first turn whose output is the agent's `final` message, or when `max_turns`
 is exhausted (truncated runs surface as `agent_end(reason="max_turns")` so
 traces can distinguish "agent decided to stop" from "ran out of budget").
 
-`Agent.run(task)` is a convenience wrapper that seeds the state with a task
-message and calls `run(self, state, ...)`, returning `(state, events)` so the
-caller can stream events and still inspect the populated state.
+`Agent.run(task)` is a convenience wrapper that initializes the state with a
+task message and calls `run(self, state, ...)`, returning `(state, events)` so
+the caller can stream events and still inspect the populated state.
 
 Multi-agent flows are expressed as a parent agent that delegates through
 `tools.task_tool([b, c, d])`: the parent picks one sub-agent via the
@@ -62,6 +62,15 @@ from .tools import AbortFlag, AgentTool, ToolResult, ToolUpdateFn, text_result
 # point where the function is built (see `llm_agent.py` and the test fakes).
 GenerateFn = Callable[[list[Message]], Message]
 
+# A state initializer builds the initial `State` for `Agent.run` from a task.
+# The default (see `Agent._default_init_state`) records a single task message; a
+# higher layer can supply one that records extra context up front — e.g. the
+# skills layer records a skills menu and any mentioned skill bodies before the
+# task. Kept a plain callable taking the agent explicitly so `core` never
+# imports a higher layer: the dependency always points inward (skills imports
+# core, not the reverse).
+StateInitFn = Callable[["Agent", ContentInput], State]
+
 
 @dataclass
 class Agent:
@@ -78,6 +87,13 @@ class Agent:
     # wire; mirrored here purely so `run()` can record it in the request trace
     # alongside the messages. Empty means "no system prompt was sent".
     system_prompt: str = ""
+    # How `run` builds the initial `State` from a task. `None` means the default
+    # single-task-message initializer (`_default_init_state`); a `StateInitFn`
+    # (e.g. installed by the skills layer) can record extra context messages
+    # before the task so they are present at the first sample. The loop (`run`)
+    # is unaffected — it always drives whatever `State` the initializer
+    # produced.
+    init_state: StateInitFn | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.tools, tuple):
@@ -96,14 +112,23 @@ class Agent:
         multimodal task (text + `ImageBlock`) is seeded the same way as plain
         text — the message layer normalizes both to content blocks.
 
+        The initial `State` comes from `self.init_state` when set, else
+        `_default_init_state`. A custom initializer is how a layer like skills
+        makes a *bare* agent skills-aware: `agent.run(task)` advertises the menu
+        and injects bodies because the initializer recorded them — no separate
+        run path.
+
         Returns `(state, events)`. Caller iterates `events` to advance the
         loop and inspects `state` for the message/event history. Callers
         that need to prepend extra messages (e.g. a sub-agent context
         prelude) can `state.record(...)` them after this call and before
         starting to iterate `events`.
         """
-        state = State(task=task)
-        state.send("task", "user", self.name, task)
+        state = (
+            self.init_state(self, task)
+            if self.init_state is not None
+            else self._default_init_state(task)
+        )
         events = run(
             self,
             state,
@@ -111,6 +136,13 @@ class Agent:
             abort=abort,
         )
         return state, events
+
+    def _default_init_state(self, task: ContentInput) -> State:
+        """Initialize a fresh `State` with just the task message."""
+
+        state = State(task=task)
+        state.send("task", "user", self.name, task)
+        return state
 
 
 def run(
