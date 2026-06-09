@@ -15,7 +15,7 @@ from simple_agent_lab.messages import (
     ContentInput,
     Message,
     normalize_content,
-    system_message,
+    runtime_message,
     text_of,
 )
 from simple_agent_lab.state import State
@@ -135,7 +135,7 @@ class MemoryBinding:
 def memory_context_message(text: str, *, target: str) -> Message:
     """Build the default model-visible memory context message."""
 
-    return system_message(text, sender="memory", target=target, kind="context")
+    return runtime_message(text, sender="memory", target=target, kind="context")
 
 
 def _context_with_state(ctx: MemoryContext, state: State | None) -> MemoryContext:

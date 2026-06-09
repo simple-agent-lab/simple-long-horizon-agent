@@ -21,7 +21,7 @@ from simple_agent_lab.memory import (
 )
 from simple_agent_lab.memory.filesystem import sanitize_summary
 from simple_agent_lab.memory.transcript import extract_memory_text
-from simple_agent_lab.messages import system_message
+from simple_agent_lab.messages import runtime_message
 from simple_agent_lab.protocols import ModelRequestEvent
 from simple_agent_lab.tools import AgentTool, text_result
 
@@ -36,7 +36,7 @@ class MemoryBaseTest(unittest.TestCase):
 
             def initial(self, ctx: MemoryContext):
                 return (
-                    system_message(
+                    runtime_message(
                         "remembered initial context",
                         sender="memory",
                         target=ctx.agent,
@@ -46,7 +46,7 @@ class MemoryBaseTest(unittest.TestCase):
 
             def recall(self, ctx: MemoryContext, query: str):
                 return (
-                    system_message(
+                    runtime_message(
                         f"remembered recall for {query}",
                         sender="memory",
                         target=ctx.agent,
@@ -147,7 +147,7 @@ class MemoryBaseTest(unittest.TestCase):
         class FakeMemory(Memory):
             def initial(self, ctx: MemoryContext):
                 return (
-                    system_message(
+                    runtime_message(
                         "remembered initial context",
                         sender="memory",
                         target=ctx.agent,
