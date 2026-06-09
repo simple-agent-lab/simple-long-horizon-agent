@@ -1,4 +1,11 @@
-# ADR 0008: Separate Trajectory, Evaluation, and Training Data Records
+---
+title: "Separate Trajectory, Evaluation, and Training Data Records"
+status: Accepted
+date: 2026-05-07
+slug: collect-training-trajectories-across-design-versions
+---
+
+# Separate Trajectory, Evaluation, and Training Data Records
 
 ## Status
 
@@ -6,13 +13,13 @@ Accepted
 
 ## Context
 
-ADR 0004 defines self-evolution as a harness loop:
+ADR treat-self-evolution-as-harness-capability defines self-evolution as a harness loop:
 
 ```text
 run -> trace -> evaluate -> propose candidate -> compare -> accept or reject
 ```
 
-ADR 0005 makes `02_balanced_runtime` the lead core candidate for that work,
+ADR make-balanced-runtime-the-lead-core-candidate makes `02_balanced_runtime` the lead core candidate for that work,
 but `01_functional_loop` and `03_event_runtime` remain useful comparison
 surfaces until the runtime sketches are unified.
 

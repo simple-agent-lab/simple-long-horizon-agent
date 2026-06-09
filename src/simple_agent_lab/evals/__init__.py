@@ -1,4 +1,4 @@
-"""Generic containerized eval framework (ADR 0017).
+"""Generic containerized eval framework (ADR generic-containerized-eval-framework).
 
 Add a benchmark suite by implementing a small `Suite` (host half: launch shape
 + the agent-visible task input) and a container module

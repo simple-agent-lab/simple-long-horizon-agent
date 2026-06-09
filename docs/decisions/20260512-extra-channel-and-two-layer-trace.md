@@ -1,4 +1,11 @@
-# ADR 0013: Provider-Namespaced `extra` Channel and Two-Layer Trace
+---
+title: "Provider-Namespaced `extra` Channel and Two-Layer Trace"
+status: Accepted
+date: 2026-05-12
+slug: extra-channel-and-two-layer-trace
+---
+
+# Provider-Namespaced `extra` Channel and Two-Layer Trace
 
 ## Status
 
@@ -6,7 +13,7 @@ Accepted
 
 ## Context
 
-ADR 0012 unified the message content model on content blocks. Two
+ADR unify-message-protocol-on-content-blocks unified the message content model on content blocks. Two
 provider-facing concerns remained without a principled home:
 
 - **Per-message provider hints.** Anthropic supports per-message prompt-cache
@@ -75,7 +82,7 @@ crossed the wire?") and programmatic access to provider-specific
 response fields the standardized layer doesn't surface (`refusal`,
 `prompt_tokens_details.cached_tokens`, `safety_ratings`, …).
 
-`Provider.replay_reasoning: bool = True` (see ADR 0012) is the hidden
+`Provider.replay_reasoning: bool = True` (see ADR unify-message-protocol-on-content-blocks) is the hidden
 opt-out for the rare endpoint that rejects replayed reasoning. It lives on
 the provider, not on each request, because the decision is endpoint-wide:
 once you know mimo accepts replay you set it once and forget it.

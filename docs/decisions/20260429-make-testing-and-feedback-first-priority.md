@@ -1,4 +1,11 @@
-# ADR 0003: Make Testing And Feedback First Priority
+---
+title: "Make Testing And Feedback First Priority"
+status: Accepted
+date: 2026-04-29
+slug: make-testing-and-feedback-first-priority
+---
+
+# Make Testing And Feedback First Priority
 
 ## Status
 

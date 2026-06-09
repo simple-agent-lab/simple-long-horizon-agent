@@ -2,7 +2,7 @@
 
 This directory is the first scene-level evaluation suite adapter.
 
-The adapter maps SWE-bench onto the generic `Suite` protocol (ADR 0017):
+The adapter maps SWE-bench onto the generic `Suite` protocol (ADR generic-containerized-eval-framework):
 
 - `suite.py` defines `SwebenchSuite`, mapping SWE-bench Verified, SWE-bench
   Multilingual, and SWE-bench Pro onto one `Suite` whose per-suite differences
@@ -297,7 +297,7 @@ uv run python runs/run_swebench_suite.py sympy__sympy-23824 \
 
 Add `--in-env-scoring` to also run the official eval script in the run
 environment via the container-half `evaluate` hook (graded host-side with
-`evaluate_predictions.reuse_eval_row`); see ADR 0020.
+`evaluate_predictions.reuse_eval_row`); see ADR collapse-scorer-seam-into-run-primitive.
 
 Outputs land under `evals/out/swebench/<run-id>/<instance-id>/out/`:
 

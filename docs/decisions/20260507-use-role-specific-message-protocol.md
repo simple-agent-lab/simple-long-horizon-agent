@@ -1,17 +1,25 @@
-# ADR 0006: Use A Role-Specific Message Protocol
+---
+title: "Use A Role-Specific Message Protocol"
+status: Accepted
+date: 2026-05-07
+slug: use-role-specific-message-protocol
+note: "parts superseded by `unify-message-protocol-on-content-blocks` and `tool-result-as-content-block`"
+---
+
+# Use A Role-Specific Message Protocol
 
 ## Status
 
-Accepted; parts superseded by ADR 0012 and ADR 0014. The role-specific
+Accepted; parts superseded by ADR unify-message-protocol-on-content-blocks and ADR tool-result-as-content-block. The role-specific
 frozen-dataclass subtypes, the module-level construction helpers, and
 the use of content blocks for multimodal content all stand. The
 `Message` / `ModelMessage` two-layer split, the sibling `thinking`
 and `tool_calls` fields on `AssistantMessage`, and the
 `to_model_message(s)` / `model_*_message` helpers are superseded by
-ADR 0012, which unifies the content model on a single ordered
+ADR unify-message-protocol-on-content-blocks, which unifies the content model on a single ordered
 `tuple[ContentBlock, ...]` and projects runtime `Message` directly to
 the LLM access layer. The `tool_result` role and the standalone
-`ToolResultMessage` subtype are superseded by ADR 0014, which folds
+`ToolResultMessage` subtype are superseded by ADR tool-result-as-content-block, which folds
 tool results into the `ContentBlock` union as `ToolResultBlock` (one
 user-message bundle per parallel-call assistant turn) and shrinks
 `Role` to `system | user | assistant`. The `SystemMessage` subtype and
@@ -24,7 +32,7 @@ preamble that never enters the transcript.
 
 ## Context
 
-ADR 0001 chose a small message-first runtime, and ADR 0005 selected
+ADR use-tiny-message-runtime chose a small message-first runtime, and ADR make-balanced-runtime-the-lead-core-candidate selected
 `02_balanced_runtime` as the lead core candidate. The next shared boundary is
 the message protocol itself: examples currently define local `Message` shapes,
 tool calls are still partly carried through sidecar dictionaries, and future

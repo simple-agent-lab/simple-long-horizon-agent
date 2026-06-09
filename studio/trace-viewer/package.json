@@ -4,7 +4,7 @@
   "description": "A single-file HTML viewer for `simple-agent-lab.trajectory.v3` trace records.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test"
   },
   "keywords": [],
   "author": "",

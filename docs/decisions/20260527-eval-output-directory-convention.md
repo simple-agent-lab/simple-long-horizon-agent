@@ -1,4 +1,11 @@
-# ADR 0016: Eval Output Directory Convention
+---
+title: "Eval Output Directory Convention"
+status: Accepted
+date: 2026-05-27
+slug: eval-output-directory-convention
+---
+
+# Eval Output Directory Convention
 
 ## Status
 

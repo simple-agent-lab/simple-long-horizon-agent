@@ -1,10 +1,17 @@
-# ADR 0001: Use a Tiny Message Runtime
+---
+title: "Use a Tiny Message Runtime"
+status: Accepted
+date: 2026-04-29
+slug: use-tiny-message-runtime
+---
+
+# Use a Tiny Message Runtime
 
 ## Status
 
 Accepted
 
-Updated by [ADR 0009](0009-promote-balanced-runtime-to-src-core.md): the
+Updated by [ADR promote-balanced-runtime-to-src-core](20260507-promote-balanced-runtime-to-src-core.md): the
 message-first direction remains, but the canonical `src` runtime now uses
 `Agent.generate(visible) -> Message`, simple `Event(index, kind, data)`
 records, a single-agent `run()` loop with `max_turns` (truncated runs

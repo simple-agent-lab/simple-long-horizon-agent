@@ -1,4 +1,12 @@
-# ADR 0017: Generic Containerized Eval Framework
+---
+title: "Generic Containerized Eval Framework"
+status: Proposed
+date: 2026-05-31
+slug: generic-containerized-eval-framework
+note: "supersedes `keep-benchmark-suites-as-eval-adapters` for containerized suites"
+---
+
+# Generic Containerized Eval Framework
 
 ## Status
 
@@ -9,7 +17,7 @@ Accepted. The legacy launcher cutover is complete: `containerized_agent.py` and
 
 ## Context
 
-ADR 0011 decided to represent benchmark integrations as suite-specific adapters
+ADR keep-benchmark-suites-as-eval-adapters decided to represent benchmark integrations as suite-specific adapters
 under `evals/` and explicitly warned against building a framework, a registry, or
 a plugin loader "before the second or third suite proves the need."
 
@@ -163,7 +171,7 @@ ships today.
   `RemoteDockerBackend` (host-pull, worker needs no inbound reachability);
   neither / host may go offline → a future object-store store. The suite and runner are unchanged
   across all three.
-- ADR 0011's "adapter, not framework" guidance is **superseded** for the
+- ADR keep-benchmark-suites-as-eval-adapters's "adapter, not framework" guidance is **superseded** for the
   containerized case. Its core principles survive: the runtime core still knows
   nothing about Docker, datasets, or gold patches; raw trajectories remain
   reusable when scoring rules change; scoring stays a separate path.

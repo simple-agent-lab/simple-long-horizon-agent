@@ -20,6 +20,13 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
+      # The trace-viewer contract test (tests/unit/test_trace_viewer_contract.py)
+      # shells out to `node`; pin it so the suite actually runs instead of
+      # skipping on the runner's incidental node.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - name: Sync dev dependencies
         run: uv sync --group dev --extra mcp
       - name: Run unit tests
@@ -56,6 +63,8 @@ jobs:
         run: uv sync --group dev
       - name: Run docs lint
         run: uv run python scripts/lint_docs.py
+      - name: Check decision-record index is up to date
+        run: uv run python docs/decisions/build_index.py --check
 
   arch-lint:
     name: architecture lint

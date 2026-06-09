@@ -14,7 +14,7 @@ the instance and writes the result/trajectory through the one bound store.
 
 `build_command` is the in-container CLI contract (bootstrap + `python -m
 simple_agent_lab.evals.in_container`); only container backends use it. The
-run-directory convention (ADR 0016) is preserved: one
+run-directory convention (ADR eval-output-directory-convention) is preserved: one
 ``<run_root>/<run_id>/<instance_id>/`` tree with ``input/instance.json`` and
 ``out/{trajectory,prediction}.jsonl``.
 """
@@ -44,7 +44,7 @@ GENERIC_RUNNER_MODULE = "simple_agent_lab.evals.in_container"
 
 @dataclass(frozen=True)
 class RunPaths:
-    """The standard per-instance directory tree (ADR 0016)."""
+    """The standard per-instance directory tree (ADR eval-output-directory-convention)."""
 
     root: Path
     input_dir: Path
@@ -71,7 +71,7 @@ def _safe_part(value: str) -> str:
 
 
 def prepare_run_directory(*, run_root: Path, run_id: str, instance_id: str) -> RunPaths:
-    """Create the input/out dirs for one instance (ADR 0016 layout)."""
+    """Create the input/out dirs for one instance (ADR eval-output-directory-convention layout)."""
 
     root = run_root.resolve() / _safe_part(run_id) / _safe_part(instance_id)
     input_dir = root / "input"

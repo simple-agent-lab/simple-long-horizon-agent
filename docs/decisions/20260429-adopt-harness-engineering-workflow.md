@@ -1,4 +1,11 @@
-# ADR 0002: Adopt Harness Engineering Workflow
+---
+title: "Adopt Harness Engineering Workflow"
+status: Accepted
+date: 2026-04-29
+slug: adopt-harness-engineering-workflow
+---
+
+# Adopt Harness Engineering Workflow
 
 ## Status
 

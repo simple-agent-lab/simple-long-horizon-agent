@@ -1,4 +1,11 @@
-# ADR 0005: Make Balanced Runtime The Lead Core Candidate
+---
+title: "Make Balanced Runtime The Lead Core Candidate"
+status: Accepted
+date: 2026-05-07
+slug: make-balanced-runtime-the-lead-core-candidate
+---
+
+# Make Balanced Runtime The Lead Core Candidate
 
 ## Status
 
@@ -6,7 +13,7 @@ Accepted
 
 ## Context
 
-ADR 0004 defines self-evolution as a harness loop:
+ADR treat-self-evolution-as-harness-capability defines self-evolution as a harness loop:
 
 ```text
 run -> trace -> evaluate -> propose candidate -> compare -> accept or reject
@@ -47,7 +54,7 @@ right canonical implementation.
 
 Implementation work should now prefer improving the promoted balanced runtime
 in `src/simple_agent_lab/core.py` over adding parallel features to all three
-versions. ADR 0009 records that promotion and removes the earlier steering /
+versions. ADR promote-balanced-runtime-to-src-core records that promotion and removes the earlier steering /
 follow-up queues from the canonical core.
 
 Self-evolution examples should first target prompt text, context transforms,

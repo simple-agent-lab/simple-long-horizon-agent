@@ -1,4 +1,11 @@
-# ADR 0015: Three-Layer Trace Architecture — Event, Span, Training
+---
+title: "Three-Layer Trace Architecture — Event, Span, Training"
+status: Accepted
+date: 2026-05-27
+slug: three-layer-trace-event-span-training
+---
+
+# Three-Layer Trace Architecture — Event, Span, Training
 
 ## Status
 
@@ -6,7 +13,7 @@ Accepted
 
 ## Context
 
-ADR 0008 established the separation of trajectory, evaluation, and training
+ADR collect-training-trajectories-across-design-versions established the separation of trajectory, evaluation, and training
 records. The trajectory layer evolved into a three-level structure:
 `ModelCall` (per-API-call), `ContextWindow` (per-compression-span), and
 `RunTrace` (the full run). While functional, that design has become hard

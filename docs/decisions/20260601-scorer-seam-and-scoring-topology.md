@@ -1,22 +1,30 @@
-# ADR 0019: Scorer Seam and Per-Suite Scoring Topology
+---
+title: "Scorer Seam and Per-Suite Scoring Topology"
+status: Proposed
+date: 2026-06-01
+slug: scorer-seam-and-scoring-topology
+note: "amends `generic-containerized-eval-framework`, builds on `oracle-run-mode-for-suite-self-check`, amended by `collapse-scorer-seam-into-run-primitive`"
+---
+
+# Scorer Seam and Per-Suite Scoring Topology
 
 ## Status
 
-Amended by [ADR 0020](0020-collapse-scorer-seam-into-run-primitive.md). The
+Amended by [ADR collapse-scorer-seam-into-run-primitive](20260601-collapse-scorer-seam-into-run-primitive.md). The
 durable parts here still hold — `result.json` as the decoupling artifact, the
 in-environment `evaluate` hook, private gold staging via `eval_inputs`/EVAL_KEY,
-and the official-harness parity requirement. ADR 0020 **removes** the `Scorer`
+and the official-harness parity requirement. ADR collapse-scorer-seam-into-run-primitive **removes** the `Scorer`
 protocol, `ScoreRequest`, `Suite.scorer()`, and the `score_dataset` driver: in
 the run environment scoring is the `evaluate` hook, and scoring elsewhere is a
 follow-up run or the official harness CLI — not a separate framework seam.
 
 ## Context
 
-ADR 0017 made a containerized eval "implement a `Suite` + a container module,"
+ADR generic-containerized-eval-framework made a containerized eval "implement a `Suite` + a container module,"
 and kept scoring a separate, official step: the run phase produced
 `prediction.jsonl` via the `Suite.prediction_record` method, and an external
 tool (`evals/swebench/evaluate_predictions.py`) ran the official harness over it.
-ADR 0018 added an oracle run mode for wiring self-checks but preserved that
+ADR oracle-run-mode-for-suite-self-check added an oracle run mode for wiring self-checks but preserved that
 run/score split.
 
 Two pressures surfaced:
@@ -70,7 +78,7 @@ choice behind it.
     after `extract_result` and merges its verdict into `result.json`, so the host
     scorer (`ReuseScorer`) is a passthrough. The hook is **environment-neutral**:
     the same generic runner drives it in-process (`LocalProcessBackend`) and
-    in-container (Docker), like the ADR 0018 in-process oracle.
+    in-container (Docker), like the ADR oracle-run-mode-for-suite-self-check in-process oracle.
 - **Official-harness parity is a hard requirement for `reuse`.** A `reuse`
   verdict must agree with the `separate` official harness. We enforce this by
   (a) driving the *official* eval script — the host generates it from
@@ -122,9 +130,9 @@ choice behind it.
 
 ## Relationships
 
-- Amends ADR 0017 (the run phase no longer shapes `prediction.jsonl`; `Suite`
+- Amends ADR generic-containerized-eval-framework (the run phase no longer shapes `prediction.jsonl`; `Suite`
   drops `prediction_record`; scoring gains an optional in-framework seam).
-- Builds on ADR 0018 (the `reuse` `evaluate` hook reuses the in-process-capable
+- Builds on ADR oracle-run-mode-for-suite-self-check (the `reuse` `evaluate` hook reuses the in-process-capable
   generic-runner precedent set by the oracle hook).
-- Relates to ADR 0008 / ADR 0011 (keeps raw trajectories, eval scores, and
+- Relates to ADR collect-training-trajectories-across-design-versions / ADR keep-benchmark-suites-as-eval-adapters (keeps raw trajectories, eval scores, and
   training labels separated; the scorer emits eval-result rows only).

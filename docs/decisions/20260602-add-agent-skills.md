@@ -1,4 +1,11 @@
-# ADR 0021: Add Agent Skills (read-based, on by default)
+---
+title: "Add Agent Skills (read-based, on by default)"
+status: Accepted
+date: 2026-06-02
+slug: add-agent-skills
+---
+
+# Add Agent Skills (read-based, on by default)
 
 ## Status
 
@@ -15,7 +22,7 @@ them in a prompt menu, and the model loads a skill by reading it and runs its
 scripts with ordinary tool calls.
 
 We needed a shape that fits Simple Agent Lab's small, inspectable runtime
-(ADR 0001, ADR 0009): no new core abstraction, everything visible in
+(ADR use-tiny-message-runtime, ADR promote-balanced-runtime-to-src-core): no new core abstraction, everything visible in
 `state.events`, deterministic local tests.
 
 ## Decision
@@ -63,7 +70,7 @@ We needed a shape that fits Simple Agent Lab's small, inspectable runtime
    script) rather than following a fixed metadata→body→done flow.
 
 7. **Benchmark path folds the menu into the system prompt.** The generic
-   containerized runner (ADR 0017) drives the agent through `agent.run` and is
+   containerized runner (ADR generic-containerized-eval-framework) drives the agent through `agent.run` and is
    suite-agnostic, so it has no per-turn seam to record a menu into. The
    `bash_skills` flavor therefore builds a `bash` + `read` agent and folds the
    discovered `<skills_instructions>` menu into the agent's system prompt

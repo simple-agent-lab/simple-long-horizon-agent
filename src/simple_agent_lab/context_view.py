@@ -41,7 +41,7 @@ from .messages import (
 # exact; this is a deliberate middle value below the old 4 guess. One global
 # ratio is enough because the estimate only covers the small tail since the last
 # provider usage report, and the runtime's safety buffer absorbs the residual
-# (see ADR 0017).
+# (see ADR context-size-accounting).
 CHARS_PER_TOKEN = 3.5
 IMAGE_CHAR_ESTIMATE = 7373
 

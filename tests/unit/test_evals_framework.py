@@ -1,4 +1,4 @@
-"""Unit-smoke for the generic eval framework (ADR 0017).
+"""Unit-smoke for the generic eval framework (ADR generic-containerized-eval-framework).
 
 No Docker. Covers the two seams — `ContainerBackend` (`FakeBackend` for
 orchestration, `LocalProcessBackend` for a real in-process agent run) and
@@ -343,7 +343,7 @@ class LocalProcessBackendTest(unittest.TestCase):
 class InEnvScoringTest(unittest.TestCase):
     """In-environment scoring: the container-half `evaluate` hook writes the
     verdict into result.json during the run, gated on staged `eval_inputs`
-    (ADR 0020). No separate scoring driver."""
+    (ADR collapse-scorer-seam-into-run-primitive). No separate scoring driver."""
 
     @staticmethod
     def _reuse_module() -> str:
@@ -659,7 +659,7 @@ class SubmitReconcileTest(unittest.TestCase):
     def test_reconcile_completes_off_result_without_instance_record(self) -> None:
         """Reconcile keys completion on result.json — decoupled from the instance.
 
-        The run/score split (ADR 0019) means reconcile no longer needs the
+        The run/score split (ADR scorer-seam-and-scoring-topology) means reconcile no longer needs the
         instance record; a missing input/instance.json does not fail a run whose
         result.json landed. The instance re-enters only at the score phase.
         """

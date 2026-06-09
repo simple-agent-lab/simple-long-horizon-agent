@@ -57,7 +57,7 @@ The current source-of-truth layers are:
 - `src/simple_agent_lab/llm/`: provider-agnostic model access layer.
 - `src/simple_agent_lab/mcp/`: optional Model Context Protocol integration —
   connect to MCP servers and wrap their tools (including multimodal results)
-  as `AgentTool`s, behind the `mcp` extra. See ADR 0018.
+  as `AgentTool`s, behind the `mcp` extra. See ADR mcp-as-tool-source.
 - `src/simple_agent_lab/trajectory/`: runtime-neutral trace records split by
   concern — `spans.py`/`training.py` (pure event→span/turn transforms),
   `run_trace.py` (record schema), `jsonl.py` (atomic JSONL IO), and `live.py`
@@ -85,15 +85,15 @@ and accepted ADRs.
 Stop and collect more evidence before changing behavior when:
 
 - A change would add a framework-style abstraction to the core runtime. Read
-  ADR 0001 and ADR 0009 first.
+  ADR use-tiny-message-runtime and ADR promote-balanced-runtime-to-src-core first.
 - A change modifies `Message`, `LLMMessage`, role names, tool-call or
-  tool-result blocks, or provider-boundary conversion. Read ADR 0006,
-  ADR 0012, ADR 0014, `src/simple_agent_lab/messages.py`, and
+  tool-result blocks, or provider-boundary conversion. Read ADR use-role-specific-message-protocol,
+  ADR unify-message-protocol-on-content-blocks, ADR tool-result-as-content-block, `src/simple_agent_lab/messages.py`, and
   `src/simple_agent_lab/llm/README.md`.
 - A change alters context trimming, token estimates, or tool-call/tool-result
-  grouping. Read ADR 0010 and `tests/unit/test_core.py`.
+  grouping. Read ADR make-context-view-an-explicit-projection and `tests/unit/test_core.py`.
 - A change mixes raw trajectories, eval scores, or training labels. Read ADR
-  0008 and ADR 0011.
+  0008 and ADR keep-benchmark-suites-as-eval-adapters.
 - A change requires a live model provider or external benchmark dependency.
   Preserve deterministic local smoke paths unless the owner explicitly accepts
   the extra setup cost.
@@ -110,21 +110,21 @@ Stop and collect more evidence before changing behavior when:
 | Current status or repo tour | `README.md`, then this loading map | Public map plus task-specific routing. |
 | Product direction, audience, or teaching taste | `docs/agent-native/project-intent.md` | Mission, audience, design principles, and current phase. |
 | Day-to-day implementation | `docs/agent-native/development.md`, `docs/agent-native/code-style.md`, `runs/README.md` | Commands, quality gate, and style constraints. |
-| Harness workflow or docs-first process | `docs/agent-native/harness-engineering.md`, ADR 0002, ADR 0003 | Feedback signal and repository-as-harness rules. |
-| Core runtime shape | ADR 0001, ADR 0005, ADR 0009, `src/simple_agent_lab/core.py` | Canonical runtime boundary and stateful run-loop rationale. |
-| Message protocol or provider conversion | `CONTEXT.md`, ADR 0006, ADR 0012, ADR 0014, `src/simple_agent_lab/messages.py`, `src/simple_agent_lab/llm/README.md` | Runtime-vs-model message boundary and vocabulary. |
-| Context visibility or budgeting | ADR 0010, `src/simple_agent_lab/context_view.py`, `tests/unit/test_core.py`, `tests/unit/test_token_usage.py` | Projection behavior and token-estimate constraints. |
+| Harness workflow or docs-first process | `docs/agent-native/harness-engineering.md`, ADR adopt-harness-engineering-workflow, ADR make-testing-and-feedback-first-priority | Feedback signal and repository-as-harness rules. |
+| Core runtime shape | ADR use-tiny-message-runtime, ADR make-balanced-runtime-the-lead-core-candidate, ADR promote-balanced-runtime-to-src-core, `src/simple_agent_lab/core.py` | Canonical runtime boundary and stateful run-loop rationale. |
+| Message protocol or provider conversion | `CONTEXT.md`, ADR use-role-specific-message-protocol, ADR unify-message-protocol-on-content-blocks, ADR tool-result-as-content-block, `src/simple_agent_lab/messages.py`, `src/simple_agent_lab/llm/README.md` | Runtime-vs-model message boundary and vocabulary. |
+| Context visibility or budgeting | ADR make-context-view-an-explicit-projection, `src/simple_agent_lab/context_view.py`, `tests/unit/test_core.py`, `tests/unit/test_token_usage.py` | Projection behavior and token-estimate constraints. |
 | Tool execution or bash demo | `src/simple_agent_lab/tools/`, `src/simple_agent_lab/agents/bash/` (preset agent), `tests/unit/test_bash_agent.py` | Tool result semantics and deterministic demo checks. |
 | Multi-agent delegation (`task` tool) | `src/simple_agent_lab/tools/task.py`, `src/simple_agent_lab/agents/bash_task/` (parent + explorer worker), `tests/unit/test_bash_task_agent.py`, `src/simple_agent_lab/core.py` docstring | Sub-agent delegation shape: a parent picks one worker via `subagent_type` and gets its final message back as the tool result. |
-| MCP tools (incl. multimodal) | ADR 0018, `src/simple_agent_lab/mcp/README.md`, `tests/unit/test_mcp.py`, `scripts/run_mcp_agent_demo.py` | MCP servers wrapped as `AgentTool`s at the tool boundary; image results map straight to `ImageBlock`. Optional `mcp` extra. |
-| Agent skills (discover/advertise/load `SKILL.md`) | ADR 0021, `src/simple_agent_lab/skills/`, `src/simple_agent_lab/tools/read.py`, `tests/unit/test_skills.py`, `tests/unit/test_read_tool.py` | Read-based skills: a prompt menu plus model-driven `read`/`bash`; on by default with `/no-skills`. Benchmark `bash_skills` flavor folds the menu into the system prompt. |
-| Trace printing or OpenAI Chat JSONL export | ADR 0013, ADR 0015, `src/simple_agent_lab/trace.py`, `tests/unit/test_openai_training.py` | Trace rendering and provider-shaped transcript export. |
-| Trajectories, spans, or training data | ADR 0008, ADR 0011, ADR 0015, `src/simple_agent_lab/trajectory/` (`spans.py`, `training.py`, `run_trace.py`), `evals/README.md`, `evals/swebench/README.md` | Three-layer trace: Event → Span → Training. |
+| MCP tools (incl. multimodal) | ADR mcp-as-tool-source, `src/simple_agent_lab/mcp/README.md`, `tests/unit/test_mcp.py`, `scripts/run_mcp_agent_demo.py` | MCP servers wrapped as `AgentTool`s at the tool boundary; image results map straight to `ImageBlock`. Optional `mcp` extra. |
+| Agent skills (discover/advertise/load `SKILL.md`) | ADR add-agent-skills, `src/simple_agent_lab/skills/`, `src/simple_agent_lab/tools/read.py`, `tests/unit/test_skills.py`, `tests/unit/test_read_tool.py` | Read-based skills: a prompt menu plus model-driven `read`/`bash`; on by default with `/no-skills`. Benchmark `bash_skills` flavor folds the menu into the system prompt. |
+| Trace printing or OpenAI Chat JSONL export | ADR extra-channel-and-two-layer-trace, ADR three-layer-trace-event-span-training, `src/simple_agent_lab/trace.py`, `tests/unit/test_openai_training.py` | Trace rendering and provider-shaped transcript export. |
+| Trajectories, spans, or training data | ADR collect-training-trajectories-across-design-versions, ADR keep-benchmark-suites-as-eval-adapters, ADR three-layer-trace-event-span-training, `src/simple_agent_lab/trajectory/` (`spans.py`, `training.py`, `run_trace.py`), `evals/README.md`, `evals/swebench/README.md` | Three-layer trace: Event → Span → Training. |
 | Docker incremental trace / host viewer | `docs/agent-native/docker-live-trace.md`, `src/simple_agent_lab/trajectory/live.py` (`LiveTraceSession`), `scripts/run_live_trace_demo.py` | Bind-mount contract and reusable live export API. |
-| Containerized eval framework / suites | ADR 0017, `evals/README.md`, `src/simple_agent_lab/evals/` | Suite x ContainerBackend x ArtifactStore seams; `run_suite_instance` / `run_dataset` entry points. |
-| Scoring: how a suite scores / parity | ADR 0020 (amends ADR 0019), `src/simple_agent_lab/evals/in_container.py` (`evaluate` hook), `evals/swebench/evaluate_predictions.py` (`reuse_eval_row`, parity) | No scorer seam: in-env scoring is the `evaluate` hook (gated on `eval_inputs`); scoring elsewhere is a follow-up run; official harness is a standalone CLI; `result.json` decoupling; official-parity gate. |
-| Integrating a new Docker eval suite (step-by-step) | `docs/agent-native/integrating-a-docker-eval-suite.md`, ADR 0017, ADR 0020, `evals/swebench/suite.py`, `src/simple_agent_lab/evals/suites/swebench/container.py` | Two halves + registration; the developer/agent how-to with a checklist. |
-| Multi-machine eval deployment / workers / k8s | `docs/agent-native/multi-machine-deployment.md`, ADR 0017 | Worker setup, image distribution, online/offline, store-by-topology; runtime injection. |
+| Containerized eval framework / suites | ADR generic-containerized-eval-framework, `evals/README.md`, `src/simple_agent_lab/evals/` | Suite x ContainerBackend x ArtifactStore seams; `run_suite_instance` / `run_dataset` entry points. |
+| Scoring: how a suite scores / parity | ADR collapse-scorer-seam-into-run-primitive (amends ADR scorer-seam-and-scoring-topology), `src/simple_agent_lab/evals/in_container.py` (`evaluate` hook), `evals/swebench/evaluate_predictions.py` (`reuse_eval_row`, parity) | No scorer seam: in-env scoring is the `evaluate` hook (gated on `eval_inputs`); scoring elsewhere is a follow-up run; official harness is a standalone CLI; `result.json` decoupling; official-parity gate. |
+| Integrating a new Docker eval suite (step-by-step) | `docs/agent-native/integrating-a-docker-eval-suite.md`, ADR generic-containerized-eval-framework, ADR collapse-scorer-seam-into-run-primitive, `evals/swebench/suite.py`, `src/simple_agent_lab/evals/suites/swebench/container.py` | Two halves + registration; the developer/agent how-to with a checklist. |
+| Multi-machine eval deployment / workers / k8s | `docs/agent-native/multi-machine-deployment.md`, ADR generic-containerized-eval-framework | Worker setup, image distribution, online/offline, store-by-topology; runtime injection. |
 | External architecture borrowing | `docs/reference-architectures/README.md` (local notes workspace, gitignored) plus your own reference note | Capture rationale locally; record durable commitments in an ADR. |
 | Agent-native doc maintenance | This loading map, `docs/agent-native/operating-rules.md` | Canonical routing and stop conditions. |
 

@@ -1,4 +1,11 @@
-# ADR 0018: MCP Servers Are a Tool Source, Wrapped at the Tool Boundary
+---
+title: "MCP Servers Are a Tool Source, Wrapped at the Tool Boundary"
+status: Accepted
+date: 2026-05-31
+slug: mcp-as-tool-source
+---
+
+# MCP Servers Are a Tool Source, Wrapped at the Tool Boundary
 
 ## Status
 
@@ -17,7 +24,7 @@ Two facts about the codebase shape the decision:
 
 1. The runtime already has a multimodal tool boundary. `ToolResult.content`
    and `ToolResultBlock.content` are `tuple[TextBlock | ImageBlock, ...]`
-   (ADR 0014), so an image returned by a tool already rides back to the
+   (ADR tool-result-as-content-block), so an image returned by a tool already rides back to the
    model unchanged — the bash tool's `attach` option proves the path.
 2. The MCP Python SDK is async (`ClientSession` lives in async context
    managers), while the runtime's tool `execute` is synchronous, run on a
@@ -25,7 +32,7 @@ Two facts about the codebase shape the decision:
 
 So the open questions were: *where* does MCP plug in, and *how* do we cross
 the async/sync boundary, without disturbing the core runtime (a standing
-stop condition — see ADR 0001 and ADR 0009).
+stop condition — see ADR use-tiny-message-runtime and ADR promote-balanced-runtime-to-src-core).
 
 ## Decision
 
@@ -74,7 +81,7 @@ Scope is **tools only** for now: resources and prompts are out of scope.
 ## Alternatives Considered
 
 - **A new core "remote tool" concept / MCP-aware run loop.** Rejected: it
-  would push protocol detail into the core runtime, against ADR 0001/0009.
+  would push protocol detail into the core runtime, against ADR use-tiny-message-runtime/0009.
   Wrapping as `AgentTool` keeps the core unaware that a tool is remote.
 - **An MCP-specific LLM adapter.** Rejected: MCP is a tool/context protocol,
   not a model API; it does not belong in the provider-adapter layer.

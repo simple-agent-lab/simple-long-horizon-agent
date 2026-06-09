@@ -14,6 +14,7 @@ The HTTP server is stdlib only (no dependencies). Endpoints:
     GET  /api/info              { project_root, scan_dir, static_dir }
     GET  /api/traces            list of files under --dir with shape detection
     GET  /api/trace?path=&line= return one parsed record (line index for JSONL)
+    GET  /api/records?path=     return ALL parsed records of a file (small JSONL)
 
 The viewer polls /api/traces every few seconds so new evals show up live.
 """
@@ -239,12 +240,21 @@ def list_traces(scan_dir: Path, project_root: Path) -> list[dict]:
         except OSError:
             continue
         first, fingerprint, peek_error = peek_first_record(path)
-        if first is not None:
+        if isinstance(first, dict):
             kind = detect_record_kind(first)
             schema = first.get("schema")
             trace_id = first.get("trace_id")
             task = first.get("task")
             instance_id = first.get("instance_id")
+        elif first is not None:
+            # Parsed, but the top-level record is a list/scalar, not an object
+            # (e.g. a JSON-array file like the harness's patches.json). It's not
+            # a viewer record; fall back to the text fingerprint for metadata.
+            kind = detect_record_kind(first)
+            schema = fingerprint.get("schema")
+            trace_id = fingerprint.get("trace_id")
+            task = fingerprint.get("task")
+            instance_id = fingerprint.get("instance_id")
         else:
             head_text = _safe_head_text(path)
             kind = _detect_kind_by_text(head_text)
@@ -303,19 +313,34 @@ def _safe_relative(path: Path, base: Path) -> Path:
 # from that shape so the viewer can aggregate the per-instance files back into a
 # single experiment row.
 _RUN_ARTIFACT_NAMES = {"trajectory.jsonl", "trace.jsonl"}
+# A run's aggregate verdicts land at ``<run_id>/eval_results.jsonl`` (written by
+# evaluate_predictions.run_scoped_eval_results_path), so the viewer can bind
+# each judge to the run that produced it and join by (run_id, instance_id).
+_RUN_EVAL_NAME = "eval_results.jsonl"
 
 
 def _derive_run_id(path: Path, scan_dir: Path) -> str | None:
-    """Return the run_id for a trajectory file, or None if the path doesn't fit."""
-    if path.name not in _RUN_ARTIFACT_NAMES:
-        return None
+    """Return the run_id for a per-run artifact, or None if the path doesn't fit.
+
+    Trajectories live at ``<run_id>/<instance_id>/out/{trajectory,trace}.jsonl``;
+    the run's aggregate verdicts live at ``<run_id>/eval_results.jsonl``. Both
+    resolve to the same run_id (the run directory name) so the viewer can group
+    them together. Legacy suite-level ``*_eval_results.jsonl`` files don't match
+    and return None.
+    """
     parents = path.parents
-    # Need ``out/<instance_id>/<run_id>/`` above the file.
-    if len(parents) < 3:
+    if path.name in _RUN_ARTIFACT_NAMES:
+        # Need ``<run_id>/<instance_id>/out/`` above the file.
+        if len(parents) < 3 or parents[0].name != "out":
+            return None
+        run_dir = parents[2]
+    elif path.name == _RUN_EVAL_NAME:
+        # Need ``<run_id>/`` directly above the file.
+        if len(parents) < 1:
+            return None
+        run_dir = parents[0]
+    else:
         return None
-    if parents[0].name != "out":
-        return None
-    run_dir = parents[2]
     try:
         run_dir.relative_to(scan_dir)
     except ValueError:
@@ -350,6 +375,39 @@ def read_trace_record(path: Path, line_index: int = 0) -> dict | None:
             return json.load(f)
     text = path.read_text(encoding="utf-8")
     return _nth_json_object(text, line_index)
+
+
+def read_all_records(path: Path, limit: int = 5000) -> list[dict]:
+    """Return every top-level JSON object in a .json/.jsonl file (capped).
+
+    Used by /api/records for small aggregate files (eval results, predictions)
+    where the viewer wants the whole set in one request rather than walking
+    line indices. The cap is a runaway guard, not an expected boundary.
+    """
+    suffix = path.suffix.lower()
+    if suffix == ".json":
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            return [r for r in data[:limit] if isinstance(r, dict)]
+        return [data] if isinstance(data, dict) else []
+    text = path.read_text(encoding="utf-8")
+    out: list[dict] = []
+    decoder = json.JSONDecoder()
+    idx, length = 0, len(text)
+    while idx < length and len(out) < limit:
+        while idx < length and text[idx] in " \t\n\r":
+            idx += 1
+        if idx >= length:
+            break
+        try:
+            obj, end = decoder.raw_decode(text, idx)
+        except json.JSONDecodeError:
+            break
+        if isinstance(obj, dict):
+            out.append(obj)
+        idx = end
+    return out
 
 
 def read_trace_record_bytes(path: Path, line_index: int = 0) -> bytes | None:
@@ -569,6 +627,34 @@ class TraceViewerHandler(BaseHTTPRequestHandler):
                 extra_headers=extra,
             )
             return
+
+        if path == "/api/records":
+            query = parse_qs(url.query)
+            raw_path = unquote(query.get("path", [""])[0])
+            if not raw_path:
+                return self._send_json(400, {"error": "missing path"})
+            target = Path(raw_path).resolve()
+            allowed = self.project_root.resolve()
+            try:
+                target.relative_to(allowed)
+            except ValueError:
+                return self._send_json(403, {"error": "path outside project root"})
+            if not target.exists() or not target.is_file():
+                return self._send_json(404, {"error": "not found"})
+            try:
+                records = read_all_records(target)
+                mtime_value = target.stat().st_mtime
+            except (OSError, ValueError, json.JSONDecodeError) as e:
+                return self._send_json(400, {"error": f"failed to read records: {e}"})
+            return self._send_json(
+                200,
+                {
+                    "path": raw_path,
+                    "count": len(records),
+                    "mtime": mtime_value,
+                    "records": records,
+                },
+            )
 
         return self._send_static(path)
 

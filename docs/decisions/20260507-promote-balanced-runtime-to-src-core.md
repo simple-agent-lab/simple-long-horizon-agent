@@ -1,4 +1,11 @@
-# ADR 0009: Promote Balanced Runtime To Src Core
+---
+title: "Promote Balanced Runtime To Src Core"
+status: Accepted
+date: 2026-05-07
+slug: promote-balanced-runtime-to-src-core
+---
+
+# Promote Balanced Runtime To Src Core
 
 ## Status
 
@@ -6,7 +13,7 @@ Accepted
 
 ## Context
 
-ADR 0005 selected `02_balanced_runtime` as the lead core candidate for
+ADR make-balanced-runtime-the-lead-core-candidate selected `02_balanced_runtime` as the lead core candidate for
 self-evolution work. The demo has since proved the shape the project wants:
 one generator-based runtime that records request/response events, supports
 tool dispatch, and can model agent-as-tool delegation without a heavier graph
@@ -62,10 +69,10 @@ the exact queue semantics belong in the shared core.
 
 ## Alternatives Considered
 
-- Keep 02 only as an example. Rejected because ADR 0005 made it the lead path
+- Keep 02 only as an example. Rejected because ADR make-balanced-runtime-the-lead-core-candidate made it the lead path
   and new work would keep duplicating changes.
 - Promote 02 exactly as-is. Rejected because the steering and follow-up queues
   are not needed for the current self-evolution and agent-as-tool demos.
-- Promote 03 instead. Rejected for the same reason as ADR 0005: it remains a
+- Promote 03 instead. Rejected for the same reason as ADR make-balanced-runtime-the-lead-core-candidate: it remains a
   useful observability and provider-boundary reference, but it is heavier than
   the current teaching and self-evolution path needs.

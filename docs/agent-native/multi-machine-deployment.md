@@ -1,8 +1,8 @@
 # Multi-Machine Eval Deployment
 
-How to run the containerized eval framework (ADR 0017) across several machines.
+How to run the containerized eval framework (ADR generic-containerized-eval-framework) across several machines.
 This is an operations runbook; the architecture and the seams it relies on are
-in [ADR 0017](../decisions/0017-generic-containerized-eval-framework.md).
+in [ADR generic-containerized-eval-framework](../decisions/20260531-generic-containerized-eval-framework.md).
 
 Read when: scaling an eval run beyond one machine, standing up workers, or
 choosing a store/backend for a given network. Skip for single-machine local
@@ -125,12 +125,12 @@ machines just like the images.
 
 The host lists the workers and fans the dataset out over them. The pool backend
 that combines several `RemoteDockerBackend`s into one `ContainerBackend` is
-described in ADR 0017; conceptually:
+described in ADR generic-containerized-eval-framework; conceptually:
 
 ```python
 from simple_agent_lab.evals import run_dataset, LocalDirStore
 # WorkerPoolBackend: a ContainerBackend that dispatches to a list of workers,
-# capacity-limited per worker (a blocking slot queue). See ADR 0017.
+# capacity-limited per worker (a blocking slot queue). See ADR generic-containerized-eval-framework.
 
 backend = WorkerPoolBackend(
     [
@@ -179,7 +179,7 @@ Three properties fall out of the existing design, for free:
 k8s is compatible without touching `run_dataset` / the suites / the stores: it is
 **one more `ContainerBackend`** (`K8sBackend.run(spec, store, binding)` submits a
 Job built from `spec`, waits, returns a `RunOutcome`). What k8s changes is which
-*store* and image policy you pair it with, not the architecture — see ADR 0017's
+*store* and image policy you pair it with, not the architecture — see ADR generic-containerized-eval-framework's
 "Future direction: Kubernetes" for the details (artifacts move via a future
 object store / in-cluster HTTP store rather than host-pull, because directly tar-ing a specific
 container is a docker-ism; a registry becomes mandatory; and a submit/poll

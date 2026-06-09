@@ -1,4 +1,4 @@
-"""SWE-bench container half (ADR 0017): the two functions a suite supplies.
+"""SWE-bench container half (ADR generic-containerized-eval-framework): the two functions a suite supplies.
 
 The generic in-container runner (`simple_agent_lab.evals.in_container`) owns the
 agent loop, retry, and trace push. This module supplies only what is
@@ -13,14 +13,14 @@ SWE-bench-specific and runs *inside* the image:
 - `apply_oracle(workspace, instance)` — optional: apply the gold patch instead
   of running a model, for the framework's deterministic oracle self-check.
 - `evaluate(workspace, instance, *, context)` — optional: in-environment scoring
-  (ADR 0020). Runs the host-staged official eval script in the run environment
+  (ADR collapse-scorer-seam-into-run-primitive). Runs the host-staged official eval script in the run environment
   and captures its log into ``result.json``; the host turns that into a verdict
   via `evaluate_predictions.reuse_eval_row` (the official grader needs the gold
   test spec, which lives host-side).
 - `agent_spec()` — optional: the SWE-bench prompt/role and the agent flavor
   (``bash`` | ``bash_task`` | ``bash_skills``, from the ``AGENT_FLAVOR`` env
   var). ``bash_skills`` adds the ``read`` tool and advertises any discovered
-  agent skills in the system prompt (ADR 0021).
+  agent skills in the system prompt (ADR add-agent-skills).
 
 It imports only the standard library and the installed wheel (`agents`,
 `evals.protocols`, and the sibling `patch` module), so it works inside any
@@ -71,7 +71,7 @@ def agent_spec() -> AgentSpec:
 
     ``bash`` | ``bash_task`` | ``bash_skills`` — the generic ``build_agent``
     resolves the flavor; ``bash_skills`` adds ``read`` + the discovered skills
-    menu (ADR 0021)."""
+    menu (ADR add-agent-skills)."""
 
     flavor = os.environ.get(AGENT_FLAVOR_ENV, "bash").strip() or "bash"
     system_prompt = AGENT_SYSTEM_PROMPT
@@ -197,7 +197,7 @@ def evaluate(
     *,
     context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Score in the run environment: run the *official* eval script (ADR 0020).
+    """Score in the run environment: run the *official* eval script (ADR collapse-scorer-seam-into-run-primitive).
 
     The host staged the official eval script (generated from ``make_test_spec``)
     under EVAL_KEY; the generic runner threads it in as ``context["eval"]`` and

@@ -1,4 +1,11 @@
-# ADR 0017: Context-Size Accounting — Provider Usage, Confined Estimation, a Safety Buffer
+---
+title: "Context-Size Accounting — Provider Usage, Confined Estimation, a Safety Buffer"
+status: Accepted
+date: 2026-05-30
+slug: context-size-accounting
+---
+
+# Context-Size Accounting — Provider Usage, Confined Estimation, a Safety Buffer
 
 ## Status
 
@@ -6,7 +13,7 @@ Accepted
 
 ## Context
 
-Compression decisions (ADR 0010's context view, the strategies in
+Compression decisions (ADR make-context-view-an-explicit-projection's context view, the strategies in
 `src/simple_agent_lab/compression/strategies.py`) need one number: how full is the context
 window right now? Getting it wrong is costly in both directions — under-count
 and the real window overflows before compression fires; over-count and the

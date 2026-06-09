@@ -1,15 +1,23 @@
-# ADR 0012: Unify the Message Protocol on Content Blocks
+---
+title: "Unify the Message Protocol on Content Blocks"
+status: Accepted
+date: 2026-05-12
+slug: unify-message-protocol-on-content-blocks
+note: "tool-result fragment superseded by `tool-result-as-content-block`"
+---
+
+# Unify the Message Protocol on Content Blocks
 
 ## Status
 
-Accepted (supersedes parts of ADR 0006). The tool-result fragments
-of this ADR are further superseded by ADR 0014, which collapses the
+Accepted (supersedes parts of ADR use-role-specific-message-protocol). The tool-result fragments
+of this ADR are further superseded by ADR tool-result-as-content-block, which collapses the
 `tool_result` role into a `ToolResultBlock` content block and removes
 the `ToolResultMessage` subtype entirely.
 
 ## Context
 
-ADR 0006 set up the message protocol: role-specific frozen dataclasses
+ADR use-role-specific-message-protocol set up the message protocol: role-specific frozen dataclasses
 (`UserMessage`, `SystemMessage`, `AssistantMessage`, `ToolResultMessage`), a
 parallel routing-stripped `ModelMessage` union, content blocks for multimodal
 text/image, and sibling `thinking` / `tool_calls` fields on `AssistantMessage`.
@@ -76,7 +84,7 @@ duplicate `llm/types.py:ContentBlock` and `llm/types.py:ToolCall` are removed
 compatibility). `LLMResponse.usage` uses `TokenUsage` directly — the parallel
 `Usage` dataclass is removed.
 
-What ADR 0006 still holds:
+What ADR use-role-specific-message-protocol still holds:
 
 - Role-specific frozen dataclass subtypes for `Message` (still
   `UserMessage`, `SystemMessage`, `AssistantMessage`, `ToolResultMessage`).
@@ -121,7 +129,7 @@ tool_calls have valid `id` and `name`, tool_result has `tool_call_id` and
 `tool_name`).
 
 `AssistantMessage.data: Sidecar` becomes a real channel for debug payloads
-(see ADR 0013 for `data["extra"]` and `data["wire"]`), so `message_text` no
+(see ADR extra-channel-and-two-layer-trace for `data["extra"]` and `data["wire"]`), so `message_text` no
 longer falls back to printing the data dict — that fallback printed wire
 dumps once the new channels landed.
 

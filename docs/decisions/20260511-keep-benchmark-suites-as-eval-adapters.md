@@ -1,8 +1,16 @@
-# ADR 0011: Keep Benchmark Suites As Eval Adapters
+---
+title: "Keep Benchmark Suites As Eval Adapters"
+status: Accepted
+date: 2026-05-11
+slug: keep-benchmark-suites-as-eval-adapters
+note: "superseded for the containerized case by `generic-containerized-eval-framework`"
+---
+
+# Keep Benchmark Suites As Eval Adapters
 
 ## Status
 
-Accepted. Superseded for the containerized case by ADR 0017 (generic
+Accepted. Superseded for the containerized case by ADR generic-containerized-eval-framework (generic
 containerized eval framework): the host launcher described below
 (`containerized_agent.py` / `in_container_runner.py`) has since been replaced by
 `SwebenchSuite` + `run_suite_instance`, with shared host helpers in
@@ -18,7 +26,7 @@ reference suite because it exercises a realistic coding-agent loop: read an
 issue, edit a repository, produce a patch, and let an external harness decide
 whether the issue is resolved.
 
-ADR 0008 already separates raw trajectory records, evaluation results, and
+ADR collect-training-trajectories-across-design-versions already separates raw trajectory records, evaluation results, and
 training examples. That split should continue to hold for large external
 benchmarks.
 

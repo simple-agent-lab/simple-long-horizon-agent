@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run one SWE-bench instance through the generic Suite framework (ADR 0017).
+# Run one SWE-bench instance through the generic Suite framework (ADR generic-containerized-eval-framework).
 #
 # The agent is launched via run_suite_instance(SwebenchSuite, LocalDockerBackend,
 # LocalDirStore), the same primitive every suite uses. For batch / parallel runs

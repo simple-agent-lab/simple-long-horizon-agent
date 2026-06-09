@@ -1,8 +1,16 @@
-# ADR 0007: Make 03 Event Runtime the One-Stop Observable Baseline
+---
+title: "Make 03 Event Runtime the One-Stop Observable Baseline"
+status: Withdrawn
+date: 2026-05-07
+slug: make-03-event-runtime-one-stop-observable
+note: "superseded by `promote-balanced-runtime-to-src-core`, which retired the `03_event_runtime` design version this ADR was scoped to."
+---
+
+# Make 03 Event Runtime the One-Stop Observable Baseline
 
 ## Status
 
-Withdrawn (2026-05-11). Superseded by ADR 0009, which promoted the
+Withdrawn (2026-05-11). Superseded by ADR promote-balanced-runtime-to-src-core, which promoted the
 balanced runtime to `src/simple_agent_lab/core.py` and retired the
 `03_event_runtime` design version this ADR was scoped to. The
 observability and replay direction this ADR proposed is no longer
@@ -12,7 +20,7 @@ instead of resuming this one.
 
 ## Context
 
-`02_balanced_runtime` is the lead core for self-evolution (ADR 0005) because it supports multi-agent scheduling, agent-as-tool delegation, and generator-based event streams. ADR 0009 promotes the simplified version into `src/simple_agent_lab/core.py`.
+`02_balanced_runtime` is the lead core for self-evolution (ADR make-balanced-runtime-the-lead-core-candidate) because it supports multi-agent scheduling, agent-as-tool delegation, and generator-based event streams. ADR promote-balanced-runtime-to-src-core promotes the simplified version into `src/simple_agent_lab/core.py`.
 
 `03_event_runtime` currently provides a clean event-sourced single-agent loop with `AgentLoop`, `RuntimeState.events`, and `LLMModelClient` backed by the shared `simple_agent_lab.llm` layer. However, users perceive it as "not very different" from 02: both have events, both support tools, both use the same `Message` / `Tool` shapes.
 

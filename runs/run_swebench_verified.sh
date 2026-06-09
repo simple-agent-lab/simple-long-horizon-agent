@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the agent on SWE-bench Verified through the Suite framework (ADR 0017).
+# Run the agent on SWE-bench Verified through the Suite framework (ADR generic-containerized-eval-framework).
 #
 # Usage:
 #   bash runs/run_swebench_verified.sh                          # default: sympy__sympy-23824

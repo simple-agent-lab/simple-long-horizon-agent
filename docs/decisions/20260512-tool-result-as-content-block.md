@@ -1,4 +1,11 @@
-# ADR 0014: Tool Results Are Content Blocks, Not a Separate Message Role
+---
+title: "Tool Results Are Content Blocks, Not a Separate Message Role"
+status: Accepted
+date: 2026-05-12
+slug: tool-result-as-content-block
+---
+
+# Tool Results Are Content Blocks, Not a Separate Message Role
 
 ## Status
 
@@ -6,7 +13,7 @@ Accepted (supersedes the tool-result fragments of ADRs 0006 and 0012)
 
 ## Context
 
-ADR 0012 unified message content on a single `ContentBlock` union, but
+ADR unify-message-protocol-on-content-blocks unified message content on a single `ContentBlock` union, but
 tool results stayed as their own `Message` subtype:
 
 ```text

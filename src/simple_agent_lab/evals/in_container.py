@@ -1,4 +1,4 @@
-"""Generic in-container runner (ADR 0017).
+"""Generic in-container runner (ADR generic-containerized-eval-framework).
 
 This module is what runs *inside* the eval container, invoked as
 ``python -m simple_agent_lab.evals.in_container`` (it ships in the wheel, so
@@ -105,7 +105,7 @@ def build_agent(
     if spec.flavor == "bash_skills":
         # bash + read, with agent skills discovered under `cwd` and advertised
         # in the system prompt; the model loads a skill by reading its SKILL.md
-        # and runs its scripts via bash (ADR 0021).
+        # and runs its scripts via bash (ADR add-agent-skills).
         return make_llm_agent(
             name=spec.name,
             provider=provider,

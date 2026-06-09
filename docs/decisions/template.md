@@ -1,8 +1,11 @@
-# ADR 0000: TITLE
+---
+title: "TITLE"
+status: Proposed
+date: YYYY-MM-DD
+slug: short-kebab-case-slug
+---
 
-## Status
-
-Proposed
+# TITLE
 
 ## Context
 
@@ -19,4 +22,3 @@ What becomes easier, harder, or intentionally out of scope?
 ## Alternatives Considered
 
 - 
-

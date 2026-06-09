@@ -1,4 +1,11 @@
-# ADR 0010: Make Context View An Explicit Projection
+---
+title: "Make Context View An Explicit Projection"
+status: Accepted
+date: 2026-05-11
+slug: make-context-view-an-explicit-projection
+---
+
+# Make Context View An Explicit Projection
 
 ## Status
 
@@ -6,7 +13,7 @@ Accepted
 
 ## Context
 
-ADR 0001 named `context_view()` as the context-management boundary, and ADR
+ADR use-tiny-message-runtime named `context_view()` as the context-management boundary, and ADR
 0009 promoted the balanced runtime into `src`. The first promoted
 implementation still kept `context_view()` as a small route filter with an
 optional `last` slice.

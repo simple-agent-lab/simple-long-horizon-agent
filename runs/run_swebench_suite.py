@@ -1,4 +1,4 @@
-"""Run one SWE-bench instance through the generic `Suite` framework (ADR 0017).
+"""Run one SWE-bench instance through the generic `Suite` framework (ADR generic-containerized-eval-framework).
 
 This is the SWE-bench run entry point: it drives the SWE-bench container half
 through `run_suite_instance(SwebenchSuite, LocalDockerBackend, LocalDirStore)`,

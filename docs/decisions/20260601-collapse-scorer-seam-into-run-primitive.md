@@ -1,4 +1,12 @@
-# ADR 0020: Collapse the Scorer Seam into the Run Primitive
+---
+title: "Collapse the Scorer Seam into the Run Primitive"
+status: Accepted
+date: 2026-06-01
+slug: collapse-scorer-seam-into-run-primitive
+note: "amends `scorer-seam-and-scoring-topology` and `generic-containerized-eval-framework`, builds on `oracle-run-mode-for-suite-self-check`"
+---
+
+# Collapse the Scorer Seam into the Run Primitive
 
 ## Status
 
@@ -6,7 +14,7 @@ Accepted
 
 ## Context
 
-ADR 0019 added a `Scorer` seam: a `Scorer` protocol, a `ScoreRequest` value, a
+ADR scorer-seam-and-scoring-topology added a `Scorer` seam: a `Scorer` protocol, a `ScoreRequest` value, a
 `Suite.scorer()` method, and a `score_dataset` host driver that read each run's
 `result.json` back, built `ScoreRequest`s, and called the suite's scorer once.
 Two scoring topologies hung off it — `separate` (the official harness in fresh
@@ -65,7 +73,7 @@ SWE-bench suite's `score_mode` becomes a single `in_env_scoring: bool` that just
 decides whether `eval_inputs` stages the official eval script (turning the hook
 on).
 
-**Kept from ADR 0019:** `result.json` as the single decoupling artifact, the
+**Kept from ADR scorer-seam-and-scoring-topology:** `result.json` as the single decoupling artifact, the
 `evaluate` hook, private gold staging (`eval_inputs` → EVAL_KEY, distinct from
 the agent-visible `task_input`), and the official-parity requirement + gate.
 
@@ -96,19 +104,19 @@ the agent-visible `task_input`), and the official-parity requirement + gate.
   and must run verbatim for parity, so wrapping it as an agent-loop run is an
   impedance mismatch. A standalone CLI is the honest shape. (Agent-judge scoring,
   which *is* an agent run, naturally uses the run primitive.)
-- **Keep the ADR 0019 `Scorer` seam.** Rejected — it conflated three jobs and
+- **Keep the ADR scorer-seam-and-scoring-topology `Scorer` seam.** Rejected — it conflated three jobs and
   duplicated the run primitive without its fault tolerance; the owner asked to
   simplify toward "everything is a run."
 
 ## Relationships
 
-- Amends [ADR 0019](0019-scorer-seam-and-scoring-topology.md): removes the
+- Amends [ADR scorer-seam-and-scoring-topology](20260601-scorer-seam-and-scoring-topology.md): removes the
   `Scorer` seam and the separate score phase while keeping its durable parts
   (`result.json` decoupling, the `evaluate` hook, `eval_inputs`/EVAL_KEY gold
   staging, official-parity gate).
-- Amends [ADR 0017](0017-generic-containerized-eval-framework.md): the suite
+- Amends [ADR generic-containerized-eval-framework](20260531-generic-containerized-eval-framework.md): the suite
   surface no longer includes a scoring method; scoring is the `evaluate` hook or
   a follow-up run.
-- Builds on [ADR 0018](0018-oracle-run-mode-for-suite-self-check.md): the
+- Builds on [ADR oracle-run-mode-for-suite-self-check](20260601-oracle-run-mode-for-suite-self-check.md): the
   `evaluate` hook reuses the in-process-capable generic-runner precedent set by
   the oracle hook.

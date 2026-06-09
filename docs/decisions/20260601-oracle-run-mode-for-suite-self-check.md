@@ -1,4 +1,12 @@
-# ADR 0018: Oracle Run Mode for Suite Self-Check
+---
+title: "Oracle Run Mode for Suite Self-Check"
+status: Proposed
+date: 2026-06-01
+slug: oracle-run-mode-for-suite-self-check
+note: "builds on `generic-containerized-eval-framework`"
+---
+
+# Oracle Run Mode for Suite Self-Check
 
 ## Status
 
@@ -6,7 +14,7 @@ Proposed
 
 ## Context
 
-ADR 0017 made a containerized eval "implement a `Suite` + a container module,"
+ADR generic-containerized-eval-framework made a containerized eval "implement a `Suite` + a container module,"
 and kept **scoring a separate, official step**: the framework produces
 `prediction.jsonl`; it never decides correctness. That separation is a
 deliberate strength — it avoids the harness's pass/fail logic drifting from a
@@ -56,7 +64,7 @@ solution.
   pipeline (`build_task → prepare → apply_oracle → extract_result →
   prediction_record`) and of instance solvability.
 - The check is explicitly **not scoring**: it validates wiring and solvability,
-  not model quality, so ADR 0017's scoring-separation is preserved.
+  not model quality, so ADR generic-containerized-eval-framework's scoring-separation is preserved.
 - `apply_oracle` is **optional**, so the required `Suite` / container-half surface
   is unchanged; suites that do not add it simply cannot be oracle-checked.
 - Oracle mode works on every backend. Through Docker it also validates the real
@@ -77,5 +85,5 @@ solution.
   connectivity only; it cannot catch a wrong `extract_result` or an unsolvable
   instance.
 - **Bundle scoring like terminal-bench's oracle.** Rejected — it would entangle
-  the harness with correctness judgments that ADR 0017 deliberately keeps as a
+  the harness with correctness judgments that ADR generic-containerized-eval-framework deliberately keeps as a
   separate official step.

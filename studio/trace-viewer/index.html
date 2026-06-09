@@ -44,6 +44,7 @@
       --pane-right-w: 360px;
       --sidebar-w:    240px;
       --resize-hit:   5px;
+      --center-rail-w: 34px;
     }
 
     *,
@@ -562,6 +563,71 @@
       overflow: hidden;
       pointer-events: none;
     }
+    /* ---------- center column collapsed to a rail (tree + wire two-pane) ----
+       The center stream/timeline collapse to a thin rail; the inspector (wire
+       debug) grows to fill the freed width. Two attribute combinations need
+       their own full column template since grid-template-columns is atomic. */
+    main.grid.workspace[data-center-collapsed="1"] {
+      grid-template-columns:
+        var(--sidebar-w) var(--resize-hit)
+        minmax(0, var(--pane-left-w)) var(--resize-hit)
+        var(--center-rail-w) 0px minmax(0, 1fr);
+    }
+    main.grid.workspace[data-sidebar-hidden="1"][data-center-collapsed="1"] {
+      grid-template-columns:
+        0px 0px
+        minmax(0, var(--pane-left-w)) var(--resize-hit)
+        var(--center-rail-w) 0px minmax(0, 1fr);
+    }
+    main.grid.workspace[data-center-collapsed="1"] #resize-right {
+      visibility: hidden;
+      pointer-events: none;
+    }
+    main.grid.workspace[data-center-collapsed="1"] .center > .pane { display: none; }
+    .center > .center-rail { display: none; }
+    main.grid.workspace[data-center-collapsed="1"] .center > .center-rail { display: flex; }
+    .center-rail {
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      height: 100%;
+      padding: 10px 0;
+      background: var(--ink-0);
+      border-right: 1px solid var(--ink-3);
+      cursor: pointer;
+      user-select: none;
+    }
+    .center-rail:hover { background: var(--ink-1); }
+    .center-rail .cr-icon {
+      font-size: 13px;
+      color: var(--paper-dim);
+      line-height: 1;
+    }
+    .center-rail:hover .cr-icon { color: var(--phosphor); }
+    .center-rail .cr-label {
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+      font-size: 10px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--paper-dim);
+    }
+    .center-rail:hover .cr-label { color: var(--paper); }
+    /* collapse affordance shown only when the column is expanded */
+    .center-collapse-btn {
+      width: 22px; height: 22px;
+      display: inline-flex; align-items: center; justify-content: center;
+      border-radius: 4px;
+      border: 1px solid var(--ink-3);
+      background: transparent;
+      color: var(--paper-dim);
+      font-size: 13px;
+      cursor: pointer;
+      flex: 0 0 auto;
+      margin-right: 8px;
+    }
+    .center-collapse-btn:hover { color: var(--phosphor); border-color: var(--phosphor); }
+    .center-collapse-btn:focus-visible { outline: 2px solid var(--phosphor); outline-offset: 1px; }
     /* ---------- experiment sidebar ---------- */
     .exp-sidebar {
       display: flex;
@@ -741,6 +807,45 @@
       color: var(--ash);
     }
 
+    /* Per-instance pass/fail verdict badge in the experiment list. */
+    .vbadge {
+      flex-shrink: 0;
+      width: 13px;
+      text-align: center;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11px;
+      font-weight: 600;
+      line-height: 1;
+    }
+    .vbadge.v-pass { color: var(--phosphor); }
+    .vbadge.v-fail { color: var(--signal); }
+    /* Run-level aggregate (k/n resolved) on the group header. */
+    .exp-group-verdict {
+      font-size: 10px;
+      font-family: "JetBrains Mono", monospace;
+      padding: 1px 5px;
+      border-radius: 3px;
+      flex-shrink: 0;
+      background: var(--ink-3);
+      color: var(--paper-dim);
+    }
+    .exp-group-verdict[data-pass="1"] { color: var(--phosphor); }
+    .exp-group-verdict[data-pass="0"] { color: var(--solar); }
+
+    /* Header button that opens the evaluation-results scoreboard. */
+    .exp-results-btn {
+      width: 22px;
+      height: 22px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      color: var(--paper-dim);
+      font-size: 13px;
+      flex-shrink: 0;
+      transition: color 100ms, background 100ms;
+    }
+    .exp-results-btn:hover { color: var(--phosphor); background: var(--ink-3); }
 
     .resize-handle {
       position: relative;
@@ -949,6 +1054,16 @@
     .node .compress-dot {
       width: 6px; height: 6px;
       background: var(--solar);
+      transform: rotate(45deg);
+    }
+    /* Cache break: the model re-read context it could have reused. Hollow
+       lapis diamond — lapis ties it to the model/context family, hollow
+       reads as a "gap" distinct from the filled err/compress dots. */
+    .node .cache-dot {
+      width: 6px; height: 6px;
+      background: transparent;
+      border: 1.5px solid var(--lapis);
+      box-shadow: 0 0 7px var(--lapis);
       transform: rotate(45deg);
     }
 
@@ -1722,6 +1837,31 @@
       white-space: pre-wrap;
       word-break: break-word;
     }
+    /* Bash command rendered as a real shell script: actual newlines, mono,
+       with a phosphor rail on the left to read as "this is a command". */
+    pre.blk-cmd {
+      margin: 5px 0 0;
+      padding: 6px 10px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11.5px;
+      line-height: 1.5;
+      color: var(--paper);
+      background: rgba(0,0,0,0.22);
+      border: none;
+      border-left: 2px solid var(--phosphor);
+      border-radius: 3px;
+      max-height: 360px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .blk-cmd-desc {
+      margin-top: 3px;
+      font-size: 11.5px;
+      line-height: 1.4;
+      color: var(--paper-mid);
+      font-style: italic;
+    }
     .content-block.b-call.b-call-compact .blk-head {
       margin-bottom: 0;
     }
@@ -1982,6 +2122,119 @@
     @media (prefers-reduced-motion: reduce) {
       .replay-overlay, .replay-modal { transition: none; }
     }
+
+    /* ============ EVALUATION RESULTS SCOREBOARD ============ */
+    .scoreboard { position: fixed; inset: 0; z-index: 100; display: none; }
+    .scoreboard[data-open="1"] { display: block; }
+    .sb-overlay {
+      position: absolute; inset: 0;
+      background: rgba(8,9,12,0.62);
+      backdrop-filter: blur(2px);
+    }
+    .sb-panel {
+      position: absolute;
+      top: 80px; left: 50%; transform: translateX(-50%);
+      width: min(820px, calc(100vw - 48px));
+      max-height: calc(100vh - 130px);
+      background: var(--ink-1);
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      box-shadow: 0 28px 60px -18px rgba(0,0,0,0.6);
+      display: flex; flex-direction: column;
+      min-height: 0;
+    }
+    .sb-head {
+      display: flex; align-items: baseline; gap: 12px;
+      padding: 14px 16px 12px;
+      border-bottom: 1px solid var(--ink-3);
+      flex-shrink: 0;
+    }
+    .sb-title {
+      font-size: 12px; font-weight: 600;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--paper);
+    }
+    .sb-sub {
+      flex: 1; min-width: 0;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11px; color: var(--paper-dim);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .sb-close {
+      flex-shrink: 0; width: 24px; height: 24px;
+      display: inline-flex; align-items: center; justify-content: center;
+      border-radius: 4px; color: var(--paper-dim); font-size: 13px;
+      transition: color 100ms, background 100ms;
+    }
+    .sb-close:hover { color: var(--paper); background: var(--ink-3); }
+    .sb-body {
+      flex: 1; overflow-y: auto; padding: 8px 0 12px;
+      scrollbar-width: thin; scrollbar-color: var(--ink-3) transparent;
+    }
+    .sb-body::-webkit-scrollbar { width: 6px; }
+    .sb-body::-webkit-scrollbar-thumb { background: var(--ink-3); border-radius: 3px; }
+    .sb-empty { padding: 40px 16px; text-align: center; color: var(--ash); font-size: 12px; }
+    .sb-run { padding: 10px 16px 6px; }
+    .sb-run + .sb-run { border-top: 1px solid var(--ink-2); }
+    .sb-run-head { display: flex; align-items: baseline; gap: 8px; }
+    .sb-run-name {
+      font-size: 12px; font-weight: 600; color: var(--paper);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+    }
+    .sb-run-suite {
+      font-family: "JetBrains Mono", monospace; font-size: 10px;
+      color: var(--paper-dim); padding: 1px 5px;
+      background: var(--ink-3); border-radius: 3px; flex-shrink: 0;
+    }
+    .sb-run-stat {
+      flex: 1; text-align: right;
+      font-family: "JetBrains Mono", monospace; font-size: 11px;
+      color: var(--paper-mid);
+    }
+    .sb-run-pct {
+      font-family: "JetBrains Mono", monospace; font-size: 11px;
+      font-weight: 600; color: var(--phosphor); flex-shrink: 0;
+    }
+    .sb-bar {
+      height: 4px; margin: 6px 0 4px;
+      background: var(--ink-3); border-radius: 2px; overflow: hidden;
+    }
+    .sb-bar > span { display: block; height: 100%; background: var(--phosphor); }
+    .sb-table { margin: 4px 0 2px; }
+    .sb-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 4px 6px; border-radius: 4px;
+      cursor: pointer; font-size: 11.5px; color: var(--paper-mid);
+      transition: background 80ms, color 80ms;
+    }
+    .sb-row:hover { background: var(--ink-2); color: var(--paper); }
+    .sb-row[data-active="1"] {
+      background: rgba(124,163,255,0.10);
+      box-shadow: inset 2px 0 0 var(--lapis);
+    }
+    .sb-mark {
+      flex-shrink: 0; width: 14px; text-align: center;
+      font-family: "JetBrains Mono", monospace; font-weight: 600;
+    }
+    .sb-mark.sb-pass { color: var(--phosphor); }
+    .sb-mark.sb-fail { color: var(--signal); }
+    .sb-mark.sb-pending { color: var(--ash); }
+    .sb-inst {
+      flex: 1; min-width: 0;
+      font-family: "JetBrains Mono", monospace;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .sb-score {
+      flex-shrink: 0; width: 42px; text-align: right;
+      font-family: "JetBrains Mono", monospace; color: var(--paper);
+    }
+    .sb-status {
+      flex-shrink: 0; width: 110px; text-align: right;
+      font-family: "JetBrains Mono", monospace; font-size: 10px; color: var(--paper-dim);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .sb-go { flex-shrink: 0; width: 14px; text-align: center; color: var(--ash); }
+    .sb-row:hover .sb-go { color: var(--phosphor); }
     .replay-head {
       padding: 14px 16px 12px;
       border-bottom: 1px solid var(--ink-3);
@@ -2762,11 +3015,13 @@
     <div class="replay-toast" id="replay-toast" role="status" aria-live="polite" aria-hidden="true"></div>
 
     <!-- ============ MAIN ============ -->
-    <main class="grid workspace" data-sidebar-hidden="0">
+    <main class="grid workspace" data-sidebar-hidden="0" data-center-collapsed="1">
       <!-- ===== EXPERIMENT SIDEBAR ===== -->
       <aside class="exp-sidebar" id="exp-sidebar">
         <div class="exp-sidebar-head">
           <span class="exp-title">Experiments</span>
+          <button type="button" class="exp-results-btn" id="exp-results-btn"
+                  title="Evaluation results scoreboard" aria-label="Open evaluation results">▦</button>
           <button type="button" class="exp-sidebar-toggle" id="exp-sidebar-hide"
                   title="Hide sidebar (⌘B)" aria-label="Hide experiment sidebar">◀</button>
         </div>
@@ -2803,10 +3058,17 @@
 
       <!-- ===== CENTER: waterfall + stream ===== -->
       <section class="center">
+        <div class="center-rail" id="center-rail" role="button" tabindex="0"
+             title="Expand stream &amp; timeline">
+          <span class="cr-icon" aria-hidden="true">▸</span>
+          <span class="cr-label">stream · timeline</span>
+        </div>
         <div class="pane">
           <div class="center-head">
             <div class="center-head-toolbar">
               <div class="center-head-row">
+                <button type="button" class="center-collapse-btn" id="center-collapse"
+                        title="Collapse stream column" aria-label="Collapse stream column">◂</button>
                 <div class="mode-toggle" id="mode-toggle">
                   <button data-mode="messages" class="active">messages</button>
                   <button data-mode="events">events</button>
@@ -2879,10 +3141,23 @@
     </main>
   </div>
 
+  <!-- ============ EVALUATION RESULTS SCOREBOARD ============ -->
+  <section class="scoreboard" id="scoreboard" data-open="0" aria-hidden="true">
+    <div class="sb-overlay" id="sb-overlay"></div>
+    <div class="sb-panel" role="dialog" aria-modal="true" aria-label="Evaluation results">
+      <div class="sb-head">
+        <span class="sb-title">Evaluation Results</span>
+        <span class="sb-sub" id="sb-sub"></span>
+        <button type="button" class="sb-close" id="sb-close" aria-label="Close">✕</button>
+      </div>
+      <div class="sb-body" id="sb-body"></div>
+    </div>
+  </section>
+
   <!-- ============ EMBEDDED SAMPLE (loaded on first paint) ============ -->
   <script type="application/json" id="embedded-sample">
-{"schema": "simple-agent-lab.trajectory.v3", "type": "trajectory", "trace_id": "demo.bash_agent.001", "producer": "demo:trace-viewer", "task": "Investigate the failing wc-line counter regression and ship a fix with a new test.", "meta": {"model": "fake/observatory-mini", "provider": "fake", "run_label": "darkroom-demo"}, "events": [{"kind": "agent_start", "index": 0, "elapsed": 0.0}, {"kind": "message", "index": 1, "elapsed": 0.002, "message": {"role": "user", "kind": "task", "sender": "user", "target": "bash_agent", "content": [{"kind": "text", "text": "Investigate the failing wc-line counter regression and ship a fix with a new test."}], "data": {}}}, {"kind": "turn_start", "index": 2, "elapsed": 0.003, "agent": "bash_agent"}, {"kind": "model_request", "index": 3, "elapsed": 0.004, "agent": "bash_agent", "visible_count": 2, "llm_message_count": 2, "visible": [], "context_view": {"input_tokens_estimate": 612, "messages": 2}, "tools": [{"name": "bash", "description": "Run a bash command."}, {"name": "task", "description": "Delegate a focused subtask to a sub-agent."}], "llm_payload": [{"role": "system", "content": "You are bash_agent."}, {"role": "user", "content": "Investigate the failing wc-line counter regression and ship a fix with a new test."}]}, {"kind": "model_response", "index": 4, "elapsed": 1.241, "agent": "bash_agent", "output_kind": "thought", "target": "bash_agent", "tool_call_count": 1}, {"kind": "message", "index": 5, "elapsed": 1.242, "message": {"role": "assistant", "kind": "thought", "sender": "bash_agent", "target": "bash_agent", "content": [{"kind": "thinking", "text": "Need to inspect the project layout first. I'll list the source tree before reading suspect files.", "redacted": false, "signature": null}, {"kind": "text", "text": "Looking at the repo layout."}, {"kind": "tool_call", "id": "call_01", "name": "bash", "arguments": {"command": "ls src/simple_agent_lab"}}], "usage": {"input_tokens": 612, "output_tokens": 88, "cache_read_tokens": 0, "cache_write_tokens": 0}, "data": {}}}, {"kind": "tool_execution_start", "index": 6, "elapsed": 1.244, "tool_call_id": "call_01", "tool_name": "bash"}, {"kind": "tool_execution_end", "index": 7, "elapsed": 1.355, "tool_call_id": "call_01", "tool_name": "bash", "is_error": false, "terminate": false}, {"kind": "message", "index": 8, "elapsed": 1.356, "message": {"role": "user", "kind": "tool_result", "sender": "tool", "target": "bash_agent", "content": [{"kind": "tool_result", "tool_call_id": "call_01", "tool_name": "bash", "is_error": false, "content": [{"kind": "text", "text": "agents/\ncore.py\ncontext_view.py\nllm/\nmessages.py\nprotocols.py\nstate.py\ntools/\ntrace.py\ntrajectory.py"}]}], "data": {}}}, {"kind": "turn_end", "index": 9, "elapsed": 1.358, "agent": "bash_agent", "terminated": false}, {"kind": "turn_start", "index": 10, "elapsed": 1.359, "agent": "bash_agent"}, {"kind": "model_request", "index": 11, "elapsed": 1.36, "agent": "bash_agent", "visible_count": 4, "llm_message_count": 4, "visible": [], "context_view": {"input_tokens_estimate": 894, "messages": 4}, "tools": [], "llm_payload": []}, {"kind": "model_response", "index": 12, "elapsed": 2.61, "agent": "bash_agent", "output_kind": "thought", "target": "bash_agent", "tool_call_count": 2}, {"kind": "message", "index": 13, "elapsed": 2.611, "message": {"role": "assistant", "kind": "thought", "sender": "bash_agent", "target": "bash_agent", "content": [{"kind": "thinking", "text": "I'll read the suspected file and also kick off a sub-agent to grep the wider codebase in parallel.", "redacted": false}, {"kind": "text", "text": "Reading the suspect file and dispatching a search sub-agent in parallel."}, {"kind": "tool_call", "id": "call_02", "name": "bash", "arguments": {"command": "cat src/simple_agent_lab/tools/wc.py"}}, {"kind": "tool_call", "id": "call_03", "name": "task", "arguments": {"agent": "search_agent", "task": "Search the repo for usages of wc_lines and report file:line callers."}}], "usage": {"input_tokens": 894, "output_tokens": 142, "cache_read_tokens": 200, "cache_write_tokens": 0}, "data": {}}}, {"kind": "tool_execution_start", "index": 14, "elapsed": 2.613, "tool_call_id": "call_02", "tool_name": "bash"}, {"kind": "tool_execution_end", "index": 15, "elapsed": 2.745, "tool_call_id": "call_02", "tool_name": "bash", "is_error": false, "terminate": false}, {"kind": "tool_execution_start", "index": 16, "elapsed": 2.614, "tool_call_id": "call_03", "tool_name": "task"}, {"kind": "tool_execution_end", "index": 17, "elapsed": 5.482, "tool_call_id": "call_03", "tool_name": "task", "is_error": false, "terminate": false}, {"kind": "message", "index": 18, "elapsed": 5.484, "message": {"role": "user", "kind": "tool_result", "sender": "tool", "target": "bash_agent", "content": [{"kind": "tool_result", "tool_call_id": "call_02", "tool_name": "bash", "is_error": false, "content": [{"kind": "text", "text": "def wc_lines(path):\n    with open(path) as f:\n        # off-by-one: should be sum(1 for _ in f), this counts only newlines\n        return len(f.read().split('\\n')) - 1\n"}]}, {"kind": "tool_result", "tool_call_id": "call_03", "tool_name": "task", "is_error": false, "content": [{"kind": "text", "text": "Sub-agent report:\n- src/simple_agent_lab/tools/wc.py:1 defines wc_lines\n- tests/unit/test_wc.py:8 asserts wc_lines('fixtures/3lines.txt') == 3\n- 1 caller, 1 test. Low blast radius."}]}], "data": {"details": {"call_03": {"sub_events": [{"kind": "agent_start", "index": 0, "elapsed": 0.0}, {"kind": "message", "index": 1, "elapsed": 0.001, "message": {"role": "user", "kind": "task", "sender": "bash_agent", "target": "search_agent", "content": [{"kind": "text", "text": "Search the repo for usages of wc_lines and report file:line callers."}]}}, {"kind": "turn_start", "index": 2, "elapsed": 0.002, "agent": "search_agent"}, {"kind": "model_request", "index": 3, "elapsed": 0.003, "agent": "search_agent", "visible_count": 2, "llm_message_count": 2, "visible": [], "context_view": {"input_tokens_estimate": 188}, "tools": [{"name": "bash"}], "llm_payload": []}, {"kind": "model_response", "index": 4, "elapsed": 0.812, "agent": "search_agent", "output_kind": "thought", "target": "search_agent", "tool_call_count": 1}, {"kind": "message", "index": 5, "elapsed": 0.813, "message": {"role": "assistant", "kind": "thought", "sender": "search_agent", "target": "search_agent", "content": [{"kind": "text", "text": "Running ripgrep."}, {"kind": "tool_call", "id": "sub_call_01", "name": "bash", "arguments": {"command": "rg -n wc_lines"}}]}}, {"kind": "tool_execution_start", "index": 6, "elapsed": 0.815, "tool_call_id": "sub_call_01", "tool_name": "bash"}, {"kind": "tool_execution_end", "index": 7, "elapsed": 1.022, "tool_call_id": "sub_call_01", "tool_name": "bash", "is_error": false, "terminate": false}, {"kind": "message", "index": 8, "elapsed": 1.023, "message": {"role": "user", "kind": "tool_result", "sender": "tool", "target": "search_agent", "content": [{"kind": "tool_result", "tool_call_id": "sub_call_01", "tool_name": "bash", "is_error": false, "content": [{"kind": "text", "text": "src/simple_agent_lab/tools/wc.py:1:def wc_lines(path):\ntests/unit/test_wc.py:8:    assert wc_lines('fixtures/3lines.txt') == 3"}]}]}}, {"kind": "turn_end", "index": 9, "elapsed": 1.025, "agent": "search_agent", "terminated": false}, {"kind": "turn_start", "index": 10, "elapsed": 1.026, "agent": "search_agent"}, {"kind": "model_request", "index": 11, "elapsed": 1.027, "agent": "search_agent", "visible_count": 4, "llm_message_count": 4, "visible": [], "context_view": {"input_tokens_estimate": 264}, "tools": [], "llm_payload": []}, {"kind": "model_response", "index": 12, "elapsed": 2.864, "agent": "search_agent", "output_kind": "final", "target": "bash_agent", "tool_call_count": 0}, {"kind": "message", "index": 13, "elapsed": 2.865, "message": {"role": "assistant", "kind": "final", "sender": "search_agent", "target": "bash_agent", "content": [{"kind": "text", "text": "Sub-agent report:\n- src/simple_agent_lab/tools/wc.py:1 defines wc_lines\n- tests/unit/test_wc.py:8 asserts wc_lines('fixtures/3lines.txt') == 3\n- 1 caller, 1 test. Low blast radius."}]}}, {"kind": "turn_end", "index": 14, "elapsed": 2.866, "agent": "search_agent", "terminated": true}, {"kind": "agent_end", "index": 15, "elapsed": 2.867, "reason": "final"}]}}}}}, {"kind": "turn_end", "index": 19, "elapsed": 5.486, "agent": "bash_agent", "terminated": false}, {"kind": "turn_start", "index": 20, "elapsed": 5.487, "agent": "bash_agent"}, {"kind": "model_request", "index": 21, "elapsed": 5.488, "agent": "bash_agent", "visible_count": 6, "llm_message_count": 6, "visible": [], "context_view": {"input_tokens_estimate": 1842, "messages": 6}, "tools": [], "llm_payload": []}, {"kind": "model_response", "index": 22, "elapsed": 7.034, "agent": "bash_agent", "output_kind": "thought", "target": "bash_agent", "tool_call_count": 1}, {"kind": "message", "index": 23, "elapsed": 7.035, "message": {"role": "assistant", "kind": "thought", "sender": "bash_agent", "target": "bash_agent", "content": [{"kind": "thinking", "text": "Bug is clear: len(split('\\n')) - 1 fails on files without a trailing newline. I'll patch the function and run the test.", "redacted": false}, {"kind": "text", "text": "Applying fix."}, {"kind": "tool_call", "id": "call_04", "name": "bash", "arguments": {"command": "patch -p0 < /tmp/wc.patch && uv run pytest tests/unit/test_wc.py -x"}}], "usage": {"input_tokens": 1842, "output_tokens": 156, "cache_read_tokens": 1200, "cache_write_tokens": 0}, "data": {}}}, {"kind": "tool_execution_start", "index": 24, "elapsed": 7.037, "tool_call_id": "call_04", "tool_name": "bash"}, {"kind": "tool_execution_end", "index": 25, "elapsed": 9.911, "tool_call_id": "call_04", "tool_name": "bash", "is_error": true, "terminate": false}, {"kind": "message", "index": 26, "elapsed": 9.913, "message": {"role": "user", "kind": "tool_result", "sender": "tool", "target": "bash_agent", "content": [{"kind": "tool_result", "tool_call_id": "call_04", "tool_name": "bash", "is_error": true, "content": [{"kind": "text", "text": "patch: **** /tmp/wc.patch: No such file or directory\nexit code: 2"}]}], "data": {}}}, {"kind": "turn_end", "index": 27, "elapsed": 9.915, "agent": "bash_agent", "terminated": false}, {"kind": "context_compression", "index": 28, "elapsed": 9.917, "agent": "bash_agent", "summary_message_index": 22, "compressed_message_indices": [1, 5, 8, 13, 18], "preserved_message_indices": [0], "recent_message_indices": [23, 26], "before_tokens": 4180, "after_tokens": 1432}, {"kind": "turn_start", "index": 29, "elapsed": 9.92, "agent": "bash_agent"}, {"kind": "model_request", "index": 30, "elapsed": 9.921, "agent": "bash_agent", "visible_count": 5, "llm_message_count": 5, "visible": [], "context_view": {"input_tokens_estimate": 1432, "messages": 5}, "tools": [], "llm_payload": []}, {"kind": "model_response", "index": 31, "elapsed": 11.402, "agent": "bash_agent", "output_kind": "thought", "target": "bash_agent", "tool_call_count": 1}, {"kind": "message", "index": 32, "elapsed": 11.403, "message": {"role": "assistant", "kind": "thought", "sender": "bash_agent", "target": "bash_agent", "content": [{"kind": "thinking", "text": "Patch wasn't on disk. I'll write the patch inline with sed and rerun the test.", "redacted": false}, {"kind": "text", "text": "Writing the fix inline and rerunning the test."}, {"kind": "tool_call", "id": "call_05", "name": "bash", "arguments": {"command": "python -c \"import pathlib,re; p=pathlib.Path('src/simple_agent_lab/tools/wc.py'); p.write_text(re.sub(r'.*split.*', '        return sum(1 for _ in f)', p.read_text()))\" && uv run pytest tests/unit/test_wc.py -x"}}], "usage": {"input_tokens": 1432, "output_tokens": 188, "cache_read_tokens": 900, "cache_write_tokens": 0}, "data": {}}}, {"kind": "tool_execution_start", "index": 33, "elapsed": 11.405, "tool_call_id": "call_05", "tool_name": "bash"}, {"kind": "tool_execution_end", "index": 34, "elapsed": 14.821, "tool_call_id": "call_05", "tool_name": "bash", "is_error": false, "terminate": false}, {"kind": "message", "index": 35, "elapsed": 14.823, "message": {"role": "user", "kind": "tool_result", "sender": "tool", "target": "bash_agent", "content": [{"kind": "tool_result", "tool_call_id": "call_05", "tool_name": "bash", "is_error": false, "content": [{"kind": "text", "text": "============= 1 passed in 0.34s =============="}]}], "data": {}}}, {"kind": "turn_end", "index": 36, "elapsed": 14.825, "agent": "bash_agent", "terminated": false}, {"kind": "turn_start", "index": 37, "elapsed": 14.826, "agent": "bash_agent"}, {"kind": "model_request", "index": 38, "elapsed": 14.827, "agent": "bash_agent", "visible_count": 7, "llm_message_count": 7, "visible": [], "context_view": {"input_tokens_estimate": 1812, "messages": 7}, "tools": [], "llm_payload": []}, {"kind": "model_response", "index": 39, "elapsed": 16.118, "agent": "bash_agent", "output_kind": "final", "target": "user", "tool_call_count": 0}, {"kind": "message", "index": 40, "elapsed": 16.119, "message": {"role": "assistant", "kind": "final", "sender": "bash_agent", "target": "user", "content": [{"kind": "text", "text": "Fixed: replaced len(read().split('\\n')) - 1 with sum(1 for _ in f) in src/simple_agent_lab/tools/wc.py. tests/unit/test_wc.py now passes. Suggest adding a fixture without a trailing newline before shipping."}], "usage": {"input_tokens": 1812, "output_tokens": 76, "cache_read_tokens": 1500, "cache_write_tokens": 0}, "data": {}}}, {"kind": "turn_end", "index": 41, "elapsed": 16.12, "agent": "bash_agent", "terminated": true}, {"kind": "agent_end", "index": 42, "elapsed": 16.121, "reason": "final"}], "messages": [], "spans": [], "model_turns": []}
-  </script>
+{"schema": "simple-agent-lab.trajectory.v3", "type": "trajectory", "trace_id": "demo.observatory.001", "producer": "demo:trace-viewer", "task": "Investigate the failing wc-line counter regression and ship a fix with a new test.", "events": [{"index": 0, "elapsed": 0.0, "kind": "message", "message": {"role": "user", "content": [{"text": "Investigate the failing wc-line counter regression and ship a fix with a new test.", "kind": "text"}], "sender": "user", "target": "obs_agent", "kind": "task", "sidecar": {}}}, {"index": 1, "elapsed": 0.25, "kind": "agent_start"}, {"index": 2, "elapsed": 0.5, "kind": "turn_start", "agent": "obs_agent"}, {"index": 3, "elapsed": 0.75, "kind": "model_request", "agent": "obs_agent", "visible_count": 1, "llm_message_count": 2, "context_view": {"input_tokens_estimate": 612, "messages": 2}, "tools": [{"name": "bash", "description": "Run a bash command."}, {"name": "task", "description": "Delegate a focused subtask."}], "llm_payload": [{"role": "system", "content": "You are obs_agent."}, {"role": "user", "content": "Investigate the failing wc-line counter regression and ship a fix with a new test."}]}, {"index": 4, "elapsed": 1.0, "kind": "model_response", "agent": "obs_agent", "output_kind": "thought", "target": "obs_agent", "tool_call_count": 1, "usage": {"input_tokens": 612, "output_tokens": 88, "cache_read_tokens": 0, "cache_write_tokens": 612}, "model": "demo/observatory-mini"}, {"index": 5, "elapsed": 1.25, "kind": "message", "message": {"role": "assistant", "content": [{"text": "Inspect the layout before editing.", "signature": null, "redacted": false, "source_field": null, "kind": "thinking"}, {"text": "Looking at the repo layout.", "kind": "text"}, {"id": "call_01", "name": "bash", "arguments": {"command": "ls src/simple_agent_lab"}, "kind": "tool_call"}], "sender": "obs_agent", "target": "obs_agent", "kind": "thought", "usage": {"input_tokens": 612, "output_tokens": 88, "cache_read_tokens": 0, "cache_write_tokens": 612}, "model": "demo/observatory-mini", "sidecar": {"raw": {"request": {"model": "demo/observatory-mini", "messages": [{"role": "system", "content": "You are obs_agent."}, {"role": "user", "content": [{"type": "text", "text": "Investigate the failing wc-line counter regression and ship a fix with a new test."}]}], "reasoning_effort": "high", "temperature": 1.0, "max_tokens": 400}, "response": {"id": "chatcmpl-demo-0001", "model": "demo/observatory-mini", "choices": [{"index": 0, "finish_reason": "tool_calls", "message": {"role": "assistant", "content": "Looking at the repo layout.", "reasoning": "Inspect the layout before touching files."}}], "usage": {"prompt_tokens": 612, "completion_tokens": 88, "total_tokens": 700, "completion_tokens_details": {"reasoning_tokens": 40}}}}}}}, {"index": 6, "elapsed": 1.5, "kind": "tool_execution_start", "tool_call_id": "call_01", "tool_name": "bash"}, {"index": 7, "elapsed": 1.75, "kind": "tool_execution_end", "tool_call_id": "call_01", "tool_name": "bash", "is_error": false, "terminate": false}, {"index": 8, "elapsed": 2.0, "kind": "message", "message": {"role": "user", "content": [{"tool_call_id": "call_01", "tool_name": "bash", "content": [{"text": "core.py\nmessages.py\nstate.py\ntools/", "kind": "text"}], "is_error": false, "kind": "tool_result"}], "sender": "tool", "target": "obs_agent", "kind": "tool_result", "sidecar": {}}}, {"index": 9, "elapsed": 2.25, "kind": "turn_end", "agent": "obs_agent", "terminated": false}, {"index": 10, "elapsed": 2.5, "kind": "turn_start", "agent": "obs_agent"}, {"index": 11, "elapsed": 2.75, "kind": "model_request", "agent": "obs_agent", "visible_count": 3, "llm_message_count": 4, "context_view": {"input_tokens_estimate": 894, "messages": 4}, "tools": [], "llm_payload": []}, {"index": 12, "elapsed": 3.0, "kind": "model_response", "agent": "obs_agent", "output_kind": "thought", "target": "obs_agent", "tool_call_count": 1, "usage": {"input_tokens": 894, "output_tokens": 120, "cache_read_tokens": 612, "cache_write_tokens": 282}, "model": "demo/observatory-mini"}, {"index": 13, "elapsed": 3.25, "kind": "message", "message": {"role": "assistant", "content": [{"text": "Dispatching a search sub-agent.", "kind": "text"}, {"id": "call_02_task", "name": "task", "arguments": {"agent": "search_agent", "task": "Search for wc_lines callers."}, "kind": "tool_call"}], "sender": "obs_agent", "target": "obs_agent", "kind": "thought", "usage": {"input_tokens": 894, "output_tokens": 120, "cache_read_tokens": 612, "cache_write_tokens": 282}, "model": "demo/observatory-mini", "sidecar": {}}}, {"index": 14, "elapsed": 3.5, "kind": "tool_execution_start", "tool_call_id": "call_02_task", "tool_name": "task"}, {"index": 15, "elapsed": 3.75, "kind": "tool_execution_end", "tool_call_id": "call_02_task", "tool_name": "task", "is_error": false, "terminate": false}, {"index": 16, "elapsed": 4.0, "kind": "message", "message": {"role": "user", "content": [{"tool_call_id": "call_02_task", "tool_name": "task", "content": [{"text": "Sub-agent: wc_lines has 1 caller, 1 test.", "kind": "text"}], "is_error": false, "kind": "tool_result"}], "sender": "tool", "target": "obs_agent", "kind": "tool_result", "sidecar": {"details": {"call_02_task": {"sub_events": [{"index": 0, "elapsed": 0.0, "kind": "message", "message": {"role": "user", "content": [{"text": "Search the repo for wc_lines callers.", "kind": "text"}], "sender": "obs_agent", "target": "search_agent", "kind": "task", "sidecar": {}}}, {"index": 1, "elapsed": 0.25, "kind": "agent_start"}, {"index": 2, "elapsed": 0.5, "kind": "turn_start", "agent": "search_agent"}, {"index": 3, "elapsed": 0.75, "kind": "model_request", "agent": "search_agent", "visible_count": 2, "llm_message_count": 2, "context_view": {"input_tokens_estimate": 188}, "tools": [{"name": "bash", "description": "Run a bash command."}], "llm_payload": []}, {"index": 4, "elapsed": 1.0, "kind": "model_response", "agent": "search_agent", "output_kind": "thought", "target": "search_agent", "tool_call_count": 1, "usage": {"input_tokens": 188, "output_tokens": 40, "cache_read_tokens": 0, "cache_write_tokens": 0}, "model": "demo/observatory-mini"}, {"index": 5, "elapsed": 1.25, "kind": "message", "message": {"role": "assistant", "content": [{"text": "Running ripgrep.", "kind": "text"}, {"id": "sub_call_01", "name": "bash", "arguments": {"command": "rg -n wc_lines"}, "kind": "tool_call"}], "sender": "search_agent", "target": "search_agent", "kind": "thought", "usage": null, "model": "", "sidecar": {}}}, {"index": 6, "elapsed": 1.5, "kind": "tool_execution_start", "tool_call_id": "sub_call_01", "tool_name": "bash"}, {"index": 7, "elapsed": 1.75, "kind": "tool_execution_end", "tool_call_id": "sub_call_01", "tool_name": "bash", "is_error": false, "terminate": false}, {"index": 8, "elapsed": 2.0, "kind": "message", "message": {"role": "user", "content": [{"tool_call_id": "sub_call_01", "tool_name": "bash", "content": [{"text": "src/simple_agent_lab/tools/wc.py:1:def wc_lines", "kind": "text"}], "is_error": false, "kind": "tool_result"}], "sender": "tool", "target": "search_agent", "kind": "tool_result", "sidecar": {}}}, {"index": 9, "elapsed": 2.25, "kind": "turn_end", "agent": "search_agent", "terminated": false}, {"index": 10, "elapsed": 2.5, "kind": "model_response", "agent": "search_agent", "output_kind": "final", "target": "obs_agent", "tool_call_count": 0, "usage": {"input_tokens": 264, "output_tokens": 52, "cache_read_tokens": 0, "cache_write_tokens": 0}, "model": "demo/observatory-mini"}, {"index": 11, "elapsed": 2.75, "kind": "message", "message": {"role": "assistant", "content": [{"text": "wc_lines: 1 caller, 1 test. Low blast radius.", "kind": "text"}], "sender": "search_agent", "target": "obs_agent", "kind": "final", "usage": null, "model": "", "sidecar": {}}}, {"index": 12, "elapsed": 3.0, "kind": "agent_end", "reason": "final"}]}}}}}, {"index": 17, "elapsed": 4.25, "kind": "turn_end", "agent": "obs_agent", "terminated": false}, {"index": 18, "elapsed": 4.5, "kind": "turn_start", "agent": "obs_agent"}, {"index": 19, "elapsed": 4.75, "kind": "model_request", "agent": "obs_agent", "visible_count": 5, "llm_message_count": 6, "context_view": {"input_tokens_estimate": 1842, "messages": 6}, "tools": [], "llm_payload": []}, {"index": 20, "elapsed": 5.0, "kind": "model_response", "agent": "obs_agent", "output_kind": "thought", "target": "obs_agent", "tool_call_count": 1, "usage": {"input_tokens": 1842, "output_tokens": 96, "cache_read_tokens": 894, "cache_write_tokens": 948}, "model": "demo/observatory-mini"}, {"index": 21, "elapsed": 5.25, "kind": "message", "message": {"role": "assistant", "content": [{"text": "Applying the fix.", "kind": "text"}, {"id": "call_03", "name": "bash", "arguments": {"command": "patch -p0 < /tmp/missing.patch"}, "kind": "tool_call"}], "sender": "obs_agent", "target": "obs_agent", "kind": "thought", "usage": {"input_tokens": 1842, "output_tokens": 96, "cache_read_tokens": 894, "cache_write_tokens": 948}, "model": "demo/observatory-mini", "sidecar": {}}}, {"index": 22, "elapsed": 5.5, "kind": "tool_execution_start", "tool_call_id": "call_03", "tool_name": "bash"}, {"index": 23, "elapsed": 5.75, "kind": "tool_execution_end", "tool_call_id": "call_03", "tool_name": "bash", "is_error": true, "terminate": false}, {"index": 24, "elapsed": 6.0, "kind": "message", "message": {"role": "user", "content": [{"tool_call_id": "call_03", "tool_name": "bash", "content": [{"text": "patch: /tmp/missing.patch: No such file", "kind": "text"}], "is_error": true, "kind": "tool_result"}], "sender": "tool", "target": "obs_agent", "kind": "tool_result", "sidecar": {}}}, {"index": 25, "elapsed": 6.25, "kind": "turn_end", "agent": "obs_agent", "terminated": false}, {"index": 26, "elapsed": 6.5, "kind": "context_compression", "agent": "obs_agent", "summary_message_index": 5, "compressed_message_indices": [1, 2, 3, 4], "active_context_indices": [0, 5, 6], "before_tokens": 4180, "after_tokens": 1432}, {"index": 27, "elapsed": 6.75, "kind": "turn_start", "agent": "obs_agent"}, {"index": 28, "elapsed": 7.0, "kind": "model_request", "agent": "obs_agent", "visible_count": 5, "llm_message_count": 5, "context_view": {"input_tokens_estimate": 1432, "messages": 5}, "tools": [], "llm_payload": []}, {"index": 29, "elapsed": 7.25, "kind": "model_response", "agent": "obs_agent", "output_kind": "final", "target": "user", "tool_call_count": 0, "usage": {"input_tokens": 1812, "output_tokens": 76, "cache_read_tokens": 0, "cache_write_tokens": 1812}, "model": "demo/observatory-mini"}, {"index": 30, "elapsed": 7.5, "kind": "message", "message": {"role": "assistant", "content": [{"text": "Fixed the off-by-one in wc.py; the focused test passes.", "kind": "text"}], "sender": "obs_agent", "target": "user", "kind": "final", "usage": {"input_tokens": 1812, "output_tokens": 76, "cache_read_tokens": 0, "cache_write_tokens": 1812}, "model": "demo/observatory-mini", "sidecar": {}}}, {"index": 31, "elapsed": 7.75, "kind": "turn_end", "agent": "obs_agent", "terminated": true}, {"index": 32, "elapsed": 8.0, "kind": "agent_end", "reason": "done"}], "messages": [{"role": "user", "content": [{"text": "Investigate the failing wc-line counter regression and ship a fix with a new test.", "kind": "text"}], "sender": "user", "target": "obs_agent", "kind": "task", "sidecar": {}}, {"role": "assistant", "content": [{"text": "Inspect the layout before editing.", "signature": null, "redacted": false, "source_field": null, "kind": "thinking"}, {"text": "Looking at the repo layout.", "kind": "text"}, {"id": "call_01", "name": "bash", "arguments": {"command": "ls src/simple_agent_lab"}, "kind": "tool_call"}], "sender": "obs_agent", "target": "obs_agent", "kind": "thought", "usage": {"input_tokens": 612, "output_tokens": 88, "cache_read_tokens": 0, "cache_write_tokens": 612}, "model": "demo/observatory-mini", "sidecar": {"raw": {"request": {"model": "demo/observatory-mini", "messages": [{"role": "system", "content": "You are obs_agent."}, {"role": "user", "content": [{"type": "text", "text": "Investigate the failing wc-line counter regression and ship a fix with a new test."}]}], "reasoning_effort": "high", "temperature": 1.0, "max_tokens": 400}, "response": {"id": "chatcmpl-demo-0001", "model": "demo/observatory-mini", "choices": [{"index": 0, "finish_reason": "tool_calls", "message": {"role": "assistant", "content": "Looking at the repo layout.", "reasoning": "Inspect the layout before touching files."}}], "usage": {"prompt_tokens": 612, "completion_tokens": 88, "total_tokens": 700, "completion_tokens_details": {"reasoning_tokens": 40}}}}}}, {"role": "user", "content": [{"tool_call_id": "call_01", "tool_name": "bash", "content": [{"text": "core.py\nmessages.py\nstate.py\ntools/", "kind": "text"}], "is_error": false, "kind": "tool_result"}], "sender": "tool", "target": "obs_agent", "kind": "tool_result", "sidecar": {}}, {"role": "assistant", "content": [{"text": "Dispatching a search sub-agent.", "kind": "text"}, {"id": "call_02_task", "name": "task", "arguments": {"agent": "search_agent", "task": "Search for wc_lines callers."}, "kind": "tool_call"}], "sender": "obs_agent", "target": "obs_agent", "kind": "thought", "usage": {"input_tokens": 894, "output_tokens": 120, "cache_read_tokens": 612, "cache_write_tokens": 282}, "model": "demo/observatory-mini", "sidecar": {}}, {"role": "user", "content": [{"tool_call_id": "call_02_task", "tool_name": "task", "content": [{"text": "Sub-agent: wc_lines has 1 caller, 1 test.", "kind": "text"}], "is_error": false, "kind": "tool_result"}], "sender": "tool", "target": "obs_agent", "kind": "tool_result", "sidecar": {"details": {"call_02_task": {"sub_events": [{"index": 0, "elapsed": 0.0, "kind": "message", "message": {"role": "user", "content": [{"text": "Search the repo for wc_lines callers.", "kind": "text"}], "sender": "obs_agent", "target": "search_agent", "kind": "task", "sidecar": {}}}, {"index": 1, "elapsed": 0.25, "kind": "agent_start"}, {"index": 2, "elapsed": 0.5, "kind": "turn_start", "agent": "search_agent"}, {"index": 3, "elapsed": 0.75, "kind": "model_request", "agent": "search_agent", "visible_count": 2, "llm_message_count": 2, "context_view": {"input_tokens_estimate": 188}, "tools": [{"name": "bash", "description": "Run a bash command."}], "llm_payload": []}, {"index": 4, "elapsed": 1.0, "kind": "model_response", "agent": "search_agent", "output_kind": "thought", "target": "search_agent", "tool_call_count": 1, "usage": {"input_tokens": 188, "output_tokens": 40, "cache_read_tokens": 0, "cache_write_tokens": 0}, "model": "demo/observatory-mini"}, {"index": 5, "elapsed": 1.25, "kind": "message", "message": {"role": "assistant", "content": [{"text": "Running ripgrep.", "kind": "text"}, {"id": "sub_call_01", "name": "bash", "arguments": {"command": "rg -n wc_lines"}, "kind": "tool_call"}], "sender": "search_agent", "target": "search_agent", "kind": "thought", "usage": null, "model": "", "sidecar": {}}}, {"index": 6, "elapsed": 1.5, "kind": "tool_execution_start", "tool_call_id": "sub_call_01", "tool_name": "bash"}, {"index": 7, "elapsed": 1.75, "kind": "tool_execution_end", "tool_call_id": "sub_call_01", "tool_name": "bash", "is_error": false, "terminate": false}, {"index": 8, "elapsed": 2.0, "kind": "message", "message": {"role": "user", "content": [{"tool_call_id": "sub_call_01", "tool_name": "bash", "content": [{"text": "src/simple_agent_lab/tools/wc.py:1:def wc_lines", "kind": "text"}], "is_error": false, "kind": "tool_result"}], "sender": "tool", "target": "search_agent", "kind": "tool_result", "sidecar": {}}}, {"index": 9, "elapsed": 2.25, "kind": "turn_end", "agent": "search_agent", "terminated": false}, {"index": 10, "elapsed": 2.5, "kind": "model_response", "agent": "search_agent", "output_kind": "final", "target": "obs_agent", "tool_call_count": 0, "usage": {"input_tokens": 264, "output_tokens": 52, "cache_read_tokens": 0, "cache_write_tokens": 0}, "model": "demo/observatory-mini"}, {"index": 11, "elapsed": 2.75, "kind": "message", "message": {"role": "assistant", "content": [{"text": "wc_lines: 1 caller, 1 test. Low blast radius.", "kind": "text"}], "sender": "search_agent", "target": "obs_agent", "kind": "final", "usage": null, "model": "", "sidecar": {}}}, {"index": 12, "elapsed": 3.0, "kind": "agent_end", "reason": "final"}]}}}}, {"role": "assistant", "content": [{"text": "Applying the fix.", "kind": "text"}, {"id": "call_03", "name": "bash", "arguments": {"command": "patch -p0 < /tmp/missing.patch"}, "kind": "tool_call"}], "sender": "obs_agent", "target": "obs_agent", "kind": "thought", "usage": {"input_tokens": 1842, "output_tokens": 96, "cache_read_tokens": 894, "cache_write_tokens": 948}, "model": "demo/observatory-mini", "sidecar": {}}, {"role": "user", "content": [{"tool_call_id": "call_03", "tool_name": "bash", "content": [{"text": "patch: /tmp/missing.patch: No such file", "kind": "text"}], "is_error": true, "kind": "tool_result"}], "sender": "tool", "target": "obs_agent", "kind": "tool_result", "sidecar": {}}, {"role": "assistant", "content": [{"text": "Fixed the off-by-one in wc.py; the focused test passes.", "kind": "text"}], "sender": "obs_agent", "target": "user", "kind": "final", "usage": {"input_tokens": 1812, "output_tokens": 76, "cache_read_tokens": 0, "cache_write_tokens": 1812}, "model": "demo/observatory-mini", "sidecar": {}}], "spans": [{"id": "demo.observatory.001.run1", "parent_id": null, "kind": "agent_run", "start": 0.25, "end": 8.0, "attributes": {"reason": "done"}}, {"id": "demo.observatory.001.turn1", "parent_id": "demo.observatory.001.run1", "kind": "turn", "start": 0.5, "end": 2.25, "attributes": {"agent": "obs_agent", "terminated": false}}, {"id": "demo.observatory.001.call1", "parent_id": "demo.observatory.001.turn1", "kind": "model_call", "start": 0.75, "end": 1.0, "input": [{"role": "system", "content": "You are obs_agent."}, {"role": "user", "content": "Investigate the failing wc-line counter regression and ship a fix with a new test."}], "output": {"kind": "thought", "target": "obs_agent", "tool_call_count": 1, "model": "demo/observatory-mini", "usage": {"input_tokens": 612, "output_tokens": 88, "cache_read_tokens": 0, "cache_write_tokens": 612}}, "attributes": {"agent": "obs_agent", "visible_count": 1, "llm_message_count": 2, "tools": [{"name": "bash", "description": "Run a bash command."}, {"name": "task", "description": "Delegate a focused subtask."}]}}, {"id": "demo.observatory.001.tool1", "parent_id": "demo.observatory.001.turn1", "kind": "tool_call", "start": 1.5, "end": 1.75, "attributes": {"tool_call_id": "call_01", "tool_name": "bash", "is_error": false, "terminate": false}}, {"id": "demo.observatory.001.turn2", "parent_id": "demo.observatory.001.run1", "kind": "turn", "start": 2.5, "end": 4.25, "attributes": {"agent": "obs_agent", "terminated": false}}, {"id": "demo.observatory.001.call2", "parent_id": "demo.observatory.001.turn2", "kind": "model_call", "start": 2.75, "end": 3.0, "input": [], "output": {"kind": "thought", "target": "obs_agent", "tool_call_count": 1, "model": "demo/observatory-mini", "usage": {"input_tokens": 894, "output_tokens": 120, "cache_read_tokens": 612, "cache_write_tokens": 282}}, "attributes": {"agent": "obs_agent", "visible_count": 3, "llm_message_count": 4, "tools": []}}, {"id": "demo.observatory.001.tool2", "parent_id": "demo.observatory.001.turn2", "kind": "tool_call", "start": 3.5, "end": 3.75, "attributes": {"tool_call_id": "call_02_task", "tool_name": "task", "is_error": false, "terminate": false}}, {"id": "demo.observatory.001.turn3", "parent_id": "demo.observatory.001.run1", "kind": "turn", "start": 4.5, "end": 6.25, "attributes": {"agent": "obs_agent", "terminated": false}}, {"id": "demo.observatory.001.call3", "parent_id": "demo.observatory.001.turn3", "kind": "model_call", "start": 4.75, "end": 5.0, "input": [], "output": {"kind": "thought", "target": "obs_agent", "tool_call_count": 1, "model": "demo/observatory-mini", "usage": {"input_tokens": 1842, "output_tokens": 96, "cache_read_tokens": 894, "cache_write_tokens": 948}}, "attributes": {"agent": "obs_agent", "visible_count": 5, "llm_message_count": 6, "tools": []}}, {"id": "demo.observatory.001.tool3", "parent_id": "demo.observatory.001.turn3", "kind": "tool_call", "start": 5.5, "end": 5.75, "attributes": {"tool_call_id": "call_03", "tool_name": "bash", "is_error": true, "terminate": false}}, {"id": "demo.observatory.001.compression1", "parent_id": "demo.observatory.001.run1", "kind": "compression", "start": 6.5, "end": 6.5, "attributes": {"agent": "obs_agent", "before_tokens": 4180, "after_tokens": 1432, "summary_message_index": 5, "compressed_message_indices": [1, 2, 3, 4]}}, {"id": "demo.observatory.001.turn4", "parent_id": "demo.observatory.001.run1", "kind": "turn", "start": 6.75, "end": 7.75, "attributes": {"agent": "obs_agent", "terminated": true}}, {"id": "demo.observatory.001.call4", "parent_id": "demo.observatory.001.turn4", "kind": "model_call", "start": 7.0, "end": 7.25, "input": [], "output": {"kind": "final", "target": "user", "tool_call_count": 0, "model": "demo/observatory-mini", "usage": {"input_tokens": 1812, "output_tokens": 76, "cache_read_tokens": 0, "cache_write_tokens": 1812}}, "attributes": {"agent": "obs_agent", "visible_count": 5, "llm_message_count": 5, "tools": []}}], "model_turns": [{"step_id": "demo.observatory.001.model1", "agent": "obs_agent", "input_messages": [{"role": "system", "content": "You are obs_agent."}, {"role": "user", "content": "Investigate the failing wc-line counter regression and ship a fix with a new test."}], "output_message": {"role": "assistant", "content": [{"text": "Inspect the layout before editing.", "signature": null, "redacted": false, "source_field": null, "kind": "thinking"}, {"text": "Looking at the repo layout.", "kind": "text"}, {"id": "call_01", "name": "bash", "arguments": {"command": "ls src/simple_agent_lab"}, "kind": "tool_call"}], "sender": "obs_agent", "target": "obs_agent", "kind": "thought", "usage": {"input_tokens": 612, "output_tokens": 88, "cache_read_tokens": 0, "cache_write_tokens": 612}, "model": "demo/observatory-mini", "sidecar": {"raw": {"request": {"model": "demo/observatory-mini", "messages": [{"role": "system", "content": "You are obs_agent."}, {"role": "user", "content": [{"type": "text", "text": "Investigate the failing wc-line counter regression and ship a fix with a new test."}]}], "reasoning_effort": "high", "temperature": 1.0, "max_tokens": 400}, "response": {"id": "chatcmpl-demo-0001", "model": "demo/observatory-mini", "choices": [{"index": 0, "finish_reason": "tool_calls", "message": {"role": "assistant", "content": "Looking at the repo layout.", "reasoning": "Inspect the layout before touching files."}}], "usage": {"prompt_tokens": 612, "completion_tokens": 88, "total_tokens": 700, "completion_tokens_details": {"reasoning_tokens": 40}}}}}}, "tools": [{"name": "bash", "description": "Run a bash command."}, {"name": "task", "description": "Delegate a focused subtask."}], "meta": {"visible_count": 1, "model_message_count": 2, "request_event_index": 3, "message_event_index": 5}}, {"step_id": "demo.observatory.001.model2", "agent": "obs_agent", "input_messages": [], "output_message": {"role": "assistant", "content": [{"text": "Dispatching a search sub-agent.", "kind": "text"}, {"id": "call_02_task", "name": "task", "arguments": {"agent": "search_agent", "task": "Search for wc_lines callers."}, "kind": "tool_call"}], "sender": "obs_agent", "target": "obs_agent", "kind": "thought", "usage": {"input_tokens": 894, "output_tokens": 120, "cache_read_tokens": 612, "cache_write_tokens": 282}, "model": "demo/observatory-mini", "sidecar": {}}, "tools": [], "meta": {"visible_count": 3, "model_message_count": 4, "request_event_index": 11, "message_event_index": 13}}, {"step_id": "demo.observatory.001.model3", "agent": "obs_agent", "input_messages": [], "output_message": {"role": "assistant", "content": [{"text": "Applying the fix.", "kind": "text"}, {"id": "call_03", "name": "bash", "arguments": {"command": "patch -p0 < /tmp/missing.patch"}, "kind": "tool_call"}], "sender": "obs_agent", "target": "obs_agent", "kind": "thought", "usage": {"input_tokens": 1842, "output_tokens": 96, "cache_read_tokens": 894, "cache_write_tokens": 948}, "model": "demo/observatory-mini", "sidecar": {}}, "tools": [], "meta": {"visible_count": 5, "model_message_count": 6, "request_event_index": 19, "message_event_index": 21}}, {"step_id": "demo.observatory.001.model4", "agent": "obs_agent", "input_messages": [], "output_message": {"role": "assistant", "content": [{"text": "Fixed the off-by-one in wc.py; the focused test passes.", "kind": "text"}], "sender": "obs_agent", "target": "user", "kind": "final", "usage": {"input_tokens": 1812, "output_tokens": 76, "cache_read_tokens": 0, "cache_write_tokens": 1812}, "model": "demo/observatory-mini", "sidecar": {}}, "tools": [], "meta": {"visible_count": 5, "model_message_count": 5, "request_event_index": 28, "message_event_index": 30}}], "meta": {"model": "demo/observatory-mini", "provider": "fake", "run_label": "observatory-demo"}}
+</script>
 
   <script>
   /* ============================================================
@@ -3014,23 +3289,60 @@
     return `${(n/1_000_000).toFixed(n < 10_000_000 ? 1 : 0).replace(/\.0$/, "")}M`;
   }
 
+  // ===== BEGIN trace-schema accessors =====
+  // The SINGLE place that encodes how the viewer reads the trajectory schema
+  // (where the provider raw blob and sub-agent details live on a message, how
+  // a model name is derived). Pure + self-contained so the contract test
+  // (studio/trace-viewer/test/contract.test.mjs) can extract this exact block
+  // and exercise it against a real generated fixture
+  // (tests/unit/test_trace_fixture_golden.py). If the runtime renames a trace
+  // field, change it HERE — the contract test then follows automatically, so a
+  // producer/viewer drift fails CI instead of going silently blank.
+  const TraceSchema = (function () {
+    const SUPPORTED_SCHEMA = "simple-agent-lab.trajectory.v3";
+    // The per-message provider bag. The runtime field is `sidecar` (it was the
+    // open `data` bag pre-d15cd89); accept either so older traces still load.
+    function sidecarOf(msg) {
+      return (msg && (msg.sidecar || msg.data)) || null;
+    }
+    // Verbatim provider request/response snapshot — the Wire debug panel.
+    function wireRaw(msg) {
+      const s = sidecarOf(msg);
+      return (s && s.raw) || null;
+    }
+    // Map of tool_call_id -> tool detail (sub-agent runs carry `sub_events`).
+    function sidecarDetails(msg) {
+      const s = sidecarOf(msg);
+      return (s && s.details) || null;
+    }
+    // The nested sub-agent event list for one delegated tool call, or null.
+    function subEvents(msg, callId) {
+      const details = sidecarDetails(msg);
+      const entry = details && details[callId];
+      return (entry && entry.sub_events) || null;
+    }
+    // Per-call model wins over trace-level meta; the `provider/` prefix is
+    // stripped because the MODEL_CALL label already says it's a model.
+    function modelName(outputMessage, traceMeta) {
+      const raw = wireRaw(outputMessage);
+      const candidate =
+           (raw && raw.response && raw.response.model)
+        || (raw && raw.request && raw.request.model)
+        || (outputMessage && outputMessage.model)
+        || (traceMeta && traceMeta.model)
+        || null;
+      if (!candidate || typeof candidate !== "string") return "";
+      const trimmed = candidate.trim();
+      const slash = trimmed.lastIndexOf("/");
+      return slash >= 0 ? trimmed.slice(slash + 1) : trimmed;
+    }
+    return { SUPPORTED_SCHEMA, sidecarOf, wireRaw, sidecarDetails, subEvents, modelName };
+  })();
+  // ===== END trace-schema accessors =====
+
   // Extract a short model identifier from an assistant message + trace meta.
-  // Prefers per-call sources (the actual model that responded) over the
-  // trace-level meta.model. Strips any `provider/` prefix because the kind
-  // label `MODEL_CALL` already says it's a model and the provider half is
-  // rarely informative at a glance.
   function extractModelName(outputMessage, traceMeta) {
-    const raw = outputMessage?.data?.raw;
-    const candidate =
-         (raw && raw.response && raw.response.model)
-      || (raw && raw.request  && raw.request.model)
-      || outputMessage?.model
-      || traceMeta?.model
-      || null;
-    if (!candidate || typeof candidate !== "string") return "";
-    const trimmed = candidate.trim();
-    const slash = trimmed.lastIndexOf("/");
-    return slash >= 0 ? trimmed.slice(slash + 1) : trimmed;
+    return TraceSchema.modelName(outputMessage, traceMeta);
   }
 
   // ---------- tool input preview ----------
@@ -3169,9 +3481,13 @@
     // Composite key combines tool name + raw id; the name component disambiguates
     // when a producer reuses id strings (some of ours use id="bash" everywhere).
     const queueKey = (toolName, callId) => `${toolName || ""}\u0000${callId || ""}`;
+    // Track the latest event time so still-open spans can be flushed with a
+    // sensible end below (live traces have no closing events yet).
+    let lastT = baseTime;
     for (const ev of events) {
       const k = ev.kind;
       const t = ev.elapsed + baseTime;
+      if (t > lastT) lastT = t;
       if (k === "message" && ev.message?.role === "assistant") {
         for (const b of (ev.message.content || [])) {
           if (b && b.kind === "tool_call") {
@@ -3235,6 +3551,8 @@
               model_name: modelName,
               usage_in:  usage?.input_tokens  ?? null,
               usage_out: usage?.output_tokens ?? null,
+              usage_cache_read:  usage?.cache_read_tokens  ?? null,
+              usage_cache_write: usage?.cache_write_tokens ?? null,
             } });
         }
       } else if (k === "tool_execution_start") {
@@ -3274,10 +3592,28 @@
                                    compressed_message_indices: ev.compressed_message_indices } });
       }
     }
+    // Flush spans still on the stack — these are in-progress when the trace is
+    // live (e.g. agent_run with no agent_end yet, or the currently-running
+    // turn). Without this the root agent_run span is missing, every closed
+    // child is orphaned under a parent that was never emitted, and the tree
+    // renders empty even though spans.length is non-zero. We give them an end
+    // of lastT (the latest event seen) and mark them running so the inspector
+    // can distinguish them from completed spans.
+    for (const open of stack) {
+      spans.push({
+        id: open.id,
+        parent_id: open.parent_id ?? null,
+        kind: open.kind,
+        start: open.start,
+        end: lastT,
+        input: open.input,
+        attributes: { ...open.attributes, running: true },
+      });
+    }
     return spans;
   }
 
-  // Inline sub-agent spans (from tool_result.data.details[*].sub_events) under
+  // Inline sub-agent spans (from tool_result sidecar.details[*].sub_events) under
   // their parent tool_call span. Marks sub-agent spans with depth >= 1.
   function mergedSpans(trace) {
     const parent = spansFromEvents(trace.trace_id, trace.events, 0, trace.meta);
@@ -3287,7 +3623,7 @@
       if (m.kind !== "message") continue;
       const msg = m.message;
       if (msg?.role !== "user" || msg?.kind !== "tool_result") continue;
-      const details = msg.data?.details;
+      const details = TraceSchema.sidecarDetails(msg);
       if (!details) continue;
       for (const [callId, detail] of Object.entries(details)) {
         if (Array.isArray(detail?.sub_events) && detail.sub_events.length) {
@@ -3366,42 +3702,9 @@
     return turns;
   }
 
-  // ---------- schema normalization ----------
-  // The runtime renamed the open `Message.data` bag to a typed `MessageSidecar`
-  // (commit d15cd89), so every real trajectory now carries the raw wire blob and
-  // sub-agent details under `message.sidecar`. This viewer still reads that slot
-  // as `message.data` (raw panel, model name, sub-agent drill-down). Rather than
-  // touch the ~9 downstream `.data` reads, alias `sidecar` onto `data` on every
-  // message once at ingestion. Idempotent, and back-compatible with older traces
-  // (and the bundled sample) that still use `data`.
-  function aliasMessageSidecar(trace) {
-    if (!trace) return;
-    const seen = new Set();
-    const visitMessage = (m) => {
-      if (!m || typeof m !== "object" || seen.has(m)) return;
-      seen.add(m);
-      if (m.sidecar && m.data == null) m.data = m.sidecar;
-      const details = m.data && m.data.details;
-      if (details && typeof details === "object") {
-        for (const callId of Object.keys(details)) {
-          visitEvents(details[callId] && details[callId].sub_events);
-        }
-      }
-    };
-    const visitEvents = (events) => {
-      if (!Array.isArray(events)) return;
-      for (const ev of events) {
-        if (ev && ev.message) visitMessage(ev.message);
-      }
-    };
-    visitEvents(trace.events);
-    if (Array.isArray(trace.messages)) trace.messages.forEach(visitMessage);
-  }
-
   // ---------- rendering ----------
   function setTrace(trace, { incremental = false } = {}) {
     perfMark("setTrace_start");
-    aliasMessageSidecar(trace);
     invalidateTraceCache();
     // Incremental refresh: a poll detected the file grew, so we re-render
     // the trace in-place. Preserve user state so the screen doesn't jolt:
@@ -3857,9 +4160,47 @@
     }
   }
 
+  /* Flag model calls that re-read context they could have served from cache.
+   * For each agent, a call's cacheable prefix is whatever the previous call
+   * already sent (usage_in). A healthy continuation reuses most of it via
+   * cache_read; when reuse collapses below half, the prefix changed or the
+   * cache TTL lapsed — either way the model paid to re-read context, and a
+   * mutated prefix is a common cause of silent behaviour drift. Returns a
+   * Map<spanId, {reuse, expected, lost}> for the flagged calls only, and is
+   * a no-op for traces with no cache instrumentation at all. */
+  function computeCacheBreaks(spans) {
+    const out = new Map();
+    const calls = spans
+      .filter(s => s.kind === "model_call")
+      .slice()
+      .sort((a, b) => a.start - b.start);
+    const hasCacheData = calls.some(s =>
+      (s.attributes?.usage_cache_read || 0) > 0 || (s.attributes?.usage_cache_write || 0) > 0);
+    if (!hasCacheData) return out;
+    const prevByAgent = new Map();
+    for (const s of calls) {
+      const agent = s.attributes?.agent || "";
+      const inTok = s.attributes?.usage_in || 0;
+      const reuse = s.attributes?.usage_cache_read || 0;
+      const prev = prevByAgent.get(agent);
+      prevByAgent.set(agent, s);
+      if (!prev) continue; // first call per agent writes the cache, never reads.
+      const cacheable = prev.attributes?.usage_in || 0;
+      // Need a prefix worth caching and a call big enough to expect reuse,
+      // so tiny early turns don't trip the marker.
+      if (cacheable < 1024 || inTok < 1024) continue;
+      const expected = Math.min(cacheable, inTok);
+      if (reuse < expected * 0.5) {
+        out.set(s.id, { reuse, expected, lost: Math.max(0, expected - reuse) });
+      }
+    }
+    return out;
+  }
+
   function renderTree() {
     const spans = State.spans;
     $("#span-count").textContent = `${spans.length} nodes`;
+    const cacheBreaks = computeCacheBreaks(spans);
     const byParent = {};
     for (const s of spans) (byParent[s.parent_id ?? "__root__"] ||= []).push(s);
     function render(pid, depth) {
@@ -3876,7 +4217,7 @@
         // For model_call we apply the same pattern: model name leads, usage
         // and tool-call count trail in dim mono. The agent name is dropped
         // (it's already on the parent TURN row).
-        let labelName, labelHtml, nodeTitle = "";
+        let labelName, labelHtml, nodeTitle = "", cacheBadge = "";
         if (s.kind === "tool_call") {
           const toolName = s.attributes?.tool_name || "?";
           const argLabel = s.attributes?.input_label || "";
@@ -3915,6 +4256,10 @@
           }
           if (toolN) titleBits.push(`${toolN} tool call${toolN === 1 ? "" : "s"}`);
           nodeTitle = titleBits.join("\n");
+          const cb = cacheBreaks.get(s.id);
+          if (cb) {
+            cacheBadge = `<span class="cache-dot" title="cache break · reused ${fmt(cb.reuse)} of ~${fmt(cb.expected)} cacheable tokens (re-read ${fmt(cb.lost)}).&#10;The context prefix changed or the cache TTL expired — extra cost, and a mutated prefix often explains sudden behaviour drift."></span>`;
+          }
         } else {
           labelName = s.kind === "agent_run"
               ? (s.subagent ? `sub-agent (${s.attributes?.reason || "running"})` : `agent_run`)
@@ -3941,6 +4286,7 @@
               <span class="node-name">${labelHtml}</span>
             </span>
             <span style="display:flex; align-items:center; gap:8px;">
+              ${cacheBadge}
               ${errBadge}
               <span class="node-dur">${dur(d)}</span>
             </span>
@@ -4277,7 +4623,7 @@
           flat.push({ kind: "msg", depth: 0, ev, t: ev.elapsed });
           // collect sub-agent messages into a foldable group at the tool-call time
           if (ev.message?.kind === "tool_result") {
-            const details = ev.message?.data?.details || {};
+            const details = TraceSchema.sidecarDetails(ev.message) || {};
             for (const [callId, d] of Object.entries(details)) {
               if (Array.isArray(d?.sub_events)) {
                 // find the corresponding tool span to compute time offset
@@ -4325,7 +4671,7 @@
       for (const ev of events) {
         flat.push({ depth: 0, ev, t: ev.elapsed });
         if (ev.kind === "message" && ev.message?.kind === "tool_result") {
-          const details = ev.message?.data?.details || {};
+          const details = TraceSchema.sidecarDetails(ev.message) || {};
           for (const [callId, d] of Object.entries(details)) {
             if (Array.isArray(d?.sub_events)) {
               const toolStart = (() => {
@@ -4440,8 +4786,14 @@
     if (text) previews.push(`<div class="preview">${escapeHtml(text)}</div>`);
     const calls = blocks.filter(b => b.kind === "tool_call");
     for (const c of calls) {
-      const argStr = clamp(JSON.stringify(c.arguments || {}), 220);
-      previews.push(`<div class="preview mono">→ ${escapeHtml(c.name)}(${escapeHtml(argStr)})</div>`);
+      // Prefer a tasteful per-tool one-liner (e.g. the bash command itself)
+      // over a raw JSON arg dump; fall back to clamped JSON for tools we have
+      // no special preview for.
+      const inputPreview = extractToolInput(c.name, c.arguments || {}).label;
+      const body = inputPreview
+        ? `→ ${escapeHtml(c.name)} · ${escapeHtml(inputPreview)}`
+        : `→ ${escapeHtml(c.name)}(${escapeHtml(clamp(JSON.stringify(c.arguments || {}), 220))})`;
+      previews.push(`<div class="preview mono">${body}</div>`);
     }
     const results = blocks.filter(b => b.kind === "tool_result");
     for (const tr of results) {
@@ -4661,6 +5013,35 @@
       </header>`;
   }
 
+  // Locate the tool_result content block for a tool_call_id. Scans top-level
+  // events and any sub-agent sub_events (a sub-agent's tool calls keep their
+  // own ids), so selecting a tool_call span can surface its output even when
+  // the message stream is collapsed.
+  function findToolResultBlock(toolCallId) {
+    if (!toolCallId || !State.trace) return null;
+    const scan = (events) => {
+      for (const e of (events || [])) {
+        if (e.kind !== "message" || !e.message) continue;
+        if (e.message.kind === "tool_result") {
+          for (const b of (e.message.content || [])) {
+            if (b.kind === "tool_result" && b.tool_call_id === toolCallId) return b;
+          }
+        }
+        const det = TraceSchema.sidecarDetails(e.message);
+        if (det) {
+          for (const d of Object.values(det)) {
+            if (Array.isArray(d?.sub_events)) {
+              const found = scan(d.sub_events);
+              if (found) return found;
+            }
+          }
+        }
+      }
+      return null;
+    };
+    return scan(State.trace.events);
+  }
+
   function renderInspector() {
     const root = $("#inspector");
     const sel = State.selected;
@@ -4781,6 +5162,19 @@
         }
       }
       let extra = deferredSections;
+      // For a tool_call, surface its result (stdout / error) right here so the
+      // span is self-contained without opening the message stream.
+      if (s.kind === "tool_call") {
+        const block = findToolResultBlock(a.tool_call_id);
+        if (block) {
+          const inner = trimBlockText((block.content || []).map(x => x.text || "").join("\n"));
+          const len = inner.length;
+          extra += `<div class="section-label"><span>output${block.is_error ? ' · <span style="color:var(--signal)">error</span>' : ""}</span><span>${len ? `${len} chars` : "empty"}</span></div>`;
+          extra += renderContentBlocks([block]);
+        } else {
+          extra += `<div class="section-label">output</div><div class="preview muted">no tool result recorded</div>`;
+        }
+      }
       const header = renderInspectorHeader({
         topRight: s.id,
         title: inspectorSpanTitle(s),
@@ -4806,8 +5200,8 @@
       if (!ev && rest.length >= 2 && rest[0] === "sub") {
         const callId = rest.slice(1).join(":");
         for (const e of State.trace.events) {
-          if (e.kind === "message" && e.message?.data?.details?.[callId]?.sub_events) {
-            ev = e.message.data.details[callId].sub_events.find(s => s.index === idx);
+          if (e.kind === "message" && TraceSchema.subEvents(e.message, callId)) {
+            ev = TraceSchema.subEvents(e.message, callId).find(s => s.index === idx);
             if (ev) break;
           }
         }
@@ -4951,9 +5345,38 @@
     return `<div class="content-blocks">${visible.map(renderContentBlock).filter(Boolean).join("")}</div>`;
   }
 
+  // Pull a shell command out of a bash-like tool call's args, if present. The
+  // command is the one arg we want rendered as a real multi-line script rather
+  // than a JSON string with escaped \n / \\ — see formatToolCallBody.
+  function bashCommandFromArgs(toolName, args) {
+    const name = String(toolName || "").toLowerCase();
+    if (name !== "bash" && name !== "shell" && name !== "run") return "";
+    const cmd = args && args.command;
+    return (typeof cmd === "string" && cmd.trim()) ? cmd : "";
+  }
+
   function formatToolCallBody(b) {
     const args = b.arguments || {};
     if (toolCallArgsAreMinimal(args)) return "";
+    // Bash-like tool calls: render the shell `command` as a real multi-line
+    // script block (actual newlines) instead of a JSON string littered with
+    // \n / \\ escapes. The description (if any) leads above it, and any other
+    // keys fall through to a small JSON tail so nothing is hidden.
+    const shellCmd = bashCommandFromArgs(b.name, args);
+    if (shellCmd) {
+      const rest = { ...args };
+      delete rest.command;
+      const parts = [];
+      if (typeof rest.description === "string" && rest.description.trim()) {
+        parts.push(`<div class="blk-cmd-desc">${escapeHtml(rest.description.trim())}</div>`);
+      }
+      delete rest.description;
+      parts.push(`<pre class="blk-cmd">${escapeHtml(shellCmd)}</pre>`);
+      if (Object.keys(rest).length) {
+        parts.push(`<pre class="blk-args">${escapeHtml(JSON.stringify(rest, null, 2))}</pre>`);
+      }
+      return parts.join("");
+    }
     const compact = JSON.stringify(args);
     if (compact.length <= 120) {
       return `<code class="blk-call-inline">${escapeHtml(compact)}</code>`;
@@ -4968,6 +5391,8 @@
 
   function toolCallBlockIsCompact(b) {
     const args = b.arguments || {};
+    // A bash command renders as a multi-line <pre> script block, never inline.
+    if (bashCommandFromArgs(b.name, args)) return false;
     const compact = JSON.stringify(args);
     return toolCallArgsAreMinimal(args) || compact.length <= 120;
   }
@@ -5118,7 +5543,7 @@
       const e = events[i];
       if (e.kind === "model_request") return { request: null, response: null };
       if (e.kind === "message" && e.message?.role === "assistant") {
-        const raw = e.message?.data?.raw;
+        const raw = TraceSchema.wireRaw(e.message);
         const request = raw?.request && typeof raw.request === "object" ? raw.request : null;
         const response = raw?.response != null ? raw.response : null;
         return { request, response };
@@ -5236,8 +5661,8 @@
       if (!ev && String(replayId).includes(":sub:")) {
         const callId = String(replayId).split(":sub:").slice(1).join(":");
         outer: for (const e of events) {
-          if (e.kind === "message" && e.message?.data?.details?.[callId]?.sub_events) {
-            subEvents = e.message.data.details[callId].sub_events;
+          if (e.kind === "message" && TraceSchema.subEvents(e.message, callId)) {
+            subEvents = TraceSchema.subEvents(e.message, callId);
             ev = subEvents.find(s => s.index === idx);
             if (ev) break outer;
           }
@@ -5680,6 +6105,16 @@
   });
   $("#sample-btn").addEventListener("click", () => loadEmbeddedSample());
 
+  // Center column collapse/expand
+  $("#center-collapse")?.addEventListener("click", () => setCenterCollapsed(true));
+  const railEl = $("#center-rail");
+  if (railEl) {
+    railEl.addEventListener("click", () => setCenterCollapsed(false));
+    railEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setCenterCollapsed(false); }
+    });
+  }
+
   /* ---------- collapsible chrome (stat strip + waterfall) ---------- */
   const PREFS_KEY = "obs.viewer.prefs";
   function loadPrefs() {
@@ -5864,8 +6299,31 @@
     });
   }
 
+  // Center stream/timeline column — collapsed by default so the default view
+  // is the tree + wire-debug two-pane people actually use; expand on demand.
+  function setCenterCollapsed(collapsed, { persist = true } = {}) {
+    const grid = document.querySelector("main.grid.workspace");
+    const btn = $("#center-collapse");
+    if (!grid) return;
+    const next = !!collapsed;
+    grid.dataset.centerCollapsed = next ? "1" : "0";
+    if (btn) btn.setAttribute("aria-expanded", next ? "false" : "true");
+    if (!next) {
+      // SVG timeline was display:none while collapsed — re-render so it sizes
+      // to the freshly-shown column.
+      try { renderWaterfall(); } catch (_) { /* no trace yet */ }
+    }
+    if (persist) {
+      const p = loadPrefs();
+      p.centerCollapsed = next;
+      savePrefs(p);
+    }
+  }
+
   function applyPrefs() {
     const p = loadPrefs();
+    // Center column — default collapsed (tree + wire two-pane)
+    setCenterCollapsed(p.centerCollapsed !== false, { persist: false });
     // Stat strip — default to collapsed (high info density)
     const stripCollapsed = p.stripCollapsed !== false;
     $("#stat-strip-wrap").dataset.collapsed = stripCollapsed ? "1" : "0";
@@ -5897,6 +6355,100 @@
     prevTracePaths: new Set(),
   };
   _expSidebarReady = true;
+
+  /* ============================================================
+   * Evaluation verdicts — index pass/fail from per-run eval_result files
+   * ============================================================
+   * Each judge is bound to the run that produced it: the server tags a run's
+   * aggregate verdicts (``<run_id>/eval_results.jsonl``, schema
+   * simple-agent-lab.evaluation.v1) as kind "eval_result" AND derives the same
+   * run_id it derives for that run's trajectories. We fetch each file whole
+   * (via /api/records), key every record by (run_id, instance_id), and expose
+   * verdictForTrace() so the experiment list can badge each instance and the
+   * scoreboard can aggregate per run. Joining on run_id (not instance_id alone)
+   * keeps two runs of the same instance from clobbering each other. Files are
+   * re-fetched only when their mtime changes, so this stays cheap across the
+   * live poll loop. Legacy suite-level files (no run_id) are intentionally
+   * ignored — re-run the eval to produce a run-scoped file.
+   */
+  const Verdicts = {
+    byRunInstance: new Map(),  // `${run_id} ${instance_id}` -> verdict
+    fileMtime: new Map(),
+    inFlight: false,
+  };
+
+  const runInstanceKey = (runId, instanceId) => `${runId ?? ""} ${instanceId ?? ""}`;
+
+  function ingestEvalRecord(rec, runId, sourcePath) {
+    if (!rec || typeof rec !== "object" || !runId) return;
+    const m = rec.metrics || {};
+    const meta = rec.meta || {};
+    const traceId = rec.trace_id || null;
+    // instance_id can live at the top level, in metrics/meta, or be derivable
+    // from a "<suite>.<instance_id>" trace_id.
+    let instanceId = rec.instance_id || m.instance_id || meta.instance_id || null;
+    if (!instanceId && typeof traceId === "string" && traceId.includes(".")) {
+      instanceId = traceId.slice(traceId.indexOf(".") + 1);
+    }
+    if (!instanceId) return;
+    const resolved = rec.passed != null ? !!rec.passed
+      : m.resolved != null ? !!m.resolved
+      : rec.resolved != null ? !!rec.resolved
+      : null;
+    const score = typeof rec.score === "number" ? rec.score
+      : resolved == null ? null : (resolved ? 1 : 0);
+    const status = rec.status || m.status
+      || (resolved == null ? "ungraded" : resolved ? "resolved" : "unresolved");
+    Verdicts.byRunInstance.set(runInstanceKey(runId, instanceId), {
+      resolved, score, status,
+      scorer: rec.scorer || "",
+      reason: rec.reason || "",
+      testsStatus: m.tests_status || null,
+      patchApplied: m.patch_successfully_applied ?? null,
+      runId, instanceId, traceId, source: sourcePath,
+    });
+  }
+
+  // Fetch any run-scoped eval_result files whose mtime changed and (re)index
+  // them. Returns true when the verdict index actually changed so callers can
+  // decide whether to re-render.
+  async function refreshVerdicts() {
+    if (Verdicts.inFlight) return false;
+    // Only run-bound files (server attached a run_id); legacy suite-level files
+    // have no run_id and are skipped.
+    const evalFiles = (Picker.traces || []).filter(t => t.kind === "eval_result" && t.run_id);
+    const stale = evalFiles.filter(t => Verdicts.fileMtime.get(t.path) !== t.mtime);
+    if (!stale.length) return false;
+    Verdicts.inFlight = true;
+    let changed = false;
+    try {
+      for (const t of stale) {
+        try {
+          const r = await fetch(`/api/records?path=${encodeURIComponent(t.path)}`, { cache: "no-store" });
+          if (!r.ok) continue;
+          const body = await r.json();
+          for (const rec of (body.records || [])) ingestEvalRecord(rec, t.run_id, t.path);
+          Verdicts.fileMtime.set(t.path, t.mtime);
+          changed = true;
+        } catch (_) { /* skip unreadable file */ }
+      }
+    } finally {
+      Verdicts.inFlight = false;
+    }
+    return changed;
+  }
+
+  function verdictForTrace(t) {
+    if (!t || !t.run_id || !t.instance_id) return null;
+    return Verdicts.byRunInstance.get(runInstanceKey(t.run_id, t.instance_id)) || null;
+  }
+
+  function verdictBadgeHtml(v) {
+    if (!v || v.resolved == null) return "";
+    return v.resolved
+      ? `<span class="vbadge v-pass" title="${escapeAttr(v.status || "resolved")}">✓</span>`
+      : `<span class="vbadge v-fail" title="${escapeAttr(v.status || "unresolved")}">✗</span>`;
+  }
 
   const SIDEBAR_LIMITS = { min: 180, max: 360, default: 240 };
 
@@ -6016,10 +6568,19 @@
       const newest = items[0];
       const timeStr = newest.mtime_iso ? fmtAgo(newest.mtime_iso) : "";
 
+      // Aggregate verdict for the run: k/n resolved among graded instances.
+      const graded = items.map(verdictForTrace).filter(v => v && v.resolved != null);
+      const passed = graded.filter(v => v.resolved).length;
+      const aggHtml = graded.length
+        ? `<span class="exp-group-verdict" data-pass="${passed === graded.length ? "1" : "0"}" ` +
+          `title="${passed} of ${graded.length} resolved">${passed}/${graded.length}</span>`
+        : "";
+
       parts.push(
         `<div class="exp-group-hdr" data-group="${escapeAttr(groupName)}" data-collapsed="${collapsed ? "1" : "0"}">` +
           `<span class="exp-caret">▾</span>` +
           `<span class="exp-group-name" title="${escapeAttr(groupName)}">${escapeHtml(groupName)}</span>` +
+          aggHtml +
           `<span class="exp-group-count">${items.length}</span>` +
           `<span class="exp-group-time">${escapeHtml(timeStr)}</span>` +
         `</div>`
@@ -6032,9 +6593,11 @@
         const label = t.instance_id || t.name || t.trace_id || t.rel_path || "trace";
         const kindBadge = t.kind === "trajectory" ? "" :
           `<span class="exp-kind-badge">${escapeHtml(t.kind || "?")}</span>`;
+        const vBadge = verdictBadgeHtml(verdictForTrace(t));
         const timeStr2 = t.mtime_iso ? fmtAgo(t.mtime_iso) : "";
         parts.push(
           `<div class="exp-item" data-path="${escapeAttr(t.path)}" data-active="${active ? "1" : "0"}" data-fresh="${fresh}">` +
+            vBadge +
             `<span class="exp-item-name" title="${escapeAttr(t.rel_path || label)}">${escapeHtml(label)}</span>` +
             kindBadge +
             `<span class="exp-item-time">${escapeHtml(timeStr2)}</span>` +
@@ -6046,6 +6609,121 @@
 
     list.innerHTML = parts.join("");
   }
+
+  /* ============================================================
+   * Evaluation results scoreboard — a dedicated per-run pass/fail view
+   * ============================================================ */
+  const Scoreboard = { open: false };
+
+  function scoreboardGroups() {
+    // Same grouping as the experiment sidebar: aggregate trajectories by run.
+    const traj = (Picker.traces || []).filter(t => t.kind === "trajectory");
+    const groups = new Map();
+    for (const t of traj) {
+      const g = t.run_id || t.group || "(ungrouped)";
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g).push(t);
+    }
+    return groups;
+  }
+
+  function renderScoreboard() {
+    const body = $("#sb-body");
+    if (!body) return;
+    const groups = scoreboardGroups();
+    if (!groups.size) {
+      body.innerHTML = `<div class="sb-empty">No runs found in the scan directory.</div>`;
+      $("#sb-sub").textContent = "";
+      return;
+    }
+    let allGraded = 0, allPassed = 0, allInstances = 0;
+    const sections = [];
+    for (const [runName, items] of groups) {
+      allInstances += items.length;
+      const rows = items
+        .map(t => ({ t, v: verdictForTrace(t) }))
+        .sort((a, b) =>
+          (a.t.instance_id || a.t.name || "").localeCompare(b.t.instance_id || b.t.name || ""));
+      const graded = rows.filter(r => r.v && r.v.resolved != null);
+      const passed = graded.filter(r => r.v.resolved).length;
+      allGraded += graded.length; allPassed += passed;
+      const pct = graded.length ? Math.round(100 * passed / graded.length) : 0;
+      const suite = (items[0]?.rel_path || "").split("/")[0] || "";
+
+      const tableRows = rows.map(({ t, v }) => {
+        const resolved = v && v.resolved != null ? v.resolved : null;
+        const mark = resolved == null
+          ? `<span class="sb-mark sb-pending" title="ungraded">·</span>`
+          : resolved
+            ? `<span class="sb-mark sb-pass">✓</span>`
+            : `<span class="sb-mark sb-fail">✗</span>`;
+        const score = v && v.score != null ? v.score.toFixed(2) : "—";
+        const status = v ? (v.status || "") : "ungraded";
+        const name = t.instance_id || t.name || t.trace_id || "—";
+        const active = t.path === Picker.loadedPath ? ' data-active="1"' : "";
+        return `<div class="sb-row" data-path="${escapeAttr(t.path)}"${active}>` +
+          mark +
+          `<span class="sb-inst" title="${escapeAttr(name)}">${escapeHtml(name)}</span>` +
+          `<span class="sb-score">${escapeHtml(score)}</span>` +
+          `<span class="sb-status" title="${escapeAttr(status)}">${escapeHtml(status)}</span>` +
+          `<span class="sb-go">→</span>` +
+        `</div>`;
+      }).join("");
+
+      const stat = graded.length
+        ? `resolved ${passed} / ${graded.length}`
+        : `${items.length} instance${items.length === 1 ? "" : "s"} · ungraded`;
+      sections.push(
+        `<section class="sb-run">` +
+          `<div class="sb-run-head">` +
+            `<span class="sb-run-name" title="${escapeAttr(runName)}">${escapeHtml(runName)}</span>` +
+            (suite ? `<span class="sb-run-suite">${escapeHtml(suite)}</span>` : "") +
+            `<span class="sb-run-stat">${escapeHtml(stat)}</span>` +
+            (graded.length ? `<span class="sb-run-pct">${pct}%</span>` : "") +
+          `</div>` +
+          (graded.length ? `<div class="sb-bar"><span style="width:${pct}%"></span></div>` : "") +
+          `<div class="sb-table">${tableRows}</div>` +
+        `</section>`
+      );
+    }
+    $("#sb-sub").textContent = allGraded
+      ? `${allPassed} / ${allGraded} resolved · ${groups.size} run${groups.size === 1 ? "" : "s"}`
+      : `${allInstances} instances · ${groups.size} run${groups.size === 1 ? "" : "s"} · no eval results yet`;
+    body.innerHTML = sections.join("");
+  }
+
+  function openScoreboard() {
+    Scoreboard.open = true;
+    const el = $("#scoreboard");
+    el.dataset.open = "1";
+    el.setAttribute("aria-hidden", "false");
+    renderScoreboard();
+  }
+  function closeScoreboard() {
+    Scoreboard.open = false;
+    const el = $("#scoreboard");
+    el.dataset.open = "0";
+    el.setAttribute("aria-hidden", "true");
+  }
+
+  $("#exp-results-btn").addEventListener("click", openScoreboard);
+  $("#sb-close").addEventListener("click", closeScoreboard);
+  $("#sb-overlay").addEventListener("click", closeScoreboard);
+  $("#sb-body").addEventListener("click", (e) => {
+    const row = e.target.closest(".sb-row");
+    if (!row) return;
+    const entry = Picker.traces.find(t => t.path === row.dataset.path);
+    if (entry) {
+      loadTraceFromEntry(entry).catch(err => console.warn("trace load failed", err));
+      closeScoreboard();
+    }
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && Scoreboard.open) {
+      e.preventDefault();
+      closeScoreboard();
+    }
+  });
 
   // Click handlers for sidebar
   $("#exp-list").addEventListener("click", (e) => {
@@ -6450,6 +7128,14 @@
 
       if (Picker.open) renderPicker();
       renderExpSidebar();
+      // Index any new/changed eval-result files in the background, then
+      // re-render the views that surface verdicts once they land.
+      refreshVerdicts().then(changed => {
+        if (changed) {
+          renderExpSidebar();
+          if (Scoreboard.open) renderScoreboard();
+        }
+      }).catch(() => {});
       return body;
     } catch (e) {
       const lbl = $("#tp-refresh-label");

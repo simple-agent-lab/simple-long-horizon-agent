@@ -1,4 +1,11 @@
-# ADR 0004: Treat Self-Evolution As Harness Capability
+---
+title: "Treat Self-Evolution As Harness Capability"
+status: Accepted
+date: 2026-05-07
+slug: treat-self-evolution-as-harness-capability
+---
+
+# Treat Self-Evolution As Harness Capability
 
 ## Status
 
