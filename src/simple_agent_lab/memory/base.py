@@ -2,15 +2,16 @@
 
 Memory is deliberately an assembly source, not a runtime. A memory
 implementation can expose ordinary AgentTool values and declare lifecycle hooks
-for a future hook-aware runtime to consume.
+for the core runtime to consume.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from simple_agent_lab.hooks import HookContext, HookDecision, HookMap, HookPoint
 from simple_agent_lab.messages import (
     ContentInput,
     Message,
@@ -63,65 +64,42 @@ class Memory:
         del ctx
 
     def bind(self, ctx: MemoryContext) -> "MemoryBinding":
-        """Produce tools and future runtime hooks for this memory instance."""
+        """Produce tools and runtime hooks for this memory instance."""
 
         def context_for(state: State | None = None) -> MemoryContext:
             return _context_with_state(ctx, state)
 
-        def before_run(state: State) -> tuple[Message, ...]:
+        def on_session_start(hook_ctx: HookContext) -> HookDecision | None:
             try:
-                return tuple(self.initial(context_for(state)))
+                messages = tuple(self.initial(context_for(hook_ctx.state)))
             except Exception:
-                return ()
+                return None
+            if not messages:
+                return None
+            return HookDecision(emit_messages=messages)
 
-        def before_model_request(state: State) -> tuple[Message, ...]:
-            query = _latest_user_text(state) or _task_text(state.task)
+        def on_session_end(hook_ctx: HookContext) -> HookDecision | None:
             try:
-                return tuple(self.recall(context_for(state), query))
-            except Exception:
-                return ()
-
-        def after_turn(state: State, messages: tuple[Message, ...]) -> None:
-            try:
-                self.record(context_for(state), messages)
+                self.finish(context_for(hook_ctx.state))
             except Exception:
                 pass
-
-        def after_run(state: State) -> None:
-            try:
-                self.finish(context_for(state))
-            except Exception:
-                pass
+            return None
 
         return MemoryBinding(
             tools=self.tools(ctx),
-            hooks=MemoryHooks(
-                before_run=before_run,
-                before_model_request=before_model_request,
-                after_turn=after_turn,
-                after_run=after_run,
-            ),
+            hooks={
+                HookPoint.SESSION_START: (on_session_start,),
+                HookPoint.SESSION_END: (on_session_end,),
+            },
         )
 
 
 class NoMemory(Memory):
     """No-op memory implementation."""
 
-
-BeforeRunHook = Callable[[State], Iterable[Message]]
-BeforeModelRequestHook = Callable[[State], Iterable[Message]]
-AfterTurnHook = Callable[[State, tuple[Message, ...]], None]
-AfterRunHook = Callable[[State], None]
-
-
-@dataclass(frozen=True)
-class MemoryHooks:
-    """Future runtime hooks requested by one memory instance."""
-
-    before_run: BeforeRunHook | None = None
-    before_model_request: BeforeModelRequestHook | None = None
-    after_turn: AfterTurnHook | None = None
-    after_run: AfterRunHook | None = None
+    def bind(self, ctx: MemoryContext) -> "MemoryBinding":
+        del ctx
+        return MemoryBinding()
 
 
 @dataclass(frozen=True)
@@ -129,7 +107,7 @@ class MemoryBinding:
     """Assembly material produced by binding one memory instance."""
 
     tools: tuple[AgentTool, ...] = ()
-    hooks: MemoryHooks = field(default_factory=MemoryHooks)
+    hooks: HookMap = field(default_factory=dict)
 
 
 def memory_context_message(text: str, *, target: str) -> Message:
@@ -157,19 +135,3 @@ def _task_text(task: ContentInput) -> str:
     if isinstance(task, str):
         return task
     return text_of(normalize_content(task)).strip()
-
-
-def _latest_user_text(state: State) -> str:
-    for message in reversed(state.messages):
-        if message.role == "user":
-            return _message_text(message)
-    return ""
-
-
-def _message_text(message: Message) -> str:
-    parts = []
-    for block in message.content:
-        text = getattr(block, "text", None)
-        if isinstance(text, str):
-            parts.append(text)
-    return "\n".join(parts).strip()

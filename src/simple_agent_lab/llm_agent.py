@@ -18,6 +18,7 @@ from typing import Any, Mapping, Sequence
 
 from .context_view import ContextPolicy
 from .core import Agent
+from .hooks import HookMap
 from .llm.bridge import (
     llm_response_to_assistant_message,
     messages_to_llm_messages,
@@ -40,6 +41,7 @@ def make_llm_agent(
     system_prompt: str = "",
     target: str = "all",
     context_policy: ContextPolicy | None = None,
+    hooks: HookMap | None = None,
     request_extra: Mapping[str, Any] | None = None,
     reasoning: ReasoningEffort | None = None,
 ) -> Agent:
@@ -86,5 +88,6 @@ def make_llm_agent(
         role=role,
         tools=tools_tuple,
         context_policy=context_policy,
+        hooks=hooks or {},
         system_prompt=effective_system_prompt,
     )
