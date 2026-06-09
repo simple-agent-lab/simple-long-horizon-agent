@@ -5,6 +5,9 @@ import unittest
 from pathlib import Path
 
 from simple_agent_lab import (
+    Agent,
+    HookFiredEvent,
+    HookPoint,
     State,
     assistant_message,
     make_llm_agent,
@@ -27,12 +30,13 @@ from simple_agent_lab.tools import AgentTool, text_result
 
 
 class MemoryBaseTest(unittest.TestCase):
-    def test_memory_binding_declares_tools_and_future_hooks(
+    def test_memory_binding_declares_tools_and_runtime_hooks(
         self,
     ) -> None:
         class FakeMemory(Memory):
             finished = False
             recorded_turns = 0
+            recalled = 0
 
             def initial(self, ctx: MemoryContext):
                 return (
@@ -45,11 +49,13 @@ class MemoryBaseTest(unittest.TestCase):
                 )
 
             def recall(self, ctx: MemoryContext, query: str):
+                del ctx, query
+                self.recalled += 1
                 return (
                     runtime_message(
-                        f"remembered recall for {query}",
+                        "remembered recall",
                         sender="memory",
-                        target=ctx.agent,
+                        target="agent",
                         kind="context",
                     ),
                 )
@@ -74,33 +80,35 @@ class MemoryBaseTest(unittest.TestCase):
         binding = memory.bind(
             MemoryContext(
                 agent="agent",
-                task="",
+                task="task",
                 session_id="s1",
             )
         )
-        state = State("task")
-        state.send("task", "user", "agent", "task")
 
-        assert binding.hooks.before_run is not None
-        assert binding.hooks.before_model_request is not None
-        assert binding.hooks.after_turn is not None
-        assert binding.hooks.after_run is not None
-
-        initial = tuple(binding.hooks.before_run(state))
-        recall = tuple(binding.hooks.before_model_request(state))
-        state.record(initial[0])
-        state.record(recall[0])
-        state.record(
-            assistant_message("done", sender="agent", target="user", kind="final")
+        agent = Agent(
+            "agent",
+            lambda visible: assistant_message(
+                "done", sender="agent", target="user", kind="final"
+            ),
+            hooks=binding.hooks,
         )
-        binding.hooks.after_turn(state, tuple(state.messages))
-        binding.hooks.after_run(state)
+        state, events = agent.run("task")
+        list(events)
 
         self.assertEqual(binding.tools, ())
-        self.assertEqual(message_text(initial[0]), "remembered initial context")
-        self.assertEqual(message_text(recall[0]), "remembered recall for task")
-        self.assertEqual(memory.recorded_turns, 1)
-        self.assertGreaterEqual(memory.recorded_message_count, 4)
+        self.assertIn(
+            "remembered initial context",
+            [message_text(message) for message in state.messages],
+        )
+        fired_points = [
+            event.point for event in state.events if isinstance(event, HookFiredEvent)
+        ]
+        self.assertEqual(
+            fired_points,
+            [str(HookPoint.SESSION_START), str(HookPoint.SESSION_END)],
+        )
+        self.assertEqual(memory.recalled, 0)
+        self.assertEqual(memory.recorded_turns, 0)
         self.assertTrue(memory.finished)
         self.assertEqual(memory.final_count, 1)
 
@@ -143,7 +151,49 @@ class MemoryBaseTest(unittest.TestCase):
         self.assertIn("memory_probe", [tool["name"] for tool in request.tools])
         self.assertEqual(state.messages[-1].kind, "final")
 
-    def test_bound_memory_hooks_are_not_executed_without_hook_runtime(self) -> None:
+    def test_llm_agent_factory_closes_over_bound_memory_hooks(self) -> None:
+        class InitialMemory(Memory):
+            finished = False
+
+            def initial(self, ctx: MemoryContext):
+                return (
+                    runtime_message(
+                        "remembered initial context",
+                        sender="memory",
+                        target=ctx.agent,
+                        kind="context",
+                    ),
+                )
+
+            def finish(self, ctx: MemoryContext) -> None:
+                assert ctx.state is not None
+                self.finished = True
+
+        memory = InitialMemory()
+        binding = memory.bind(
+            MemoryContext(
+                agent="agent",
+                task="",
+                memory_name="demo",
+            )
+        )
+        provider = Provider(id="fake", api="fake", model="fake-model")
+        agent = make_llm_agent(
+            name="agent",
+            provider=provider,
+            hooks=binding.hooks,
+        )
+
+        state, events = agent.run("answer directly")
+        list(events)
+
+        self.assertIn(
+            "remembered initial context",
+            [message_text(message) for message in state.messages],
+        )
+        self.assertTrue(memory.finished)
+
+    def test_bound_memory_hooks_are_not_executed_unless_passed_to_agent(self) -> None:
         class FakeMemory(Memory):
             def initial(self, ctx: MemoryContext):
                 return (

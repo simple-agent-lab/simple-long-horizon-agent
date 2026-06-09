@@ -138,9 +138,9 @@ class VectorMemory(Memory):
 ```
 
 Bind memory before the agent is built, then pass its tools through the same
-factory path MCP uses. `MemoryBinding.hooks` is the contract a future
-hook-aware runtime will consume; current agent code does not execute these
-hooks yet.
+factory path MCP uses. `MemoryBinding.hooks` is a normal core `HookMap`; pass
+it to the agent at construction time so the runtime can execute the supported
+memory lifecycle points.
 
 ```python
 binding = memory.bind(
@@ -155,17 +155,15 @@ agent = make_llm_agent(
     name="agent",
     provider=provider,
     tools=[*base_tools, *binding.tools],
+    hooks=binding.hooks,
 )
 state, events = agent.run(task)
 ```
 
-When the hook runtime lands, it should take `binding.hooks` during the same
-assembly step. Until then, only `binding.tools` affects live runs.
-
-```python
-agent = make_llm_agent(..., tools=[*base_tools, *binding.tools])
-runtime = HookRuntime(hooks=binding.hooks)  # future owner-provided layer
-```
+Current core hooks map `initial(...)` to `SESSION_START` and `finish(...)` to
+`SESSION_END`. `recall(...)` and `record(...)` remain extension methods for a
+future pre-model or after-turn hook point; do not pretend they run live until
+the runtime exposes those points.
 
 ## Capability Roles
 
@@ -369,6 +367,7 @@ agent = make_llm_agent(
     name="agent",
     provider=provider,
     tools=[*base_tools, *binding.tools],
+    hooks=binding.hooks,
 )
 state, events = agent.run(task)
 ```
@@ -421,8 +420,8 @@ Domain-specific details to generalize:
   project-rule discovery, RAG, daemons, or dreams to this starter mechanism.
 - Keep filesystem recall Codex-style: prompts tell the model when and how to do a
   quick memory pass; the runtime does not prefetch or inject matching lines via
-  `before_model_request`. Use `recall(...)` for memory methods whose core shape
-  is runtime retrieval, such as vector snippets.
+  a pre-model-request hook point. Use `recall(...)` for memory methods whose
+  core shape is runtime retrieval, such as vector snippets.
 
 Abstraction notes:
 
