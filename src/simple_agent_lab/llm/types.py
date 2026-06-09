@@ -138,7 +138,11 @@ class LLMRequest:
     # Provider-agnostic reasoning depth; adapters translate it to each
     # endpoint's wire shape. None → fall back to provider.default_reasoning.
     reasoning: ReasoningEffort | None = None
-    timeout_seconds: float | None = 60.0
+    # Generous default: a high-reasoning model can think well past a minute on
+    # a single turn, so a short deadline would cut the response off and fail the
+    # whole run. A slow turn should wait, not die; fast turns return immediately
+    # regardless of the ceiling.
+    timeout_seconds: float | None = 600.0
     extra: dict[str, Any] = field(
         default_factory=dict
     )  # provider-specific request options

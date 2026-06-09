@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from evals.swebench import evaluate_predictions
+from simple_agent_lab.trajectory import write_jsonl
 
 
 class SwebenchEvaluatePredictionsTest(unittest.TestCase):
@@ -97,13 +98,79 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
         )
 
     def test_prediction_path_for_harness_resolves_relative_paths(self) -> None:
-        resolved = evaluate_predictions.prediction_path_for_harness(
-            "evals/out/prediction.jsonl"
+        # Relative inputs still resolve against the repo ROOT (original intent).
+        self.assertEqual(
+            evaluate_predictions.resolve_repo_path("evals/out/prediction.jsonl"),
+            evaluate_predictions.ROOT / "evals/out/prediction.jsonl",
         )
 
+        # New contract: hand the harness a sibling ``*.harness.jsonl`` path.
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "prediction.jsonl"
+            source.write_text(
+                json.dumps(
+                    {
+                        "instance_id": "sympy__sympy-23824",
+                        "model_name_or_path": "simple-agent-lab",
+                        "model_patch": "diff --git a/a b/a\n",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            resolved = evaluate_predictions.prediction_path_for_harness(str(source))
+
+        self.assertTrue(resolved.endswith(".harness.jsonl"))
         self.assertEqual(
             resolved,
-            str(evaluate_predictions.ROOT / "evals/out/prediction.jsonl"),
+            str(source.with_name(f"{source.stem}.harness.jsonl")),
+        )
+        self.assertEqual(Path(resolved).parent, source.parent)
+
+    def test_prediction_path_for_harness_normalizes_pretty_jsonl_to_single_line(
+        self,
+    ) -> None:
+        records = [
+            {
+                "instance_id": "sympy__sympy-23824",
+                "model_name_or_path": "simple-agent-lab",
+                "model_patch": "diff --git a/a.py b/a.py\n+x\n",
+            },
+            {
+                "instance_id": "django__django-12345",
+                "model_name_or_path": "simple-agent-lab",
+                "model_patch": "diff --git a/b.py b/b.py\n+y\n",
+            },
+        ]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "swebench_predictions.jsonl"
+            # ``write_jsonl`` emits pretty-printed (indent=2) multi-line records,
+            # which the official harness' line-by-line ``json.loads`` rejects.
+            write_jsonl(source, records)
+            self.assertGreater(
+                len(source.read_text(encoding="utf-8").splitlines()),
+                len(records),
+            )
+
+            resolved = evaluate_predictions.prediction_path_for_harness(str(source))
+            lines = Path(resolved).read_text(encoding="utf-8").splitlines()
+            parsed = [json.loads(line) for line in lines]
+
+        self.assertTrue(resolved.endswith(".harness.jsonl"))
+        self.assertEqual(len(lines), len(records))
+        self.assertEqual(
+            [record["instance_id"] for record in parsed],
+            [record["instance_id"] for record in records],
+        )
+        self.assertEqual(
+            [record["model_patch"] for record in parsed],
+            [record["model_patch"] for record in records],
+        )
+        self.assertEqual(
+            [record["model_name_or_path"] for record in parsed],
+            [record["model_name_or_path"] for record in records],
         )
 
     def test_run_official_harness_uses_run_dir_as_cwd(self) -> None:

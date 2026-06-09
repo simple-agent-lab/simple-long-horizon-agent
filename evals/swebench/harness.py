@@ -52,6 +52,10 @@ OPENAI_AUTH_ENV = "OPENAI_AUTH_TOKEN"
 OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
 OPENAI_SESSION_ID_ENV = "OPENAI_SESSION_ID"
 OPENAI_LOG_ID_ENV = "OPENAI_LOG_ID"
+# Mirror in_container.py: the reasoning depth must reach the container, otherwise
+# the host .env value is dropped before docker run and reasoning silently no-ops.
+REASONING_EFFORT_ENV = "REASONING_EFFORT"
+OPENAI_REASONING_EFFORT_ENV = "OPENAI_REASONING_EFFORT"
 API_KIND_ENV = "API_KIND"
 API_KIND_CHOICES = ("openai-chat", "openai-responses")
 AGENT_FLAVOR_CHOICES = ("bash", "bash_task", "bash_skills")
@@ -64,6 +68,8 @@ OPENAI_PASSTHROUGH_ENVS = (
     OPENAI_BASE_URL_ENV,
     OPENAI_SESSION_ID_ENV,
     OPENAI_LOG_ID_ENV,
+    REASONING_EFFORT_ENV,
+    OPENAI_REASONING_EFFORT_ENV,
     API_KIND_ENV,
 )
 PRIVATE_INSTANCE_FIELDS = {

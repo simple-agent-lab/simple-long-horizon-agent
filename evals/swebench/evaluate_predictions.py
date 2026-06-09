@@ -288,9 +288,23 @@ def official_report_dir(args: argparse.Namespace) -> Path:
 
 
 def prediction_path_for_harness(path: str | Path) -> str:
+    """Return a predictions path the official harness can parse.
+
+    The official ``swebench`` harness reads ``--predictions_path`` with a
+    line-by-line ``json.loads(line)``, so it only accepts single-line JSONL.
+    Our ``write_jsonl`` emits pretty-printed (indent=2) records that span
+    multiple lines and crash that parser. Re-serialize to compact, one-record-
+    per-line JSONL in a sibling ``*.harness.jsonl`` file before handing it off.
+    """
     if str(path) == "gold":
         return "gold"
-    return str(resolve_repo_path(path))
+    source = resolve_repo_path(path)
+    records = load_predictions(source)
+    normalized = source.with_name(f"{source.stem}.harness.jsonl")
+    with normalized.open("w", encoding="utf-8") as handle:
+        for record in records:
+            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    return str(normalized)
 
 
 def resolve_repo_path(path: str | Path) -> Path:
