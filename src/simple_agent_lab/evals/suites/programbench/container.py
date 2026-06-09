@@ -1,0 +1,314 @@
+"""ProgramBench container half (ADR 0017): the functions a suite supplies.
+
+ProgramBench is a *reverse-engineering* benchmark (facebookresearch/programbench):
+the workspace holds a compiled ``./executable`` plus its bundled docs, and the
+agent must write a brand-new codebase from scratch whose ``./compile.sh``
+rebuilds an executable with identical behavior — inferring that behavior only by
+running ``./executable`` and reading the docs. Two facts make it differ from
+SWE-bench and shape this module (see ADR 0022):
+
+- The run's **product is the whole workspace**, not a ``git diff``. The container
+  half can only hand bytes back through ``out/result.json``, so ``extract_result``
+  tars + gzips the workspace and returns it base64-encoded under
+  ``submission_tar_b64``; the host decodes it into the ``<id>/submission.tar.gz``
+  layout the official ``programbench eval`` expects.
+- ProgramBench's anti-cheat relies on the agent having **no network** while it
+  works. Our agent runs *inside* the container and must reach the model API, so
+  instead of ``--network none`` we keep the container online but run **every
+  agent bash command in a network-isolated namespace** (``unshare --net``), built
+  in ``build_agent``. Model calls keep the network; agent commands do not.
+
+It imports only the standard library and the installed wheel (``core``, ``llm``,
+``llm_agent``, ``tools.bash``), so it runs inside any ProgramBench image with no
+copied files. Scoring is the official ``programbench eval`` CLI on the host
+(``evals/programbench/evaluate_submissions.py``), so there is no ``evaluate``
+hook here and the host stages no ``eval_inputs``.
+"""
+
+from __future__ import annotations
+
+import base64
+import io
+import os
+import shutil
+import subprocess
+import tarfile
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any
+
+from simple_agent_lab.core import Agent
+from simple_agent_lab.llm import Provider
+from simple_agent_lab.llm_agent import make_llm_agent
+from simple_agent_lab.tools.bash import make_bash_tool
+
+AGENT_NAME = "programbench_agent"
+AGENT_ROLE = (
+    "Reverse-engineer ./executable in the workspace and write an original "
+    "codebase plus a compile.sh that rebuilds an identical executable."
+)
+
+# The reverse-engineering rules, adapted from ProgramBench's system template to
+# the simple-agent-lab bash agent: dropped mini-swe-agent-only mechanics (the
+# COMPLETE_TASK submit command, observation/step-limit templating) and added the
+# fact that the bash tool has no network here.
+AGENT_SYSTEM_PROMPT = (
+    "You are a software engineer working inside a ProgramBench "
+    "reverse-engineering container through the bash tool.\n\n"
+    "The workspace contains a compiled program at `./executable` plus its "
+    "bundled documentation. Your job is to write a brand-new, original codebase "
+    "from scratch whose build produces an executable with identical behavior. "
+    "You must infer that behavior ONLY by running and observing `./executable` "
+    "and reading the bundled docs. Writing original code from observed behavior "
+    "is the entire point of this benchmark.\n\n"
+    "Each bash call runs in a fresh shell rooted at the workspace, so include "
+    "any cd or env setup in the command and use non-interactive flags (`-y`, "
+    "`--no-pager`; avoid `vi`/`nano`). Independent read-only commands may run in "
+    "parallel; never run parallel writes against the same file.\n\n"
+    "The bash tool has NO network access — commands run in a network-isolated "
+    "namespace — so do not try to download anything; it is both disallowed and "
+    "impossible. Your model reasoning is separate and unaffected.\n\n"
+    "## Rules (an automated judge enforces these; a violation scores as failure)\n"
+    "- Do NOT obtain or read the original source code in any way: no cloning the "
+    "repo/forks/mirrors, no package manager fetching the project itself "
+    "(`cargo install`, `go get`, `pip install`, `apt-get source`, `npm install` "
+    "of the tool), no source tarballs, no reading a package manager's cached "
+    "source, no web search. Reimplement from behavioral observation alone, even "
+    "if you recognize the tool.\n"
+    "- Do NOT wrap or reuse the original binary: your submission must not "
+    "delegate to, shim, copy, or shell out to `./executable` or any prebuilt "
+    "copy of the same tool at runtime. `compile.sh` must build real source you "
+    "wrote (not `chmod +x ./executable` or `cp ./executable`).\n"
+    "- Do NOT decompile/disassemble `./executable` or run strace/ltrace/objdump/"
+    "gdb-style tools on it. Observe it only through its normal interface (CLI "
+    "flags, stdin/stdout). You may use any analysis tools on binaries YOU build.\n\n"
+    "## Allowed\n"
+    "- Running `./executable` with any inputs, flags, and arguments to observe "
+    "its behavior.\n"
+    "- Reading any documentation files bundled in the workspace."
+)
+
+# Wrapper that runs each agent bash command in a fresh, network-less namespace.
+# `unshare --net` needs CAP_SYS_ADMIN (the suite's launch_spec adds it). A brand
+# new net namespace ships only a *down* loopback, so unlike `docker run --network
+# none` (which auto-ups lo) `127.0.0.1` would be unusable inside it — breaking any
+# command that binds localhost or starts a local server to self-test. We therefore
+# slip a tiny `sh -c 'ip link set lo up; exec "$@"'` between `unshare` and the
+# bootstrap-appended `bash -lc <cmd>`: it raises loopback first (best-effort —
+# needs CAP_NET_ADMIN, which the container root has; silenced and `;`-chained so a
+# failure never blocks the command), then execs the real command. `--` ends
+# unshare's options; `_` is the `$0` placeholder so `"$@"` starts at `bash`.
+NET_ISOLATION_PREFIX: tuple[str, ...] = (
+    "unshare",
+    "--net",
+    "--",
+    "sh",
+    "-c",
+    'ip link set lo up 2>/dev/null; exec "$@"',
+    "_",
+)
+
+# Set by build_agent so extract_result can record whether isolation was active.
+_network_isolation_active: bool | None = None
+
+
+def _detect_network_isolation() -> bool:
+    """Probe whether ``unshare --net`` works in this container.
+
+    Returns True when a no-network namespace can be created (CAP_SYS_ADMIN plus
+    a permissive-enough kernel/seccomp), so agent commands can be isolated. When
+    it is unavailable we fall back to plain bash and record it, rather than
+    failing the run on an environment that cannot isolate.
+    """
+
+    try:
+        proc = subprocess.run(
+            ["unshare", "--net", "true"],
+            capture_output=True,
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return proc.returncode == 0
+
+
+def build_agent(
+    *,
+    provider: Provider,
+    cwd: Path,
+    request_extra: Mapping[str, Any] | None = None,
+) -> Agent:
+    """Build the ProgramBench agent: a bash agent whose commands are net-isolated.
+
+    Probes ``unshare --net`` once; when available, every agent command runs in a
+    network-less namespace (the model call still uses the container network).
+    """
+
+    global _network_isolation_active
+    isolated = _detect_network_isolation()
+    _network_isolation_active = isolated
+    if not isolated:
+        print(
+            "[programbench] WARNING: 'unshare --net' is unavailable; agent bash "
+            "commands will run WITH network access. Add CAP_SYS_ADMIN "
+            "(launch_spec cap_add) and a kernel that allows it to isolate them.",
+            flush=True,
+        )
+    bash_tool = make_bash_tool(
+        cwd=cwd,
+        exec_prefix=NET_ISOLATION_PREFIX if isolated else (),
+    )
+    return make_llm_agent(
+        name=AGENT_NAME,
+        provider=provider,
+        role=AGENT_ROLE,
+        tools=[bash_tool],
+        system_prompt=AGENT_SYSTEM_PROMPT,
+        target="user",
+        request_extra=request_extra,
+    )
+
+
+def _system_info() -> str:
+    """One-line OS/kernel/arch summary, read *inside* the container.
+
+    mini-swe-agent renders ``{{system}}`` on the host (its model process), which
+    can disagree with the container; build_task runs in-container, so ``os.uname()``
+    reports the real environment the agent compiles for.
+    """
+
+    try:
+        info = os.uname()
+        return f"{info.sysname} {info.release} ({info.machine})"
+    except (AttributeError, OSError):
+        return "unknown"
+
+
+def build_task(instance: Mapping[str, Any], *, workdir: str) -> str:
+    """Build the model-visible reverse-engineering task.
+
+    ProgramBench's task is static (the per-instance signal is the workspace's
+    ``./executable`` + docs, not any instance field), so this does not inject
+    problem text the way SWE-bench injects ``problem_statement``.
+    """
+
+    environment = [
+        "## Environment",
+        "- You are inside the ProgramBench container; the bash tool runs "
+        f"locally in {workdir}.",
+        f"- {workdir} contains a compiled `./executable` and its bundled "
+        "documentation. There is NO original source code.",
+        "- No project-specific dependencies are pre-installed, and the bash "
+        "tool has no network access.",
+        f"- System: {_system_info()}; `python3` is available.",
+    ]
+    if shutil.which("tmux"):
+        environment.append(
+            "- `tmux` is available — use it to drive and observe `./executable` "
+            "(send keystrokes, capture panes) when it is an interactive/TUI "
+            "program."
+        )
+    return "\n".join(
+        [
+            "Reverse-engineer the program in this ProgramBench instance.",
+            "",
+            *environment,
+            "",
+            "## Your task",
+            "1. Observe `./executable`'s behavior by running it with various "
+            "inputs, flags, and stdin; read the bundled docs.",
+            "2. Write original source code, from scratch, that reproduces that "
+            "behavior exactly.",
+            "3. Provide an executable `./compile.sh` at the workspace root that "
+            "installs any needed build dependencies and produces `./executable` "
+            "in the workspace root. If `compile.sh` fails on a fresh checkout, "
+            "the task fails.",
+            "4. Keep build artifacts and the produced `./executable` out of git "
+            "(add a `.gitignore`), then commit your source.",
+            "",
+            "## Constraints (reverse-engineering benchmark)",
+            "- Do not find/clone/download the original source, do not wrap or "
+            "reuse the provided binary, and do not decompile or trace "
+            "`./executable`. The system message has the full rules; an automated "
+            "judge enforces them.",
+            "",
+            "## Final answer",
+            "When `./compile.sh` rebuilds `./executable` and you have verified "
+            "the behavior matches, return a short summary of what you built and "
+            "how you checked it. Do NOT paste files — the harness packages your "
+            "entire workspace automatically.",
+        ]
+    )
+
+
+def prepare(workspace: Path, instance: Mapping[str, Any]) -> dict[str, Any]:
+    """Init a repo + set a *repo-local* git identity so the agent's commits work.
+
+    The product is the whole workspace, not git state, so this is best-effort:
+    ProgramBench's official evaluator re-creates a synthetic repo if the
+    submission lacks one. We still ``git init`` + set an identity so the prompt's
+    "commit your source" step does not error mid-run. The identity is written
+    repo-locally (never ``--global``, which would leak into the host ``~/.gitconfig``
+    when this runs under the in-process backend), so the init must come first.
+    """
+
+    del instance
+    workspace = Path(workspace)
+    if not (workspace / ".git").exists():
+        _git(workspace, "init")
+    _git(workspace, "config", "user.email", "agent@simple-agent-lab.local")
+    _git(workspace, "config", "user.name", "simple-agent-lab")
+    return {}
+
+
+def extract_result(
+    workspace: Path,
+    instance: Mapping[str, Any],
+    *,
+    context: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Pack the whole workspace as the ProgramBench submission product.
+
+    Mirrors the official runner's ``tar -czf`` of the workspace, but returns it
+    base64-encoded in ``result.json`` (the only channel a container half has).
+    The host decodes ``submission_tar_b64`` into ``<id>/submission.tar.gz`` for
+    the official ``programbench eval``.
+    """
+
+    del context
+    tar_b64, tar_bytes = _pack_workspace(Path(workspace))
+    return {
+        "instance_id": str(instance.get("instance_id") or ""),
+        "submission_tar_b64": tar_b64,
+        "submission_tar_bytes": tar_bytes,
+        "network_isolated": _network_isolation_active,
+    }
+
+
+def _pack_workspace(workspace: Path) -> tuple[str, int]:
+    """tar.gz the workspace into memory and base64-encode it.
+
+    Uses stdlib ``tarfile`` (not the system ``tar``) so it works in any image.
+    ``arcname="."`` reproduces the official ``tar -czf ... -C <workspace> .``
+    layout the evaluator unpacks back into ``/workspace``.
+    """
+
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as tar:
+        tar.add(str(workspace), arcname=".")
+    raw = buffer.getvalue()
+    return base64.b64encode(raw).decode("ascii"), len(raw)
+
+
+def _git(workspace: Path, *args: str) -> None:
+    """Best-effort git invocation; ProgramBench scoring never depends on it."""
+
+    try:
+        subprocess.run(
+            ["git", *args],
+            cwd=str(workspace),
+            capture_output=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        pass

@@ -35,6 +35,12 @@ swebench = [
     "docker>=7.0.0",
     "swebench>=3.0.0",
 ]
+programbench = [
+    # docker-py drives LocalDockerBackend; programbench is the official scorer
+    # (and the bundled task set) used by evals/programbench/evaluate_submissions.py.
+    "docker>=7.0.0",
+    "programbench>=1.0.0",
+]
 mcp = [
     # 1.10.0 is the first release with ResourceLink, AudioContent, and
     # CallToolResult.structuredContent, all of which the integration uses.

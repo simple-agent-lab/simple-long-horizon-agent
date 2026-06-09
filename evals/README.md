@@ -22,6 +22,13 @@ That script runs the focused patch extraction, host-helper, and
 prediction-evaluation unit tests without installing SWE-bench or running
 Docker.
 
+The ProgramBench adapter (reverse-engineering; ADR 0022) has a matching
+Docker-free, dependency-free smoke check:
+
+```bash
+uv run python -m unittest tests.unit.test_programbench_suite
+```
+
 Generated files under `evals/out/` are local artifacts and are ignored by git.
 Each subdirectory keeps a committed README describing the expected output layout
 so that every user sees the same directory skeleton after cloning. See

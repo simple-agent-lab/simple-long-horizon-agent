@@ -72,7 +72,8 @@ The current source-of-truth layers are:
   `render.py` (console `print_trace`), `openai_export.py` (OpenAI Chat
   fine-tuning JSONL export), and `live.py` (the incremental live-trace
   session/writer edge).
-- `evals/swebench/`: optional benchmark adapter, outside the core runtime.
+- `evals/swebench/`, `evals/programbench/`: optional benchmark adapters, outside
+  the core runtime (SWE-bench bug-fixing; ProgramBench reverse-engineering).
 
 ## Core Mental Model
 
@@ -135,6 +136,7 @@ Stop and collect more evidence before changing behavior when:
 | Containerized eval framework / suites | ADR generic-containerized-eval-framework, `evals/README.md`, `src/simple_agent_lab/evals/` | Suite x ContainerBackend x ArtifactStore seams; `run_suite_instance` / `run_dataset` entry points. |
 | Scoring: how a suite scores / parity | ADR collapse-scorer-seam-into-run-primitive (amends ADR scorer-seam-and-scoring-topology), `src/simple_agent_lab/evals/in_container.py` (`evaluate` hook), `evals/swebench/evaluate_predictions.py` (`reuse_eval_row`, parity) | No scorer seam: in-env scoring is the `evaluate` hook (gated on `eval_inputs`); scoring elsewhere is a follow-up run; official harness is a standalone CLI; `result.json` decoupling; official-parity gate. |
 | Integrating a new Docker eval suite (step-by-step) | `docs/agent-native/integrating-a-docker-eval-suite.md`, ADR generic-containerized-eval-framework, ADR collapse-scorer-seam-into-run-primitive, `evals/swebench/suite.py`, `src/simple_agent_lab/evals/suites/swebench/container.py` | Two halves + registration; the developer/agent how-to with a checklist. |
+| ProgramBench (reverse-engineering) suite | ADR 0022, `evals/programbench/README.md`, `evals/programbench/suite.py`, `src/simple_agent_lab/evals/suites/programbench/container.py`, `tests/unit/test_programbench_suite.py` | Peer of SWE-bench with two twists: workspace-as-product (base64 tar in `result.json`) and per-command network isolation (`unshare --net` via the bash `exec_prefix`); scored by the official `programbench eval` CLI. |
 | Multi-machine eval deployment / workers / k8s | `docs/agent-native/multi-machine-deployment.md`, ADR generic-containerized-eval-framework | Worker setup, image distribution, online/offline, store-by-topology; runtime injection. |
 | External architecture borrowing | `docs/reference-architectures/README.md` (local notes workspace, gitignored) plus your own reference note | Capture rationale locally; record durable commitments in an ADR. |
 | Agent-native doc maintenance | This loading map, `docs/agent-native/operating-rules.md` | Canonical routing and stop conditions. |
