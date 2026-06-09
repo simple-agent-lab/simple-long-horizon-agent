@@ -195,10 +195,10 @@ concrete experiment cannot be expressed with this shape.
 ## Context Injection
 
 When memory becomes model-visible, inject it as ordinary messages. The default
-shape should be a `SystemMessage` with `sender="memory"` and `kind="context"`:
+shape should be a `RuntimeMessage` with `sender="memory"` and `kind="context"`:
 
 ```python
-system_message(
+runtime_message(
     "Relevant memory:\n...",
     sender="memory",
     target=agent.name,
