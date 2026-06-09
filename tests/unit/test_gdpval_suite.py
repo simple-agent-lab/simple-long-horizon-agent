@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 import json
 import os
-import shutil
 import tempfile
 import unittest
 import zipfile
@@ -264,45 +263,7 @@ class GdpvalSuiteTest(unittest.TestCase):
             self.assertIn("view_image", GDPVAL_SYSTEM_PROMPT)
             self.assertIn("<FINAL_ANSWER>...</FINAL_ANSWER>", task)
 
-    def test_gdpval_tools_cover_file_and_shell_work(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            workdir = Path(tmp) / "workdir"
-            reference_dir = Path(tmp) / "reference_task_id_files"
-            reference_dir.mkdir()
-            (reference_dir / "brief.txt").write_text(
-                "alpha reference", encoding="utf-8"
-            )
-            tools = {
-                tool.name: tool
-                for tool in make_gdpval_tools(
-                    workdir=workdir,
-                    reference_dir=reference_dir,
-                    output_head_chars=2000,
-                    output_tail_chars=2000,
-                )
-            }
-
-            def call(name: str, args: dict) -> str:
-                result = tools[name].execute("call-1", args, lambda: False, None)
-                self.assertFalse(result.is_error, tool_result_text(result))
-                return tool_result_text(result)
-
-            call("write_file", {"path": "answer.txt", "content": "alpha\nbeta\n"})
-            self.assertIn("alpha", call("read_file", {"path": "answer.txt"}))
-            call(
-                "edit_file",
-                {"path": "answer.txt", "old": "beta", "new": "gamma"},
-            )
-            self.assertIn("gamma", call("read_file", {"path": "answer.txt"}))
-            self.assertIn(
-                "alpha reference",
-                call("read_file", {"path": str(reference_dir / "brief.txt")}),
-            )
-            self.assertIn("answer.txt", call("execute_bash", {"command": "ls"}))
-            if shutil.which("rg"):
-                self.assertIn("answer.txt", call("grep_files", {"pattern": "gamma"}))
-
-    def test_gdpval_bash_fileops_profile_covers_multi_edit_and_images(self) -> None:
+    def test_gdpval_solver_tools_cover_bash_edit_todo_and_images(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             workdir = Path(tmp) / "workdir"
             reference_dir = Path(tmp) / "reference_task_id_files"
@@ -311,7 +272,6 @@ class GdpvalSuiteTest(unittest.TestCase):
                 for tool in make_gdpval_tools(
                     workdir=workdir,
                     reference_dir=reference_dir,
-                    profile="bash_fileops",
                     output_head_chars=2000,
                     output_tail_chars=2000,
                 )
@@ -329,6 +289,20 @@ class GdpvalSuiteTest(unittest.TestCase):
             call(
                 "execute_bash",
                 {"command": "printf 'alpha\\nbeta\\n' > answer.txt"},
+            )
+            self.assertIn(
+                '"status": "pending"',
+                call(
+                    "TodoWrite",
+                    {
+                        "todos": [
+                            {
+                                "content": "create answer",
+                                "status": "pending",
+                            }
+                        ]
+                    },
+                ),
             )
             self.assertIn(
                 "gamma",
@@ -395,26 +369,42 @@ class GdpvalSuiteTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             solver = container.build_agent(provider=provider, cwd=root / "solver")
-            judge = judge_container.build_agent(provider=provider, cwd=root / "judge")
-            gsb_judge = judge_gsb_container.build_agent(
-                provider=provider, cwd=root / "gsb_judge"
-            )
+            judge_context = {
+                "input_dir": str(root / "judge" / "judge_inputs"),
+            }
+            gsb_context = {
+                "input_dir": str(root / "gsb_judge" / "judge_inputs"),
+            }
+            judge_instance = {"judge_tool_mode": "local"}
+            with judge_container.agent_context(
+                provider=provider,
+                cwd=root / "judge",
+                instance=judge_instance,
+                context=judge_context,
+            ) as judge:
+                rubric_tool_names = [tool.name for tool in judge.tools]
+                self.assertIsNone(judge.context_policy)
+            with judge_gsb_container.agent_context(
+                provider=provider,
+                cwd=root / "gsb_judge",
+                instance=judge_instance,
+                context=gsb_context,
+            ) as gsb_judge:
+                gsb_tool_names = [tool.name for tool in gsb_judge.tools]
+                self.assertIsNone(gsb_judge.context_policy)
 
         self.assertIsNone(solver.context_policy)
-        self.assertIsNone(judge.context_policy)
-        self.assertIsNone(gsb_judge.context_policy)
         self.assertEqual(
             [tool.name for tool in solver.tools],
             ["execute_bash", "TodoWrite", "multi_edit_file", "view_image"],
         )
         self.assertNotIn("read_file", {tool.name for tool in solver.tools})
         self.assertNotIn("write_file", {tool.name for tool in solver.tools})
-        self.assertNotIn("write_file", {tool.name for tool in judge.tools})
-        self.assertNotIn("execute_bash", {tool.name for tool in judge.tools})
-        self.assertNotIn("write_file", {tool.name for tool in gsb_judge.tools})
-        self.assertNotIn("execute_bash", {tool.name for tool in gsb_judge.tools})
-        self.assertIn("read_file", {tool.name for tool in judge.tools})
-        self.assertIn("excel_profile_sheet", {tool.name for tool in gsb_judge.tools})
+        self.assertEqual(rubric_tool_names, gsb_tool_names)
+        self.assertNotIn("write_file", rubric_tool_names)
+        self.assertNotIn("execute_bash", rubric_tool_names)
+        self.assertNotIn("read_file", rubric_tool_names)
+        self.assertIn("excel_profile_sheet", rubric_tool_names)
 
     def test_judge_suite_threads_tool_mode_into_instance(self) -> None:
         suite = GdpvalGsbJudgeSuite(judge_tool_mode="local")
@@ -554,7 +544,6 @@ class GdpvalSuiteTest(unittest.TestCase):
                 workdir=root / "workdir",
                 reference_dir=root / "judge_inputs",
                 mode="local",
-                include_local_workspace_tools=False,
                 include_excel_helpers=True,
             ) as tools:
                 tool_names = {tool.name for tool in tools}

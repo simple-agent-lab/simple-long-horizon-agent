@@ -13,7 +13,6 @@ bash runs/run_bash_agent_demo.sh
 bash runs/run_swebench_verified.sh
 bash runs/run_swebench_pro.sh
 bash runs/eval_swebench.sh
-bash runs/run_gdpval.sh
 ```
 
 `runs/run_ci.sh` mirrors the GitHub Actions workflow at

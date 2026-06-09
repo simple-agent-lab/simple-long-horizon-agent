@@ -17,42 +17,16 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from simple_agent_lab.core import Agent
 from simple_agent_lab.llm.provider import Provider
-from simple_agent_lab.llm_agent import make_llm_agent
 from simple_agent_lab.messages import text_of
 from simple_agent_lab.state import State
 
 from .assets import write_reference_files
-from .judge_excel_tools import make_judge_excel_tools
 from .judge_mcp import gdpval_judge_agent_context
 from .judge_prompts import GDPVAL_JUDGE_SYSTEM_PROMPT
 from .judge_scoring import normalize_rubrics, parse_judge_payload, score_judgment
-from .tools import make_gdpval_tools
 
 JUDGE_RESULT_FILE = "_gdpval_judge_result.json"
-_LOCAL_READ_ONLY_TOOL_NAMES = {"list_dir", "read_file", "grep_files"}
-
-
-def build_agent(
-    *,
-    provider: Provider,
-    cwd: Path,
-    request_extra: Mapping[str, Any] | None = None,
-) -> Agent:
-    """Build the GDPVal judge agent with access to candidate/gold inputs."""
-
-    workdir = Path(cwd)
-    input_dir = _input_dir_for(workdir)
-    return make_llm_agent(
-        name="gdpval_judge",
-        provider=provider,
-        role="Judge GDPVal deliverables and emit a JSON verdict.",
-        tools=_local_read_only_judge_tools(workdir, input_dir),
-        system_prompt=GDPVAL_JUDGE_SYSTEM_PROMPT,
-        target="user",
-        request_extra=request_extra,
-    )
 
 
 def agent_context(
@@ -74,8 +48,6 @@ def agent_context(
         name="gdpval_judge",
         role="Judge GDPVal deliverables and emit a JSON verdict.",
         system_prompt=GDPVAL_JUDGE_SYSTEM_PROMPT,
-        include_local_write_tools=False,
-        include_local_workspace_tools=False,
         include_excel_helpers=True,
     )
 
@@ -175,8 +147,6 @@ def run_agent(
             name="gdpval_judge",
             role="Judge GDPVal deliverables and emit a JSON verdict.",
             system_prompt=GDPVAL_JUDGE_SYSTEM_PROMPT,
-            include_local_write_tools=False,
-            include_local_workspace_tools=False,
             include_excel_helpers=True,
         ) as agent:
             source_state, source_events = agent.run(task, max_turns=max_turns)
@@ -202,18 +172,6 @@ def run_agent(
             )
 
     return state, events()
-
-
-def _local_read_only_judge_tools(workdir: Path, input_dir: Path):
-    workspace_tools = tuple(
-        tool
-        for tool in make_gdpval_tools(workdir=workdir, reference_dir=input_dir)
-        if tool.name in _LOCAL_READ_ONLY_TOOL_NAMES
-    )
-    return (
-        *workspace_tools,
-        *make_judge_excel_tools(workdir=workdir, reference_dir=input_dir),
-    )
 
 
 def _copy_new_events(

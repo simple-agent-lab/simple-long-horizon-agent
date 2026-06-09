@@ -11,8 +11,8 @@ Scope:
   compression layer.
 - Runtime dependency: standard library plus the installed `simple-agent-lab`
   wheel. The implementation does not import `swalm`.
-- Tool surface: local file/read/search/write/edit/bash/todo tools. Web tools
-  are intentionally absent from the solver tool surface.
+- Solver tool surface: `execute_bash`, `TodoWrite`, `multi_edit_file`, and
+  `view_image`. Web tools are intentionally absent from the solver tool surface.
 - Judge scope: `--judge-mode gsb` compares candidate deliverables against
   `deliverable_files` with forward/reverse A/B GSB scoring. `--judge-mode
   rubric` uses the direct rubric score path.
@@ -43,11 +43,12 @@ Add `--judge` to run the GSB judge after successful solver cases:
 uv run --with datasets python runs/run_gdpval.py --limit 10 --judge
 ```
 
-The judge tool surface defaults to `--judge-tool-mode hybrid`: the local
-GDPVal file/bash tools stay available, and local stdio MCP servers are added
-when the image can start them. Only read/inspection MCP tools are exposed to
-the model; MCP tools that write, edit, create, delete, move, or format files
-are filtered out. Use `--judge-tool-mode local` to disable MCP tools, or
+The judge tool surface is shared by `--judge-mode gsb` and
+`--judge-mode rubric`. It defaults to `--judge-tool-mode hybrid`: local Excel
+inspection helpers are available, and local stdio MCP servers are added when
+the image can start them. Only read/inspection MCP tools are exposed to the
+model; MCP tools that write, edit, create, delete, move, or format files are
+filtered out. Use `--judge-tool-mode local` to disable MCP tools, or
 `--judge-tool-mode mcp` to require MCP startup and fail loudly if a server is
 missing.
 

@@ -20,7 +20,6 @@ from simple_agent_lab.tools import ToolResult
 from simple_agent_lab.tools import tool_result_text
 
 from .judge_excel_tools import make_judge_excel_tools
-from .tools import make_gdpval_tools
 
 JudgeToolMode = Literal["local", "mcp", "hybrid"]
 
@@ -99,7 +98,6 @@ GDPVAL_PPT_JUDGE_MCP_HARD_DENY_TERMS: tuple[str, ...] = (
     "save",
 )
 _PPT_MCP_SERVER_NAMES = {"ppt", "ppt_mcp_server"}
-_LOCAL_WRITE_TOOL_NAMES = {"write_file", "edit_file", "multi_edit_file", "TodoWrite"}
 _MAX_JUDGE_TOOL_TEXT_CHARS = 200_000
 _MAX_JUDGE_TOOL_FILE_TEXT_CHARS = 400_000
 _MAX_TEXT_ITEM_CHARS = 160_000
@@ -222,8 +220,6 @@ def open_gdpval_judge_tools(
     workdir: str | Path,
     reference_dir: str | Path,
     mode: str | None = None,
-    include_local_write_tools: bool = True,
-    include_local_workspace_tools: bool = True,
     include_excel_helpers: bool = False,
     path_label_roles: Mapping[str, str] | None = None,
 ) -> Iterator[tuple[AgentTool, ...]]:
@@ -233,21 +229,9 @@ def open_gdpval_judge_tools(
     references = Path(reference_dir).resolve()
     tool_mode = normalize_judge_tool_mode(mode)
     local_tools: tuple[AgentTool, ...] = ()
-    if tool_mode in {"local", "hybrid"} and include_local_workspace_tools:
-        selected_local_tools = list(
-            make_gdpval_tools(workdir=workspace, reference_dir=references)
-        )
-        if not include_local_write_tools:
-            selected_local_tools = [
-                tool
-                for tool in selected_local_tools
-                if tool.name not in _LOCAL_WRITE_TOOL_NAMES
-            ]
-        local_tools = tuple(selected_local_tools)
     if include_excel_helpers:
-        local_tools = (
-            *local_tools,
-            *make_judge_excel_tools(workdir=workspace, reference_dir=references),
+        local_tools = make_judge_excel_tools(
+            workdir=workspace, reference_dir=references
         )
     connections = []
     mcp_tools: list[AgentTool] = []
@@ -320,8 +304,6 @@ def gdpval_judge_agent_context(
     name: str,
     role: str,
     system_prompt: str,
-    include_local_write_tools: bool = True,
-    include_local_workspace_tools: bool = True,
     include_excel_helpers: bool = False,
     path_label_roles: Mapping[str, str] | None = None,
 ) -> Iterator:
@@ -336,8 +318,6 @@ def gdpval_judge_agent_context(
         workdir=workdir,
         reference_dir=reference_dir,
         mode=mode,
-        include_local_write_tools=include_local_write_tools,
-        include_local_workspace_tools=include_local_workspace_tools,
         include_excel_helpers=include_excel_helpers,
         path_label_roles=path_label_roles,
     ) as tools:

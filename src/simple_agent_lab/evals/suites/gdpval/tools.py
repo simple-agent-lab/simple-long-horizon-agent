@@ -6,10 +6,9 @@ import base64
 import hashlib
 import json
 import mimetypes
-import subprocess
 from difflib import unified_diff
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 from simple_agent_lab.messages import ImageBlock, TextBlock
 from simple_agent_lab.tools import AgentTool, ToolResult, text_result
@@ -21,7 +20,6 @@ from simple_agent_lab.tools.bash import (
 
 _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 _MAX_IMAGE_BYTES = 5 * 1024 * 1024
-_MAX_READ_CHARS = 80_000
 _MULTI_EDIT_DIFF_MAX_CHARS = 12_000
 _MULTI_EDIT_DIFF_MAX_LINES = 120
 
@@ -30,16 +28,14 @@ def make_gdpval_tools(
     *,
     workdir: str | Path,
     reference_dir: str | Path,
-    profile: Literal["full", "bash_fileops"] = "full",
     output_head_chars: int = 6000,
     output_tail_chars: int = 6000,
 ) -> tuple[AgentTool, ...]:
-    """Return the no-web GDPVal tool surface.
+    """Return the GDPVal solver tool surface.
 
-    ``profile="bash_fileops"`` matches the swalm
-    ``tool-call-optimized-bash-fileops`` solver shape: bash is the primary
-    file-operation tool, with exact multi-edit, image inspection, and todos.
-    The default ``full`` profile keeps judge behavior stable.
+    This matches the swalm ``tool-call-optimized-bash-fileops`` solver shape:
+    bash is the primary file-operation tool, with exact multi-edit, image
+    inspection, and todos. Judge tools are intentionally built separately.
     """
 
     workspace = Path(workdir).resolve()
@@ -47,138 +43,6 @@ def make_gdpval_tools(
     workspace.mkdir(parents=True, exist_ok=True)
     references.mkdir(parents=True, exist_ok=True)
     todos: list[dict[str, Any]] = []
-
-    def list_dir(call_id: str, args: dict[str, Any], abort, on_update) -> ToolResult:
-        del call_id, abort, on_update
-        try:
-            root = _resolve_read_path(
-                args.get("path") or str(workspace), workspace, references
-            )
-            recursive = bool(args.get("recursive", False))
-            limit = max(1, min(int(args.get("limit", 200) or 200), 1000))
-            lines: list[str] = []
-            iterator = root.rglob("*") if recursive else root.iterdir()
-            for index, item in enumerate(sorted(iterator, key=lambda p: str(p))):
-                if index >= limit:
-                    lines.append(f"... truncated after {limit} entries")
-                    break
-                rel = item.relative_to(root)
-                suffix = "/" if item.is_dir() else ""
-                size = "" if item.is_dir() else f" {item.stat().st_size} bytes"
-                lines.append(f"{rel}{suffix}{size}")
-            return text_result("\n".join(lines) or "(empty directory)")
-        except Exception as exc:
-            return text_result(f"{type(exc).__name__}: {exc}", is_error=True)
-
-    def read_file(call_id: str, args: dict[str, Any], abort, on_update) -> ToolResult:
-        del call_id, abort, on_update
-        try:
-            path = _resolve_read_path(args.get("path"), workspace, references)
-            if path.suffix.lower() in _IMAGE_EXTS:
-                return _image_result(path)
-            offset = max(1, int(args.get("offset", 1) or 1))
-            limit = args.get("limit")
-            line_limit = max(1, int(limit)) if limit is not None else None
-            text = path.read_text(encoding="utf-8", errors="replace")
-            lines = text.splitlines()
-            selected = lines[
-                offset - 1 : offset - 1 + line_limit if line_limit else None
-            ]
-            rendered = "\n".join(
-                f"{line_no:>6}: {line}"
-                for line_no, line in enumerate(selected, start=offset)
-            )
-            if len(rendered) > _MAX_READ_CHARS:
-                rendered = _middle_truncate(
-                    rendered,
-                    head_chars=_MAX_READ_CHARS // 2,
-                    tail_chars=_MAX_READ_CHARS // 2,
-                )
-            meta = (
-                f"\n\n[file: {path} | lines={len(lines)} | "
-                f"shown_from={offset} | shown_count={len(selected)}]"
-            )
-            return text_result(rendered + meta)
-        except Exception as exc:
-            return text_result(f"{type(exc).__name__}: {exc}", is_error=True)
-
-    def grep_files(call_id: str, args: dict[str, Any], abort, on_update) -> ToolResult:
-        del call_id, abort, on_update
-        try:
-            pattern = str(args.get("pattern") or "")
-            if not pattern:
-                return text_result("pattern is required", is_error=True)
-            root = _resolve_read_path(
-                args.get("path") or str(workspace), workspace, references
-            )
-            max_matches = max(1, min(int(args.get("max_matches", 100) or 100), 1000))
-            command = [
-                "rg",
-                "--line-number",
-                "--no-heading",
-                "--color",
-                "never",
-                "-m",
-                str(max_matches),
-                pattern,
-                str(root),
-            ]
-            if not bool(args.get("case_sensitive", True)):
-                command.insert(1, "-i")
-            proc = subprocess.run(
-                command,
-                cwd=str(workspace),
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=30,
-            )
-            if proc.returncode == 1:
-                return text_result("No matches found")
-            if proc.returncode != 0:
-                return text_result(proc.stderr.strip() or "rg failed", is_error=True)
-            return text_result(
-                _middle_truncate(
-                    proc.stdout.strip(),
-                    head_chars=output_head_chars,
-                    tail_chars=output_tail_chars,
-                )
-            )
-        except Exception as exc:
-            return text_result(f"{type(exc).__name__}: {exc}", is_error=True)
-
-    def write_file(call_id: str, args: dict[str, Any], abort, on_update) -> ToolResult:
-        del call_id, abort, on_update
-        try:
-            path = _resolve_write_path(args.get("path"), workspace)
-            content = str(args.get("content") or "")
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content, encoding="utf-8")
-            return text_result(f"Wrote {path} ({len(content)} chars)")
-        except Exception as exc:
-            return text_result(f"{type(exc).__name__}: {exc}", is_error=True)
-
-    def edit_file(call_id: str, args: dict[str, Any], abort, on_update) -> ToolResult:
-        del call_id, abort, on_update
-        try:
-            path = _resolve_write_path(args.get("path"), workspace)
-            old = str(args.get("old") or "")
-            new = str(args.get("new") or "")
-            if not old:
-                return text_result("old is required", is_error=True)
-            count = int(args.get("count", 1) or 1)
-            text = path.read_text(encoding="utf-8", errors="replace")
-            occurrences = text.count(old)
-            if occurrences == 0:
-                return text_result(f"old text not found in {path}", is_error=True)
-            updated = text.replace(old, new, count)
-            path.write_text(updated, encoding="utf-8")
-            return text_result(
-                f"Edited {path}; replaced {min(count, occurrences)} occurrence(s)"
-            )
-        except Exception as exc:
-            return text_result(f"{type(exc).__name__}: {exc}", is_error=True)
 
     def multi_edit_file(
         call_id: str, args: dict[str, Any], abort, on_update
@@ -297,83 +161,6 @@ def make_gdpval_tools(
         (workspace / "_sal_todos.json").write_text(payload + "\n", encoding="utf-8")
         return text_result(payload)
 
-    list_dir_tool = AgentTool(
-        name="list_dir",
-        description="List files under WORKDIR or REFERENCE_DIR.",
-        parameters={
-            "type": "object",
-            "properties": {
-                "path": {"type": "string"},
-                "recursive": {"type": "boolean"},
-                "limit": {"type": "integer"},
-            },
-            "additionalProperties": False,
-        },
-        execute=list_dir,
-    )
-    read_file_tool = AgentTool(
-        name="read_file",
-        description="Read a text file with line numbers, or return an image block for image files.",
-        parameters={
-            "type": "object",
-            "properties": {
-                "path": {"type": "string"},
-                "offset": {"type": "integer"},
-                "limit": {"type": "integer"},
-            },
-            "required": ["path"],
-            "additionalProperties": False,
-        },
-        execute=read_file,
-    )
-    grep_files_tool = AgentTool(
-        name="grep_files",
-        description="Search text files under WORKDIR or REFERENCE_DIR with ripgrep.",
-        parameters={
-            "type": "object",
-            "properties": {
-                "pattern": {"type": "string"},
-                "path": {"type": "string"},
-                "case_sensitive": {"type": "boolean"},
-                "max_matches": {"type": "integer"},
-            },
-            "required": ["pattern"],
-            "additionalProperties": False,
-        },
-        execute=grep_files,
-    )
-    write_file_tool = AgentTool(
-        name="write_file",
-        description="Create or rewrite a UTF-8 text file under WORKDIR.",
-        parameters={
-            "type": "object",
-            "properties": {
-                "path": {"type": "string"},
-                "content": {"type": "string"},
-            },
-            "required": ["path", "content"],
-            "additionalProperties": False,
-        },
-        execute=write_file,
-        execution_mode="sequential",
-    )
-    edit_file_tool = AgentTool(
-        name="edit_file",
-        description="Replace exact text in a UTF-8 file under WORKDIR.",
-        parameters={
-            "type": "object",
-            "properties": {
-                "path": {"type": "string"},
-                "old": {"type": "string"},
-                "new": {"type": "string"},
-                "count": {"type": "integer"},
-            },
-            "required": ["path", "old", "new"],
-            "additionalProperties": False,
-        },
-        execute=edit_file,
-        execution_mode="sequential",
-    )
     execute_bash_tool = AgentTool(
         name="execute_bash",
         description="Run a bash command in WORKDIR and return stdout/stderr.",
@@ -476,24 +263,12 @@ def make_gdpval_tools(
         execute=view_image,
     )
 
-    if profile == "bash_fileops":
-        return (
-            execute_bash_tool,
-            todo_write_tool,
-            multi_edit_file_tool,
-            view_image_tool,
-        )
-    if profile == "full":
-        return (
-            list_dir_tool,
-            read_file_tool,
-            grep_files_tool,
-            write_file_tool,
-            edit_file_tool,
-            execute_bash_tool,
-            todo_write_tool,
-        )
-    raise ValueError(f"unknown GDPVal tool profile: {profile!r}")
+    return (
+        execute_bash_tool,
+        todo_write_tool,
+        multi_edit_file_tool,
+        view_image_tool,
+    )
 
 
 def _resolve_read_path(value: Any, workspace: Path, references: Path) -> Path:

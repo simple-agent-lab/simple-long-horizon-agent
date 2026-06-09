@@ -42,7 +42,6 @@ def build_agent(
         tools=make_gdpval_tools(
             workdir=workdir,
             reference_dir=reference_dir,
-            profile="bash_fileops",
         ),
         system_prompt=GDPVAL_SYSTEM_PROMPT,
         target="user",

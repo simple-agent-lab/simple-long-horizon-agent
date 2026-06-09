@@ -15,9 +15,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from simple_agent_lab.core import Agent
 from simple_agent_lab.llm.provider import Provider
-from simple_agent_lab.llm_agent import make_llm_agent
 from simple_agent_lab.messages import text_of
 from simple_agent_lab.protocols import ToolExecutionStartEvent
 from simple_agent_lab.state import State
@@ -25,7 +23,6 @@ from simple_agent_lab.state import State
 from .judge_container import (
     _candidate_summary,
     _input_dir_for,
-    _local_read_only_judge_tools,
     prepare as prepare,
 )
 from .judge_gsb_prompts import (
@@ -63,27 +60,6 @@ class _DirectionRunResult:
     failure_reason: str = ""
 
 
-def build_agent(
-    *,
-    provider: Provider,
-    cwd: Path,
-    request_extra: Mapping[str, Any] | None = None,
-) -> Agent:
-    """Build the GDPVal GSB judge agent with access to candidate/gold inputs."""
-
-    workdir = Path(cwd)
-    input_dir = _input_dir_for(workdir)
-    return make_llm_agent(
-        name="gdpval_gsb_judge",
-        provider=provider,
-        role="Compare GDPVal deliverables and write a GSB JSON verdict.",
-        tools=_local_read_only_judge_tools(workdir, input_dir),
-        system_prompt=GDPVAL_GSB_JUDGE_SYSTEM_PROMPT,
-        target="user",
-        request_extra=request_extra,
-    )
-
-
 def agent_context(
     *,
     provider: Provider,
@@ -103,8 +79,6 @@ def agent_context(
         name="gdpval_gsb_judge",
         role="Compare GDPVal deliverables and write a GSB JSON verdict.",
         system_prompt=GDPVAL_GSB_JUDGE_SYSTEM_PROMPT,
-        include_local_write_tools=False,
-        include_local_workspace_tools=False,
         include_excel_helpers=True,
     )
 
@@ -430,8 +404,6 @@ def _run_direction(
             name=f"gdpval_gsb_judge_{direction}_{attempt_index + 1}",
             role="Compare GDPVal deliverables and emit one GSB direction.",
             system_prompt=GDPVAL_GSB_JUDGE_SYSTEM_PROMPT,
-            include_local_write_tools=False,
-            include_local_workspace_tools=False,
             include_excel_helpers=True,
             path_label_roles=_path_label_roles_for_direction(direction),
         ) as agent:
