@@ -29,6 +29,12 @@ class RunGdpvalJudgeRetryTest(unittest.TestCase):
         )
         self.assertEqual(args.judge_tool_mode, "hybrid")
         self.assertFalse(args.include_known_bad_tasks)
+        self.assertTrue(args.enable_web_tools)
+
+    def test_disable_web_tools_flag(self) -> None:
+        args = run_gdpval._build_parser().parse_args(["--disable-web-tools"])
+
+        self.assertFalse(args.enable_web_tools)
 
     def test_candidate_missing_judge_status_is_semantic_success(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -84,6 +90,26 @@ class RunGdpvalJudgeRetryTest(unittest.TestCase):
                     "AZURE_OPENAI_ENDPOINT": "https://azure.example.test",
                     "AZURE_OPENAI_API_VERSION": "2024-02-01",
                     "AZURE_OPENAI_LOGID": "log-123",
+                },
+            )
+
+    def test_web_tool_env_collects_serper_and_jina_only(self) -> None:
+        with mock.patch.dict(
+            "os.environ",
+            {
+                "SERPER_API_KEY": "serper-key",
+                "JINA_API_KEY": "jina-key",
+                "JINA_ENDPOINT": "https://r.jina.ai/",
+                "PROXY": "should-not-pass",
+            },
+            clear=True,
+        ):
+            self.assertEqual(
+                run_gdpval._web_tool_env(),
+                {
+                    "SERPER_API_KEY": "serper-key",
+                    "JINA_API_KEY": "jina-key",
+                    "JINA_ENDPOINT": "https://r.jina.ai/",
                 },
             )
 
@@ -216,7 +242,9 @@ class RunGdpvalJudgeRetryTest(unittest.TestCase):
                 task_id = str(kwargs["instance"]["instance_id"])
                 calls.append((run_id, task_id))
                 if run_id == "judge-base" and task_id == "flaky":
-                    return result(run_id, task_id, "judge_result_missing", 0.0).artifacts
+                    return result(
+                        run_id, task_id, "judge_result_missing", 0.0
+                    ).artifacts
                 score = 1.0 if task_id == "flaky" else 0.5
                 return result(run_id, task_id, "gsb_judged", score).artifacts
 

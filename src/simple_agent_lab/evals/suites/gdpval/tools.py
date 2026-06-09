@@ -18,6 +18,8 @@ from simple_agent_lab.tools.bash import (
     run_bash,
 )
 
+from .web_tools import make_gdpval_web_tools
+
 _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 _MAX_IMAGE_BYTES = 5 * 1024 * 1024
 _MULTI_EDIT_DIFF_MAX_CHARS = 12_000
@@ -28,6 +30,7 @@ def make_gdpval_tools(
     *,
     workdir: str | Path,
     reference_dir: str | Path,
+    enable_web_tools: bool = True,
     output_head_chars: int = 6000,
     output_tail_chars: int = 6000,
 ) -> tuple[AgentTool, ...]:
@@ -263,12 +266,15 @@ def make_gdpval_tools(
         execute=view_image,
     )
 
-    return (
+    tools = (
         execute_bash_tool,
         todo_write_tool,
         multi_edit_file_tool,
         view_image_tool,
     )
+    if enable_web_tools:
+        tools = (*tools, *make_gdpval_web_tools(workdir=workspace))
+    return tools
 
 
 def _resolve_read_path(value: Any, workspace: Path, references: Path) -> Path:

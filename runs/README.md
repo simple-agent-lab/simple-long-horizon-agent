@@ -99,6 +99,7 @@ artifacts. Add `--judge` to run the GSB follow-up judge and write
 uv run --with datasets python runs/run_gdpval.py --limit 10
 uv run --with datasets python runs/run_gdpval.py --limit 10 --judge
 uv run --with datasets python runs/run_gdpval.py --limit 10 --judge --judge-mode rubric
+uv run --with datasets python runs/run_gdpval.py --limit 10 --disable-web-tools
 uv run python runs/run_gdpval.py path/to/gdpval.jsonl --task-ids <task-id>
 ```
 

@@ -55,6 +55,12 @@ PROVIDER_ENV_FIELDS = (
     ("AZURE_OPENAI_API_VERSION", "azure_api_version"),
     ("AZURE_OPENAI_LOGID", "azure_logid"),
 )
+WEB_TOOL_ENV_FIELDS = (
+    "SERPER_API_KEY",
+    "SERPER_ENDPOINT",
+    "JINA_API_KEY",
+    "JINA_ENDPOINT",
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -177,6 +183,20 @@ def _build_parser() -> argparse.ArgumentParser:
         "--api-kind",
         choices=["openai-chat", "openai-responses"],
         default=os.environ.get("API_KIND", "openai-responses"),
+    )
+    web_tools_group = parser.add_mutually_exclusive_group()
+    web_tools_group.add_argument(
+        "--enable-web-tools",
+        dest="enable_web_tools",
+        action="store_true",
+        default=True,
+        help="Expose Serper WebSearch and Jina WebFetch to the solver. This is the default.",
+    )
+    web_tools_group.add_argument(
+        "--disable-web-tools",
+        dest="enable_web_tools",
+        action="store_false",
+        help="Do not expose WebSearch/WebFetch to the solver.",
     )
     solver_group = parser.add_argument_group("solver provider overrides")
     solver_group.add_argument(
@@ -313,10 +333,16 @@ def main() -> None:
         reference_root=args.reference_root,
         network_mode=args.network_mode or None,
         platform=args.platform,
+        enable_web_tools=args.enable_web_tools,
     )
     backend = _backend_for(args, run_id=args.run_id, wheelhouse=wheelhouse)
-    solver_provider_env = _provider_env(args, stage="solver")
-    judge_provider_env = _provider_env(args, stage="judge", base=solver_provider_env)
+    base_solver_provider_env = _provider_env(args, stage="solver")
+    solver_provider_env = {**base_solver_provider_env, **_web_tool_env()}
+    judge_provider_env = _provider_env(
+        args,
+        stage="judge",
+        base=base_solver_provider_env,
+    )
 
     print("==> Running GDPVal solver")
     source = args.input or f"huggingface:{args.hf_dataset}/{args.hf_split}"
@@ -333,6 +359,7 @@ def main() -> None:
     print(f"    provider:    {args.provider}")
     print(f"    api-kind:    {args.api_kind}")
     print(f"    model:       {_provider_model_label(solver_provider_env)}")
+    print(f"    web tools:   {args.enable_web_tools}")
     print(f"    max-turns:   {args.max_turns}")
     print(f"    output root: {run_root}")
     print("")
@@ -410,6 +437,12 @@ def _provider_env(
             env[name] = value
     _normalize_provider_env(env, overrides=overrides)
     return env
+
+
+def _web_tool_env() -> dict[str, str]:
+    return {
+        name: os.environ[name] for name in WEB_TOOL_ENV_FIELDS if os.environ.get(name)
+    }
 
 
 def _provider_override_attrs(args: argparse.Namespace, *, stage: str) -> set[str]:
@@ -661,9 +694,7 @@ def _run_judge_with_semantic_retries(
                 latest_by_id[str(item.instance_id)] = item
 
                 task_id = str(item.instance_id)
-                attempt_counts[task_id] = (
-                    attempt_counts.get(task_id, 0) + item.attempts
-                )
+                attempt_counts[task_id] = attempt_counts.get(task_id, 0) + item.attempts
                 status = _judge_result_status(item)
                 semantic_histories.setdefault(task_id, []).append(status)
                 on_judge_result(item)
@@ -674,8 +705,7 @@ def _run_judge_with_semantic_retries(
                 ):
                     next_attempt = semantic_attempt + 1
                     print(
-                        "    semantic retry queued "
-                        f"{item.instance_id}: status={status}"
+                        f"    semantic retry queued {item.instance_id}: status={status}"
                     )
                     # Retry before starting more first-pass work so failures do
                     # not wait behind the rest of a long dataset.

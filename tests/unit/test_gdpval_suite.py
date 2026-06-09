@@ -42,7 +42,10 @@ from simple_agent_lab.evals.suites.gdpval.judge_mcp import (
     is_gdpval_judge_read_only_mcp_tool_name,
     normalize_judge_tool_mode,
 )
-from simple_agent_lab.evals.suites.gdpval.prompts import GDPVAL_SYSTEM_PROMPT
+from simple_agent_lab.evals.suites.gdpval.prompts import (
+    GDPVAL_SYSTEM_PROMPT,
+    gdpval_system_prompt,
+)
 from simple_agent_lab.evals.suites.gdpval.tools import make_gdpval_tools
 from simple_agent_lab.llm.provider import Provider
 from simple_agent_lab.state import State
@@ -73,6 +76,7 @@ class GdpvalSuiteTest(unittest.TestCase):
             )
 
             self.assertEqual(visible["solver_agent_mode"], "tool-call-context-managed")
+            self.assertTrue(visible["enable_web_tools"])
             self.assertNotIn("deliverable_files", visible)
             self.assertNotIn("rubric_json", visible)
             self.assertEqual(visible["reference_files"][0]["name"], "refs/brief.txt")
@@ -81,6 +85,16 @@ class GdpvalSuiteTest(unittest.TestCase):
                 visible["reference_file_blobs"][0]["data_base64"]
             ).decode("utf-8")
             self.assertEqual(decoded, "reference text")
+
+    def test_task_input_threads_solver_web_tool_flag(self) -> None:
+        visible = GdpvalSuite(enable_web_tools=False).task_input(
+            {
+                "task_id": "task-1",
+                "prompt": "Create a deliverable.",
+            }
+        )
+
+        self.assertFalse(visible["enable_web_tools"])
 
     def test_task_input_uses_official_reference_files_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -261,6 +275,13 @@ class GdpvalSuiteTest(unittest.TestCase):
             self.assertIn("execute_bash as the primary tool", GDPVAL_SYSTEM_PROMPT)
             self.assertIn("multi_edit_file", GDPVAL_SYSTEM_PROMPT)
             self.assertIn("view_image", GDPVAL_SYSTEM_PROMPT)
+            self.assertIn("Use WebSearch only", GDPVAL_SYSTEM_PROMPT)
+            self.assertIn("Use WebFetch for a known public", GDPVAL_SYSTEM_PROMPT)
+            self.assertNotIn("ImageSearch", GDPVAL_SYSTEM_PROMPT)
+            self.assertIn(
+                "External web tools are not available",
+                gdpval_system_prompt(enable_web_tools=False),
+            )
             self.assertIn("<FINAL_ANSWER>...</FINAL_ANSWER>", task)
 
     def test_gdpval_solver_tools_cover_bash_edit_todo_and_images(self) -> None:
@@ -272,6 +293,7 @@ class GdpvalSuiteTest(unittest.TestCase):
                 for tool in make_gdpval_tools(
                     workdir=workdir,
                     reference_dir=reference_dir,
+                    enable_web_tools=False,
                     output_head_chars=2000,
                     output_tail_chars=2000,
                 )
@@ -351,16 +373,166 @@ class GdpvalSuiteTest(unittest.TestCase):
             (workdir / "pixel.png").write_bytes(pixel_png)
             self.assertIn("Image file:", call("view_image", {"path": "pixel.png"}))
 
+    def test_gdpval_solver_tools_include_serper_and_jina_web_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workdir = Path(tmp) / "workdir"
+            reference_dir = Path(tmp) / "reference_task_id_files"
+            tools = {
+                tool.name: tool
+                for tool in make_gdpval_tools(
+                    workdir=workdir,
+                    reference_dir=reference_dir,
+                )
+            }
+
+            self.assertEqual(
+                set(tools),
+                {
+                    "execute_bash",
+                    "TodoWrite",
+                    "multi_edit_file",
+                    "view_image",
+                    "WebSearch",
+                    "WebFetch",
+                },
+            )
+
+    def test_gdpval_web_search_uses_serper_and_filters_domains(self) -> None:
+        class _Response:
+            status = 200
+            headers = {"Content-Type": "application/json"}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return json.dumps(
+                    {
+                        "organic": [
+                            {
+                                "title": "Keep",
+                                "link": "https://example.com/a",
+                                "snippet": "alpha",
+                            },
+                            {
+                                "title": "Drop",
+                                "link": "https://blocked.test/a",
+                                "snippet": "beta",
+                            },
+                        ],
+                        "answerBox": {"answer": "42"},
+                    }
+                ).encode("utf-8")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tools = {
+                tool.name: tool
+                for tool in make_gdpval_tools(
+                    workdir=Path(tmp) / "workdir",
+                    reference_dir=Path(tmp) / "reference_task_id_files",
+                )
+            }
+            with patch.dict(os.environ, {"SERPER_API_KEY": "secret"}, clear=True):
+                with patch(
+                    "simple_agent_lab.evals.suites.gdpval.web_tools.urllib.request.urlopen",
+                    return_value=_Response(),
+                ) as urlopen:
+                    result = tools["WebSearch"].execute(
+                        "call-1",
+                        {
+                            "query": "alpha",
+                            "max_results": 5,
+                            "allowed_domains": ["example.com"],
+                            "blocked_domains": ["blocked.test"],
+                        },
+                        lambda: False,
+                        None,
+                    )
+
+            self.assertFalse(result.is_error, tool_result_text(result))
+            payload = json.loads(tool_result_text(result))
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["provider"], "serper")
+            self.assertEqual(
+                [item["link"] for item in payload["organic"]],
+                ["https://example.com/a"],
+            )
+            body = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
+            self.assertIn("site:example.com", body["q"])
+
+    def test_gdpval_web_fetch_uses_jina_and_writes_cache(self) -> None:
+        class _Response:
+            status = 200
+            headers = {"Content-Type": "text/plain"}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return (
+                    b"Title: Example Page\n"
+                    b"URL Source: https://example.com/page\n"
+                    b"Markdown Content:\n"
+                    b"# Heading\n\nBody text from Jina."
+                )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            workdir = Path(tmp) / "workdir"
+            tools = {
+                tool.name: tool
+                for tool in make_gdpval_tools(
+                    workdir=workdir,
+                    reference_dir=Path(tmp) / "reference_task_id_files",
+                )
+            }
+            with patch.dict(os.environ, {"JINA_API_KEY": "jina-key"}, clear=True):
+                with patch(
+                    "simple_agent_lab.evals.suites.gdpval.web_tools.urllib.request.urlopen",
+                    return_value=_Response(),
+                ) as urlopen:
+                    result = tools["WebFetch"].execute(
+                        "call-1",
+                        {"url": "https://example.com/page", "max_chars": 1000},
+                        lambda: False,
+                        None,
+                    )
+
+            self.assertFalse(result.is_error, tool_result_text(result))
+            payload = json.loads(tool_result_text(result))
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["provider"], "jina")
+            self.assertEqual(payload["title"], "Example Page")
+            self.assertIn("# Heading", payload["content"])
+            content_path = Path(payload["content_path"])
+            metadata_path = Path(payload["metadata_path"])
+            self.assertTrue(content_path.is_file())
+            self.assertTrue(metadata_path.is_file())
+            self.assertIn(".webfetch_cache", content_path.parts)
+            self.assertEqual(
+                urlopen.call_args.args[0].full_url,
+                "https://r.jina.ai/https://example.com/page",
+            )
+
     def test_extract_result_collects_manifest_and_archive(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             workdir = Path(tmp) / "workdir"
             workdir.mkdir()
             (workdir / "answer.txt").write_text("answer", encoding="utf-8")
+            cache = workdir / ".webfetch_cache" / "abc"
+            cache.mkdir(parents=True)
+            (cache / "content.md").write_text("cached web text", encoding="utf-8")
 
             result = container.extract_result(workdir, {"task_id": "task-1"})
 
             self.assertEqual(result["status"], "solver_finished")
             self.assertEqual(result["files"][0]["relative_path"], "answer.txt")
+            self.assertEqual(len(result["files"]), 1)
             self.assertGreater(result["workspace_archive_bytes"], 0)
             self.assertTrue(Path(result["workspace_archive_path"]).is_file())
 
@@ -396,7 +568,14 @@ class GdpvalSuiteTest(unittest.TestCase):
         self.assertIsNone(solver.context_policy)
         self.assertEqual(
             [tool.name for tool in solver.tools],
-            ["execute_bash", "TodoWrite", "multi_edit_file", "view_image"],
+            [
+                "execute_bash",
+                "TodoWrite",
+                "multi_edit_file",
+                "view_image",
+                "WebSearch",
+                "WebFetch",
+            ],
         )
         self.assertNotIn("read_file", {tool.name for tool in solver.tools})
         self.assertNotIn("write_file", {tool.name for tool in solver.tools})

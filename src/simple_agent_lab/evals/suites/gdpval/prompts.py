@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from textwrap import dedent
 
-GDPVAL_SYSTEM_PROMPT = dedent(
+_GDPVAL_SYSTEM_PROMPT_TEMPLATE = dedent(
     """\
     You are a long-horizon task agent operating in a sandboxed workspace.
 
@@ -39,8 +39,8 @@ GDPVAL_SYSTEM_PROMPT = dedent(
       manually.
     - Use TodoWrite for multi-step work. Keep at most one todo in_progress and
       mark todos completed as soon as each step is done.
-    - WebSearch, ImageSearch, and WebFetch are not available in this run. Use
-      the provided files and workspace evidence.
+
+    {web_tool_block}
 
     Long-task stopping rules:
     - Start by identifying the required final deliverables, success criteria, available inputs, and missing information.
@@ -56,3 +56,33 @@ GDPVAL_SYSTEM_PROMPT = dedent(
     - Inside the tags, mention the absolute paths of any generated files and a brief summary of what was completed or verified.
     """
 )
+
+_GDPVAL_WEB_TOOL_BLOCK = dedent(
+    """\
+    Web and external information:
+    - Use WebSearch only when the task needs external/current public information, source URLs, product data, legal/current facts, or when the provided workspace inputs are insufficient.
+    - Use WebFetch for a known public http(s) URL. It returns a bounded preview and saves parsed content locally; inspect returned local artifact paths through bash instead of fetching the same URL repeatedly.
+    - Prefer a small number of broad, high-signal searches followed by inspecting promising sources.
+    - If a source does not expose the needed information after a few reasonable attempts, record the limitation when appropriate and continue toward the deliverable.
+    """
+).rstrip()
+
+_GDPVAL_NO_WEB_TOOL_BLOCK = dedent(
+    """\
+    Web and external information:
+    - External web tools are not available in this run. Use the provided files and workspace evidence.
+    """
+).rstrip()
+
+
+def gdpval_system_prompt(*, enable_web_tools: bool = True) -> str:
+    """Return the GDPVal solver system prompt for the selected tool surface."""
+
+    return _GDPVAL_SYSTEM_PROMPT_TEMPLATE.format(
+        web_tool_block=(
+            _GDPVAL_WEB_TOOL_BLOCK if enable_web_tools else _GDPVAL_NO_WEB_TOOL_BLOCK
+        )
+    )
+
+
+GDPVAL_SYSTEM_PROMPT = gdpval_system_prompt()

@@ -11,8 +11,10 @@ Scope:
   compression layer.
 - Runtime dependency: standard library plus the installed `simple-agent-lab`
   wheel. The implementation does not import `swalm`.
-- Solver tool surface: `execute_bash`, `TodoWrite`, `multi_edit_file`, and
-  `view_image`. Web tools are intentionally absent from the solver tool surface.
+- Solver tool surface: `execute_bash`, `TodoWrite`, `multi_edit_file`,
+  `view_image`, plus optional `WebSearch` and `WebFetch`. `WebSearch` uses
+  Serper (`SERPER_API_KEY`); `WebFetch` uses Jina Reader (`JINA_API_KEY`
+  optional). Pass `--disable-web-tools` for offline/controlled runs.
 - Judge scope: `--judge-mode gsb` compares candidate deliverables against
   `deliverable_files` with forward/reverse A/B GSB scoring. `--judge-mode
   rubric` uses the direct rubric score path.
@@ -29,6 +31,15 @@ and skips known rows whose gold deliverables are unreadable:
 
 ```bash
 uv run --with datasets python runs/run_gdpval.py --limit 10
+```
+
+By default the solver may use `WebSearch` and `WebFetch` when external public
+information is needed. Set `SERPER_API_KEY` to enable Serper search. Jina fetch
+works through `https://r.jina.ai/` by default and can use `JINA_API_KEY` or
+`JINA_ENDPOINT` from the environment. To keep the solver fully offline, pass:
+
+```bash
+uv run --with datasets python runs/run_gdpval.py --limit 10 --disable-web-tools
 ```
 
 Known-bad GDPVal rows are excluded so default full runs do not hang on broken

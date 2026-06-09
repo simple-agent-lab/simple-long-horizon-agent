@@ -12,6 +12,7 @@ import os
 import tarfile
 import tempfile
 from collections.abc import Mapping
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +22,7 @@ from simple_agent_lab.llm.provider import Provider
 from simple_agent_lab.llm_agent import make_llm_agent
 
 from .assets import write_reference_files
-from .prompts import GDPVAL_SYSTEM_PROMPT
+from .prompts import gdpval_system_prompt
 from .tools import make_gdpval_tools
 
 
@@ -30,6 +31,7 @@ def build_agent(
     provider: Provider,
     cwd: Path,
     request_extra: Mapping[str, Any] | None = None,
+    enable_web_tools: bool = True,
 ) -> Agent:
     """Build the GDPVal solver agent."""
 
@@ -42,10 +44,35 @@ def build_agent(
         tools=make_gdpval_tools(
             workdir=workdir,
             reference_dir=reference_dir,
+            enable_web_tools=enable_web_tools,
         ),
-        system_prompt=GDPVAL_SYSTEM_PROMPT,
+        system_prompt=gdpval_system_prompt(enable_web_tools=enable_web_tools),
         target="user",
         request_extra=request_extra,
+    )
+
+
+@contextmanager
+def agent_context(
+    *,
+    provider: Provider,
+    cwd: Path,
+    request_extra: Mapping[str, Any] | None = None,
+    instance: Mapping[str, Any] | None = None,
+    context: Mapping[str, Any] | None = None,
+):
+    """Build the GDPVal solver agent for a single instance."""
+
+    del context
+    yield build_agent(
+        provider=provider,
+        cwd=cwd,
+        request_extra=request_extra,
+        enable_web_tools=_instance_bool(
+            instance or {},
+            "enable_web_tools",
+            default=True,
+        ),
     )
 
 
@@ -164,7 +191,7 @@ def _workspace_manifest(workdir: Path) -> list[dict[str, Any]]:
     if not workdir.exists():
         return out
     for path in sorted(p for p in workdir.rglob("*") if p.is_file()):
-        if path.name.startswith("_sal_"):
+        if _is_internal_workspace_file(path, workdir):
             continue
         data = path.read_bytes()
         out.append(
@@ -185,7 +212,7 @@ def _archive_workspace(workdir: Path) -> bytes:
         with tarfile.open(temp_path, "w:gz") as tar:
             if workdir.exists():
                 for path in sorted(p for p in workdir.rglob("*") if p.is_file()):
-                    if path.name.startswith("_sal_"):
+                    if _is_internal_workspace_file(path, workdir):
                         continue
                     tar.add(
                         path, arcname=str(Path("workdir") / path.relative_to(workdir))
@@ -193,3 +220,22 @@ def _archive_workspace(workdir: Path) -> bytes:
         return temp_path.read_bytes()
     finally:
         temp_path.unlink(missing_ok=True)
+
+
+def _instance_bool(instance: Mapping[str, Any], key: str, *, default: bool) -> bool:
+    value = instance.get(key, default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() not in {"0", "false", "no", "off"}
+    return bool(value)
+
+
+def _is_internal_workspace_file(path: Path, workdir: Path) -> bool:
+    if path.name.startswith("_sal_"):
+        return True
+    try:
+        relative = path.relative_to(workdir)
+    except ValueError:
+        return False
+    return relative.parts[:1] == (".webfetch_cache",)

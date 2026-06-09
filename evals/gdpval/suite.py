@@ -52,12 +52,14 @@ class GdpvalSuite:
         reference_root: str | Path | None = None,
         network_mode: str | None = "host",
         platform: str | None = None,
+        enable_web_tools: bool = True,
     ) -> None:
         self.image = image
         self.workdir_prefix = workdir_prefix.rstrip("/")
         self.reference_root = Path(reference_root).resolve() if reference_root else None
         self.network_mode = network_mode
         self.platform = platform
+        self.enable_web_tools = enable_web_tools
 
     def launch_spec(self, instance: Mapping[str, Any]) -> LaunchSpec:
         task_id = _task_id(instance)
@@ -94,6 +96,7 @@ class GdpvalSuite:
                 ],
                 "reference_file_blobs": reference_blobs,
                 "solver_agent_mode": "tool-call-context-managed",
+                "enable_web_tools": self.enable_web_tools,
             }
         )
         return record
