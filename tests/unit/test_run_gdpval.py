@@ -332,6 +332,106 @@ class RunGdpvalJudgeRetryTest(unittest.TestCase):
                 ["judge_result_missing", "gsb_judged"],
             )
 
+    def test_streaming_judge_starts_from_solver_callback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            solver_run_dir = root / "solver" / "ready"
+            solver_out = solver_run_dir / "out"
+            solver_out.mkdir(parents=True)
+            (solver_run_dir / RESULT_KEY).write_text(
+                json.dumps({"status": "solver_finished"}) + "\n",
+                encoding="utf-8",
+            )
+            solver_result = InstanceResult(
+                "ready",
+                RunArtifacts(
+                    instance_id="ready",
+                    run_dir=solver_run_dir,
+                    trajectory_path=solver_out / "trajectory.jsonl",
+                    status_code=0,
+                ),
+                None,
+                attempts=1,
+            )
+            judge_run_dir = root / "judge-base" / "ready"
+            judge_out = judge_run_dir / "out"
+            judge_out.mkdir(parents=True)
+            (judge_run_dir / RESULT_KEY).write_text(
+                json.dumps(
+                    {
+                        "status": "gsb_judged",
+                        "score": 1.0,
+                        "earned_score": 1.0,
+                        "max_score": 1.0,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            started: list[str] = []
+
+            class FakeSuite:
+                def build_instance(self, source, *, candidate_result, candidate_artifacts):
+                    started.append(str(source["instance_id"]))
+                    return {"instance_id": source["instance_id"]}
+
+            def fake_judge(**kwargs):
+                task_id = str(kwargs["instance"]["instance_id"])
+                return (
+                    InstanceResult(
+                        task_id,
+                        RunArtifacts(
+                            instance_id=task_id,
+                            run_dir=judge_run_dir,
+                            trajectory_path=judge_out / "trajectory.jsonl",
+                            status_code=0,
+                        ),
+                        None,
+                        attempts=1,
+                    ),
+                    ["judge-base"],
+                    1,
+                    ["gsb_judged"],
+                )
+
+            args = argparse.Namespace(
+                run_id="solver",
+                judge_concurrency=1,
+                concurrency=1,
+                judge_semantic_max_attempts=1,
+                judge_mode="gsb",
+            )
+            phase = run_gdpval._StreamingJudgePhase(
+                args=args,
+                suite=FakeSuite(),
+                source_by_id={"ready": {"instance_id": "ready"}},
+                run_root=root,
+                base_judge_run_id="judge-base",
+                wheelhouse=None,
+                judge_provider="fake",
+                judge_api_kind="openai-chat",
+                provider_env={},
+            )
+
+            with (
+                mock.patch.object(
+                    run_gdpval,
+                    "_run_streaming_judge_instance_with_semantic_retries",
+                    side_effect=fake_judge,
+                ),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                phase.submit_solver_result(solver_result)
+                self.assertEqual(started, ["ready"])
+                self.assertEqual(len(phase.futures), 1)
+                summary = phase.finish()
+
+            self.assertIsNotNone(summary)
+            self.assertEqual(summary["judged"], 1)
+            self.assertEqual(summary["mean_score"], 1.0)
+            payload = json.loads((root / "solver" / "judge_summary.json").read_text())
+            self.assertEqual(payload["rows"][0]["task_id"], "ready")
+
 
 if __name__ == "__main__":
     unittest.main()

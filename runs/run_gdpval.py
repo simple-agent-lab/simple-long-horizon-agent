@@ -364,12 +364,23 @@ def main() -> None:
     print(f"    output root: {run_root}")
     print("")
 
+    streaming_judge = None
+    if args.judge:
+        streaming_judge = _start_streaming_judge_phase(
+            args=args,
+            source_instances=instances,
+            run_root=run_root,
+            provider_env=judge_provider_env,
+        )
+
     def on_result(result) -> None:
         status = "ok" if result.ok else "error"
         if result.artifacts is not None:
             status = f"status={result.artifacts.status_code}"
         print(f"[{status}] {result.instance_id}")
         _persist_backend_log(result.artifacts)
+        if streaming_judge is not None:
+            streaming_judge.submit_solver_result(result)
 
     report = run_dataset(
         suite=suite,
@@ -389,13 +400,13 @@ def main() -> None:
     )
     print("")
     print(f"==> summary: {report.summary()}")
+    if streaming_judge is not None:
+        streaming_judge.finish()
     failures = [item for item in report.results if not item.ok]
     if failures:
         for item in failures:
             print(f"    failed {item.instance_id}: {item.error}")
         raise SystemExit(1)
-    if args.judge:
-        _run_judge_phase(args, instances, report.results, run_root, judge_provider_env)
 
 
 def _load_dotenv(path: Path) -> None:
@@ -619,6 +630,254 @@ def _run_judge_phase(
     )
     print("")
     print(f"==> judge summary: {summary}")
+
+
+def _start_streaming_judge_phase(
+    *,
+    args: argparse.Namespace,
+    source_instances: list[dict],
+    run_root: Path,
+    provider_env: dict[str, str],
+) -> "_StreamingJudgePhase":
+    judge_run_id = args.judge_run_id or f"{args.run_id}-judge"
+    judge_provider = args.judge_provider or args.provider
+    judge_api_kind = args.judge_api_kind or args.api_kind
+    suite_cls = GdpvalGsbJudgeSuite if args.judge_mode == "gsb" else GdpvalJudgeSuite
+    suite = suite_cls(
+        image=args.image,
+        reference_root=args.reference_root,
+        deliverable_root=args.deliverable_root,
+        network_mode=args.network_mode or None,
+        platform=args.platform,
+        judge_tool_mode=args.judge_tool_mode,
+    )
+    phase = _StreamingJudgePhase(
+        args=args,
+        suite=suite,
+        source_by_id={str(item["instance_id"]): item for item in source_instances},
+        run_root=run_root,
+        base_judge_run_id=judge_run_id,
+        wheelhouse=_wheelhouse_for(args, run_root=run_root),
+        judge_provider=judge_provider,
+        judge_api_kind=judge_api_kind,
+        provider_env=provider_env,
+    )
+    print("")
+    print("==> Running GDPVal judge")
+    print("    schedule:    streaming")
+    print("    selected:    as solver results finish")
+    print(f"    run-id:      {judge_run_id}")
+    print(f"    mode:        {args.judge_mode}")
+    print(f"    tools:       {args.judge_tool_mode}")
+    print(f"    provider:    {judge_provider}")
+    print(f"    api-kind:    {judge_api_kind}")
+    print(f"    model:       {_provider_model_label(provider_env)}")
+    print(f"    max-turns:   {args.judge_max_turns}")
+    print(f"    concurrency: {phase.concurrency}")
+    print("")
+    return phase
+
+
+class _StreamingJudgePhase:
+    def __init__(
+        self,
+        *,
+        args: argparse.Namespace,
+        suite,
+        source_by_id: dict[str, dict],
+        run_root: Path,
+        base_judge_run_id: str,
+        wheelhouse: Path | None,
+        judge_provider: str,
+        judge_api_kind: str,
+        provider_env: dict[str, str],
+    ) -> None:
+        self.args = args
+        self.suite = suite
+        self.source_by_id = source_by_id
+        self.run_root = run_root
+        self.base_judge_run_id = base_judge_run_id
+        self.wheelhouse = wheelhouse
+        self.judge_provider = judge_provider
+        self.judge_api_kind = judge_api_kind
+        self.provider_env = provider_env
+        self.concurrency = max(1, int(args.judge_concurrency or args.concurrency or 1))
+        self.pool = ThreadPoolExecutor(max_workers=self.concurrency)
+        self.futures = {}
+        self.results: list[InstanceResult] = []
+        self.skipped: list[tuple[str, str]] = []
+        self.attempt_counts: dict[str, int] = {}
+        self.semantic_histories: dict[str, list[str]] = {}
+        self.run_ids: list[str] = []
+        self.seen_run_ids: set[str] = set()
+
+    def submit_solver_result(self, result: InstanceResult) -> None:
+        instance, skipped = _build_judge_instance_from_solver_result(
+            suite=self.suite,
+            source_by_id=self.source_by_id,
+            result=result,
+        )
+        if skipped is not None:
+            task_id, reason = skipped
+            self.skipped.append(skipped)
+            print(f"    judge skipped {task_id}: {reason}", flush=True)
+            return
+        assert instance is not None
+        future = self.pool.submit(
+            _run_streaming_judge_instance_with_semantic_retries,
+            args=self.args,
+            suite=self.suite,
+            instance=instance,
+            run_root=self.run_root,
+            base_judge_run_id=self.base_judge_run_id,
+            wheelhouse=self.wheelhouse,
+            judge_provider=self.judge_provider,
+            judge_api_kind=self.judge_api_kind,
+            provider_env=self.provider_env,
+            on_judge_result=_print_judge_result,
+        )
+        self.futures[future] = str(instance["instance_id"])
+
+    def finish(self) -> dict[str, object] | None:
+        pending = dict(self.futures)
+        while pending:
+            done, _ = wait(pending, return_when=FIRST_COMPLETED)
+            for future in done:
+                task_id = pending.pop(future)
+                try:
+                    item, run_ids, attempts, history = future.result()
+                except Exception as exc:
+                    item = InstanceResult(
+                        task_id,
+                        None,
+                        f"{type(exc).__name__}: {exc}",
+                        attempts=1,
+                    )
+                    run_ids = [self.base_judge_run_id]
+                    attempts = 1
+                    history = ["error"]
+                self.results.append(item)
+                self.attempt_counts[task_id] = attempts
+                self.semantic_histories[task_id] = history
+                for run_id in run_ids:
+                    if run_id not in self.seen_run_ids:
+                        self.seen_run_ids.add(run_id)
+                        self.run_ids.append(run_id)
+        self.pool.shutdown(wait=True)
+        if not self.results and not self.skipped:
+            print("==> judge summary: no judge instances selected")
+            return None
+        summary = _write_judge_summary(
+            run_root=self.run_root,
+            solver_run_id=self.args.run_id,
+            judge_run_id=self.base_judge_run_id,
+            judge_run_ids=self.run_ids or [self.base_judge_run_id],
+            judge_mode=self.args.judge_mode,
+            results=self._ordered_results(),
+            skipped=self.skipped,
+            attempt_counts=self.attempt_counts,
+            semantic_histories=self.semantic_histories,
+        )
+        print("")
+        print(f"==> judge summary: {summary}")
+        return summary
+
+    def _ordered_results(self) -> list[InstanceResult]:
+        order = {task_id: index for index, task_id in enumerate(self.source_by_id)}
+        return sorted(
+            self.results,
+            key=lambda item: order.get(str(item.instance_id), len(order)),
+        )
+
+
+def _print_judge_result(result: InstanceResult) -> None:
+    status = "ok" if result.ok else "error"
+    if result.artifacts is not None:
+        status = f"status={result.artifacts.status_code}"
+    print(f"[judge {status}] {result.instance_id}", flush=True)
+    _persist_backend_log(result.artifacts)
+
+
+def _build_judge_instance_from_solver_result(
+    *,
+    suite,
+    source_by_id: dict[str, dict],
+    result: InstanceResult,
+) -> tuple[dict | None, tuple[str, str] | None]:
+    artifacts = result.artifacts
+    if artifacts is None or artifacts.status_code != 0:
+        return None, (result.instance_id, "solver_status_nonzero")
+    result_path = artifacts.run_dir / RESULT_KEY
+    if not result_path.is_file():
+        return None, (result.instance_id, "solver_result_missing")
+    source = source_by_id.get(str(result.instance_id))
+    if source is None:
+        return None, (result.instance_id, "source_instance_missing")
+    try:
+        candidate_result = json.loads(result_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None, (result.instance_id, "solver_result_invalid_json")
+    return (
+        suite.build_instance(
+            source,
+            candidate_result=candidate_result,
+            candidate_artifacts=artifacts,
+        ),
+        None,
+    )
+
+
+def _run_streaming_judge_instance_with_semantic_retries(
+    *,
+    args: argparse.Namespace,
+    suite,
+    instance: dict,
+    run_root: Path,
+    base_judge_run_id: str,
+    wheelhouse: Path | None,
+    judge_provider: str,
+    judge_api_kind: str,
+    provider_env: dict[str, str],
+    on_judge_result,
+) -> tuple[InstanceResult, list[str], int, list[str]]:
+    max_semantic_attempts = max(1, int(args.judge_semantic_max_attempts or 1))
+    run_ids: list[str] = []
+    histories: list[str] = []
+    total_attempts = 0
+    latest: InstanceResult | None = None
+    for semantic_attempt in range(1, max_semantic_attempts + 1):
+        run_id = _judge_attempt_run_id(base_judge_run_id, semantic_attempt)
+        if run_id not in run_ids:
+            run_ids.append(run_id)
+        if semantic_attempt > 1:
+            print(
+                "    semantic retry queued "
+                f"{instance['instance_id']}: attempt={semantic_attempt}/"
+                f"{max_semantic_attempts}",
+                flush=True,
+            )
+        backend = _backend_for(args, run_id=run_id, wheelhouse=wheelhouse)
+        item = _run_one_judge_attempt(
+            args=args,
+            suite=suite,
+            instance=instance,
+            backend=backend,
+            run_root=run_root,
+            run_id=run_id,
+            wheelhouse=wheelhouse,
+            judge_provider=judge_provider,
+            judge_api_kind=judge_api_kind,
+            provider_env=provider_env,
+        )
+        latest = item
+        total_attempts += item.attempts
+        status = _judge_result_status(item)
+        histories.append(status)
+        on_judge_result(item)
+        if _judge_result_is_semantic_success(item):
+            break
+    assert latest is not None
+    return latest, run_ids, total_attempts, histories
 
 
 def _run_judge_with_semantic_retries(
