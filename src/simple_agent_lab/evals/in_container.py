@@ -63,6 +63,7 @@ OPENAI_AUTH_ENV = "OPENAI_AUTH_TOKEN"
 OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
 OPENAI_SESSION_ID_ENV = "OPENAI_SESSION_ID"
 OPENAI_LOG_ID_ENV = "OPENAI_LOG_ID"
+OPENAI_REASONING_EFFORT_ENV = "OPENAI_REASONING_EFFORT"
 API_KIND_ENV = "API_KIND"
 API_KIND_CHOICES = ("openai-chat", "openai-responses")
 DEFAULT_RESPONSES_MAX_OUTPUT_TOKENS = 32768
@@ -200,14 +201,16 @@ def request_extra_from_env(*, env: Mapping[str, str] | None = None) -> dict[str,
     source = env if env is not None else os.environ
     session_id = source.get(OPENAI_SESSION_ID_ENV, "").strip()
     log_id = source.get(OPENAI_LOG_ID_ENV, "").strip()
-    if not session_id and not log_id:
-        return {}
-    return {
-        "extra_headers": {
+    reasoning_effort = source.get(OPENAI_REASONING_EFFORT_ENV, "").strip()
+    extra: dict[str, Any] = {}
+    if session_id or log_id:
+        extra["extra_headers"] = {
             "extra": json.dumps({"session_id": session_id}, separators=(",", ":")),
             "X-TT-logid": log_id,
         }
-    }
+    if reasoning_effort:
+        extra["reasoning"] = {"effort": reasoning_effort}
+    return extra
 
 
 # --------------------------------------------------------------------------- #

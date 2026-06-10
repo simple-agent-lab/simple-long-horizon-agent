@@ -250,6 +250,33 @@ def main():
     parser.add_argument("--max-turns", type=int, default=10, help="Max agent turns")
     parser.add_argument("--run-root", default="runs", help="Output directory")
     parser.add_argument(
+        "--api-kind",
+        choices=["openai-chat", "openai-responses"],
+        default=os.environ.get("API_KIND", "openai-chat"),
+        help="Provider API wire protocol.",
+    )
+    parser.add_argument(
+        "--base-url",
+        default=None,
+        help="Override OPENAI_BASE_URL for this run.",
+    )
+    parser.add_argument(
+        "--reasoning-effort",
+        choices=["minimal", "low", "medium", "high"],
+        default=os.environ.get("OPENAI_REASONING_EFFORT", ""),
+        help="Responses API reasoning effort, e.g. high for GPT-5.x thinking models.",
+    )
+    parser.add_argument(
+        "--session-id",
+        default=os.environ.get("OPENAI_SESSION_ID", ""),
+        help="Optional ModelHub session id header value.",
+    )
+    parser.add_argument(
+        "--log-id",
+        default=os.environ.get("OPENAI_LOG_ID", ""),
+        help="Optional ModelHub log id header value.",
+    )
+    parser.add_argument(
         "--pass-threshold",
         type=float,
         default=100.0,
@@ -268,8 +295,19 @@ def main():
     args = parser.parse_args()
 
     # Bypass proxy for internal API endpoints
-    os.environ["NO_PROXY"] = "search.bytedance.net,ark-cn-beijing.bytedance.net,localhost,127.0.0.1"
-    os.environ["no_proxy"] = "search.bytedance.net,ark-cn-beijing.bytedance.net,localhost,127.0.0.1"
+    no_proxy = (
+        "search.bytedance.net,ark-cn-beijing.bytedance.net,aidp.bytedance.net,"
+        "localhost,127.0.0.1"
+    )
+    os.environ["NO_PROXY"] = no_proxy
+    os.environ["no_proxy"] = no_proxy
+
+    # Load API config. Repo-local .env is useful for ModelHub experiments and is
+    # gitignored; 0001_utils remains the legacy fallback used by earlier runs.
+    repo_env_path = PROJECT_ROOT / ".env"
+    if repo_env_path.exists():
+        from dotenv import load_dotenv
+        load_dotenv(repo_env_path, override=False)
 
     # Load API config from 0001_utils (symlink in repo root)
     utils_dir = PROJECT_ROOT / "0001_utils"
@@ -282,26 +320,32 @@ def main():
         from dotenv import load_dotenv
         load_dotenv(api_env_path)
 
-    # Set up provider env for simple-agent-lab
-    # The framework expects OPENAI_MODEL, OPENAI_AUTH_TOKEN, OPENAI_BASE_URL
-    # We'll use the Azure GPT endpoint
-    # Azure GPT endpoint (OpenAI-compatible format)
-    # Format: {azure_endpoint}/openai/deployments/{model}
-    base_url = os.environ.get(
-        "OPENAI_BASE_URL",
-        "https://search.bytedance.net/gpt/openapi/online/v2/crawl/openai/deployments/"
-        + args.model,
+    # Set up provider env for simple-agent-lab. Chat-compatible runs keep the
+    # legacy gateway default; Responses API runs use ModelHub by default.
+    default_base_url = (
+        "https://aidp.bytedance.net/api/modelhub/online/responses/openai/responses"
+        if args.api_kind == "openai-responses"
+        else "https://search.bytedance.net/gpt/openapi/online/v2/crawl/openai/deployments/"
+        + args.model
     )
-    api_key = os.environ.get("GPT_API_KEY", "")
+    base_url = args.base_url or os.environ.get("OPENAI_BASE_URL", default_base_url)
+    api_key = os.environ.get("OPENAI_AUTH_TOKEN") or os.environ.get("GPT_API_KEY", "")
     if not api_key:
-        print("ERROR: GPT_API_KEY not set. Load from 0001_utils/api/.env")
+        print("ERROR: OPENAI_AUTH_TOKEN or GPT_API_KEY not set.")
         sys.exit(1)
 
     provider_env = {
         "OPENAI_MODEL": args.model,
         "OPENAI_AUTH_TOKEN": api_key,
         "OPENAI_BASE_URL": base_url,
+        "API_KIND": args.api_kind,
     }
+    if args.reasoning_effort:
+        provider_env["OPENAI_REASONING_EFFORT"] = args.reasoning_effort
+    if args.session_id:
+        provider_env["OPENAI_SESSION_ID"] = args.session_id
+    if args.log_id:
+        provider_env["OPENAI_LOG_ID"] = args.log_id
 
     # Also set in os.environ so the LLM adapter can read them at runtime
     for k, v in provider_env.items():
@@ -397,7 +441,18 @@ def main():
                 provider="openai",
                 max_turns=args.max_turns,
                 provider_env=provider_env,
+                api_kind=args.api_kind,
             )
+            if artifacts.status_code != 0:
+                results.append({
+                    "instance_id": instance_id,
+                    "passed": False,
+                    "score": 0.0,
+                    "scoring_status": "error",
+                    "error": artifacts.logs,
+                })
+                print(f"  -> ERROR: {artifacts.logs}")
+                continue
 
             # Host-side scoring
             if score_fn:
@@ -453,6 +508,8 @@ def main():
             {
                 "bench": args.bench,
                 "model": args.model,
+                "api_kind": args.api_kind,
+                "reasoning_effort": args.reasoning_effort or None,
                 "backend": args.backend,
                 "sample": args.sample,
                 "sample_strategy": args.sample_strategy,

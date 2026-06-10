@@ -74,6 +74,154 @@ The architecture decision history lives in
 [docs/decisions](docs/decisions/README.md); keep detailed rationale there
 instead of expanding the public README.
 
+## OpenClaw Benchmark Handoff
+
+The `dev/claw` branch carries the current OpenClaw benchmark integration work.
+It adds suite adapters for:
+
+- `clawbench_tribe`
+- `pinchbench`
+- `clawbench_official`
+- `skillsbench`
+- `agentbench`
+- `claweval`
+- `zclawbench`
+
+The main entry point is [run_benches.py](run_benches.py). The host-side suite
+adapters live under [evals](evals/README.md); the in-run/container halves live
+under `src/simple_agent_lab/evals/suites/`.
+
+### Large Benchmark Data
+
+This branch uses Git LFS for large benchmark fixtures. Run this before pulling
+or checking out the branch:
+
+```bash
+git lfs install
+git fetch origin
+git switch dev/claw
+git pull --ff-only
+git lfs pull
+```
+
+The history rewrite that introduced LFS moved the large files from normal Git
+blobs into LFS pointers. The rewritten OpenClaw adapter commit is `cf71adc`
+(`Add OpenClaw benchmark adapters`), and current `origin/dev/claw` is
+`657b64e`. Files above 5 MB are now LFS-managed; the branch still contains many
+small benchmark files, so checkout can still take longer than a normal source
+branch.
+
+### ModelHub / GPT-5.5 High Runs
+
+For ModelHub Responses API runs, create a repo-local `.env` file. It is
+gitignored and should not be committed.
+
+```plaintext
+OPENAI_MODEL=gpt-5.5-2026-04-24
+OPENAI_AUTH_TOKEN=<your modelhub AK>
+OPENAI_BASE_URL=https://aidp.bytedance.net/api/modelhub/online/responses/openai/responses
+OPENAI_SESSION_ID=sal-openclaw-gpt55high
+OPENAI_LOG_ID=sal-openclaw-gpt55high
+API_KIND=openai-responses
+OPENAI_REASONING_EFFORT=high
+```
+
+`run_benches.py` also accepts these fields as CLI flags:
+
+```bash
+.venv/bin/python run_benches.py \
+  --bench clawbench_official \
+  --model gpt-5.5-2026-04-24 \
+  --api-kind openai-responses \
+  --reasoning-effort high \
+  --session-id sal-openclaw-gpt55high \
+  --log-id sal-openclaw-gpt55high-clawbench_official \
+  --backend process \
+  --sample 20 \
+  --sample-strategy spread \
+  --seed 0 \
+  --max-turns 10 \
+  --pass-threshold 60 \
+  --run-root .tmp/openclaw_gpt55high_20_spread_m10/clawbench_official
+```
+
+To run all currently wired benches with the same 20-task spread subset:
+
+```bash
+for bench in clawbench_tribe pinchbench clawbench_official skillsbench agentbench claweval zclawbench; do
+  .venv/bin/python run_benches.py \
+    --bench "$bench" \
+    --model gpt-5.5-2026-04-24 \
+    --api-kind openai-responses \
+    --reasoning-effort high \
+    --session-id sal-openclaw-gpt55high \
+    --log-id "sal-openclaw-gpt55high-$bench" \
+    --backend process \
+    --sample 20 \
+    --sample-strategy spread \
+    --seed 0 \
+    --max-turns 10 \
+    --pass-threshold 60 \
+    --run-root ".tmp/openclaw_gpt55high_20_spread_m10/$bench"
+done
+```
+
+Use `.venv/bin/python`, not macOS `/usr/bin/python3`; the latter is often
+Python 3.9 and cannot import this codebase.
+
+### Current GPT-5.5 High Snapshot
+
+The latest local run used:
+
+- model: `gpt-5.5-2026-04-24`
+- served model observed in traces: `deployment-gpt-5.5-2026-04-24-platform-global`
+- API kind: `openai-responses`
+- reasoning effort: `high`
+- backend: `process`
+- sample strategy: `spread`
+- max turns: `10`
+- result root: `.tmp/openclaw_gpt55high_20_spread_m10/`
+
+| Bench | Tasks | Passed | Mean | Zero | Nonzero | Nonzero Mean | Errors | Pending |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `clawbench_tribe` | 8 | 8 | 100.0 | 0 | 8 | 100.0 | 0 | 0 |
+| `clawbench_official` | 20 | 9 | 54.845 | 1 | 19 | 57.73 | 1 | 0 |
+| `agentbench` | 20 | 9 | 40.0 | 11 | 9 | 88.89 | 5 | 0 |
+| `pinchbench` | 20 | 4 | 21.11 | 15 | 5 | 84.44 | 1 | 7 |
+| `skillsbench` | 20 | 2 | 12.855 | 16 | 4 | 64.27 | 3 | 0 |
+| `claweval` | 20 | 0 | 0.0 | 20 | 0 | - | 3 | 17 |
+| `zclawbench` | 20 | 0 | 0.0 | 20 | 0 | - | 5 | 15 |
+
+Interpretation:
+
+- `clawbench_official` is the cleanest deterministic signal in this snapshot.
+  It improved to `54.845` mean on the same 20-task spread subset.
+- `pinchbench`, `claweval`, and `zclawbench` still need post-hoc judging for
+  pending tasks before their final means are meaningful.
+- `skillsbench` remains mostly blocked by tool/dependency/environment demands,
+  even with GPT-5.5 high.
+- Several errors are ModelHub API timeouts. Treat them separately from verifier
+  failures when analyzing results.
+
+Post-hoc judge entry point:
+
+```bash
+.venv/bin/python scripts/judge_openclaw_pending.py \
+  --bench pinchbench \
+  --run-root .tmp/openclaw_gpt55high_20_spread_m10/pinchbench \
+  --model gpt-5.5-2026-04-24
+```
+
+The judge currently supports `pinchbench`, `claweval`, and `zclawbench`.
+`zclawbench` still uses a generic completion judge because the current adapter
+only has task ids/categories, not official prompts/rubrics.
+
+Detailed Chinese reports are under [docs/agent-native](docs/agent-native/README.md):
+
+- [OpenClaw benchmark experiment report](docs/agent-native/openclaw-benchmark-experiment-report.zh.md)
+- [OpenClaw 20-task subset result notes](docs/agent-native/openclaw-20-subset-results.zh.md)
+- [OpenClaw harness experiment plan](docs/agent-native/openclaw-harness-experiments.md)
+
 ## Project Goals
 
 - Make agent architecture easy to read and modify.
@@ -107,7 +255,8 @@ local Docker / remote) and `ArtifactStore` (local dir / host HTTP / S3) seams.
 - This is not intended to be a production agent platform at the start.
 - This is not a wrapper around every available model or tool provider.
 - This is not trying to hide the agent loop behind a large abstraction layer.
-- This is not a benchmark project yet.
+- The base project is not a benchmark leaderboard; `dev/claw` uses benchmarks as
+  an integration and harness-diagnosis workload.
 
 ## Repository Map
 
