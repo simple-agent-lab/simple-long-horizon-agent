@@ -55,8 +55,26 @@ Grouped by the question each line of work answers.
   Agentic Systems* (arXiv 2408.08435) — a meta-agent proposes candidate
   modifications, an empirical benchmark gate accepts or rejects them, and
   an archive of candidates supports branching search. Our gate + ledger is
-  the conservative core of this pattern; the archive/branching search is a
-  later extension.
+  the conservative core of this pattern.
+- *HyperAgents / DGM-Hyperagents* (Meta FAIR + Meta Superintelligence
+  Labs, 2026-03, `facebookresearch/Hyperagents`) — DGM's successor and
+  the strongest evidence base for this memo's architecture. A hyperagent
+  unifies the task agent and the meta agent into one editable program, so
+  the self-improvement mechanism is itself improvable ("metacognitive
+  self-modification"); this removes DGM's hidden assumption that
+  task-solving skill and self-modification skill are aligned (true only in
+  coding). Three findings we adopt directly: (1) **both ablations
+  collapse** — removing meta self-modification (ADAS-style fixed meta
+  agent) or removing the archive (each generation replaces its
+  predecessor) drops gains to ≈0, so the archive is load-bearing, not an
+  optimization; (2) the **imp@k metric** — a meta agent's quality is the
+  improvement its k-episode budget produces in task agents, not its own
+  task score; (3) the meta-level improvements DGM-H invents autonomously —
+  performance tracking and persistent memory with causal hypotheses — are
+  precisely the catalog and ledger/lessons this memo hand-designs, so our
+  substrate doubles as a strong prior. DGM-H deliberately keeps parent
+  selection and evaluation fixed for stability and safety — the same
+  boundary our deterministic substrate draws.
 
 ### 1.3 Training-free intervention kinds (the evolution agent's toolbox)
 
@@ -144,8 +162,12 @@ with its tools.
 │  gate      frozen instance slice, baseline vs candidate via run_dataset() │
 │  ledger    append-only JSONL: feedback signal, baseline, candidate hash,  │
 │            comparison result, accept/reject reason (the ADR record)       │
-│  artifacts staging/ and promoted/ stores for lessons, SKILL.md, prompts,  │
-│            context policies — versioned, file-diffable, rollback-able     │
+│  archive   every candidate is retained in full — including rejected ones  │
+│            — as stepping stones (DGM-H: removing the archive collapses    │
+│            gains to ~0); promotion is separate from retention             │
+│  artifacts staging/ promoted/ archive/ stores for lessons, SKILL.md,      │
+│            prompts, context policies, evolution-agent configs —           │
+│            versioned, file-diffable, rollback-able                        │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -169,6 +191,24 @@ Division of labor:
   harness, every episode leaves a full trace: why a hypothesis was
   proposed and how the gate result was read is itself auditable, which is
   exactly the ADR's inspectability requirement.
+- **Rejection is not deletion.** The archive keeps every candidate with
+  its gate result. DGM-H's ablation shows stepping stones are what make
+  sustained improvement possible: a rejected skill draft may be the right
+  raw material two episodes later, and `read_ledger()` retrieval over
+  rejected candidates is the degenerate (single-lineage) form of DGM-style
+  branching search. Population/branching over the archive is a later
+  upgrade that changes the selector, not the stores.
+- **The evolution agent is itself an evolvable artifact (the DGM-H
+  meta layer).** Its system prompt, episode playbook, and tool
+  descriptions live in the artifact store like everything else. A *meta
+  candidate* proposes a change to the evolution agent; its gate metric is
+  not a task score but **imp@k**: run the candidate evolution agent for a
+  budget of k episodes against the same slice and compare the task-agent
+  improvement it produces with the incumbent's. What stays fixed is only
+  the substrate (gate, ledger, archive, staging/promoted split) — the
+  same line DGM-H draws by keeping parent selection and evaluation
+  outside the editable program. This removes the "fixed meta layer is the
+  bottleneck" failure mode without giving up the safety boundary.
 
 ### Proposed layout
 
@@ -180,7 +220,8 @@ evolution/
   catalog.py     # substrate: scan run roots -> index rows (verdict, cost, paths)
   gate.py        # substrate: frozen-slice A/B via run_dataset(); returns comparison
   ledger.py      # substrate: append-only ledger JSONL
-  artifacts.py   # substrate: staging/ and promoted/ stores, provenance fields
+  artifacts.py   # substrate: staging/, promoted/, archive/ stores; provenance
+                 #   fields; rejected candidates retained, never deleted
   agent.py       # evolution agent factory + the five tools above
   runtime.py     # run_with_artifacts(): inject promoted lessons/playbook as
                  #   kind="context" messages (mirrors run_with_skills())
@@ -204,13 +245,25 @@ root passed to `discover_skills()` — zero runtime changes.
    the promoted artifact reproduces the improvement on the frozen slice.
 3. Reverting the artifact file restores baseline behavior (rollback
    works).
+4. Rejected candidates are retained in the archive with their gate
+   results and are retrievable through `read_ledger()` — retention is
+   free (don't delete files) and DGM-H shows it is load-bearing.
+
+**First extension after MVP (not in it): the meta layer.** Once the loop
+runs, add the *meta candidate* kind — the evolution agent proposing
+changes to its own prompt/playbook/tooling — gated by imp@k over a small
+episode budget. It is excluded from the MVP only because imp@k makes each
+gate run k× more expensive, not because it needs new machinery: the
+candidate is a file in the same store, the gate is the same gate with a
+different metric.
 
 **Deliberately out of MVP scope:** rubric LLM scoring and near-duplicate
 dedup in the catalog (verifier verdicts suffice), similarity retrieval
 (top-k by tag is enough), the ACE playbook curator as a dedicated
 component (a "playbook delta" is just another candidate kind the agent may
 draft), prompt A/B as a separate driver (a prompt variant is another
-candidate kind), and all of Track B (section 6).
+candidate kind), population/branching search over the archive (retention
+is in; the branching selector is not), and all of Track B (section 6).
 
 **Two cheap pre-commitments made now** (the only things that cannot be
 backfilled later):
@@ -243,6 +296,11 @@ among them per episode; each lands as a reviewable file with provenance
   A/B test.
 - **Context policy tweak** — visibility/compression adjustments
   (`ContextPolicy`), the most harness-native and least explored kind.
+- **Meta candidate (post-MVP)** — a change to the evolution agent's own
+  prompt, playbook, or tool descriptions (DGM-H metacognitive
+  self-modification). Gated by imp@k, not task score: the question is
+  whether the modified evolution agent produces better task agents per
+  episode budget, not whether it solves tasks.
 - **(later) Fine-tuned checkpoint** — a candidate `Provider` record; see
   section 6. The gate does not care whether a candidate is a prompt or a
   checkpoint — that symmetry is the point.
@@ -334,6 +392,13 @@ loss stats, content hash); ledger entries reference the dataset hash so
   that keeps proposing failing candidates burns eval budget. Cap gate runs
   per episode, and surface ledger-derived hit rates so the agent (and its
   operator) can see diminishing returns.
+- **Meta-level drift** (with the meta candidate kind): changes to the
+  evolution agent compound — a bad meta promotion degrades every later
+  episode. Mitigations: imp@k gating with a non-trivial episode budget,
+  one meta promotion at a time, the substrate itself never editable by
+  any candidate, and meta candidates carry the same provenance/rollback
+  discipline as task-level artifacts (DGM-H keeps its outer loop fixed
+  for exactly this reason).
 - **Context collapse / brevity bias** (ACE): playbook updates are itemized
   deltas; lesson volume is bounded by retrieval, not lossy rewriting.
 - **Skill over-triggering** (skills-in-the-wild): gates include non-target
