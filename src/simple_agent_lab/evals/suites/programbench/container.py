@@ -61,6 +61,10 @@ AGENT_SYSTEM_PROMPT = (
     "You must infer that behavior ONLY by running and observing `./executable` "
     "and reading the bundled docs. Writing original code from observed behavior "
     "is the entire point of this benchmark.\n\n"
+    "Any approach that shortcuts this — finding existing source code, wrapping "
+    "the binary, or installing the original tool — does not count as a "
+    "solution. It is detected by an automated judge, marked as a "
+    "disqualification, and scored as a failure.\n\n"
     "Each bash call runs in a fresh shell rooted at the workspace, so include "
     "any cd or env setup in the command and use non-interactive flags (`-y`, "
     "`--no-pager`; avoid `vi`/`nano`). Independent read-only commands may run in "
@@ -108,6 +112,10 @@ NET_ISOLATION_PREFIX: tuple[str, ...] = (
     "_",
 )
 
+# Env var (default-closed gate): a failed `unshare --net` probe hard-fails the
+# run unless an explicit opt-out (`--no-network-isolation`) sets this false-y.
+REQUIRE_ISOLATION_ENV = "PROGRAMBENCH_REQUIRE_NET_ISOLATION"
+
 # Set by build_agent so extract_result can record whether isolation was active.
 _network_isolation_active: bool | None = None
 
@@ -132,6 +140,20 @@ def _detect_network_isolation() -> bool:
     return proc.returncode == 0
 
 
+def _isolation_required() -> bool:
+    """Whether a failed isolation probe should hard-fail the run (default True).
+
+    ProgramBench's anti-cheat depends on agent commands having no network, so we
+    fail closed: a missing ``unshare --net`` aborts the run unless the caller
+    opts out explicitly (the run scripts set ``REQUIRE_ISOLATION_ENV`` to a
+    false-y value when ``--no-network-isolation`` is passed). An unset variable
+    counts as required, so silently un-isolated runs cannot happen by default.
+    """
+
+    value = os.environ.get(REQUIRE_ISOLATION_ENV, "1").strip().lower()
+    return value not in ("0", "false", "no", "off", "")
+
+
 def build_agent(
     *,
     provider: Provider,
@@ -142,16 +164,29 @@ def build_agent(
 
     Probes ``unshare --net`` once; when available, every agent command runs in a
     network-less namespace (the model call still uses the container network).
+    When it is unavailable this fails closed (raises) unless the caller opted out
+    via ``--no-network-isolation`` (see ``_isolation_required``), so a run never
+    silently loses ProgramBench's anti-cheat.
     """
 
     global _network_isolation_active
     isolated = _detect_network_isolation()
     _network_isolation_active = isolated
     if not isolated:
+        if _isolation_required():
+            raise RuntimeError(
+                "ProgramBench requires per-command network isolation, but "
+                "'unshare --net' is unavailable here. It needs CAP_SYS_ADMIN "
+                "(the suite's launch_spec adds it) plus a kernel/daemon that "
+                "permits new network namespaces. Running without it would give "
+                "the agent's bash commands network access and weaken the "
+                "anti-cheat. Fix the container capability, or pass "
+                "--no-network-isolation to explicitly accept un-isolated commands."
+            )
         print(
             "[programbench] WARNING: 'unshare --net' is unavailable; agent bash "
-            "commands will run WITH network access. Add CAP_SYS_ADMIN "
-            "(launch_spec cap_add) and a kernel that allows it to isolate them.",
+            "commands will run WITH network access (explicitly allowed via "
+            "--no-network-isolation).",
             flush=True,
         )
     bash_tool = make_bash_tool(
@@ -190,6 +225,12 @@ def build_task(instance: Mapping[str, Any], *, workdir: str) -> str:
     ProgramBench's task is static (the per-instance signal is the workspace's
     ``./executable`` + docs, not any instance field), so this does not inject
     problem text the way SWE-bench injects ``problem_statement``.
+
+    The content mirrors mini-swe-agent's ProgramBench ``instance_template`` —
+    the recommended workflow and the "test the executable extensively before
+    writing code" emphasis — but keeps our framework mechanics: the agent
+    finishes by returning a summary, not mini-swe-agent's
+    ``COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`` command.
     """
 
     environment = [
@@ -215,22 +256,38 @@ def build_task(instance: Mapping[str, Any], *, workdir: str) -> str:
             *environment,
             "",
             "## Your task",
-            "1. Observe `./executable`'s behavior by running it with various "
-            "inputs, flags, and stdin; read the bundled docs.",
-            "2. Write original source code, from scratch, that reproduces that "
-            "behavior exactly.",
-            "3. Provide an executable `./compile.sh` at the workspace root that "
+            "Implement original source code, from scratch, that produces an "
+            "executable of exactly identical behavior as the provided "
+            "`./executable`. The only way to learn what the executable does is "
+            "to run it and read its bundled documentation.",
+            "- Provide an executable `./compile.sh` at the workspace root that "
             "installs any needed build dependencies and produces `./executable` "
             "in the workspace root. If `compile.sh` fails on a fresh checkout, "
             "the task fails.",
-            "4. Keep build artifacts and the produced `./executable` out of git "
+            "- Keep build artifacts and the produced `./executable` out of git "
             "(add a `.gitignore`), then commit your source.",
             "",
-            "## Constraints (reverse-engineering benchmark)",
-            "- Do not find/clone/download the original source, do not wrap or "
-            "reuse the provided binary, and do not decompile or trace "
-            "`./executable`. The system message has the full rules; an automated "
-            "judge enforces them.",
+            "## Important: this is a reverse-engineering benchmark",
+            "Write original code from scratch that reproduces the executable's "
+            "behavior. Any attempt to obtain source code — or to wrap, shim, or "
+            "reuse the provided binary — is detected by an automated judge, "
+            "disqualified, and scored as zero. The system message has the full "
+            "rules; key points:",
+            "- Do NOT search the internet, clone repos, or download the project "
+            "from any package registry.",
+            "- Do NOT wrap, shim, or delegate to the provided `./executable` or "
+            "any installed version of the same tool.",
+            "- Do NOT decompile the provided `./executable` or run strace/ltrace "
+            "on it (analyzing your own binaries is fine).",
+            "- You SHOULD extensively test the executable to understand its "
+            "behavior before writing code.",
+            "",
+            "## Recommended workflow",
+            "1. Explore all documentation files in the workspace.",
+            "2. Play with `./executable` extensively — many inputs, flags, and "
+            "stdin — to understand its behavior before writing any code.",
+            "3. Write the source code to reproduce that behavior, then build it "
+            "with `./compile.sh` and verify the output matches the original.",
             "",
             "## Final answer",
             "When `./compile.sh` rebuilds `./executable` and you have verified "

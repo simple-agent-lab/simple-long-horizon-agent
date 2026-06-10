@@ -39,6 +39,7 @@ from simple_agent_lab.evals import (  # noqa: E402
     LocalDockerBackend,
     run_suite_instance,
 )
+from simple_agent_lab.evals.suites.programbench import container  # noqa: E402
 from simple_agent_lab.evals.backends.docker_local import (  # noqa: E402
     DEFAULT_DOCKER_TIMEOUT_S,
 )
@@ -106,6 +107,11 @@ def main() -> None:
         harness.load_dotenv(args.dotenv)
     provider_env = harness.container_environment(args.provider)
     provider_env[harness.API_KIND_ENV] = harness.resolve_api_kind(args.api_kind)
+    # Fail closed in-container: a missing `unshare --net` aborts the run unless
+    # the operator opted out here (so isolation is never lost silently).
+    provider_env[container.REQUIRE_ISOLATION_ENV] = (
+        "0" if args.no_network_isolation else "1"
+    )
 
     run_root = Path(args.run_root) if args.run_root else harness.DEFAULT_RUN_ROOT
     wheelhouse = (
@@ -178,9 +184,9 @@ def _force_remove(name: str) -> None:
     import docker
 
     client = docker.from_env(timeout=DEFAULT_DOCKER_TIMEOUT_S)
-    for container in client.containers.list(all=True, filters={"name": name}):
-        if container.name == name:
-            container.remove(force=True)
+    for existing in client.containers.list(all=True, filters={"name": name}):
+        if existing.name == name:
+            existing.remove(force=True)
 
 
 if __name__ == "__main__":

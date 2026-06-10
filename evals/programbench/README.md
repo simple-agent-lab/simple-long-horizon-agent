@@ -42,9 +42,10 @@ ProgramBench forces two adaptations versus the SWE-bench reference:
    in a no-network namespace** (`unshare --net`, which needs `CAP_SYS_ADMIN`).
    Model calls keep the container network; agent commands do not, so the agent
    cannot `git clone` / `cargo install` / `curl` source code. If `unshare --net`
-   is unavailable (no `CAP_SYS_ADMIN` or a restrictive kernel), the container
-   half falls back to un-isolated commands and records `network_isolated: false`
-   in `result.json` rather than failing the run.
+   is unavailable (no `CAP_SYS_ADMIN` or a restrictive kernel), the run **fails
+   closed** rather than silently dropping the anti-cheat; pass
+   `--no-network-isolation` to deliberately run un-isolated, which records
+   `network_isolated: false` in `result.json`.
 
 Scoring stays the **official** `programbench eval` harness (compile → restore
 `./executable` with a sha256 check → per-branch pytest → JUnit), so scores match
@@ -90,7 +91,10 @@ bash tool is the normal local bash tool — except each command runs network-les
 
 The authoritative scorer is the official `programbench eval` CLI, run on the
 host (it needs Docker + the `programbench` package + access to the HF test
-blobs `programbench/ProgramBench-Tests`):
+blobs `programbench/ProgramBench-Tests`). If that dataset needs auth, set
+`HF_TOKEN` in `.env` or the environment — `evaluate_submissions.py` loads `.env`
+without overriding the environment, so the `programbench eval` subprocess
+inherits it and huggingface-hub uses it:
 
 ```bash
 uv run python evals/programbench/evaluate_submissions.py \
@@ -114,7 +118,8 @@ uv run python -m unittest tests.unit.test_programbench_suite
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `result.json` has `network_isolated: false` | `unshare --net` unavailable | Pass `CAP_SYS_ADMIN` (default; do not use `--no-network-isolation`) and use a kernel/daemon that permits new net namespaces |
+| Run aborts: "requires per-command network isolation" | `unshare --net` unavailable (no `CAP_SYS_ADMIN` / restrictive kernel) | Use a kernel/daemon that permits new net namespaces (CAP_SYS_ADMIN is added by default); pass `--no-network-isolation` only to deliberately run un-isolated |
 | `programbench: command not found` during scoring | scorer not installed | `uv sync --extra programbench`, or pass `--programbench-bin` |
+| `programbench eval` can't download the HF test blobs | gated/private dataset or anonymous rate limit | Set `HF_TOKEN` in `.env` or the environment (the scorer loads `.env`) |
 | Image pull fails | image not on the daemon | `bash runs/setup_programbench.sh <id> --scoring` |
 | `OPENAI_AUTH_TOKEN` / `OPENAI_MODEL` missing | `.env` not configured | Create `.env` (see Quick Start) |

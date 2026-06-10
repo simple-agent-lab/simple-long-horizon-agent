@@ -14,7 +14,8 @@ only return bytes through that file). This script:
    ``submission_tar_b64`` back into the ``<eval_dir>/<id>/submission.tar.gz``
    layout the official harness expects, then
 2. **evaluates** — runs ``programbench eval <eval_dir> --image-tag task`` (needs
-   Docker + the ``programbench`` package + access to the HF test blobs), and
+   Docker + the ``programbench`` package + access to the HF test blobs; if that
+   dataset needs auth, set ``HF_TOKEN`` in the environment or ``.env``), and
 3. **summarizes** — runs ``programbench info`` for the authoritative scores and
    writes a small machine-readable ``scores.json`` manifest beside the results.
 
@@ -201,11 +202,22 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip the `programbench info` summary at the end.",
     )
+    parser.add_argument(
+        "--dotenv",
+        default=str(ROOT / ".env"),
+        help="Load KEY=VALUE lines (e.g. HF_TOKEN for gated HF test blobs) into "
+        "the environment without overriding it; pass '' to skip.",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> None:
     args = _build_parser().parse_args(argv)
+    # Load .env (e.g. HF_TOKEN for the official scorer's HF test-blob download)
+    # without overriding the environment, mirroring the run entry point. The
+    # subprocess `programbench eval` inherits it, so huggingface-hub picks it up.
+    if args.dotenv:
+        harness.load_dotenv(args.dotenv)
     run_root = Path(args.run_root)
     eval_dir = (
         Path(args.eval_dir) if args.eval_dir else run_root / f"{args.run_id}_eval"

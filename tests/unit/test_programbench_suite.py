@@ -10,8 +10,9 @@ Four seams, none of which need the optional ``programbench`` package or Docker:
   ``extract_result`` packs the whole workspace into a decodable tarball, and
   ``prepare`` inits a repo with a repo-local identity (never ``--global``);
 - the per-command network isolation wiring — ``build_agent`` records whether
-  ``unshare --net`` is available, and the bash ``exec_prefix`` it relies on
-  really wraps the launched argv; and
+  ``unshare --net`` is available (failing closed when it is missing unless the
+  caller opts out), and the bash ``exec_prefix`` it relies on really wraps the
+  launched argv; and
 - one end-to-end in-process run via ``LocalProcessBackend`` + the fake provider,
   proving ``result.json`` carries a decodable submission tarball of the workspace.
 """
@@ -177,15 +178,37 @@ class NetworkIsolationWiringTest(unittest.TestCase):
             result = container.extract_result(Path(tmp), _instance())
         self.assertTrue(result["network_isolated"])
 
-    def test_build_agent_falls_back_without_unshare(self) -> None:
+    def test_build_agent_falls_back_when_isolation_opted_out(self) -> None:
+        # Explicit opt-out (REQUIRE_ISOLATION_ENV false-y, set by
+        # --no-network-isolation): a missing `unshare --net` degrades to
+        # un-isolated commands instead of aborting.
         with tempfile.TemporaryDirectory() as tmp:
-            with mock.patch.object(
-                container, "_detect_network_isolation", return_value=False
+            with (
+                mock.patch.dict(os.environ, {container.REQUIRE_ISOLATION_ENV: "0"}),
+                mock.patch.object(
+                    container, "_detect_network_isolation", return_value=False
+                ),
             ):
                 container.build_agent(provider=FAKE_PROVIDER, cwd=Path(tmp))
             self.assertFalse(container._network_isolation_active)
             result = container.extract_result(Path(tmp), _instance())
         self.assertFalse(result["network_isolated"])
+
+    def test_build_agent_fails_closed_by_default(self) -> None:
+        # No opt-out (variable unset): a missing `unshare --net` aborts the run
+        # rather than silently dropping ProgramBench's anti-cheat.
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                mock.patch.dict(os.environ, clear=False),
+                mock.patch.object(
+                    container, "_detect_network_isolation", return_value=False
+                ),
+            ):
+                os.environ.pop(container.REQUIRE_ISOLATION_ENV, None)
+                with self.assertRaises(RuntimeError):
+                    container.build_agent(provider=FAKE_PROVIDER, cwd=Path(tmp))
+            # The probe result is recorded before the guard fires.
+            self.assertFalse(container._network_isolation_active)
 
     def test_exec_prefix_actually_wraps_the_bash_argv(self) -> None:
         """The isolation mechanism is the bash tool's ``exec_prefix``. Prove the
@@ -231,8 +254,10 @@ class NetworkIsolationWiringTest(unittest.TestCase):
 class ProgrambenchEndToEndTest(unittest.TestCase):
     """Real host + container half in-process (fake provider, no Docker).
 
-    The network probe is forced off so the run never depends on ``unshare --net``
-    being permitted in the test environment.
+    The network probe is forced off; in-process (no container) can't isolate, so
+    the run opts out explicitly (``REQUIRE_ISOLATION_ENV=0``) — otherwise
+    ``build_agent`` fails closed by default — and never depends on
+    ``unshare --net`` being permitted in the test environment.
     """
 
     def test_in_process_run_packs_a_decodable_submission(self) -> None:
@@ -244,8 +269,11 @@ class ProgrambenchEndToEndTest(unittest.TestCase):
             root = Path(tmp) / "runs"
             store = LocalDirStore(root)
 
-            with mock.patch.object(
-                container, "_detect_network_isolation", return_value=False
+            with (
+                mock.patch.dict(os.environ, {container.REQUIRE_ISOLATION_ENV: "0"}),
+                mock.patch.object(
+                    container, "_detect_network_isolation", return_value=False
+                ),
             ):
                 artifacts = run_suite_instance(
                     suite=ProgrambenchSuite(),
