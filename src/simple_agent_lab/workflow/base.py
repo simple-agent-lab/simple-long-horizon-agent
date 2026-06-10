@@ -1,17 +1,9 @@
 """Shared plumbing for multi-agent workflows.
 
-A *workflow* here is orchestration **around** agents, not a new agent loop.
-Every individual agent in a workflow is driven by the project's one ReAct
-loop — `simple_agent_lab.core.run`, reached through `Agent.run(task)` — so a
-"planner", a "critic" or a "worker" is just an ordinary `Agent` whose
-internal turn/tool loop is exactly the same code path the bash agent uses.
-
 This module owns the two things every workflow needs:
 
 - `run_agent(...)` — run one agent to completion on a task and capture its
-  final text plus the full `State` (messages + trace events). It calls
-  `Agent.run` and drains the event generator; it never re-implements the
-  turn loop.
+  final text plus the full `State` (messages + trace events).
 - `StepResult` / `WorkflowResult` — small records so a workflow can return
   both its final answer and a per-step audit trail (each step keeps its
   `State`, so the whole run is inspectable / traceable after the fact).
@@ -114,13 +106,6 @@ def run_agent(
     role: str = "",
 ) -> StepResult:
     """Run one agent on `task` to completion via the core ReAct loop.
-
-    This is the single bridge between workflows and `core.run`: it calls
-    `Agent.run` (which seeds the task and returns the event generator) and
-    then drains the generator to actually advance the loop. Aborting stops
-    the drain early. The agent's own turn/tool handling is untouched — the
-    workflow only decides *what task* to hand it and *what to do with the
-    answer*.
 
     `context` messages are recorded onto the sub-run's `State` right after
     the task and before the first turn, mirroring how `task_tool` injects
