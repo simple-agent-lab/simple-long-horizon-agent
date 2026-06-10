@@ -11,6 +11,9 @@ based on the task.
   operating rules, and unresolved owner questions.
 - [`decisions/`](decisions/README.md) — accepted architecture decision
   records (ADRs). New hard-to-reverse choices land here.
+- [`design/`](design/20260610-self-evolution-mechanism.md) — design memos
+  for capabilities under development. Currently: the self-evolution
+  mechanism (offline data pipeline + online adaptation).
 
 ## Supporting
 
