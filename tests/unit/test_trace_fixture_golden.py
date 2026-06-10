@@ -45,13 +45,13 @@ from simple_agent_lab.protocols import (
     TurnStartEvent,
 )
 from simple_agent_lab.state import State
-from simple_agent_lab.trajectory import (
+from simple_agent_lab.trace import (
     TraceMeta,
     run_trace_from_state,
     trace_record,
     write_canonical_trace,
 )
-from simple_agent_lab.trajectory.jsonl import read_jsonl
+from simple_agent_lab.trace.jsonl import read_jsonl
 
 _VIEWER_DIR = Path(__file__).resolve().parents[2] / "studio" / "trace-viewer"
 SAMPLE_PATH = _VIEWER_DIR / "sample-trace.jsonl"
@@ -265,7 +265,9 @@ def _build_events() -> list[Event]:
                 output_kind="thought",
                 target=PARENT,
                 tool_call_count=1,
-                usage=TokenUsage(input_tokens=612, output_tokens=88),
+                usage=TokenUsage(
+                    input_tokens=612, output_tokens=88, cache_write_tokens=612
+                ),
                 model=MODEL,
             ),
             MessageEvent(
@@ -282,7 +284,9 @@ def _build_events() -> list[Event]:
                     sender=PARENT,
                     target=PARENT,
                     kind="thought",
-                    usage=TokenUsage(input_tokens=612, output_tokens=88),
+                    usage=TokenUsage(
+                        input_tokens=612, output_tokens=88, cache_write_tokens=612
+                    ),
                     model=MODEL,
                     sidecar={"raw": RAW_BLOB},
                 )
@@ -327,7 +331,12 @@ def _build_events() -> list[Event]:
                 output_kind="thought",
                 target=PARENT,
                 tool_call_count=1,
-                usage=TokenUsage(input_tokens=894, output_tokens=120),
+                usage=TokenUsage(
+                    input_tokens=894,
+                    output_tokens=120,
+                    cache_read_tokens=612,
+                    cache_write_tokens=282,
+                ),
                 model=MODEL,
             ),
             MessageEvent(
@@ -346,7 +355,12 @@ def _build_events() -> list[Event]:
                     sender=PARENT,
                     target=PARENT,
                     kind="thought",
-                    usage=TokenUsage(input_tokens=894, output_tokens=120),
+                    usage=TokenUsage(
+                        input_tokens=894,
+                        output_tokens=120,
+                        cache_read_tokens=612,
+                        cache_write_tokens=282,
+                    ),
                     model=MODEL,
                 )
             ),
@@ -393,7 +407,12 @@ def _build_events() -> list[Event]:
                 output_kind="thought",
                 target=PARENT,
                 tool_call_count=1,
-                usage=TokenUsage(input_tokens=1842, output_tokens=96),
+                usage=TokenUsage(
+                    input_tokens=1842,
+                    output_tokens=96,
+                    cache_read_tokens=894,
+                    cache_write_tokens=948,
+                ),
                 model=MODEL,
             ),
             MessageEvent(
@@ -409,7 +428,12 @@ def _build_events() -> list[Event]:
                     sender=PARENT,
                     target=PARENT,
                     kind="thought",
-                    usage=TokenUsage(input_tokens=1842, output_tokens=96),
+                    usage=TokenUsage(
+                        input_tokens=1842,
+                        output_tokens=96,
+                        cache_read_tokens=894,
+                        cache_write_tokens=948,
+                    ),
                     model=MODEL,
                 )
             ),
@@ -457,7 +481,11 @@ def _build_events() -> list[Event]:
                 output_kind="final",
                 target="user",
                 tool_call_count=0,
-                usage=TokenUsage(input_tokens=1812, output_tokens=76),
+                usage=TokenUsage(
+                    input_tokens=1812,
+                    output_tokens=76,
+                    cache_write_tokens=1812,
+                ),
                 model=MODEL,
             ),
             MessageEvent(
@@ -470,7 +498,11 @@ def _build_events() -> list[Event]:
                     sender=PARENT,
                     target="user",
                     kind="final",
-                    usage=TokenUsage(input_tokens=1812, output_tokens=76),
+                    usage=TokenUsage(
+                        input_tokens=1812,
+                        output_tokens=76,
+                        cache_write_tokens=1812,
+                    ),
                     model=MODEL,
                 )
             ),

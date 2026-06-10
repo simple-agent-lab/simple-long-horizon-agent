@@ -8,7 +8,7 @@ from pathlib import Path
 
 from simple_agent_lab.agents.bash import make_bash_agent
 from simple_agent_lab.llm import Provider
-from simple_agent_lab.trajectory import run_trace_from_state, trace_record
+from simple_agent_lab.trace import run_trace_from_state, trace_record
 
 
 ROOT = Path(__file__).resolve().parents[2]

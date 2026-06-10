@@ -19,7 +19,7 @@ The adapter maps SWE-bench onto the generic `Suite` protocol (ADR generic-contai
   `simple_agent_lab.evals.suites.swebench`): the SWE-bench container half builds
   the task, records the trajectory, and writes `result.json` with the final
   `model_patch` (filtering generated files). Incremental traces for the host
-  viewer use the live-trace helpers in `simple_agent_lab.trajectory` — see
+  viewer use the live-trace helpers in `simple_agent_lab.trace` — see
   `docs/agent-native/docker-live-trace.md`.
 - `evaluate_predictions.py` collects per-run `result.json` files into an official
   predictions JSONL (`--collect-predictions`) and runs or normalizes the official

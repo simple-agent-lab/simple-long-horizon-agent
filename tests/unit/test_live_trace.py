@@ -7,7 +7,7 @@ from pathlib import Path
 
 from simple_agent_lab.protocols import AgentEndEvent, AgentStartEvent
 from simple_agent_lab.state import State
-from simple_agent_lab.trajectory import (
+from simple_agent_lab.trace import (
     LiveTraceSession,
     TraceMeta,
     read_jsonl,

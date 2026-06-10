@@ -22,12 +22,12 @@ from simple_agent_lab import (
 from simple_agent_lab.agents.bash import make_bash_agent
 from simple_agent_lab.llm import Provider
 from simple_agent_lab.messages import Message
-from simple_agent_lab.trajectory import (
+from simple_agent_lab.trace import (
     Span,
     spans_from_events,
     trace_record,
 )
-from simple_agent_lab.trajectory.spans import _collect_sub_events, _tree_sort
+from simple_agent_lab.trace.spans import _collect_sub_events, _tree_sort
 from simple_agent_lab.tools.bash import (
     MAX_BASH_TIMEOUT_SECONDS,
     NON_INTERACTIVE_BASH_ENV,

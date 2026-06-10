@@ -139,6 +139,13 @@ files:
 | Span     | What operations ran? | Developers, eval, debug | `trajectory.py` |
 | Training | What can be learned? | Training pipelines      | `trace.py`      |
 
+> Update (2026-06): the derivation layers were consolidated into one package,
+> `src/simple_agent_lab/trace/` — Span in `spans.py`, Training in
+> `training.py` (provider-neutral) and `openai_export.py` (OpenAI Chat
+> format), with `print_trace` in `render.py`. The former top-level
+> `trace.py` module and `trajectory/` package names are gone; the three
+> layers themselves are unchanged.
+
 Adding a new observable operation (e.g. sub-agent delegation, memory
 retrieval) requires: (a) adding a start/end event pair in `protocols.py`,
 and (b) adding one branch in `spans_from_events`. No new extraction
