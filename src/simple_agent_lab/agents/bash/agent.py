@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from simple_agent_lab.core import Agent
+from simple_agent_lab.hooks import HookMap
 from simple_agent_lab.llm import Provider as LLMProvider
 from simple_agent_lab.llm import ReasoningEffort
 from simple_agent_lab.llm_agent import make_llm_agent
@@ -36,11 +37,14 @@ def make_bash_agent(
     system_prompt: str = BASH_AGENT_SYSTEM_PROMPT,
     request_extra: Mapping[str, Any] | None = None,
     reasoning: ReasoningEffort | None = None,
+    hooks: HookMap | None = None,
 ) -> Agent:
     """Build a bash-using `Agent` with the bash tool already bound.
 
     Consumers (eval suites, demos, custom flows) own provider choice so
-    this preset stays independent of fake or live model policy.
+    this preset stays independent of fake or live model policy. ``hooks`` flow
+    through so an assembly layer (e.g. a memory binding) can attach lifecycle
+    hooks without the preset knowing about memory.
     """
     return make_llm_agent(
         name=name,
@@ -51,4 +55,5 @@ def make_bash_agent(
         target="user",
         request_extra=request_extra,
         reasoning=reasoning,
+        hooks=hooks,
     )

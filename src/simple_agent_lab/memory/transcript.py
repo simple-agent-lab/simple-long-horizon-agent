@@ -52,6 +52,13 @@ def render_transcript_markdown(messages: Iterable[Message]) -> str:
 
     lines = ["# Trajectory", ""]
     for index, message in enumerate(messages):
+        # Skip memory's own injected context (the policy/summary block recalled at
+        # session start): it is framework scaffolding, not run evidence, and
+        # feeding it back into the distiller would echo the instructions the
+        # distiller is told to ignore. ``index`` still advances so section ids stay
+        # stable and unique as anchors.
+        if message.sender == "memory":
+            continue
         text = extract_memory_text(message)
         if not text:
             continue

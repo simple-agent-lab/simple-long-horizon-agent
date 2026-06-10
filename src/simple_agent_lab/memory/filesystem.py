@@ -43,6 +43,19 @@ MEMORY_HANDBOOK_FILENAME = "MEMORY.md"
 # window. Override per instance via ``FilesystemMemory(distiller_transcript_limit=...)``.
 DEFAULT_DISTILLER_TRANSCRIPT_LIMIT = 500_000
 
+# Upper bound on bullets kept in MEMORY.md's "Durable Lessons". Promotion appends
+# the newest lessons last, so when the section grows past this cap the oldest
+# bullets are dropped and the newest kept — the ones most likely still relevant,
+# and the ones an agent reading MEMORY.md with a line cap (e.g. ``sed -n '1,160p'``)
+# would otherwise miss. This keeps the durable handbook bounded as runs accumulate.
+DEFAULT_MAX_DURABLE_LESSONS = 40
+
+# Run-update bullets that have been promoted into "Durable Lessons" are replaced
+# with a one-line pointer of this form, so MEMORY.md does not carry each recent
+# lesson twice. The prefix is a sentinel: promotion skips bullets that start with
+# it so pointers are never folded back into Durable Lessons.
+_RUN_UPDATE_POINTER_PREFIX = "Lessons promoted to Durable Lessons above."
+
 
 @dataclass(frozen=True)
 class FilesystemArtifact:
@@ -151,11 +164,13 @@ class FilesystemMemory(Memory):
         memory_dir: Path,
         *,
         keep_run_updates: int = 5,
+        max_durable_lessons: int = DEFAULT_MAX_DURABLE_LESSONS,
         refresh_summary: bool = True,
     ) -> None:
         _consolidate_memory_handbook(
             memory_dir / MEMORY_HANDBOOK_FILENAME,
             keep_run_updates=keep_run_updates,
+            max_durable_lessons=max_durable_lessons,
         )
         if refresh_summary:
             update_memory_summary(memory_dir, "")
@@ -172,7 +187,6 @@ class FilesystemMemory(Memory):
 
     def ensure_layout(self, memory_dir: Path) -> None:
         (memory_dir / "runs").mkdir(parents=True, exist_ok=True)
-        _write_if_missing(memory_dir / "README.md", _readme_text(memory_dir))
         _write_if_missing(memory_dir / "INDEX.md", _index_skeleton())
         _write_if_missing(
             memory_dir / MEMORY_SUMMARY_FILENAME,
@@ -380,12 +394,25 @@ def make_filesystem_distiller(
     provider: LLMProvider,
     *,
     system_prompt: str = "Update durable filesystem memory from run evidence.",
-    temperature: float | None = 0.0,
-    max_tokens: int | None = 2000,
+    temperature: float | None = None,
+    max_tokens: int | None = 32000,
     timeout_seconds: float | None = 60.0,
     request_extra: Mapping[str, Any] | None = None,
 ) -> Distiller:
-    """Build a no-tools LLM distiller, usually with the main agent's provider."""
+    """Build a no-tools LLM distiller, usually with the main agent's provider.
+
+    ``temperature`` defaults to ``None`` so the request falls back to
+    ``provider.default_temperature`` exactly like the main agent. Reasoning
+    models (e.g. the OpenAI Responses API) reject an explicit non-default
+    ``temperature``; sending a hard-coded value would make every distillation
+    fail with a 400 on those providers.
+
+    ``max_tokens`` is the output cap, and on reasoning models the hidden
+    reasoning tokens are spent from this same budget before any JSON is emitted.
+    The default leaves headroom so a high-reasoning model still finishes the
+    ~2k-token JSON object instead of truncating it mid-string (a smaller cap can
+    consume the whole budget on reasoning and return empty/invalid JSON).
+    """
 
     def distill(payload: FilesystemMemoryPayload) -> FilesystemDistillation:
         from simple_agent_lab.llm import LLMRequest, complete, llm_message
@@ -449,6 +476,7 @@ def filesystem_distillation_prompt(payload: FilesystemMemoryPayload) -> str:
             "- memory_summary_md is the compact top-level navigation summary for this memory namespace. Start it with exactly `v1`; keep it under about 1200 words; leave it empty if the deterministic updater is enough.",
             "- memory_updates is the durable handbook update for MEMORY.md, not a transcript recap.",
             "- Every reusable lesson must cite evidence from this run path, transcript.md, artifacts, or summary.md.",
+            "- Cite evidence as greppable anchors a future agent can find directly: a transcript section heading written as `transcript.md ## <n>` (headings are `## <n>. <role> (<kind>, <sender> -> <target>)`, locatable with `grep -n '^## <n>\\.' transcript.md`), a file path, a symbol, a command, or an error string. Never cite raw line numbers or `lines X-Y` — those numbers are message section ids, not file lines, and shift between runs.",
             "- index_row must contain summary, scope, signals, keywords, and artifacts.",
             "- keywords should be short comma-separated recall hooks such as file names, concepts, user preferences, or failure modes.",
             "- memory_updates should contain only high-signal, evidence-backed Markdown bullets for MEMORY.md.",
@@ -754,7 +782,12 @@ def upsert_memory_updates(path: Path, run_path: str, updates: str) -> None:
     _write_text_atomic(path, text.rstrip() + "\n")
 
 
-def _consolidate_memory_handbook(path: Path, *, keep_run_updates: int = 5) -> None:
+def _consolidate_memory_handbook(
+    path: Path,
+    *,
+    keep_run_updates: int = 5,
+    max_durable_lessons: int = DEFAULT_MAX_DURABLE_LESSONS,
+) -> None:
     """Fold high-signal run update bullets into the durable lessons section."""
 
     text = path.read_text(encoding="utf-8") if path.exists() else _handbook_skeleton()
@@ -763,9 +796,12 @@ def _consolidate_memory_handbook(path: Path, *, keep_run_updates: int = 5) -> No
     text = _append_unique_section_bullets(
         text, "Durable Lessons", _promoted_handbook_bullets(blocks)
     )
+    text = _cap_section_bullets(text, "Durable Lessons", max_durable_lessons)
 
     keep_count = max(0, keep_run_updates)
     retained = blocks[-keep_count:] if keep_count else []
+    durable_keys = _section_bullet_keys(text, "Durable Lessons")
+    retained = _dedupe_run_update_blocks(retained, durable_keys)
     text = _replace_section_body(
         text, "Run Updates", _render_run_update_blocks(retained)
     )
@@ -853,6 +889,40 @@ def _render_run_update_blocks(blocks: list[tuple[str, str]]) -> str:
     )
 
 
+def _section_bullet_keys(text: str, heading: str) -> set[str]:
+    body = _section_body(text, heading)
+    return {
+        _memory_bullet_key(line)
+        for line in body.splitlines()
+        if re.match(r"^\s*[-*]\s+", line)
+    }
+
+
+def _dedupe_run_update_blocks(
+    blocks: list[tuple[str, str]], durable_keys: set[str]
+) -> list[tuple[str, str]]:
+    """Drop run-update bullets already promoted into Durable Lessons.
+
+    Promotion copies every substantive bullet into Durable Lessons, so leaving the
+    same bullets verbatim under Run Updates duplicates content in MEMORY.md. Keep the
+    ``### <run>`` heading as a lightweight recent-runs trail, but replace the promoted
+    bullets with a single pointer to the run's summary. Bullets that were not promoted
+    (e.g. low-signal ones) are preserved. Blocks with nothing left are dropped.
+    """
+
+    deduped: list[tuple[str, str]] = []
+    for run_path, body in blocks:
+        bullets = _extract_bullets(body)
+        residual = [b for b in bullets if _memory_bullet_key(b) not in durable_keys]
+        lines = list(residual)
+        if len(residual) < len(bullets):
+            lines.append(f"- {_RUN_UPDATE_POINTER_PREFIX} See {run_path}/summary.md.")
+        new_body = "\n".join(lines).strip()
+        if new_body:
+            deduped.append((run_path, new_body))
+    return deduped
+
+
 def _promoted_handbook_bullets(blocks: list[tuple[str, str]]) -> list[str]:
     promoted: list[str] = []
     seen: set[str] = set()
@@ -883,6 +953,7 @@ def _skip_promoted_bullet(bullet: str) -> bool:
     lowered = content.lower()
     return (
         len(content) < 12
+        or lowered.startswith(_RUN_UPDATE_POINTER_PREFIX.lower())
         or "none recorded" in lowered
         or "no durable" in lowered
         or lowered in {"none", "(none)", "n/a"}
@@ -922,6 +993,31 @@ def _append_unique_section_bullets(
         return text
     updated = "\n".join([part for part in (body.rstrip(), *new_bullets) if part])
     return _replace_section_body(text, heading, updated)
+
+
+def _cap_section_bullets(text: str, heading: str, max_bullets: int) -> str:
+    """Bound a handbook section to its most recent ``max_bullets`` bullets.
+
+    Promoted lessons are appended last, so the newest are at the end; when the
+    section exceeds the cap we keep the trailing (newest) bullets and drop the
+    oldest. Bullets are single-line, so trimming from the first kept bullet is
+    lossless for the retained entries.
+    """
+
+    if max_bullets <= 0:
+        return text
+    body = _section_body(text, heading)
+    if not body:
+        return text
+    lines = body.splitlines()
+    bullet_indices = [
+        index for index, line in enumerate(lines) if re.match(r"^\s*[-*]\s+", line)
+    ]
+    if len(bullet_indices) <= max_bullets:
+        return text
+    cutoff = bullet_indices[-max_bullets]
+    trimmed = "\n".join(lines[cutoff:]).strip()
+    return _replace_section_body(text, heading, trimmed)
 
 
 def update_memory_summary(memory_dir: Path, distilled_summary: str) -> None:
@@ -1118,20 +1214,34 @@ def _parse_json_object(text: str) -> dict[str, Any]:
 
 
 def _policy_block(memory_dir: Path, memory_summary: str) -> str:
-    assignment = f"MEMORY_DIR={shlex.quote(str(memory_dir))}"
+    handbook_path = shlex.quote(f"{memory_dir}/{MEMORY_HANDBOOK_FILENAME}")
+    index_path = shlex.quote(f"{memory_dir}/INDEX.md")
     return "\n".join(
         [
             "<filesystem_memory>",
-            "You have filesystem memory for this task family at:",
+            "You have filesystem memory for this task family at this absolute path:",
             f"  {memory_dir}",
             "",
-            "For shell commands, copy this exact assignment first:",
-            f"  {assignment}",
+            "Read memory files directly by absolute path. Each shell command runs in a"
+            " fresh shell, so do not rely on a variable, export, or cwd persisting"
+            " between commands; for example:",
+            f"  cat {handbook_path}",
+            f"  cat {index_path}",
             "",
-            "Use bash or another file tool to inspect it when prior runs may help.",
-            f"Start with {MEMORY_SUMMARY_FILENAME}, then {MEMORY_HANDBOOK_FILENAME} and INDEX.md.",
+            "Files in this memory (all under the path above):",
+            f"- `{MEMORY_SUMMARY_FILENAME}` — cold-start navigation summary.",
+            f"- `{MEMORY_HANDBOOK_FILENAME}` — durable handbook with `## Durable Lessons` and `## Run Updates`.",
+            "- `INDEX.md` — one row per run; columns: summary, scope, signals, keywords, artifacts, path.",
+            "- `runs/<run_id>/` — per-run evidence directory containing:",
+            "  - `task.md` — the task that run was given.",
+            "  - `transcript.md` — full message log; section headings are `## <n>. <role> (<kind>, <sender> -> <target>)`.",
+            "  - `summary.md` — distilled, compact per-run summary.",
+            "  - `artifacts.md` — manifest describing each saved raw artifact and why.",
+            "  - `artifacts/` — raw products kept verbatim (e.g. `model_patch.diff`).",
+            "",
+            f"The {MEMORY_SUMMARY_FILENAME} excerpt is already inline below — read it there; do not re-open that file. Open {MEMORY_HANDBOOK_FILENAME} and INDEX.md (absolute paths above) when you need more than the excerpt.",
             "Open runs/*/summary.md only when the top-level files point to a relevant run.",
-            "Search transcript.md before reading long transcript files; use targeted line ranges.",
+            "Locate transcript.md evidence with grep on the cited anchor (a `## <n>.` section heading, file path, symbol, command, or error string), not raw line numbers — citation numbers are message section ids, not file lines.",
             "Keep recall lightweight: avoid broad scans unless the summary and index are insufficient.",
             "Treat memory as dated context, not current truth.",
             "If a memory fact names a file, command, test, or current repo state and verification is cheap, verify it against the current workspace before relying on it.",
@@ -1147,47 +1257,28 @@ def _policy_block(memory_dir: Path, memory_summary: str) -> str:
 
 
 def _root_policy_block(root: Path, overview: tuple[str, ...]) -> str:
-    assignment = f"MEMORY_ROOT={shlex.quote(str(root))}"
     names = "\n".join(f"- {item}" for item in overview)
     return "\n".join(
         [
             "<filesystem_memory>",
-            "Filesystem memory has prior task-family directories at:",
+            "Filesystem memory has prior task-family directories at this absolute path:",
             f"  {root}",
             "",
-            "For shell commands, copy this exact assignment first:",
-            f"  {assignment}",
+            "Read memory files directly by absolute path. Each shell command runs in a"
+            " fresh shell, so do not rely on a variable, export, or cwd persisting"
+            " between commands.",
             "",
             "Available memory names:",
             names,
             "",
             "If prior runs may help, inspect the most relevant directory lightly.",
+            f"Each namespace directory holds `{MEMORY_SUMMARY_FILENAME}`, `{MEMORY_HANDBOOK_FILENAME}`, `INDEX.md`, and `runs/<run_id>/` (with `task.md`, `transcript.md`, `summary.md`, `artifacts.md`, and an `artifacts/` dir of raw products).",
             f"Start with {MEMORY_SUMMARY_FILENAME}; then use {MEMORY_HANDBOOK_FILENAME}, INDEX.md, and targeted run summaries.",
-            "Search transcript.md before reading long transcript files; avoid broad scans unless needed.",
+            "Locate transcript.md evidence with grep on a cited anchor (a `## <n>.` section heading, file path, symbol, or command), not raw line numbers; avoid broad scans unless needed.",
             "Treat memory as dated context, not current truth, and verify cheap drift-prone facts.",
             "Current user instructions, code, tests, and tool observations outrank memory.",
             "Do not modify memory files during the task unless explicitly instructed.",
             "</filesystem_memory>",
-        ]
-    )
-
-
-def _readme_text(memory_dir: Path) -> str:
-    assignment = f"MEMORY_DIR={shlex.quote(str(memory_dir))}"
-    return "\n".join(
-        [
-            "# Filesystem Memory",
-            "",
-            "This directory stores memory for previous related runs.",
-            "",
-            f"Use `{assignment}` before shell inspection.",
-            f"Read `{MEMORY_SUMMARY_FILENAME}`, `{MEMORY_HANDBOOK_FILENAME}`, and `INDEX.md` first.",
-            "Open `runs/*/summary.md` only when a top-level file points to it.",
-            "Use `runs/*/artifacts.md` to understand why raw artifacts were saved.",
-            "Search `transcript.md` before reading excerpts.",
-            "Treat notes as dated context; verify cheap, drift-prone facts before acting.",
-            "Do not edit historical `task.md`, `transcript.md`, or `artifacts/*`.",
-            "",
         ]
     )
 
@@ -1271,6 +1362,20 @@ def _write_text_atomic(path: Path, text: str) -> None:
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
+    # NamedTemporaryFile creates the file 0600; memory is meant to persist and be
+    # inspected across runs (and across a container/host bind mount where the
+    # writer is root), so normalize to a normal readable mode honoring umask.
+    _relax_file_permissions(path)
+
+
+def _relax_file_permissions(path: Path) -> None:
+    try:
+        umask = os.umask(0)
+        os.umask(umask)
+        os.chmod(path, 0o666 & ~umask)
+    except OSError:
+        # Best-effort: a filesystem that rejects chmod must not fail the write.
+        return
 
 
 def _escape_cell(value: str) -> str:

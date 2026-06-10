@@ -57,6 +57,15 @@ Optional:
   (`"bash"` or `"bash_task"`). Or, for full control, define
   `build_agent(*, provider, cwd, request_extra) -> Agent` and the runner uses it
   instead.
+- `memory_artifacts(workspace, instance, *, context) -> Iterable[FilesystemArtifact]`
+  — this run's durable products for persistent memory, read straight from the
+  *workspace* (same `(workspace, instance, *, context)` shape as
+  `extract_result`). When `SAL_MEMORY_HOME` is set the runner injects it as
+  FilesystemMemory's `artifact_builder`, so the product is captured inside
+  `memory.finish` at the standard `SESSION_END` hook — while the workspace is
+  still intact, before `extract_result`. SWE-bench returns its `model_patch.diff`
+  here. Omit it to use memory's generic defaults; the generic layer stays
+  patch-agnostic.
 
 Reference: `src/simple_agent_lab/evals/suites/swebench/container.py`.
 
@@ -134,7 +143,8 @@ Cover the suite in `tests/unit/` with **no Docker and no network**:
 ## Checklist
 
 - [ ] `container.py`: `build_task`, `extract_result(..., *, context=None)`;
-      optional `prepare` / `agent_spec` / `evaluate` (in-env scoring);
+      optional `prepare` / `agent_spec` / `evaluate` (in-env scoring) /
+      `memory_artifacts` (durable products for persistent memory);
       **stdlib + wheel imports only**.
 - [ ] `suite.py`: `name`, `container_module`, `launch_spec` (incl. `cap_add`),
       `task_input`, `eval_inputs()` (return `None` to score elsewhere; non-`None`

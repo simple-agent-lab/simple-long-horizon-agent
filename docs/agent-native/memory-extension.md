@@ -309,7 +309,6 @@ Default layout:
 ```text
 ~/.simple/memory/
 └── {memory_name}/
-    ├── README.md
     ├── memory_summary.md
     ├── MEMORY.md
     ├── INDEX.md

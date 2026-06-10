@@ -72,8 +72,21 @@ class Memory:
         def on_session_start(hook_ctx: HookContext) -> HookDecision | None:
             try:
                 messages = tuple(self.initial(context_for(hook_ctx.state)))
-            except Exception:
-                return None
+            except Exception as exc:
+                # Best-effort: a memory initial() failure must not crash the run,
+                # but it must not vanish either. The project has no logger, so
+                # surface a compact note as a recorded MessageEvent (via
+                # fire_hooks) — keeping the skipped injection visible in the
+                # trace instead of silently returning None.
+                return HookDecision(
+                    emit_messages=(
+                        memory_context_message(
+                            "Memory initialization was skipped after an error: "
+                            f"{type(exc).__name__}: {exc}",
+                            target=ctx.agent,
+                        ),
+                    )
+                )
             if not messages:
                 return None
             return HookDecision(emit_messages=messages)

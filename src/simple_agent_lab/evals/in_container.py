@@ -30,7 +30,7 @@ import inspect
 import json
 import os
 import time
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, cast
@@ -38,6 +38,7 @@ from typing import Any, Callable, cast
 from ..agents.bash import make_bash_agent
 from ..agents.bash_task import make_bash_task_agent
 from ..core import Agent
+from ..hooks import HookMap
 from ..llm import REASONING_EFFORTS, ApiKind, Provider, ReasoningEffort
 from ..llm_agent import make_llm_agent
 from ..skills import system_prompt_with_skills
@@ -47,6 +48,8 @@ from ..tools.read import make_read_tool
 from ..trace import run_trace_from_state, trace_record
 from .protocols import (
     MEMORY_HOME_ENV,
+    MEMORY_NAME_ENV,
+    MEMORY_RUN_ID_ENV,
     RESULT_KEY,
     TRACE_KEY,
     AgentSpec,
@@ -59,6 +62,7 @@ __all__ = [
     "build_agent",
     "main",
     "memory_home_from_env",
+    "memory_hooks_from_env",
     "provider_from_env",
     "run_in_container",
 ]
@@ -90,6 +94,99 @@ def memory_home_from_env(env: Mapping[str, str] | None = None) -> Path | None:
     return Path(value).expanduser()
 
 
+def memory_hooks_from_env(
+    provider: Provider,
+    *,
+    agent_name: str,
+    request_extra: Mapping[str, Any] | None = None,
+    artifact_builder: Callable[[Any], Iterable[Any]] | None = None,
+    env: Mapping[str, str] | None = None,
+) -> HookMap:
+    """Build the filesystem-memory lifecycle hooks for an in-container run.
+
+    The backend bind-mounts a host directory and sets ``SAL_MEMORY_HOME``; the
+    optional ``SAL_MEMORY_NAME`` / ``SAL_MEMORY_RUN_ID`` name the namespace and
+    run-evidence directory. With no memory home this returns ``{}`` — a
+    zero-cost no-op — so non-memory runs are unaffected. The distiller reuses the
+    agent's provider and per-request extras so its model call carries the same
+    gateway headers and reasoning policy as the main agent.
+
+    ``artifact_builder`` is the suite's optional per-run product collector
+    (assembled by `_memory_artifact_builder` from the container module's
+    ``memory_artifacts`` hook). It becomes the FilesystemMemory
+    ``artifact_builder``, so the run's durable products (e.g. the SWE-bench
+    patch) are gathered straight from the workspace inside ``memory.finish``.
+    That finish runs as the standard ``SESSION_END`` hook — which fires while the
+    workspace/git state is still intact, before ``extract_result`` — so no
+    suite-specific patch flow leaks into the generic runner. ``None`` leaves
+    memory on its generic ``default_artifacts``.
+
+    Returns the full ``memory.bind(ctx).hooks`` (``SESSION_START`` recall +
+    ``SESSION_END`` finish); attach them to the agent so memory persistence is an
+    ordinary run-end hook.
+    """
+
+    memory_home = memory_home_from_env(env)
+    if memory_home is None:
+        return {}
+    # Imported lazily: the memory package is optional and the core eval path
+    # must import without it.
+    from ..memory import (
+        FilesystemMemory,
+        MemoryContext,
+        make_filesystem_distiller,
+    )
+
+    source = env if env is not None else os.environ
+    memory = FilesystemMemory(
+        root=memory_home,
+        distiller=make_filesystem_distiller(provider, request_extra=request_extra),
+        artifact_builder=artifact_builder,
+    )
+    ctx = MemoryContext(
+        agent=agent_name,
+        task="",  # filled from runtime State at recall and at finish
+        run_id=source.get(MEMORY_RUN_ID_ENV, "").strip(),
+        memory_name=source.get(MEMORY_NAME_ENV, "").strip(),
+    )
+    return memory.bind(ctx).hooks
+
+
+def _memory_artifact_builder(
+    module: ModuleType,
+    *,
+    workdir: Path,
+    instance: Mapping[str, Any],
+    context: Mapping[str, Any],
+) -> Callable[[Any], Iterable[Any]] | None:
+    """Adapt a suite's optional ``memory_artifacts`` hook to an artifact builder.
+
+    A container module may expose ``memory_artifacts(workspace, instance, *,
+    context) -> Iterable[FilesystemArtifact]`` to collect this run's durable
+    products straight from the workspace — the same ``(workspace, instance, *,
+    context)`` shape as ``extract_result`` / ``evaluate``, so a suite registers
+    memory products the way it exposes everything else to the generic runner.
+    This wraps it as the ``Callable[[MemoryContext], Iterable[FilesystemArtifact]]``
+    the memory layer expects, binding the ``workdir`` / ``instance`` / ``context``
+    that the memory layer does not know; the memory-context argument is unused
+    because the products come from the workspace, not the run ``State``.
+
+    Returns ``None`` when the module defines no collector, so memory falls back to
+    its generic ``default_artifacts``. Nothing here is suite-specific: the hook
+    name is generic and any suite can provide it.
+    """
+
+    collector = getattr(module, "memory_artifacts", None)
+    if not callable(collector):
+        return None
+
+    def build(_memory_ctx: Any) -> Iterable[Any]:
+        del _memory_ctx  # products come from the workspace, not the run State
+        return collector(workdir, instance, **_context_kwargs(collector, context))
+
+    return build
+
+
 # --------------------------------------------------------------------------- #
 # Agent construction (suite-tunable via agent_spec or a full build_agent hook)
 # --------------------------------------------------------------------------- #
@@ -99,8 +196,17 @@ def build_agent(
     provider: Provider,
     cwd: Path,
     request_extra: Mapping[str, Any] | None = None,
+    hooks: HookMap | None = None,
 ) -> Agent:
-    """Build the agent for `spec.flavor` with the suite's prompt/role/name."""
+    """Build the agent for `spec.flavor` with the suite's prompt/role/name.
+
+    ``hooks`` are lifecycle hooks the caller wants attached (e.g. the filesystem
+    memory ``SESSION_START`` recall + ``SESSION_END`` finish hooks assembled by
+    `_resolve_agent`). They flow straight through to the agent factory; an
+    empty/omitted map is a zero-cost no-op, so a non-memory run is unchanged.
+    """
+
+    hooks = hooks or {}
 
     if spec.flavor == "bash":
         return make_bash_agent(
@@ -110,6 +216,7 @@ def build_agent(
             role=spec.role,
             system_prompt=spec.system_prompt,
             request_extra=request_extra,
+            hooks=hooks,
         )
     if spec.flavor == "bash_task":
         return make_bash_task_agent(
@@ -119,6 +226,7 @@ def build_agent(
             role=spec.role,
             system_prompt=spec.system_prompt,
             request_extra=request_extra,
+            hooks=hooks,
         )
     if spec.flavor == "bash_skills":
         # bash + read, with agent skills discovered under `cwd` and advertised
@@ -132,6 +240,7 @@ def build_agent(
             system_prompt=system_prompt_with_skills(spec.system_prompt, cwd=cwd),
             target="user",
             request_extra=request_extra,
+            hooks=hooks,
         )
     raise SystemExit(
         f"Unsupported agent flavor {spec.flavor!r}; "
@@ -167,12 +276,24 @@ def _resolve_agent(
     provider: Provider,
     cwd: Path,
     request_extra: Mapping[str, Any] | None,
+    instance: Mapping[str, Any],
+    context: Mapping[str, Any],
 ) -> Agent:
-    """A container module may supply `build_agent` for full control, else `agent_spec`.
+    """Build the agent for the run, wiring memory lifecycle hooks when active.
 
-    Both are *optional* members, so they're probed with `getattr(..., None)`;
-    `module` is the honest `ModuleType` rather than the required-surface
-    `ContainerTask` (which `run_in_container` casts to for the required calls).
+    A container module may supply `build_agent` for full control, else
+    `agent_spec`. Both are *optional* members, so they're probed with
+    `getattr(..., None)`; `module` is the honest `ModuleType` rather than the
+    required-surface `ContainerTask` (which `run_in_container` casts to for the
+    required calls).
+
+    When persistent memory is active (``SAL_MEMORY_HOME`` set) and the module did
+    not take over assembly via `build_agent`, the standard filesystem-memory
+    hooks (``SESSION_START`` recall + ``SESSION_END`` finish) are attached, with
+    the suite's optional ``memory_artifacts`` collector injected as the memory
+    ``artifact_builder`` (bound to this run's ``workdir`` / ``instance`` /
+    ``context``). Memory persistence is then an ordinary run-end hook with no
+    suite-specific coupling in the runner.
     """
 
     custom = getattr(module, "build_agent", None)
@@ -180,8 +301,20 @@ def _resolve_agent(
         return custom(provider=provider, cwd=cwd, request_extra=request_extra)
     factory = getattr(module, "agent_spec", None)
     spec = factory() if callable(factory) else AgentSpec()
+    hooks = memory_hooks_from_env(
+        provider,
+        agent_name=spec.name,
+        request_extra=request_extra,
+        artifact_builder=_memory_artifact_builder(
+            module, workdir=cwd, instance=instance, context=context
+        ),
+    )
     return build_agent(
-        spec=spec, provider=provider, cwd=cwd, request_extra=request_extra
+        spec=spec,
+        provider=provider,
+        cwd=cwd,
+        request_extra=request_extra,
+        hooks=hooks,
     )
 
 
@@ -325,7 +458,12 @@ def run_in_container(
         if provider is None:
             raise SystemExit("a Provider is required unless oracle=True")
         agent = _resolve_agent(
-            module, provider=provider, cwd=workdir, request_extra=request_extra
+            module,
+            provider=provider,
+            cwd=workdir,
+            request_extra=request_extra,
+            instance=instance,
+            context=context,
         )
         state, events = agent.run(task, max_turns=max_turns)
         last = 0.0

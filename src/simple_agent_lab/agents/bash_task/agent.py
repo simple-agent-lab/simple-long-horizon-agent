@@ -28,6 +28,7 @@ from typing import Any, Mapping
 
 from simple_agent_lab.agents.bash import BASH_AGENT_SYSTEM_PROMPT, make_bash_agent
 from simple_agent_lab.core import Agent
+from simple_agent_lab.hooks import HookMap
 from simple_agent_lab.llm import Provider as LLMProvider
 from simple_agent_lab.llm import ReasoningEffort
 from simple_agent_lab.llm_agent import make_llm_agent
@@ -86,6 +87,7 @@ def make_bash_task_agent(
     task_max_turns: int = DEFAULT_TASK_MAX_TURNS,
     request_extra: Mapping[str, Any] | None = None,
     reasoning: ReasoningEffort | None = None,
+    hooks: HookMap | None = None,
 ) -> Agent:
     """Build a parent ``Agent`` with bash + task(explorer) tools.
 
@@ -95,6 +97,8 @@ def make_bash_task_agent(
     the inner ``make_bash_agent`` directly if they want a cheaper model
     for exploration. ``request_extra`` and ``reasoning`` flow to both so every
     model call carries the same per-request extras and reasoning depth.
+    ``hooks`` attach to the parent run agent only (the explorer is a delegated
+    sub-run), so a memory binding observes the top-level session lifecycle.
     """
 
     explorer = make_bash_agent(
@@ -118,4 +122,5 @@ def make_bash_task_agent(
         target="user",
         request_extra=request_extra,
         reasoning=reasoning,
+        hooks=hooks,
     )
