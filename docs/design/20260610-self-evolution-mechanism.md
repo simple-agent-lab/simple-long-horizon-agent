@@ -1,31 +1,34 @@
 ---
-title: "Self-Evolution Mechanism: Offline Data Pipeline + Online Adaptation"
+title: "Self-Evolution Mechanism: Agent-Driven Evolution on a Deterministic Substrate"
 status: Proposed
 date: 2026-06-10
 slug: self-evolution-mechanism
 ---
 
-# Self-Evolution Mechanism: Offline Data Pipeline + Online Adaptation
+# Self-Evolution Mechanism: Agent-Driven Evolution on a Deterministic Substrate
 
 Design memo for building a self-evolving agent loop on top of Simple Agent
-Lab. It covers two complementary tracks:
+Lab, consistent with the accepted ADR
+[`docs/decisions/20260507-treat-self-evolution-as-harness-capability.md`](../decisions/20260507-treat-self-evolution-as-harness-capability.md).
 
-- **Training-free evolution** (memory, playbook, skills, prompts) — the
-  default path, consistent with the accepted ADR
-  [`docs/decisions/20260507-treat-self-evolution-as-harness-capability.md`](../decisions/20260507-treat-self-evolution-as-harness-capability.md).
-- **Training-based evolution** (offline trajectory dataset production →
-  SFT / preference / RL fine-tuning) — an opt-in extension that reuses the
-  same data pipeline but runs the weight updates outside this repo.
-
-Both tracks share one closed loop:
+The central design choice: **an evolution agent makes the decisions; a
+deterministic substrate enforces the guarantees.** A fixed
+collect → distill → inject pipeline is just trajectory post-processing —
+the distillation prompt is frozen, so it can only ever produce one kind of
+improvement. What makes the system *self*-evolving is that an agent
+diagnoses failures, chooses the intervention (lesson, skill, prompt,
+context policy), drafts the candidate, and interprets the comparison —
+while promotion, comparison, and record-keeping stay as plain code it
+cannot bypass.
 
 ```text
-run -> trace -> evaluate -> distill -> propose candidate -> compare -> accept or reject -> (next run)
+evolution episode (agent-driven):
+  observe -> diagnose -> choose intervention -> draft candidate
+          -> gate (A/B compare) -> interpret -> ledger entry -> next episode
 ```
 
 ## 1. Literature snapshot (late 2025 – mid 2026)
 
-The design choices below are grounded in the current research landscape.
 Grouped by the question each line of work answers.
 
 ### 1.1 Surveys / framing
@@ -34,312 +37,309 @@ Grouped by the question each line of work answers.
   (arXiv 2507.21046, revised 2026-01) — organizes the field along **what**
   evolves (model / memory / prompt / tools / architecture), **when**
   (intra-run vs. cross-run), **how** (reward, demonstration, population
-  search), and **where** it is evaluated. This is already the framing of our
-  self-evolution ADR.
+  search), and **where** it is evaluated. Already the framing of our ADR.
 - *Adaptation of Agentic AI: A Survey of Post-Training, Memory, and Skills*
-  (arXiv 2512.16301) — explicitly contrasts the two tracks we adopt here:
-  parameter adaptation (post-training) vs. non-parametric adaptation
-  (memory databases, skill libraries, system-prompt refinement), and notes
-  that mature systems run both against the same experience stream.
+  (arXiv 2512.16301) — contrasts parameter adaptation (post-training) with
+  non-parametric adaptation (memory, skill libraries, prompt refinement),
+  and notes mature systems run both against the same experience stream.
 
-### 1.2 Training-free: evolving context, memory, experience
-
-- *Agentic Context Engineering (ACE)* (arXiv 2510.04618, ICLR'26) — treats
-  context as an **evolving playbook** maintained by a
-  Generator → Reflector → Curator pipeline. Key findings we adopt: avoid
-  *brevity bias* and *context collapse* by making **incremental, itemized
-  delta updates** to the playbook instead of wholesale rewriting; reported
-  +10.6% on agent benchmarks with 83.6% lower token cost than rewriting.
-- *EvolveR: Self-Evolving LLM Agents through an Experience-Driven Lifecycle*
-  (arXiv 2510.16079) — closed-loop lifecycle where the agent distills its own
-  trajectories into a persistent experience corpus and retrieves from it.
-- *Just-In-Time RL: Continual Learning in LLM Agents Without Gradient
-  Updates* (arXiv 2601.18510) — keeps a non-parametric memory of past
-  (state, action, outcome) and estimates action advantages at test time;
-  shows "RL-flavored" improvement is possible with zero weight updates.
-- *Decocted Experience Improves Test-Time Inference in LLM Agents*
-  (arXiv 2604.04373) — distilled ("decocted") experience beats raw
-  trajectory replay; supports our choice to store **lessons**, not raw logs.
-- *From Player to Master: Test-Time Learning via RL over Memory*
-  (arXiv 2606.08656, "MemoPilot") — learns the **memory update policy**
-  itself with downstream reward, a later-stage option for our memory layer.
-- *SuRe: Surprise-Driven Prioritised Replay* (arXiv 2511.22367) — replay
-  scheduling for continual learning; relevant to lesson retention/decay.
-
-### 1.3 Skill-library evolution (bridge between the two tracks)
-
-- *SkillRL: Evolving Agents via Recursive Skill-Augmented RL*
-  (arXiv 2602.08234) — abstracts past trajectories into a hierarchical,
-  reusable skill library rather than storing raw trajectories, then trains
-  the policy with the library in context.
-- *Reinforcement Learning for Self-Improving Agent with Skill Library*
-  ("SAGE", arXiv 2512.17102) — execution outcomes alone decide which skills
-  enter the library (no human annotation); sequential rollout lets skills
-  accumulate across similar tasks. Reported +8.9% goal completion with 26%
-  fewer steps.
-- *SkillNet* (arXiv 2603.04448) and *How Well Do Agentic Skills Work in the
-  Wild* (arXiv 2604.04323) — skill creation/evaluation and a caution: skills
-  help only when their trigger descriptions are precise; bad skills regress
-  performance. Hence our accept/reject gate before a skill lands.
-
-### 1.4 Training-based: offline data pipelines and agentic post-training
+### 1.2 Agent-driven evolution (the layer this memo centers on)
 
 - *AgentEvolver: Towards Efficient Self-Evolving Agent System*
-  (arXiv 2511.10395) — the closest end-to-end reference: a master
-  orchestrator drives **task synthesis → trajectory rollout → experience
-  summarization → sample construction & model optimization**, with
-  self-questioning (task generation), self-navigating (experience reuse
-  during exploration), and self-attribution (fine-grained credit
-  assignment).
-- *ASTRA: Automated Synthesis of Agentic Trajectories and Reinforcement
-  Arenas* (arXiv 2601.21558) — fully automated data synthesis + verifiable
-  RL with trajectory-level rewards balancing completion and efficiency.
-- *SWE-TRACE* (arXiv 2604.14820) — test-grounded SWE data curation,
-  rubric process-reward models, memory-augmented GRPO for long-horizon SWE
-  agents; directly relevant to our SWE-bench suite.
-- *SWE-Master* (arXiv 2602.03411), *Klear-AgentForge* (arXiv 2511.05951) —
-  post-training recipes (SFT → RL scaling) for software agents.
-- *SWE-AGILE* (arXiv 2604.11716) — "Hindsight Backfill": augment successful
-  trajectories with reconstructed reasoning before SFT. *Hindsight Hint
-  Distillation* (arXiv 2605.11556) — scaffold failed tasks with hints
-  derived from known answers, then distill. Both are cheap dataset-quality
-  multipliers for our pipeline.
-- Environment/task supply: *daVinci-Env* (arXiv 2603.13023, SWE environment
-  synthesis at scale), *Agent World Model* (arXiv 2602.10090, synthetic
-  environments for agentic RL), *SWE-rebench* (21k+ interactive Python SWE
-  tasks with decontaminated evaluation), and ICLR'25 *Learn-by-Interact*
-  (backward construction of instructions from interaction histories).
+  (arXiv 2511.10395) — a master orchestrator drives task synthesis →
+  rollout → experience summarization → sample construction, with
+  self-questioning, self-navigating, and self-attribution. The orchestrator
+  deciding *what to do next* — not the pipeline stages — is the part we
+  adopt first.
+- *Darwin Gödel Machine* (arXiv 2505.22954) and *Automated Design of
+  Agentic Systems* (arXiv 2408.08435) — a meta-agent proposes candidate
+  modifications, an empirical benchmark gate accepts or rejects them, and
+  an archive of candidates supports branching search. Our gate + ledger is
+  the conservative core of this pattern; the archive/branching search is a
+  later extension.
+
+### 1.3 Training-free intervention kinds (the evolution agent's toolbox)
+
+- *Agentic Context Engineering (ACE)* (arXiv 2510.04618, ICLR'26) —
+  context as an evolving playbook maintained via incremental, itemized
+  delta updates; wholesale rewriting causes *context collapse* and
+  *brevity bias*. +10.6% on agent benchmarks at 83.6% lower token cost.
+- *EvolveR* (arXiv 2510.16079) — closed-loop lifecycle distilling the
+  agent's own trajectories into a persistent, retrievable experience
+  corpus.
+- *Just-In-Time RL* (arXiv 2601.18510) — non-parametric memory of
+  (state, action, outcome) with test-time advantage estimation; zero
+  weight updates. Motivates helpful/harmful outcome counters on lessons.
+- *Decocted Experience Improves Test-Time Inference* (arXiv 2604.04373) —
+  distilled experience beats raw trajectory replay; store **lessons**, not
+  logs.
+- *SkillRL* (arXiv 2602.08234) and *SAGE: RL for Self-Improving Agent with
+  Skill Library* (arXiv 2512.17102) — abstract trajectories into reusable
+  hierarchical skills; execution outcomes alone decide library admission.
+- *How Well Do Agentic Skills Work in the Wild* (arXiv 2604.04323) —
+  skills regress performance when trigger descriptions over-fire; a gate
+  must check non-target slices, not just the target slice.
+- *MemoPilot* (arXiv 2606.08656) and *SuRe* (arXiv 2511.22367) — learned
+  memory-update policies and surprise-prioritised replay; later-stage
+  options for the memory layer.
+
+### 1.4 Training-based evolution (deferred; informs the interface contract)
+
+- *ASTRA* (arXiv 2601.21558) — automated trajectory synthesis + verifiable
+  RL with trajectory-level rewards.
+- *SWE-TRACE* (arXiv 2604.14820) — test-grounded SWE data curation, rubric
+  process-reward models, memory-augmented GRPO; directly relevant to our
+  SWE-bench suite. *SWE-Master* (arXiv 2602.03411) and *Klear-AgentForge*
+  (arXiv 2511.05951) — SFT → RL post-training recipes for software agents.
+- *SWE-AGILE* "Hindsight Backfill" (arXiv 2604.11716) and *Hindsight Hint
+  Distillation* (arXiv 2605.11556) — cheap dataset-quality multipliers:
+  backfill reasoning into sparse successes; scaffold failures with
+  gold-derived hints, then strip the hints on export.
+- Task supply at scale: *daVinci-Env* (arXiv 2603.13023), *Agent World
+  Model* (arXiv 2602.10090), *SWE-rebench* (21k+ interactive SWE tasks,
+  decontaminated evaluation), ICLR'25 *Learn-by-Interact*.
 
 ### 1.5 Safety of self-evolution
 
-- *Zombie Agents: Persistent Control of Self-Evolving LLM Agents via
-  Self-Reinforcing Injections* (arXiv 2602.15654) — adversarial content can
-  enter the experience store and **self-reinforce** across runs. Any memory
-  / skill / playbook write path therefore needs provenance, review gates,
-  and easy rollback. This validates the ADR's "every accepted evolution
-  leaves a local record" rule as a security control, not just hygiene.
+- *Zombie Agents* (arXiv 2602.15654) — adversarial content can enter an
+  experience store and self-reinforce across runs. Every write path into
+  the agent's context needs provenance, a review gate, and rollback. This
+  makes the ADR's "every accepted evolution leaves a local record" rule a
+  security control, not just hygiene.
 
 ## 2. What the repo already provides
 
-The harness is unusually well positioned; most of the loop's "read side"
-exists today:
+Most of the loop's read side exists today:
 
 | Loop stage | Existing support |
 |---|---|
 | run | `src/simple_agent_lab/core.py` loop; eval harness `src/simple_agent_lab/evals/runner.py`, `src/simple_agent_lab/evals/dataset.py` (concurrent rollout) |
 | trace | three-layer trajectory (event → span → training pair): `src/simple_agent_lab/trajectory/spans.py`, `src/simple_agent_lab/trajectory/training.py`, `src/simple_agent_lab/trajectory/run_trace.py` (`simple-agent-lab.trajectory.v3`), live JSONL via `src/simple_agent_lab/trajectory/live.py` |
 | evaluate | suite `evaluate()` hook writes verdicts into `out/result.json`; candidate+judge composition in `examples/bench_suite/` |
-| distill (export) | `src/simple_agent_lab/trace.py` already exports OpenAI fine-tuning records; `model_turns_from_events()` yields SFT-ready (input messages, output message, tools) pairs |
-| inject context | skills runtime `src/simple_agent_lab/skills/runtime.py` injects SKILL.md bodies; `src/simple_agent_lab/context_view.py` controls model-visible context |
-| swap model | `Provider` is a frozen data record (`src/simple_agent_lab/llm/provider.py`) — pointing at a fine-tuned checkpoint is a one-field change |
+| distill (export) | `src/simple_agent_lab/trace.py` exports OpenAI fine-tuning records; `model_turns_from_events()` yields per-turn (visible context, response, tools) pairs |
+| inject context | skills runtime `src/simple_agent_lab/skills/runtime.py` injects SKILL.md bodies; `src/simple_agent_lab/context_view.py` controls model-visible context; `kind="context"` messages are never compressed |
+| swap model | `Provider` is a frozen data record (`src/simple_agent_lab/llm/provider.py`) — pointing at a new checkpoint or endpoint is a one-field change |
+| build the evolution agent itself | the runtime: the evolution agent is an ordinary `Agent` with tools, so its own decision process is a trace |
 
-Missing pieces (the "write side" of the loop): trajectory filtering/dataset
-builder, persistent cross-run memory, skill induction, prompt comparison
-driver, the evolution ledger, and any training orchestration.
+Missing: the artifact store, catalog, gate, ledger, and the evolution agent
+with its tools.
 
-## 3. Target architecture
+## 3. Architecture: two layers
 
 ```text
-                        OFFLINE DATA PIPELINE (batch, scheduled)
-  ┌──────────────────────────────────────────────────────────────────────┐
-  │  evals/out/<suite>/<run>/<instance>/{out/trajectory.jsonl,           │
-  │                                      out/result.json}                │
-  │        │                                                             │
-  │        ▼                                                             │
-  │  [1] Ingest+Index ── [2] Filter/Score ── [3] Distill                 │
-  │       (catalog of      (verdicts, dedup,    ├─ lessons (memory)      │
-  │        RunTrace refs)   cost, rubric LLM)   ├─ skills (SKILL.md)     │
-  │                                             ├─ playbook deltas       │
-  │                                             ├─ SFT dataset (JSONL)   │
-  │                                             └─ preference pairs      │
-  └───────────────┬───────────────────────────────────────┬──────────────┘
-                  │ training-free artifacts               │ training artifacts
-                  ▼                                       ▼
-        ONLINE ADAPTATION (per run)            EXTERNAL TRAINING (opt-in)
-  ┌─────────────────────────────────┐   ┌──────────────────────────────────┐
-  │ retrieve lessons/playbook/skills│   │ SFT (LoRA) / DPO / GRPO job      │
-  │ inject as kind="context" msgs   │   │ outside the repo (TRL, OpenAI    │
-  │ post-run: reflect → propose     │   │ FT API, ...) → new checkpoint    │
-  │ candidate artifact              │   └───────────────┬──────────────────┘
-  └───────────────┬─────────────────┘                   │
-                  ▼                                     ▼
-        GATE: eval-set A/B compare  ◄────── candidate Provider(model=ft-ckpt)
-                  │ accept/reject + ledger entry
-                  ▼
-        promoted artifact store (versioned, rollback-able)
+┌─ EVOLUTION AGENT (an ordinary Agent on this runtime; its run is a trace) ─┐
+│                                                                           │
+│  tools:  query_runs(filter)        - catalog query: what keeps failing?  │
+│          read_trace(trace_id)      - span tree: localize failure modes   │
+│          write_candidate(kind, ..) - staging area ONLY                   │
+│          run_gate(candidate, slice)- trigger A/B, get comparison         │
+│          read_ledger()             - what was tried before, what worked  │
+│                                                                           │
+│  per episode: observe -> diagnose -> CHOOSE INTERVENTION KIND             │
+│               -> draft -> gate -> interpret -> ledger narrative           │
+└──────────────────────────────┬────────────────────────────────────────────┘
+                               │ may only write staging; may only promote via gate
+┌─ DETERMINISTIC SUBSTRATE (plain code; the safety boundary) ───────────────┐
+│  catalog   index over evals/out run roots: verdict, cost, trace paths     │
+│  gate      frozen instance slice, baseline vs candidate via run_dataset() │
+│  ledger    append-only JSONL: feedback signal, baseline, candidate hash,  │
+│            comparison result, accept/reject reason (the ADR record)       │
+│  artifacts staging/ and promoted/ stores for lessons, SKILL.md, prompts,  │
+│            context policies — versioned, file-diffable, rollback-able     │
+└───────────────────────────────────────────────────────────────────────────┘
 ```
 
-One principle ties it together: **artifacts, not behaviors, evolve.** A
-candidate is always a reviewable file (a lesson JSONL entry, a SKILL.md, a
-prompt text, a playbook delta, or a checkpoint id), it is always gated by an
-eval comparison, and acceptance always appends to a ledger.
+Division of labor:
 
-### 3.1 New package layout (proposed)
+- **The substrate is deliberately not agentic.** Gate, ledger, and the
+  staging/promoted split are the security boundary (the Zombie-Agents
+  mitigation) and the evidence chain (the ADR record). The evolution agent
+  cannot improvise around them: `write_candidate` only reaches staging,
+  and the only path to promotion is `run_gate`.
+- **The agent owns the open decisions.** Which failures matter, what the
+  root cause is, which intervention kind fits, what the candidate says,
+  whether a gate failure means "wrong content" or "wrong intervention
+  kind". The same batch of failed traces might yield a lesson this episode
+  and — after that lesson fails the gate — a SKILL.md next episode. A
+  fixed pipeline is the degenerate case of this design (an agent that
+  always picks the same intervention).
+- **The loop feeds itself.** `read_ledger()` lets the agent learn which
+  intervention kinds work on which failure classes — the evolution
+  strategy itself accumulates experience. Because the agent runs on this
+  harness, every episode leaves a full trace: why a hypothesis was
+  proposed and how the gate result was read is itself auditable, which is
+  exactly the ADR's inspectability requirement.
 
-Proposed new code lives under one subpackage, `simple_agent_lab/evolution/`
-(paths relative to the package root, none of these exist yet):
+### Proposed layout
+
+New code lives in one subpackage, `simple_agent_lab/evolution/` (package
+paths; none exist yet):
 
 ```text
 evolution/
-  catalog.py      # [1] ingest: scan run roots, index RunTrace + verdicts
-  filtering.py    # [2] filter/score: verdict, dedup, cost, rubric judge
-  distill.py      # [3] reflectors: trace -> lesson / skill draft / playbook delta
-  datasets.py     # [3] exporters: SFT JSONL, preference pairs (reuses
-                  #     model_turns_from_events + openai_training_record)
-  memory.py       # LessonStore: JSONL-backed, retrieval by task tags
-  playbook.py     # ACE-style itemized playbook with delta merge (no rewrite)
-  ledger.py       # append-only evolution ledger (per ADR record fields)
-  gate.py         # A/B compare driver on a frozen eval set; accept/reject
-  runtime.py      # run_with_memory(): retrieve + inject kind="context" msgs
+  catalog.py     # substrate: scan run roots -> index rows (verdict, cost, paths)
+  gate.py        # substrate: frozen-slice A/B via run_dataset(); returns comparison
+  ledger.py      # substrate: append-only ledger JSONL
+  artifacts.py   # substrate: staging/ and promoted/ stores, provenance fields
+  agent.py       # evolution agent factory + the five tools above
+  runtime.py     # run_with_artifacts(): inject promoted lessons/playbook as
+                 #   kind="context" messages (mirrors run_with_skills())
 ```
 
-Skill induction extends the existing `src/simple_agent_lab/skills/`
-package (new `induction` module) so induced skills are ordinary SKILL.md
-files picked up by `discover_skills()` with zero runtime changes.
+Induced skills are ordinary SKILL.md files in a promoted learned-skills
+root passed to `discover_skills()` — zero runtime changes.
 
-## 4. Track A — training-free evolution (build first)
+## 4. MVP
 
-### Phase A0: dataset plumbing (shared with Track B)
+> Three substrate modules (catalog, gate, ledger + a minimal artifact
+> store) and one evolution agent with the five tools, run for N evolution
+> episodes against a SWE-bench slice.
 
-1. **Catalog** — walk one or more run roots, parse each
-   `out/trajectory.jsonl` + `out/result.json`, emit an index row per run:
-   `{trace_id, suite, instance_id, verdict, turns, tokens, duration,
-   producer, paths}`. Pure read-side code; no runtime changes.
-2. **Filtering** — composable predicates over index rows and `RunTrace`:
-   - verdict == resolved (from suite `evaluate()`),
-   - near-duplicate task/trajectory dedup,
-   - cost ceilings (turns, tokens),
-   - optional LLM rubric scoring (SWE-TRACE-style process rubrics) for
-     suites without a verifier.
+**Acceptance criteria:**
 
-### Phase A1: lesson memory (EvolveR / Decocted-Experience style)
+1. The ledger shows attempts of **at least two different intervention
+   kinds** — this directly tests that an agent is deciding, not an ETL
+   script running.
+2. At least one candidate is promoted through the gate, and a re-run with
+   the promoted artifact reproduces the improvement on the frozen slice.
+3. Reverting the artifact file restores baseline behavior (rollback
+   works).
 
-- **Distill**: a reflector agent reads a filtered `RunTrace` (span tree
-  makes failure localization cheap: which tool call failed, what was
-  retried) and emits structured lessons:
-  `{id, task_tags, situation, lesson, evidence_trace_id, helpful: 0,
-  harmful: 0}`.
-- **Store**: JSONL file under a workspace dir (e.g. a gitignored
-  `.evolution/lessons.jsonl`), human-diffable, append-only with tombstones.
-- **Inject**: `run_with_memory()` wrapper (mirroring
-  `run_with_skills()`) retrieves top-k lessons by tag/similarity and
-  injects them as `kind="context"` messages — these are already in
-  `DEFAULT_PRESERVE_KINDS`, so compression never eats them.
-- **Feedback**: post-run, increment helpful/harmful counters on retrieved
-  lessons based on the verdict (JitRL-style outcome accounting); decayed or
-  harmful lessons fall out of retrieval.
+**Deliberately out of MVP scope:** rubric LLM scoring and near-duplicate
+dedup in the catalog (verifier verdicts suffice), similarity retrieval
+(top-k by tag is enough), the ACE playbook curator as a dedicated
+component (a "playbook delta" is just another candidate kind the agent may
+draft), prompt A/B as a separate driver (a prompt variant is another
+candidate kind), and all of Track B (section 6).
 
-### Phase A2: playbook evolution (ACE-style)
+**Two cheap pre-commitments made now** (the only things that cannot be
+backfilled later):
 
-For each agent role, maintain one curated playbook document of itemized,
-id-tagged strategy bullets. The curator merges **deltas** produced by the
-reflector (add/amend/retire single bullets) — never a wholesale rewrite, to
-avoid ACE's context-collapse failure mode. The playbook is injected after
-the system prompt as a context message. The playbook file itself is the
-candidate artifact for the gate.
+1. Trace meta records `policy_id` (model/version), sampling parameters,
+   and logprobs when the endpoint provides them — required later for
+   off-policy correction in RL; impossible to reconstruct after the fact.
+2. `result.json` adopts a standard reward key
+   (`{"reward": <float>, "breakdown": {...}}`) alongside suite-specific
+   verdict fields.
 
-### Phase A3: skill induction
+## 5. Intervention kinds (the agent's toolbox, with literature cautions)
 
-- Mine the catalog for **recurring resolved task patterns** (≥N similar
-  successes) and **recurring failure motifs**.
-- A skill-writer agent drafts SKILL.md from exemplar trajectories
-  (SkillRL/SAGE pattern: abstract trajectories into a reusable recipe, do
-  not store raw logs).
-- The draft lands in a staging root; the gate runs the relevant eval slice
-  with and without the staged skill; only accepted skills move into a
-  learned-skills root passed to `discover_skills()`. Per the
-  skills-in-the-wild benchmark finding, the gate must also check the skill
-  does not regress non-target tasks (description over-triggering).
+These are candidate *kinds*, not roadmap phases. The evolution agent picks
+among them per episode; each lands as a reviewable file with provenance
+(`evidence_trace_id`, producer) and goes through the same gate.
 
-### Phase A4: prompt evolution
+- **Lesson** — structured `{task_tags, situation, lesson, evidence_trace_id,
+  helpful, harmful}` entries (EvolveR / Decocted-Experience style),
+  injected as `kind="context"` messages. Post-run outcome accounting
+  (JitRL-style) decays harmful lessons out of retrieval.
+- **Playbook delta** — itemized add/amend/retire of id-tagged strategy
+  bullets in a per-role playbook (ACE). Never wholesale rewrites: that is
+  the documented context-collapse failure mode.
+- **Skill** — a drafted SKILL.md abstracted from exemplar trajectories
+  (SkillRL/SAGE: store the recipe, not the logs). Gate must include a
+  non-target slice, because over-triggering descriptions regress
+  performance (skills-in-the-wild finding).
+- **Prompt variant** — a system-prompt edit; the gate comparison *is* the
+  A/B test.
+- **Context policy tweak** — visibility/compression adjustments
+  (`ContextPolicy`), the most harness-native and least explored kind.
+- **(later) Fine-tuned checkpoint** — a candidate `Provider` record; see
+  section 6. The gate does not care whether a candidate is a prompt or a
+  checkpoint — that symmetry is the point.
 
-A/B driver over `run_dataset()`: fan instances across system-prompt
-variants (or playbook versions), aggregate `DatasetReport` verdicts,
-promote the winner if the delta clears a threshold on a frozen eval set.
-This reuses the harness as-is; only the driver and the ledger entry are new.
+## 6. Deferred: training track and the unified RL contract
 
-### The gate and the ledger (all phases)
+Per the ADR, weight training stays outside the runtime: this repo produces
+datasets and consumes checkpoints. The design principle that keeps RL from
+becoming a third system: **RL is not a new pipeline; it is the same
+pipeline, sampled more densely and consumed online.** Five unified
+interfaces:
 
-`gate.py` runs baseline vs. candidate on a frozen instance slice and writes
-a ledger entry with exactly the ADR-mandated fields: feedback signal
-(eval set), baseline behavior, candidate change (artifact diff/hash),
-comparison result, accept/reject reason. Rollback = revert the artifact
-file; the ledger never rewrites history. Provenance fields on every lesson /
-skill / bullet (`evidence_trace_id`, producer) are the Zombie-Agents
-mitigation: nothing enters the agent's context whose origin cannot be
-traced to a concrete run.
+1. **Environment = the eval harness.** `run_suite_instance()` is one
+   episode: container = environment, agent loop = policy-environment
+   interaction, `evaluate()` = verifiable reward. An external trainer
+   (TRL / verl-style) integrates through a thin rollout-server wrapper
+   around `run_dataset()`; gradients and weight sync never enter this
+   repo.
+2. **One sample schema** — `(context, response, signals)` with optional
+   signal fields: SFT uses `verdict`; DPO uses `group_id` + paired
+   verdicts; GRPO uses `group_id` + `reward` + `behavior_policy` +
+   `logprobs`. All three are projections of the same export; catalog and
+   filtering are shared. Per-turn export via `model_turns_from_events()`
+   guarantees training inputs equal the post-compression context the model
+   actually saw.
+3. **Reward layered on the suite.** Outcome reward now (the standard
+   `result.json` key); process rewards later as scores attached to span
+   ids (SWE-TRACE-style rubric PRMs, AgentEvolver self-attribution) — the
+   span tree already provides the attribution structure.
+4. **Policy = a Provider record** behind an OpenAI-compatible endpoint.
+   Rollout workers do not know whether they serve eval, SFT collection, or
+   RL sampling.
+5. **Same gate for promotion; extra monitoring for training.** Checkpoint
+   promotion goes through the frozen-slice gate like every other
+   candidate. RL additionally needs in-training monitors (reward curve, KL
+   to reference, entropy, tool-call format error rate) — monitoring
+   decides when to stop training; the gate decides what ships.
 
-## 5. Track B — training-based evolution (opt-in, after A0)
+Sequencing note: DPO's group sampler ("same instance, N rollouts, pair by
+verdict") is exactly GRPO's group-advantage collector — build it once.
+Task synthesis (AgentEvolver self-questioning, daVinci-Env, SWE-rebench)
+slots in as an upstream pipeline stage producing instance files
+indistinguishable from benchmark instances. Under optimization pressure,
+verdict weaknesses become reward-hacking targets (tests gamed, rubric
+judges fooled), so label auditing upgrades from quality control to
+adversarial review.
 
-Per the ADR, weight training stays **out of the runtime**: this repo
-produces datasets and consumes checkpoints; the training job itself is
-external (TRL/LoRA on open models, or a provider fine-tuning API).
+## 7. Validation: proving the data is fit for training the current model
 
-1. **SFT dataset build** (`datasets.py`):
-   - source = filtered successful runs from A0;
-   - per-run export via the existing `openai_training_record()` (whole
-     conversation) and per-turn export via `model_turns_from_events()`
-     (each model call's exact visible context → response pair — this
-     respects compression, so training data matches what the model actually
-     saw);
-   - optional **hindsight backfill** (SWE-AGILE): a rewriter adds reasoning
-     digests to sparse successful trajectories before export;
-   - optional **hint distillation** (arXiv 2605.11556): for failed
-     instances with known gold patches (SWE-bench has them in
-     `input/eval.json`), re-run with oracle-derived hints, keep newly
-     successful trajectories, strip the hints from the exported context.
-2. **Preference pairs**: same instance, multiple rollouts (the dataset
-   driver already supports `max_attempts`/concurrent runs) → (resolved,
-   unresolved) trajectory pairs, or per-turn pairs where two rollouts
-   diverge; export DPO-format JSONL.
-3. **Train + swap**: external job produces a checkpoint served behind an
-   OpenAI-compatible endpoint; a candidate `Provider` (new `model` /
-   `base_url`) goes through the **same gate** as a prompt variant. The gate
-   does not care whether the candidate is a prompt or a checkpoint — that
-   symmetry is the point.
-4. **"Online" training** is a scheduled offline loop, not in-process:
-   `collect (run_dataset) → build dataset → train → gate → promote`,
-   cadenced (e.g. nightly) AgentEvolver-style. True on-policy RL (GRPO over
-   the harness) is a research extension: the eval containers already
-   provide verifiable rewards (`result.json`), and a rollout server could
-   wrap `run_suite_instance()`, but that should live in a separate repo or
-   a reference-architecture note.
+Four falsifiable claims, cheap to expensive. MVP enables the first two
+checks marked (*); the rest activate when Track B starts.
 
-## 6. Phasing and effort
+1. **The data is faithful** (training input = what the model experienced):
+   replay check — re-render each exported turn's context via the context
+   view and byte-diff against the export (unit-testable, permanent);
+   chat-template/tool-format validation; length within
+   `Provider.context_window`; (*) decontamination — zero instance- and
+   content-level overlap between training traces and the gate's frozen
+   slice.
+2. **The data carries signal**: verdict-source labeling in the catalog
+   (verifier vs. rubric; rubric-labeled data requires sampled human audit
+   with reported agreement); current-model loss probe on the dataset
+   (near-zero loss = nothing to learn; abnormal loss = distribution
+   mismatch, usually a faithfulness bug); bucket by `policy_id` — own
+   successful trajectories are rejection-sampling data, near-on-policy by
+   construction; foreign-policy data earns its place separately.
+3. **The improvement is causal** (the core evidence): ablation matrix
+   through the same gate — filtered vs. equal-size unfiltered data
+   (filtering earns its cost), 25/50/100% data-scaling curve (flat curve =
+   data homogeneity, fix collection not volume), each augmentation
+   (backfill, hint distillation) ablated separately, and failed-trajectory
+   training as a negative control (must hurt).
+4. **No side effects**: (*) no regression on non-target slices; no format
+   collapse (tool-call error rate, trajectory-length drift vs. baseline);
+   a held-out slice that distillation never reads, rotated periodically.
 
-| Phase | Deliverable | Depends on | Size |
-|---|---|---|---|
-| A0 | catalog + filtering + SFT/preference exporters | nothing (read-only) | S–M |
-| A1 | lesson store + `run_with_memory()` + outcome feedback | A0 | M |
-| GATE | A/B compare driver + evolution ledger | A0 | S |
-| A2 | ACE-style playbook curator | A1, GATE | M |
-| A3 | skill induction → staged SKILL.md | A0, GATE | M |
-| A4 | prompt-variant driver | GATE | S |
-| B1 | external SFT loop + candidate Provider through GATE | A0, GATE | M (mostly external) |
-| B2 | preference/DPO loop; hindsight backfill; hint distillation | B1 | M |
-| B3 | on-policy RL rollout server | B1 | L, separate repo / reference note |
+Each dataset release ships a dataset card (counts, length/tool
+distributions, verdict-source mix, dedup rate, decontamination result,
+loss stats, content hash); ledger entries reference the dataset hash so
+"which data batch produced which improvement" stays traceable.
 
-Recommended order: **A0 → GATE → A1 → A4 → A2 → A3 → B1 → B2**. A0+GATE+A1
-already closes a real self-evolution loop end to end and produces the
-datasets Track B needs, so nothing is throwaway.
-
-## 7. Risks and guardrails
+## 8. Risks and guardrails
 
 - **Experience poisoning / self-reinforcing injection** (Zombie Agents):
-  provenance on every artifact, gate before promotion, append-only ledger,
-  one-command rollback. Never let an in-run agent write directly to the
-  promoted store.
+  the staging/promoted split, provenance on every artifact, gate-only
+  promotion, append-only ledger, one-command rollback. The evolution agent
+  never writes directly to the promoted store.
+- **Evolution-agent thrash** (novel to the agent-driven design): an agent
+  that keeps proposing failing candidates burns eval budget. Cap gate runs
+  per episode, and surface ledger-derived hit rates so the agent (and its
+  operator) can see diminishing returns.
 - **Context collapse / brevity bias** (ACE): playbook updates are itemized
-  deltas; lessons are bounded in count via retrieval, not via lossy
-  rewriting.
-- **Skill over-triggering** (skills-in-the-wild): gate checks non-target
-  slices, not just the target slice.
-- **Eval overfitting**: keep a held-out instance slice that the gate uses
-  but distillation never reads; rotate it periodically (SWE-rebench-style
-  decontamination if tasks come from public benchmarks).
-- **Train/serve context mismatch** (Track B): export per-turn pairs from
-  `model_turns_from_events()` so training inputs equal the post-compression
-  context the model actually received.
-- **Scope creep vs. ADR**: weight training stays external; the runtime
+  deltas; lesson volume is bounded by retrieval, not lossy rewriting.
+- **Skill over-triggering** (skills-in-the-wild): gates include non-target
+  slices.
+- **Eval overfitting**: held-out slice never read by distillation, rotated
+  periodically; decontamination for tasks drawn from public benchmarks.
+- **Scope creep vs. the ADR**: weight training stays external; the runtime
   only ever consumes versioned artifacts (context files or a Provider
-  record).
+  record); the substrate stays non-agentic.
