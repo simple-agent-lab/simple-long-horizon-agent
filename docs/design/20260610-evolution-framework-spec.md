@@ -18,7 +18,7 @@ though their implementations are out of scope.
 
 The whole model in one paragraph: *an agent's behavior is a directory
 (bundle); evolution proposes a new directory (update); evidence is running
-both and comparing (gate); history is an append-only ledger. All
+both and comparing (gate); history is an append-only decision log. All
 intelligence lives in the evolution agent and update functions; all
 guarantees live in the substrate.*
 
@@ -26,9 +26,9 @@ guarantees live in the substrate.*
 
 1. **Bundles are immutable and promoted whole.** A bundle is
    content-addressed; "current" is a pointer file. Context and weights
-   co-adapt, so gating, ledgering, and rollback always operate on a bundle
+   co-adapt, so gating, decision logging, and rollback always operate on a bundle
    hash, never on a component.
-2. **The substrate is not agentic and not evolvable.** `gate`, `ledger`,
+2. **The substrate is not agentic and not evolvable.** `gate`, `decisions`,
    `archive`, pointer promotion, and the staging/promoted split are plain
    code that no candidate can modify (the Zombie-Agents containment line;
    the same line DGM-H draws around parent selection and evaluation).
@@ -66,12 +66,12 @@ parameter everywhere) holds all evolution state:
   runs/                      # rollout output, standard eval run trees:
     <run_id>/<instance_id>/{input/instance.json, out/result.json,
                             out/trajectory.jsonl}
-  ledger.jsonl               # append-only; see §4
+  decisions.jsonl            # the decision log (append-only); see §4
   episodes/                  # one trace per evolution-agent episode
     <episode_id>.trajectory.json
 ```
 
-Everything under `bundles/` and `ledger.jsonl` is append-only by
+Everything under `bundles/` and `decisions.jsonl` is append-only by
 convention; `write_jsonl_atomic` (already in
 `src/simple_agent_lab/trajectory/jsonl.py`) is reused for all writes.
 
@@ -104,7 +104,7 @@ checkpoint is editing this one file.
 `(path, file-sha256)` pairs, excluding `manifest.json` itself (the
 manifest records lineage *about* the content; two bundles with identical
 behavior content but different notes must collide). First 12 hex chars are
-used in paths and the ledger.
+used in paths and the decision log.
 
 ### 2.3 Module `simple_agent_lab/evolution/bundle.py`
 
@@ -175,7 +175,7 @@ contract.
 ```python
 class UpdaterSpec(TypedDict):
     name: str
-    reads: list[str]      # e.g. ["runs", "ledger", "lessons"]
+    reads: list[str]      # e.g. ["runs", "decisions", "lessons"]
     produces: str         # candidate kind: "lesson" | "playbook" | "skill"
                           # | "prompt" | "context_policy" | "provider" | "meta"
     cost: str             # "cheap" | "slow"  (slow = external training jobs)
@@ -184,7 +184,7 @@ UpdateFn = Callable[[UpdateInputs], Path]   # returns a staged bundle dir
 ```
 
 `UpdateInputs` carries: workspace, base bundle dir, selected runs (paths),
-ledger view, and a scratch dir. Implementations live in `cookbook/`
+decision-log view, and a scratch dir. Implementations live in `cookbook/`
 (examples tree), e.g. `cookbook/reflect_lessons.py`,
 `cookbook/induce_skill.py`, `cookbook/gepa_prompt.py`,
 `cookbook/slime_sft.py`. The typed spec is what lets the evolution agent
@@ -199,7 +199,7 @@ format, submit the external job, poll, then `stage_bundle()` with only
 inner loop (its own rollout/buffer/weight-sync cadence) is invisible
 here — one expensive function call, gated like any other candidate.
 
-## 4. Substrate: gate, ledger, catalog
+## 4. Substrate: gate, decision log, catalog
 
 ### 4.1 `simple_agent_lab/evolution/gate.py`
 
@@ -222,7 +222,7 @@ class Criterion(Protocol):             # how to judge
 class Judgment:
     accepted: bool
     deltas: Mapping[str, float]        # per-dimension candidate - baseline
-    reason: str                        # human-readable; goes into the ledger
+    reason: str                        # human-readable; goes into the decision log
 
 @dataclass(frozen=True)
 class GateResult:
@@ -242,7 +242,7 @@ def gate(
 ```
 
 `gate` stays four steps: `rollout(baseline)`, `rollout(candidate)`, apply
-measures + criterion, `ledger.append(...)`.
+measures + criterion, `decisions.append(...)`.
 
 **Built-in measures** — all computed from artifacts that already exist,
 no new collection: `reward` (mean of the standard `result.json` key),
@@ -252,7 +252,7 @@ are one function each.
 
 **Built-in criteria** — declarative combinators, chosen over weighted
 sums because constraint-style judgments produce auditable reasons (a
-weighted score cannot explain *why* in the ledger):
+weighted score cannot explain *why* in the decision log):
 
 ```python
 improve("reward", min_delta=0.0)            # MVP default: quality climb
@@ -283,11 +283,11 @@ Two pre-gate guards run before any rollout is spent:
 - **Novelty rejection** (ShinkaEvolve): exact-duplicate check by bundle
   hash, then near-duplicate check (normalized diff against archived
   candidates of the same kind); near-duplicates are auto-rejected with a
-  ledger entry and zero rollout cost.
+  decision-log entry and zero rollout cost.
 - **Budget cap**: a `GateBudget` ceiling on gate calls and total runs per
   episode (anti-thrash).
 
-### 4.2 `simple_agent_lab/evolution/ledger.py`
+### 4.2 `simple_agent_lab/evolution/decisions.py`
 
 One JSONL record per gate decision (parent), referencing run dirs
 (children) — the MLflow parent/child lineage pattern flattened into
@@ -295,7 +295,7 @@ references:
 
 ```json
 {
-  "schema": "simple-agent-lab.ledger.v1",
+  "schema": "simple-agent-lab.decision.v1",
   "id": "gate-000042",
   "ts": "2026-06-10T12:34:56Z",
   "level": "task",
@@ -342,19 +342,19 @@ episode start: prompt = `prompt.md`, playbook/lessons injected as
 |---|---|---|
 | `query_runs(filter)` | catalog | "what keeps failing, at what cost" |
 | `read_trace(trace_id, view)` | span tree / model turns | failure localization |
-| `read_ledger(query)` | ledger helpers | incl. hit rates (bandit prior) |
+| `read_decisions(query)` | decision log helpers | incl. hit rates (bandit prior) |
 | `write_candidate(kind, edits, note, evidence)` | `stage_bundle()` | **staging only**; target bundle implied by kind (`meta` kind targets the meta bundle) |
 | `run_gate(candidate, slice, objective?)` | `gate()` | measures/criterion resolved from candidate level and declared objective (quality / efficiency / robustness); enforces budget |
 
 The tool layer is where authority is enforced: the agent cannot touch
-pointers, the ledger, or promoted bundles except through these five
+pointers, the decision log, or promoted bundles except through these five
 tools.
 
 ### 5.3 Episode loop (host-side driver, plain code)
 
 ```python
 def run_episode(workspace, config) -> EpisodeReport:
-    level = "meta" if meta_due(ledger, config) else "task"
+    level = "meta" if meta_due(decisions, config) else "task"
     agent = build_evolution_agent(resolve(workspace, "meta"))
     state, events = agent.run(episode_task(level, workspace))  # agent loop
     # promotion is host-side, evidence-driven, not agent-side:
@@ -383,7 +383,7 @@ frequency):
 
 **In:** `bundle.py`, `gate.py` (the `reward` and `cost_tokens` measures,
 `improve` / `not_worse` / `guarded` criteria, novelty hash-check,
-budget), `ledger.py`, `catalog.py`, `rollout.py`, the evolution agent with
+budget), `decisions.py`, `catalog.py`, `rollout.py`, the evolution agent with
 its five tools, episode driver, and two cookbook updaters
 (`reflect_lessons`, `induce_skill`) — run against a SWE-bench slice on
 `LocalDockerBackend` (unit tests on `FakeBackend` + fake provider).
@@ -396,7 +396,7 @@ playbook), GEPA/slime cookbook entries, the HTTP rollout wrapper, and
 population selection over the archive.
 
 **Acceptance criteria (unchanged from the design memo):**
-1. the ledger shows ≥2 intervention kinds attempted;
+1. the decision log shows ≥2 intervention kinds attempted;
 2. ≥1 promotion whose improvement reproduces on the frozen slice;
 3. pointer rollback restores baseline behavior;
 4. rejected candidates remain retrievable (archive = nothing deleted).
@@ -411,12 +411,12 @@ agent's tool calls; one live smoke test mirrors
 ## 7. Growth paths (what this spec already fixes)
 
 - **Form B (services):** `rollout`'s signature is the future HTTP body;
-  the ledger/bundle stores are already shared-filesystem-safe (atomic
+  the decision log/bundle stores are already shared-filesystem-safe (atomic
   writes, immutable dirs). Serving = new executor, same contract.
 - **Form C (population search):** replace the single `task` pointer with
   per-individual namespaces (mechanism already exists for shadow
   lineages) and add a selector over the archive; gate becomes a scorer.
-  Stores, hashing, and ledger schema are reused unchanged.
+  Stores, hashing, and decision-log schema are reused unchanged.
 - **RL (online):** the slow-updater seam plus the pre-committed run
   provenance fields (`bundle`, `sampling`, `policy_logprobs`, reward key)
   are exactly what trajectory-consuming trainers need; nothing to

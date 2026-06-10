@@ -24,7 +24,7 @@ cannot bypass.
 ```text
 evolution episode (agent-driven):
   observe -> diagnose -> choose intervention -> draft candidate
-          -> gate (A/B compare) -> interpret -> ledger entry -> next episode
+          -> gate (A/B compare) -> interpret -> decision-log entry -> next episode
 ```
 
 ## 1. Literature snapshot (late 2025 – mid 2026)
@@ -54,7 +54,7 @@ Grouped by the question each line of work answers.
 - *Darwin Gödel Machine* (arXiv 2505.22954) and *Automated Design of
   Agentic Systems* (arXiv 2408.08435) — a meta-agent proposes candidate
   modifications, an empirical benchmark gate accepts or rejects them, and
-  an archive of candidates supports branching search. Our gate + ledger is
+  an archive of candidates supports branching search. Our gate + decision log is
   the conservative core of this pattern.
 - *HyperAgents / DGM-Hyperagents* (Meta FAIR + Meta Superintelligence
   Labs, 2026-03, `facebookresearch/Hyperagents`) — DGM's successor and
@@ -71,7 +71,7 @@ Grouped by the question each line of work answers.
   improvement its k-episode budget produces in task agents, not its own
   task score; (3) the meta-level improvements DGM-H invents autonomously —
   performance tracking and persistent memory with causal hypotheses — are
-  precisely the catalog and ledger/lessons this memo hand-designs, so our
+  precisely the catalog and decision log/lessons this memo hand-designs, so our
   substrate doubles as a strong prior. DGM-H deliberately keeps parent
   selection and evaluation fixed for stability and safety — the same
   boundary our deterministic substrate draws.
@@ -139,7 +139,7 @@ Most of the loop's read side exists today:
 | swap model | `Provider` is a frozen data record (`src/simple_agent_lab/llm/provider.py`) — pointing at a new checkpoint or endpoint is a one-field change |
 | build the evolution agent itself | the runtime: the evolution agent is an ordinary `Agent` with tools, so its own decision process is a trace |
 
-Missing: the artifact store, catalog, gate, ledger, and the evolution agent
+Missing: the artifact store, catalog, gate, decision log, and the evolution agent
 with its tools.
 
 ## 3. Architecture: two layers
@@ -151,17 +151,18 @@ with its tools.
 │          read_trace(trace_id)      - span tree: localize failure modes   │
 │          write_candidate(kind, ..) - staging area ONLY                   │
 │          run_gate(candidate, slice)- trigger A/B, get comparison         │
-│          read_ledger()             - what was tried before, what worked  │
+│          read_decisions()          - what was tried before, what worked  │
 │                                                                           │
 │  per episode: observe -> diagnose -> CHOOSE INTERVENTION KIND             │
-│               -> draft -> gate -> interpret -> ledger narrative           │
+│               -> draft -> gate -> interpret -> log decision -> next       │
 └──────────────────────────────┬────────────────────────────────────────────┘
                                │ may only write staging; may only promote via gate
 ┌─ DETERMINISTIC SUBSTRATE (plain code; the safety boundary) ───────────────┐
 │  catalog   index over evals/out run roots: verdict, cost, trace paths     │
 │  gate      frozen instance slice, baseline vs candidate via run_dataset() │
-│  ledger    append-only JSONL: feedback signal, baseline, candidate hash,  │
-│            comparison result, accept/reject reason (the ADR record)       │
+│  decisions append-only JSONL decision log: feedback signal, baseline,     │
+│            candidate hash, comparison result, accept/reject reason        │
+│            (the ADR record)                                               │
 │  archive   every candidate is retained in full — including rejected ones  │
 │            — as stepping stones (DGM-H: removing the archive collapses    │
 │            gains to ~0); promotion is separate from retention             │
@@ -173,7 +174,7 @@ with its tools.
 
 Division of labor:
 
-- **The substrate is deliberately not agentic.** Gate, ledger, and the
+- **The substrate is deliberately not agentic.** Gate, decision log, and the
   staging/promoted split are the security boundary (the Zombie-Agents
   mitigation) and the evidence chain (the ADR record). The evolution agent
   cannot improvise around them: `write_candidate` only reaches staging,
@@ -185,7 +186,7 @@ Division of labor:
   and — after that lesson fails the gate — a SKILL.md next episode. A
   fixed pipeline is the degenerate case of this design (an agent that
   always picks the same intervention).
-- **The loop feeds itself.** `read_ledger()` lets the agent learn which
+- **The loop feeds itself.** `read_decisions()` lets the agent learn which
   intervention kinds work on which failure classes — the evolution
   strategy itself accumulates experience. Because the agent runs on this
   harness, every episode leaves a full trace: why a hypothesis was
@@ -194,7 +195,7 @@ Division of labor:
 - **Rejection is not deletion.** The archive keeps every candidate with
   its gate result. DGM-H's ablation shows stepping stones are what make
   sustained improvement possible: a rejected skill draft may be the right
-  raw material two episodes later, and `read_ledger()` retrieval over
+  raw material two episodes later, and `read_decisions()` retrieval over
   rejected candidates is the degenerate (single-lineage) form of DGM-style
   branching search. Population/branching over the archive is a later
   upgrade that changes the selector, not the stores.
@@ -205,7 +206,7 @@ Division of labor:
   not a task score but **imp@k**: run the candidate evolution agent for a
   budget of k episodes against the same slice and compare the task-agent
   improvement it produces with the incumbent's. What stays fixed is only
-  the substrate (gate, ledger, archive, staging/promoted split) — the
+  the substrate (gate, decision log, archive, staging/promoted split) — the
   same line DGM-H draws by keeping parent selection and evaluation
   outside the editable program. This removes the "fixed meta layer is the
   bottleneck" failure mode without giving up the safety boundary.
@@ -219,7 +220,7 @@ paths; none exist yet):
 evolution/
   catalog.py     # substrate: scan run roots -> index rows (verdict, cost, paths)
   gate.py        # substrate: frozen-slice A/B via run_dataset(); returns comparison
-  ledger.py      # substrate: append-only ledger JSONL
+  decisions.py      # substrate: append-only decision log JSONL
   artifacts.py   # substrate: staging/, promoted/, archive/ stores; provenance
                  #   fields; rejected candidates retained, never deleted
   agent.py       # evolution agent factory + the five tools above
@@ -232,13 +233,13 @@ root passed to `discover_skills()` — zero runtime changes.
 
 ## 4. MVP
 
-> Three substrate modules (catalog, gate, ledger + a minimal artifact
+> Three substrate modules (catalog, gate, decision log + a minimal artifact
 > store) and one evolution agent with the five tools, run for N evolution
 > episodes against a SWE-bench slice.
 
 **Acceptance criteria:**
 
-1. The ledger shows attempts of **at least two different intervention
+1. The decision log shows attempts of **at least two different intervention
    kinds** — this directly tests that an agent is deciding, not an ETL
    script running.
 2. At least one candidate is promoted through the gate, and a re-run with
@@ -246,7 +247,7 @@ root passed to `discover_skills()` — zero runtime changes.
 3. Reverting the artifact file restores baseline behavior (rollback
    works).
 4. Rejected candidates are retained in the archive with their gate
-   results and are retrievable through `read_ledger()` — retention is
+   results and are retrievable through `read_decisions()` — retention is
    free (don't delete files) and DGM-H shows it is load-bearing.
 
 **First extension after MVP (not in it): the meta layer.** Once the loop
@@ -379,18 +380,18 @@ checks marked (*); the rest activate when Track B starts.
 
 Each dataset release ships a dataset card (counts, length/tool
 distributions, verdict-source mix, dedup rate, decontamination result,
-loss stats, content hash); ledger entries reference the dataset hash so
+loss stats, content hash); decision-log entries reference the dataset hash so
 "which data batch produced which improvement" stays traceable.
 
 ## 8. Risks and guardrails
 
 - **Experience poisoning / self-reinforcing injection** (Zombie Agents):
   the staging/promoted split, provenance on every artifact, gate-only
-  promotion, append-only ledger, one-command rollback. The evolution agent
+  promotion, append-only decision log, one-command rollback. The evolution agent
   never writes directly to the promoted store.
 - **Evolution-agent thrash** (novel to the agent-driven design): an agent
   that keeps proposing failing candidates burns eval budget. Cap gate runs
-  per episode, and surface ledger-derived hit rates so the agent (and its
+  per episode, and surface decision-log-derived hit rates so the agent (and its
   operator) can see diminishing returns.
 - **Meta-level drift** (with the meta candidate kind): changes to the
   evolution agent compound — a bad meta promotion degrades every later
