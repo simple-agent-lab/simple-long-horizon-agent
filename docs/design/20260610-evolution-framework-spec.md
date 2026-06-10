@@ -203,39 +203,80 @@ here — one expensive function call, gated like any other candidate.
 
 ### 4.1 `simple_agent_lab/evolution/gate.py`
 
+Evaluation is deliberately generic: a gate decision is **measures**
+(what to quantify) combined with a **criterion** (how to judge two
+measurement sets). Task quality is just one measure among several —
+cost, latency, and robustness are first-class evolution objectives.
+
 ```python
+Measurement = Mapping[str, float]      # named scalars for one run set
+
+class Measure(Protocol):               # what to quantify
+    name: str
+    def __call__(self, runs: Sequence[RunRef]) -> Measurement
+
+class Criterion(Protocol):             # how to judge
+    def judge(self, baseline: Measurement, candidate: Measurement) -> Judgment
+
+@dataclass(frozen=True)
+class Judgment:
+    accepted: bool
+    deltas: Mapping[str, float]        # per-dimension candidate - baseline
+    reason: str                        # human-readable; goes into the ledger
+
 @dataclass(frozen=True)
 class GateResult:
-    accepted: bool
-    metric: str                 # "task_score" | "imp_at_k"
-    baseline_score: float
-    candidate_score: float
-    delta: float
-    runs: dict[str, str]        # {"baseline": run_id, "candidate": run_id}
+    judgment: Judgment
+    baseline: Measurement
+    candidate: Measurement
+    runs: dict[str, str]               # {"baseline": run_id, "candidate": run_id}
 
 def gate(
     workspace: Path, *,
     baseline: Path, candidate: Path,
     slice_: EvalSlice,           # frozen instance list + content hash + suite pin
-    metric: Metric = task_score,
-    min_delta: float = 0.0,
+    measures: Sequence[Measure] = (reward,),
+    criterion: Criterion = improve("reward"),
     budget: GateBudget,          # max runs / max gate calls per episode
 ) -> GateResult
 ```
 
-`gate` is intentionally four steps: `rollout(baseline)`,
-`rollout(candidate)`, `metric.compare(...)`, `ledger.append(...)`. Two
-metrics ship in the MVP+1 horizon:
+`gate` stays four steps: `rollout(baseline)`, `rollout(candidate)`, apply
+measures + criterion, `ledger.append(...)`.
 
-- **`task_score`** — mean reward over the slice from each run's
-  `result.json`. The MVP metric.
-- **`imp_at_k`** (meta level) — runs k evolution episodes under each meta
-  bundle in an isolated pointer **namespace** (`pointers/shadow/<gate-id>/`),
-  starting from the same task bundle and slice; compares the best
-  task-score improvement each produces. Shadow promotions touch only the
-  namespace; afterwards the namespace is retired (retained, per
-  invariant 3). Cost is ~2·k episodes — which is why meta gating is
-  scheduled, not routine.
+**Built-in measures** — all computed from artifacts that already exist,
+no new collection: `reward` (mean of the standard `result.json` key),
+`cost_tokens` / `cost_usd` (trace `TokenUsage`), `latency_s` and `turns`
+(span tree), `tool_error_rate` (tool-execution events). Custom measures
+are one function each.
+
+**Built-in criteria** — declarative combinators, chosen over weighted
+sums because constraint-style judgments produce auditable reasons (a
+weighted score cannot explain *why* in the ledger):
+
+```python
+improve("reward", min_delta=0.0)            # MVP default: quality climb
+minimize("cost_tokens", min_gain=0.10)      # efficiency objective
+not_worse("reward", tol=0.01)               # a guard
+guarded(objective=..., guards=[...])        # "optimize X subject to Y"
+all_of(...) / lexicographic(...)            # composition
+```
+
+Examples this unlocks without new machinery: an *efficiency episode*
+("same resolved rate, 10% fewer tokens" — `guarded(minimize(
+"cost_tokens", 0.10), [not_worse("reward")])`), a robustness gate
+(`not_worse("tool_error_rate")` as a guard on every promotion), and the
+non-target regression probe (a guard measured on a second slice).
+
+**Meta level:** `imp_at_k` is not a special code path — it is a Measure
+whose unit of evaluation is evolution *episodes* instead of instance
+runs: run k episodes under each meta bundle in an isolated pointer
+**namespace** (`pointers/shadow/<gate-id>/`), starting from the same task
+bundle and slice; the measurement is the best task-level improvement each
+produces (and, being a Measurement, can also carry the episodes' cost).
+Shadow promotions touch only the namespace; afterwards the namespace is
+retired (retained, per invariant 3). Cost is ~2·k episodes — which is why
+meta gating is scheduled, not routine.
 
 Two pre-gate guards run before any rollout is spent:
 
@@ -260,13 +301,16 @@ references:
   "level": "task",
   "episode": "ep-000017",
   "kind": "skill",
-  "baseline": {"bundle": "ab12...", "score": 0.34},
-  "candidate": {"bundle": "cd34...", "score": 0.41,
+  "baseline": {"bundle": "ab12...",
+                "measurements": {"reward": 0.34, "cost_tokens": 81000}},
+  "candidate": {"bundle": "cd34...",
+                 "measurements": {"reward": 0.41, "cost_tokens": 78500},
                  "evidence": ["trace:..."], "note": "..."},
   "slice": {"suite": "swebench==0.3.1", "instances_sha": "ef56...", "n": 20},
-  "metric": "task_score", "delta": 0.07,
+  "criterion": "guarded(improve(reward), [not_worse(tool_error_rate)])",
+  "deltas": {"reward": 0.07, "cost_tokens": -2500},
   "decision": "accepted",        // accepted | rejected | novelty_rejected
-  "reason": "resolved 8/20 -> 11/20; no regression on non-target probe",
+  "reason": "reward 0.34->0.41 (min_delta 0.0 met); guard tool_error_rate ok",
   "runs": {"baseline": "runs/r-101", "candidate": "runs/r-102"}
 }
 ```
@@ -300,7 +344,7 @@ episode start: prompt = `prompt.md`, playbook/lessons injected as
 | `read_trace(trace_id, view)` | span tree / model turns | failure localization |
 | `read_ledger(query)` | ledger helpers | incl. hit rates (bandit prior) |
 | `write_candidate(kind, edits, note, evidence)` | `stage_bundle()` | **staging only**; target bundle implied by kind (`meta` kind targets the meta bundle) |
-| `run_gate(candidate, slice)` | `gate()` | metric chosen by candidate level; enforces budget |
+| `run_gate(candidate, slice, objective?)` | `gate()` | measures/criterion resolved from candidate level and declared objective (quality / efficiency / robustness); enforces budget |
 
 The tool layer is where authority is enforced: the agent cannot touch
 pointers, the ledger, or promoted bundles except through these five
@@ -331,13 +375,14 @@ frequency):
 | | task episode | meta episode |
 |---|---|---|
 | candidate target | task bundle | meta bundle (next incarnation) |
-| gate metric | `task_score` on frozen slice | `imp_at_k` (shadow namespace) |
+| gate criterion | over instance-run measures (reward/cost/...) on frozen slice | over the `imp_at_k` episode measure (shadow namespace) |
 | cadence | steady state | triggered (`meta_due`) |
 | takes effect | next rollout | next episode |
 
 ## 6. MVP scope and acceptance
 
-**In:** `bundle.py`, `gate.py` (task_score metric + novelty hash-check +
+**In:** `bundle.py`, `gate.py` (the `reward` and `cost_tokens` measures,
+`improve` / `not_worse` / `guarded` criteria, novelty hash-check,
 budget), `ledger.py`, `catalog.py`, `rollout.py`, the evolution agent with
 its five tools, episode driver, and two cookbook updaters
 (`reflect_lessons`, `induce_skill`) — run against a SWE-bench slice on
@@ -381,9 +426,10 @@ agent's tool calls; one live smoke test mirrors
 
 1. Lesson retrieval at injection time: top-k by tag (MVP) — when does
    similarity search earn its dependency?
-2. Non-target regression probe inside `gate` (a second small slice):
-   ship in MVP or with the skill updater (where over-triggering risk
-   concentrates)?
+2. Default guards on every promotion: the criterion abstraction makes a
+   non-target regression probe and a `tool_error_rate` guard cheap to
+   attach — which guards are mandatory by default vs. opt-in per
+   candidate kind?
 3. Episode task templates (`episode_task()`): how much procedure lives in
    the meta bundle's playbook (evolvable) vs. the host driver (fixed)?
    Start maximally fixed, migrate into the playbook as evidence
