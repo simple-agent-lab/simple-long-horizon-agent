@@ -1,32 +1,14 @@
 # OneMillion-Bench Eval Adapter
 
-This directory maps [OneMillion-Bench](https://huggingface.co/datasets/humanlaya-data-lab/OneMillion-Bench)
-(`omb`) onto the generic `Suite` framework (ADR 0017), mirroring the SWE-bench
-adapter. OneMillion-Bench is a **rubric-graded Q&A** benchmark across
-professional domains: a model answers a conceptual prompt, and a *judge* model
-scores the answer against the case's weighted rubrics.
+OneMillion-Bench is a **rubric-graded Q&A** benchmark across professional domains: a model answers a conceptual prompt, and a *judge* model scores the answer against the case's weighted rubrics.
 
-The upstream project is kept as a local, git-ignored checkout at
-`OneMillion-Bench/` (it has its own repo, license, and dataset, and is never
-pushed). Only the integration lives in this repo:
+- `suite.py` — `OneMillionSuite`. Drops the rubrics before the agent sees the case (`task_input`) and stages them as gold scoring inputs (`eval_inputs`) so the container-half `evaluate` hook grades the answer in the run environment.
+- `harness.py` — host-side helpers the suite and run entry share: dataset loading (single-object or list JSON files), agent-visible sanitization, dotenv loading, and the generator/judge environment.
+- The container half ships in the wheel at `simple_agent_lab.evals.suites.onemillion`:
+  - `container.py` — a tool-free LLM agent that answers the prompt and persists its answer to `model_response.txt`; `extract_result` collects it; `evaluate` grades it with the judge.
+  - `grading.py` — the rubric prompt, response parser, and weighted scoring **ported verbatim** from `omb.grading` (stdlib-only), so the verdict matches upstream without depending on the vendored checkout.
 
-- `suite.py` — `OneMillionSuite`. Drops the rubrics before the agent sees the
-  case (`task_input`) and stages them as gold scoring inputs (`eval_inputs`) so
-  the container-half `evaluate` hook grades the answer in the run environment.
-- `harness.py` — host-side helpers the suite and run entry share: dataset
-  loading (single-object or list JSON files), agent-visible sanitization, dotenv
-  loading, and the generator/judge environment.
-- The container half ships in the wheel at
-  `simple_agent_lab.evals.suites.onemillion`:
-  - `container.py` — a tool-free LLM agent that answers the prompt and persists
-    its answer to `model_response.txt`; `extract_result` collects it; `evaluate`
-    grades it with the judge.
-  - `grading.py` — the rubric prompt, response parser, and weighted scoring
-    **ported verbatim** from `omb.grading` (stdlib-only), so the verdict matches
-    upstream without depending on the vendored checkout.
-
-Unlike SWE-bench there is **no Docker image**: generation is one tool-free model
-turn graded by a judge, so runs go through `LocalProcessBackend` (in-process).
+Unlike SWE-bench there is **no Docker image**: generation is one tool-free model turn graded by a judge, so runs go through `LocalProcessBackend` (in-process).
 
 ## Quick Start
 
@@ -59,9 +41,7 @@ uv run python runs/run_onemillion_suite.py --all \
 Outputs land under `evals/out/onemillion/<run-id>/<instance-id>/out/`:
 
 - `trajectory.jsonl` — the generation trajectory (one tool-free model turn).
-- `result.json` — the `model_response` plus the rubric verdict (`score`,
-  `total_score` / `max_score`, per-rubric `rubric_scores`, and the judge's
-  per-rubric `judge_verdicts`).
+- `result.json` — the `model_response` plus the rubric verdict (`score`, `total_score` / `max_score`, per-rubric `rubric_scores`, and the judge's per-rubric `judge_verdicts`).
 
 ## Environment
 
@@ -72,8 +52,7 @@ Outputs land under `evals/out/onemillion/<run-id>/<instance-id>/out/`:
 | `JUDGE_MODEL` / `JUDGE_AUTH_TOKEN` | Judge (grader). Each falls back to the matching `OPENAI_*`. |
 | `JUDGE_BASE_URL` / `JUDGE_API_KIND` | Judge endpoint / API kind (default `openai-chat`). |
 
-Secrets stay in the environment — only the non-secret rubrics and prompt are
-staged into `input/eval.json` for the judge.
+Secrets stay in the environment — only the non-secret rubrics and prompt are staged into `input/eval.json` for the judge.
 
 ## Local Adapter Smoke
 
@@ -88,10 +67,4 @@ uv run python -m unittest \
 
 ## Scoring
 
-Scoring is the in-environment `evaluate` hook (ADR 0020), on by default. The
-host stages `{prompt, rubrics, human_scores}` via `eval_inputs`; the hook builds
-the upstream judge prompt, parses the per-rubric yes/no verdict, and converts
-hits to weighted scores. The per-case `score` is `total_score / max_score`
-(positive-weight total), matching `omb`'s per-task accuracy. Pass
-`--no-scoring` (or `OneMillionSuite(in_env_scoring=False)`) to capture answers
-only and grade later.
+Scoring is the in-environment `evaluate` hook (ADR 0020), on by default. The host stages `{prompt, rubrics, human_scores}` via `eval_inputs`; the hook builds the upstream judge prompt, parses the per-rubric yes/no verdict, and converts hits to weighted scores. The per-case `score` is `total_score / max_score` (positive-weight total), matching `omb`'s per-task accuracy. Pass `--no-scoring` (or `OneMillionSuite(in_env_scoring=False)`) to capture answers only and grade later.
