@@ -155,9 +155,7 @@ class RoutingTest(unittest.TestCase):
     def test_default_route_used_when_unresolved(self) -> None:
         router = make_fake_agent("router", lambda task: "nonsense")
         only = make_fake_agent("only", lambda task: "ran")
-        result = run_routing(
-            router, [Route("only", only)], "x", default="only"
-        )
+        result = run_routing(router, [Route("only", only)], "x", default="only")
         self.assertEqual(len(result.steps), 2)
         self.assertEqual(result.output, "ran")
 

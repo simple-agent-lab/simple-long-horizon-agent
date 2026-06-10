@@ -56,8 +56,7 @@ def _router_system_prompt(routes: Sequence[Route]) -> str:
 def _router_prompt(task: str, routes: Sequence[Route]) -> str:
     names = ", ".join(route.name for route in routes)
     return (
-        f"Choose the best specialist for this task (one of: {names}).\n\n"
-        f"Task:\n{task}"
+        f"Choose the best specialist for this task (one of: {names}).\n\nTask:\n{task}"
     )
 
 

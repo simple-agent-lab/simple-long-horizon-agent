@@ -83,7 +83,9 @@ def run_parallel(
 
     task_text = as_text(task)
     worker_tasks = (
-        [as_text(t) for t in tasks] if tasks is not None else [task_text] * len(worker_list)
+        [as_text(t) for t in tasks]
+        if tasks is not None
+        else [task_text] * len(worker_list)
     )
 
     workers_count = min(max_concurrency, len(worker_list))
