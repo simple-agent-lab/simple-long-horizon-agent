@@ -45,13 +45,13 @@ from simple_agent_lab.protocols import (
     TurnStartEvent,
 )
 from simple_agent_lab.state import State
-from simple_agent_lab.trajectory import (
+from simple_agent_lab.trace import (
     TraceMeta,
     run_trace_from_state,
     trace_record,
     write_canonical_trace,
 )
-from simple_agent_lab.trajectory.jsonl import read_jsonl
+from simple_agent_lab.trace.jsonl import read_jsonl
 
 _VIEWER_DIR = Path(__file__).resolve().parents[2] / "studio" / "trace-viewer"
 SAMPLE_PATH = _VIEWER_DIR / "sample-trace.jsonl"

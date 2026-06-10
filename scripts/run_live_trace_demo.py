@@ -53,7 +53,7 @@ from simple_agent_lab.protocols import (  # noqa: E402
     TurnStartEvent,
 )
 from simple_agent_lab.state import State  # noqa: E402
-from simple_agent_lab.trajectory import (  # noqa: E402
+from simple_agent_lab.trace import (  # noqa: E402
     LiveTraceSession,
     TraceMeta,
     default_stderr_flush_error,
@@ -77,7 +77,7 @@ TEXT_SAMPLES = [
     "Verifying the fix passes the failing test.",
 ]
 TOOL_RESULT_SAMPLES = [
-    "agents/\ncore.py\ncontext_view.py\nllm/\nmessages.py\nprotocols.py\nstate.py\ntools/\ntrace.py\ntrajectory.py",
+    "agents/\ncore.py\ncontext_view.py\nllm/\nmessages.py\nprotocols.py\nstate.py\ntools/\ntrace/",
     "def wc_lines(path):\n    with open(path) as f:\n        return len(f.read().split('\\n')) - 1",
     "src/simple_agent_lab/tools/wc.py:1:def wc_lines(path):\ntests/unit/test_wc.py:8:    assert wc_lines('fixtures/3lines.txt') == 3",
     "============= 1 passed in 0.34s ==============",

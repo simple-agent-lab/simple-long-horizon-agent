@@ -3458,7 +3458,7 @@
   }
 
   // ---------- derivations ----------
-  // Build a span tree from event list. Mirrors src/simple_agent_lab/trajectory.py
+  // Build a span tree from event list. Mirrors src/simple_agent_lab/trace/spans.py
   // spans_from_events + merge_sub_agent_spans, so the viewer doesn't need
   // pre-computed spans in the trace record.
   function spansFromEvents(traceId, events, baseTime = 0, traceMeta = null) {

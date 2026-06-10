@@ -42,8 +42,6 @@ system.
 The current source-of-truth layers are:
 
 - `src/simple_agent_lab/core.py`: canonical message-first run loop.
-- `src/simple_agent_lab/trace.py`: trace printing and OpenAI Chat JSONL export
-  built from runtime `State` transcripts.
 - `src/simple_agent_lab/messages.py`: runtime and provider-neutral message
   protocol.
 - `src/simple_agent_lab/context_view.py`: model-visible context projection.
@@ -58,10 +56,12 @@ The current source-of-truth layers are:
 - `src/simple_agent_lab/mcp/`: optional Model Context Protocol integration —
   connect to MCP servers and wrap their tools (including multimodal results)
   as `AgentTool`s, behind the `mcp` extra. See ADR mcp-as-tool-source.
-- `src/simple_agent_lab/trajectory/`: runtime-neutral trace records split by
-  concern — `spans.py`/`training.py` (pure event→span/turn transforms),
-  `run_trace.py` (record schema), `jsonl.py` (atomic JSONL IO), and `live.py`
-  (the incremental live-trace session/writer edge).
+- `src/simple_agent_lab/trace/`: the three-layer trace (Event → Span →
+  Training) split by concern — `spans.py`/`training.py` (pure event→span/turn
+  transforms), `run_trace.py` (record schema), `jsonl.py` (atomic JSONL IO),
+  `render.py` (console `print_trace`), `openai_export.py` (OpenAI Chat
+  fine-tuning JSONL export), and `live.py` (the incremental live-trace
+  session/writer edge).
 - `evals/swebench/`: optional benchmark adapter, outside the core runtime.
 
 ## Core Mental Model
@@ -118,9 +118,9 @@ Stop and collect more evidence before changing behavior when:
 | Multi-agent delegation (`task` tool) | `src/simple_agent_lab/tools/task.py`, `src/simple_agent_lab/agents/bash_task/` (parent + explorer worker), `tests/unit/test_bash_task_agent.py`, `src/simple_agent_lab/core.py` docstring | Sub-agent delegation shape: a parent picks one worker via `subagent_type` and gets its final message back as the tool result. |
 | MCP tools (incl. multimodal) | ADR mcp-as-tool-source, `src/simple_agent_lab/mcp/README.md`, `tests/unit/test_mcp.py`, `scripts/run_mcp_agent_demo.py` | MCP servers wrapped as `AgentTool`s at the tool boundary; image results map straight to `ImageBlock`. Optional `mcp` extra. |
 | Agent skills (discover/advertise/load `SKILL.md`) | ADR add-agent-skills, `src/simple_agent_lab/skills/`, `src/simple_agent_lab/tools/read.py`, `tests/unit/test_skills.py`, `tests/unit/test_read_tool.py` | Read-based skills: a prompt menu plus model-driven `read`/`bash`; on by default with `/no-skills`. Benchmark `bash_skills` flavor folds the menu into the system prompt. |
-| Trace printing or OpenAI Chat JSONL export | ADR extra-channel-and-two-layer-trace, ADR three-layer-trace-event-span-training, `src/simple_agent_lab/trace.py`, `tests/unit/test_openai_training.py` | Trace rendering and provider-shaped transcript export. |
-| Trajectories, spans, or training data | ADR collect-training-trajectories-across-design-versions, ADR keep-benchmark-suites-as-eval-adapters, ADR three-layer-trace-event-span-training, `src/simple_agent_lab/trajectory/` (`spans.py`, `training.py`, `run_trace.py`), `evals/README.md`, `evals/swebench/README.md` | Three-layer trace: Event → Span → Training. |
-| Docker incremental trace / host viewer | `docs/agent-native/docker-live-trace.md`, `src/simple_agent_lab/trajectory/live.py` (`LiveTraceSession`), `scripts/run_live_trace_demo.py` | Bind-mount contract and reusable live export API. |
+| Trace printing or OpenAI Chat JSONL export | ADR extra-channel-and-two-layer-trace, ADR three-layer-trace-event-span-training, `src/simple_agent_lab/trace/render.py`, `src/simple_agent_lab/trace/openai_export.py`, `tests/unit/test_openai_training.py` | Trace rendering and provider-shaped transcript export. |
+| Trajectories, spans, or training data | ADR collect-training-trajectories-across-design-versions, ADR keep-benchmark-suites-as-eval-adapters, ADR three-layer-trace-event-span-training, `src/simple_agent_lab/trace/` (`spans.py`, `training.py`, `run_trace.py`), `evals/README.md`, `evals/swebench/README.md` | Three-layer trace: Event → Span → Training. |
+| Docker incremental trace / host viewer | `docs/agent-native/docker-live-trace.md`, `src/simple_agent_lab/trace/live.py` (`LiveTraceSession`), `scripts/run_live_trace_demo.py` | Bind-mount contract and reusable live export API. |
 | Containerized eval framework / suites | ADR generic-containerized-eval-framework, `evals/README.md`, `src/simple_agent_lab/evals/` | Suite x ContainerBackend x ArtifactStore seams; `run_suite_instance` / `run_dataset` entry points. |
 | Scoring: how a suite scores / parity | ADR collapse-scorer-seam-into-run-primitive (amends ADR scorer-seam-and-scoring-topology), `src/simple_agent_lab/evals/in_container.py` (`evaluate` hook), `evals/swebench/evaluate_predictions.py` (`reuse_eval_row`, parity) | No scorer seam: in-env scoring is the `evaluate` hook (gated on `eval_inputs`); scoring elsewhere is a follow-up run; official harness is a standalone CLI; `result.json` decoupling; official-parity gate. |
 | Integrating a new Docker eval suite (step-by-step) | `docs/agent-native/integrating-a-docker-eval-suite.md`, ADR generic-containerized-eval-framework, ADR collapse-scorer-seam-into-run-primitive, `evals/swebench/suite.py`, `src/simple_agent_lab/evals/suites/swebench/container.py` | Two halves + registration; the developer/agent how-to with a checklist. |

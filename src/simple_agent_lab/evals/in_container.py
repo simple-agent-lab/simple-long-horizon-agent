@@ -44,7 +44,7 @@ from ..skills import system_prompt_with_skills
 from ..state import State
 from ..tools.bash import make_bash_tool
 from ..tools.read import make_read_tool
-from ..trajectory import run_trace_from_state, trace_record
+from ..trace import run_trace_from_state, trace_record
 from .protocols import RESULT_KEY, TRACE_KEY, AgentSpec, ArtifactStore, ContainerTask
 from .stores import container_store_from_env
 

@@ -80,8 +80,8 @@ loader accepts:
 
 Each record only needs `events`; `spans` and `model_turns` are
 re-derived in the browser using the same logic as
-`src/simple_agent_lab/trajectory/spans.py` and
-`src/simple_agent_lab/trajectory/training.py`.
+`src/simple_agent_lab/trace/spans.py` and
+`src/simple_agent_lab/trace/training.py`.
 
 ## Layout
 
@@ -135,6 +135,6 @@ every other dashboard.
 ## Compatibility
 
 The viewer reads `simple-agent-lab.trajectory.v3` records produced by
-`simple_agent_lab.trajectory.trace_record(...)`. It re-derives spans
+`simple_agent_lab.trace.trace_record(...)`. It re-derives spans
 and model turns from `events` in the browser, so older records
 without `spans`/`model_turns` work fine.
