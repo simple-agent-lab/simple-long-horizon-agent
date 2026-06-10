@@ -13,7 +13,9 @@ based on the task.
   records (ADRs). New hard-to-reverse choices land here.
 - [`design/`](design/20260610-self-evolution-mechanism.md) — design memos
   for capabilities under development. Currently: the self-evolution
-  mechanism (offline data pipeline + online adaptation).
+  mechanism (offline data pipeline + online adaptation) and its
+  [technical spec](design/20260610-evolution-framework-spec.md)
+  (library-first evolution framework).
 
 ## Supporting
 
