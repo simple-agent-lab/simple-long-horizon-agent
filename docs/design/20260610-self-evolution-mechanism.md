@@ -211,31 +211,38 @@ Division of labor:
   outside the editable program. This removes the "fixed meta layer is the
   bottleneck" failure mode without giving up the safety boundary.
 
-### Proposed layout
+### Layout (as implemented)
 
-New code lives in one subpackage, `simple_agent_lab/evolution/` (package
-paths; none exist yet):
+New code lives in one subpackage, `simple_agent_lab/evolution/`:
 
 ```text
 evolution/
-  catalog.py     # substrate: scan run roots -> index rows (verdict, cost, paths)
-  gate.py        # substrate: frozen-slice A/B via run_dataset(); returns comparison
-  decisions.py      # substrate: append-only decision log JSONL
-  artifacts.py   # substrate: staging/, promoted/, archive/ stores; provenance
-                 #   fields; rejected candidates retained, never deleted
+  lab.py         # USER SURFACE: Lab + reward fn + strategy fn (verl/slime-
+                 #   style: plain functions in, machinery owned by the
+                 #   framework); step / evolve / history / rollback
+  bundle.py      # substrate: content-addressed immutable bundles, staging,
+                 #   pointer promotion/rollback, shadow namespaces
+  gate.py        # substrate: measures x criteria over two rollouts; novelty
+                 #   rejection; Rollout is an injected callable
+  decisions.py   # substrate: append-only decision log JSONL; hit_rate
+  catalog.py     # substrate: scan run roots -> index rows (reward, paths)
+  rollout.py     # dataset_rollout adapter over the containerized evals
   agent.py       # evolution agent factory + the five tools above
-  runtime.py     # run_with_artifacts(): inject promoted lessons/playbook as
-                 #   kind="context" messages (mirrors run_with_skills())
 ```
 
-Induced skills are ordinary SKILL.md files in a promoted learned-skills
-root passed to `discover_skills()` — zero runtime changes.
+The engine-room nouns above are for maintainers; a researcher faces only
+`Lab`, an optional reward function, and an optional strategy function —
+the spec's §3.3 records that surface and its contracts. Induced skills
+are ordinary SKILL.md files in a promoted learned-skills root passed to
+`discover_skills()` — zero runtime changes.
 
 ## 4. MVP
 
-> Three substrate modules (catalog, gate, decision log + a minimal artifact
-> store) and one evolution agent with the five tools, run for N evolution
-> episodes against a SWE-bench slice.
+> The substrate, the `Lab` user surface, and one evolution agent with the
+> five tools, run for N evolution episodes against a SWE-bench slice.
+> (Skeleton merged on this branch with unit tests and a deterministic
+> demo; container injection of prompt/playbook/skills is the open
+> increment — see the spec's status note.)
 
 **Acceptance criteria:**
 

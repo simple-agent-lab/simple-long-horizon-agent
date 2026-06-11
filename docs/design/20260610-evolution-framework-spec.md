@@ -22,6 +22,18 @@ both and comparing (gate); history is an append-only decision log. All
 intelligence lives in the evolution agent and update functions; all
 guarantees live in the substrate.*
 
+Those nouns are the **engine room** — the audience of this spec. The
+**user surface** is deliberately smaller: three plain functions in the
+verl/slime integration style (§3.3). A researcher integrating a strategy
+or a custom reward never names a bundle, a gate, or the decision log.
+
+> **Implementation status (2026-06):** the skeleton is merged on this
+> branch — substrate (`bundle` / `decisions` / `gate` / `catalog`), the
+> `dataset_rollout` adapter (provider injection only), the evolution agent
+> with its five tools, and the `Lab` user surface, with unit tests and a
+> deterministic demo. Container injection of prompt/playbook/skills
+> (§2.4), imp@k scheduling, and similarity-level novelty remain open.
+
 ## 0. Invariants (the rules that never break)
 
 1. **Bundles are immutable and promoted whole.** A bundle is
@@ -198,6 +210,51 @@ format, submit the external job, poll, then `stage_bundle()` with only
 `provider.json` edited to the new checkpoint endpoint. The trainer's
 inner loop (its own rollout/buffer/weight-sync cadence) is invisible
 here — one expensive function call, gated like any other candidate.
+
+### 3.3 The user surface: `Lab` — `simple_agent_lab/evolution/lab.py`
+
+Design review found the six engine-room nouns too heavy an on-ramp for a
+researcher. The benchmark is verl/slime integration: verl users plug in a
+custom reward by writing one `compute_score()` function; slime users plug
+in a custom rollout via `--rollout-function-path`. The public surface
+mirrors that — **three plain functions, nothing else to learn**:
+
+```python
+lab = Lab(workspace, rollout=...)          # ① what to run (dataset_rollout
+                                           #   for suites, or any callable)
+
+def my_reward(run_dir: Path) -> float: ... # ② how to score one run
+                                           #   (optional: defaults to the
+                                           #    result.json reward key)
+
+def my_strategy(ctx: EpisodeContext):      # ③ how to change the agent
+    return ctx.propose(kind="lesson", edits={...}, note=..., evidence=[...])
+                                           #   (optional: omit and call
+                                           #    lab.evolve() — agent-driven)
+
+lab.step(my_strategy)   # observe -> propose -> compare -> promote/reject
+lab.evolve(provider)    # the no-strategy, agent-driven mode
+lab.history()           # the experiment log;  lab.rollback() moves back
+```
+
+Contracts the facade enforces (it is a facade — no new mechanism):
+
+- A strategy **only proposes**; `step()` stages the proposal, runs the
+  gate, logs the decision, and promotes host-side. Nothing a strategy
+  returns can bypass the comparison (invariant 2 holds for human-written
+  strategies exactly as for the evolution agent).
+- A custom `reward` replaces scoring everywhere at once: it becomes the
+  gate's reward measure **and** re-scores the run index behind
+  `ctx.failures`, so "what the strategy sees as failing" and "what the
+  gate measures" are the same definition by construction.
+- Relationship to §3.2: a `StrategyFn` is the user-facing projection of
+  an updater — `Lab.step()` wraps it in staging + manifest provenance.
+  The typed `UpdaterSpec` registration remains the engine-room form,
+  needed when the evolution agent reasons about its toolbox; cookbook
+  entries can expose either shape.
+
+This also fixes one assembly point for deployment concerns: workspace and
+(later) storage backends are configured on `Lab` construction only.
 
 ## 4. Substrate: gate, decision log, catalog
 
@@ -383,10 +440,13 @@ frequency):
 
 **In:** `bundle.py`, `gate.py` (the `reward` and `cost_tokens` measures,
 `improve` / `not_worse` / `guarded` criteria, novelty hash-check,
-budget), `decisions.py`, `catalog.py`, `rollout.py`, the evolution agent with
-its five tools, episode driver, and two cookbook updaters
-(`reflect_lessons`, `induce_skill`) — run against a SWE-bench slice on
-`LocalDockerBackend` (unit tests on `FakeBackend` + fake provider).
+budget), `decisions.py`, `catalog.py`, `rollout.py`, the `Lab` user
+surface (§3.3), the evolution agent with its five tools, episode driver,
+and two cookbook updaters (`reflect_lessons`, `induce_skill`) — run
+against a SWE-bench slice on `LocalDockerBackend` (unit tests on
+`FakeBackend` + fake provider). Of these, everything except container
+prompt/skills injection and the cookbook updaters is already merged (see
+the status note at the top).
 
 **Out (interfaces reserved):** `imp_at_k` and meta episodes (ship
 right after MVP; the namespace mechanism is designed in from day one),
@@ -421,6 +481,34 @@ agent's tool calls; one live smoke test mirrors
   provenance fields (`bundle`, `sampling`, `policy_logprobs`, reward key)
   are exactly what trajectory-consuming trainers need; nothing to
   retrofit.
+
+### 7.1 Distributed deployment and the storage seam
+
+Review raised the concern that the Path-based substrate limits a future
+distributed deployment. The stance, made explicit here:
+
+- **The data structures were chosen to distribute well.** Bundles are
+  content-addressed and immutable — the storage model of git objects,
+  OCI layers, and build CAS stores: object-store keys are the hashes,
+  sync is conflict-free, caches never invalidate. The decision log is a
+  single append-only stream (trivially a table or log service). Only
+  **three points need coordination primitives**: pointer update (the one
+  compare-and-swap), log append (the one multi-writer), and run-artifact
+  locality.
+- **The seam already exists: it is the module boundary.** All I/O goes
+  through the functions of `bundle.py` / `decisions.py` / `catalog.py`;
+  callers (gate, agent, Lab, cookbook) never touch files directly.
+  Swapping those internals for an object-store or HTTP client changes no
+  caller. Run-artifact distribution is already solved one layer down by
+  the eval framework's `ArtifactStore` / `RemoteDockerBackend` seams,
+  which `dataset_rollout` sits on.
+- **Shared filesystems are a first-class first step**, not a stopgap —
+  slime ships weight sync over disk/shared-FS transport in production.
+- **No explicit store protocol yet, deliberately.** Adding a `Store`
+  Protocol now would spend the concept budget §3.3 just reclaimed. The
+  trigger to introduce it is concrete: the moment a second storage
+  backend is actually needed, the refactor is mechanical because the
+  call sites are already confined.
 
 ## 8. Open questions
 
