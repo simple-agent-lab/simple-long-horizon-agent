@@ -62,14 +62,11 @@ all fit behind the same high-level shape.
 
 ## Reference Guidance
 
-The local survey PDF at
-`docs/reference-architectures/memory/主流Agent Harness实现对比——Memory篇.pdf`
-has been removed, but its extracted text remains at
-`docs/reference-architectures/memory/mainstream-agent-harness-memory-pdf-extracted.txt`.
-The local Codex and Hermes source clones under
-`docs/reference-architectures/codex/` and
-`docs/reference-architectures/hermes-agent/` also inform the current direction.
-These paths are gitignored reference material.
+Gitignored reference material lives under `docs/reference-architectures/` (only
+its README and template are tracked). It holds the extracted text of a survey
+comparing mainstream agent-harness memory designs (the original survey PDF was
+removed), plus local Codex and Hermes source clones, all of which inform the
+current direction.
 
 For every future Simple Agent Lab memory optimization, use three inputs
 together:
@@ -235,11 +232,11 @@ Backends are implementation details. Possible backends include:
 - `FilesystemMemory`, which injects a filesystem memory directory policy, writes
   host-owned evidence files at run end, always keeps `INDEX.md` summary links
   valid, and can apply an optional distiller result to `summary.md`, `INDEX.md`,
-  `MEMORY.md`, and `memory_summary.md`. Its automatic run-end consolidation
-  keeps raw run evidence untouched while promoting high-signal run-update bullets
-  into durable handbook sections, deduplicating repeated bullets, pruning old run
-  update blocks, and refreshing `memory_summary.md` when the distiller did not
-  provide one;
+  `MEMORY.md`, and `memory_summary.md`. The distiller returns the full updated
+  `MEMORY.md` handbook (the model owns merging, rewriting, and dropping lessons);
+  `finish(...)` writes that rewrite verbatim when it passes size/erasure guards,
+  keeps the prior handbook on an empty or rejected rewrite, and refreshes
+  `memory_summary.md` when the distiller did not provide one;
 - SQLite or JSONL records;
 - a vector index;
 - a remote memory service.
@@ -280,9 +277,8 @@ memory spans in `trajectory/spans.py`.
 
 ## Imported Mechanism Fit
 
-The migrated reproduction spec under
-`docs/reference-architectures/memory-reproduction-spec.md` includes
-SWE-bench-focused memory patterns. Treat its benchmark-specific wording as an
+The migrated reproduction spec under `docs/reference-architectures/` (gitignored
+local notes) includes SWE-bench-focused memory patterns. Treat its benchmark-specific wording as an
 example domain, not as a Simple Agent Lab requirement. The filesystem-memory
 shape is useful because it exercises prompt injection, ordinary file tools,
 filesystem-backed storage, post-run learning, and memory-only model calls.
@@ -337,17 +333,20 @@ Mapping to this sketch:
   optional distillation fails, so `INDEX.md` never points at a missing summary.
   Distillation failures can leave a compact `memory_error.md` marker while
   skipping only learned `MEMORY.md` updates.
-- After each successful `finish(...)` write, `FilesystemMemory` automatically
-  runs a small deterministic consolidation pass: fold reusable `## Run Updates`
-  bullets into `MEMORY.md` sections, keep a short recent-update tail for
-  provenance, and rebuild `memory_summary.md` last when no model-provided
-  summary was accepted. This is the Simple Agent Lab analogue of a slow
-  consolidation path, not a hidden model call or a replacement for
-  evidence-backed distillation.
+- `MEMORY.md` is a single model-owned handbook. The distiller is shown the
+  current `MEMORY.md` and returns the complete updated file, doing its own
+  merging, rewriting, deduplication, and pruning; `finish(...)` keeps no
+  deterministic section/promotion logic. Determinism lives only in the
+  guardrails: an empty rewrite keeps the prior handbook, and a rewrite that is
+  oversized, structurally empty, or would erase every lesson is rejected (the
+  prior handbook is kept and a `memory_error.md` marker records the skip). See
+  ADR `model-owned-memory-handbook-rewrite`. `memory_summary.md` is still rebuilt from `INDEX.md` when no
+  model-provided summary was accepted.
 - `make_filesystem_distiller(provider)` builds an explicit no-tools LLM
   distiller. It chooses `memory_name` after seeing the completed run evidence,
-  then writes a per-run summary, index row, durable `MEMORY.md` update, and
-  optionally a refreshed `memory_summary.md` for that namespace. Use the same
+  then returns a per-run summary, index row, the full rewritten `MEMORY.md`
+  handbook (`memory_md`), and optionally a refreshed `memory_summary.md` for that
+  namespace. Use the same
   provider as the main agent when you want the same model, but keep the extra
   model call visible in code rather than implicit. Put this in the high-level
   assembly code that already has the provider:

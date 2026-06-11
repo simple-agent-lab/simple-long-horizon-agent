@@ -295,7 +295,7 @@ class FilesystemMemoryTest(unittest.TestCase):
                         "keywords": "auth, focused checks",
                         "artifacts": "submission.txt",
                     },
-                    "memory_updates": "- Use focused checks for recurring auth errors.",
+                    "memory_md": "# Memory Handbook\n\n## Lessons\n\n- Use focused checks for recurring auth errors. [runs/run_42]\n",
                 }
 
             memory = FilesystemMemory(root=tmp, distiller=distill)
@@ -350,13 +350,12 @@ class FilesystemMemoryTest(unittest.TestCase):
             self.assertIn("auth error", index)
             self.assertIn("auth, focused checks", index)
             self.assertEqual(index.count("runs/run_42/summary.md"), 1)
-            self.assertIn("Use focused checks", handbook)
-            stable_sections = handbook.split("## Run Updates", maxsplit=1)[0]
-            self.assertIn(
-                "Use focused checks for recurring auth errors. [runs/run_42]",
-                stable_sections,
+            self.assertEqual(
+                handbook,
+                "# Memory Handbook\n\n## Lessons\n\n"
+                "- Use focused checks for recurring auth errors. [runs/run_42]\n",
             )
-            self.assertIn("### runs/run_42", handbook)
+            self.assertNotIn("## Run Updates", handbook)
             self.assertIn("short summary", memory_summary)
             self.assertIn("runs/run_42/summary.md", memory_summary)
 
@@ -379,7 +378,7 @@ class FilesystemMemoryTest(unittest.TestCase):
                     "memory_name": "auth",
                     "summary_md": "## Task\nFix login callback\n",
                     "index_row": {"summary": "login callback", "signals": "auth"},
-                    "memory_updates": "- Login callback fixes should inspect auth logs.",
+                    "memory_md": "# Memory Handbook\n\n## Lessons\n\n- Existing auth notes.\n- Login callback fixes should inspect auth logs. [runs/r1]\n",
                 }
 
             memory = FilesystemMemory(root=tmp, distiller=distill)
@@ -406,12 +405,11 @@ class FilesystemMemoryTest(unittest.TestCase):
             self.assertIn("Existing auth notes", payloads[0].notes)
             self.assertTrue((Path(tmp) / "auth" / "runs" / "r1").exists())
             handbook = (Path(tmp) / "auth" / "MEMORY.md").read_text(encoding="utf-8")
-            stable_sections = handbook.split("## Run Updates", maxsplit=1)[0]
-            self.assertIn("Login callback fixes", handbook)
             self.assertIn(
-                "Login callback fixes should inspect auth logs. [runs/r1]",
-                stable_sections,
+                "Login callback fixes should inspect auth logs. [runs/r1]", handbook
             )
+            self.assertIn("Existing auth notes", handbook)
+            self.assertNotIn("## Run Updates", handbook)
             self.assertFalse((Path(tmp) / "default").exists())
 
     def test_filesystem_memory_distiller_failure_still_writes_evidence(self) -> None:
@@ -465,136 +463,146 @@ class FilesystemMemoryTest(unittest.TestCase):
             self.assertEqual(len(context), 1)
             text = text_of(context[0].content)
             # P5: guide the agent to read memory by absolute path, not via an
-            # env-var assignment that does not survive the fresh per-call shell.
+            # env-var assignment or other state that does not persist between
+            # separate actions.
             self.assertNotIn("MEMORY_ROOT=", text)
             self.assertIn("absolute path", text)
-            self.assertIn("fresh shell", text)
+            self.assertIn("persists between separate actions", text)
             self.assertIn("- auth", text)
 
-    def test_filesystem_memory_finish_auto_consolidates_and_prunes_run_updates(
-        self,
-    ) -> None:
+    def test_handbook_rewrite_persists_full_model_output(self) -> None:
+        # The distiller owns the whole handbook: its memory_md is written verbatim
+        # as the new MEMORY.md, with no deterministic sectioning or promotion.
         with tempfile.TemporaryDirectory() as tmp:
-            updates_by_run = {
-                "r1": "- User prefers small targeted memory changes.",
-                "r2": "\n".join(
-                    [
-                        "- User prefers small targeted memory changes.",
-                        "- Avoid broad transcript scans when INDEX.md already points to a run.",
-                    ]
-                ),
-                "r3": "- Use `docs/auth.md` as the stable auth reference.",
-                "r4": "- Keep auth memory updates evidence-backed.",
-                "r5": "- Keep auth memory updates evidence-backed.",
-                "r6": "- Re-run auth smoke before changing shared memory.",
-            }
+            new_handbook = (
+                "# Memory Handbook\n\n## Lessons\n\n"
+                "- Prefer a tiny reproduction script first. [runs/r1]\n"
+            )
 
             def distill(payload):
-                run_id = payload.context.run_id
-                return {
-                    "summary_md": f"## Task\n{payload.task}\n",
-                    "index_row": {
-                        "summary": f"auth summary {run_id}",
-                        "scope": "auth",
-                        "signals": "auth error",
-                        "keywords": "auth, memory",
-                    },
-                    "memory_updates": updates_by_run[run_id],
-                }
+                return {"summary_md": "## Task\nt\n", "memory_md": new_handbook}
 
             memory = FilesystemMemory(root=tmp, distiller=distill)
-            ctx = MemoryContext(agent="agent", task="fix auth", memory_name="demo")
-            for run_id in updates_by_run:
-                state = State(f"fix auth {run_id}")
-                state.send("task", "user", "agent", f"fix auth {run_id}")
-                memory.finish(
-                    MemoryContext(
-                        agent="agent",
-                        task=f"fix auth {run_id}",
-                        memory_name="demo",
-                        run_id=run_id,
-                        state=state,
-                    )
+            state = State("t")
+            state.send("task", "user", "agent", "t")
+            memory.finish(
+                MemoryContext(
+                    agent="agent",
+                    task="t",
+                    memory_name="demo",
+                    run_id="r1",
+                    state=state,
                 )
+            )
+            handbook = (Path(tmp) / "demo" / "MEMORY.md").read_text(encoding="utf-8")
 
-            memory_dir = memory.memory_dir(ctx)
+        self.assertEqual(handbook, new_handbook)
+        self.assertNotIn("## Run Updates", handbook)
+        self.assertNotIn("## Durable Lessons", handbook)
 
+    def test_handbook_rewrite_empty_keeps_existing(self) -> None:
+        # An empty memory_md means "no durable change"; the prior handbook stays.
+        with tempfile.TemporaryDirectory() as tmp:
+            memory = FilesystemMemory(root=tmp)
+            memory_dir = Path(tmp) / "demo"
+            memory.ensure_layout(memory_dir)
+            (memory_dir / "MEMORY.md").write_text(
+                "# Memory Handbook\n\n## Lessons\n\n- Keep me.\n", encoding="utf-8"
+            )
+
+            def distill(payload):
+                return {"summary_md": "## Task\nt\n", "memory_md": ""}
+
+            memory = FilesystemMemory(root=tmp, distiller=distill)
+            state = State("t")
+            state.send("task", "user", "agent", "t")
+            memory.finish(
+                MemoryContext(
+                    agent="agent",
+                    task="t",
+                    memory_name="demo",
+                    run_id="r1",
+                    state=state,
+                )
+            )
             handbook = (memory_dir / "MEMORY.md").read_text(encoding="utf-8")
-            stable_sections = handbook.split("## Run Updates", maxsplit=1)[0]
-            memory_summary = (memory_dir / "memory_summary.md").read_text(
+
+        self.assertIn("- Keep me.", handbook)
+
+    def test_handbook_rewrite_rejected_when_oversize_keeps_existing(self) -> None:
+        # Guard: a rewrite past the size cap is rejected; the prior handbook is kept
+        # and a marker records the skip instead of persisting a runaway response.
+        from simple_agent_lab.memory.filesystem import DEFAULT_MAX_HANDBOOK_CHARS
+
+        with tempfile.TemporaryDirectory() as tmp:
+            memory = FilesystemMemory(root=tmp)
+            memory_dir = Path(tmp) / "demo"
+            memory.ensure_layout(memory_dir)
+            (memory_dir / "MEMORY.md").write_text(
+                "# Memory Handbook\n\n## Lessons\n\n- Keep me.\n", encoding="utf-8"
+            )
+            oversize = "# Memory Handbook\n\n## Lessons\n\n" + "- runaway bullet\n" * (
+                DEFAULT_MAX_HANDBOOK_CHARS // 8
+            )
+
+            def distill(payload):
+                return {"summary_md": "## Task\nt\n", "memory_md": oversize}
+
+            memory = FilesystemMemory(root=tmp, distiller=distill)
+            state = State("t")
+            state.send("task", "user", "agent", "t")
+            memory.finish(
+                MemoryContext(
+                    agent="agent",
+                    task="t",
+                    memory_name="demo",
+                    run_id="r1",
+                    state=state,
+                )
+            )
+            handbook = (memory_dir / "MEMORY.md").read_text(encoding="utf-8")
+            error = (memory_dir / "runs" / "r1" / "memory_error.md").read_text(
                 encoding="utf-8"
             )
 
-            self.assertIn("## Durable Lessons", handbook)
-            self.assertIn(
-                "User prefers small targeted memory changes. [runs/r1]", handbook
-            )
-            self.assertIn(
-                "Avoid broad transcript scans when INDEX.md already points to a run.",
-                handbook,
-            )
-            self.assertIn("Use `docs/auth.md` as the stable auth reference.", handbook)
-            self.assertIn(
-                "Keep auth memory updates evidence-backed. [runs/r4]", handbook
-            )
-            self.assertEqual(
-                stable_sections.count("User prefers small targeted memory changes."),
-                1,
-            )
-            self.assertEqual(
-                stable_sections.count("Keep auth memory updates evidence-backed."),
-                1,
-            )
-            self.assertNotIn("### runs/r1", handbook)
-            self.assertIn("### runs/r2", handbook)
-            self.assertIn("### runs/r6", handbook)
-            self.assertTrue(memory_summary.startswith("v1\n"))
-            self.assertIn("auth summary r6", memory_summary)
-            self.assertIn("runs/r6/summary.md", memory_summary)
+        self.assertIn("- Keep me.", handbook)
+        self.assertNotIn("runaway bullet", handbook)
+        self.assertIn("Handbook rewrite rejected", error)
 
-    def test_consolidation_dedupes_run_updates_against_durable_lessons(self) -> None:
-        # A lesson promoted to Durable Lessons must not also be copied verbatim into
-        # Run Updates; the run heading stays as a pointer to keep a recent-runs trail.
-        from simple_agent_lab.memory.filesystem import _section_body
-
-        lesson = "Always reproduce the failure with a tiny direct script first."
-
-        def distill(payload):
-            return {
-                "summary_md": f"## Task\n{payload.task}\n",
-                "index_row": {"summary": f"s {payload.context.run_id}"},
-                "memory_updates": f"- {lesson}",
-            }
-
+    def test_handbook_rewrite_rejected_when_it_would_erase_lessons(self) -> None:
+        # Guard: dropping every bullet from a non-empty handbook (e.g. a truncated
+        # response) is rejected to prevent catastrophic loss.
         with tempfile.TemporaryDirectory() as tmp:
+            memory = FilesystemMemory(root=tmp)
+            memory_dir = Path(tmp) / "demo"
+            memory.ensure_layout(memory_dir)
+            (memory_dir / "MEMORY.md").write_text(
+                "# Memory Handbook\n\n## Lessons\n\n- One.\n- Two.\n- Three.\n",
+                encoding="utf-8",
+            )
+
+            def distill(payload):
+                return {
+                    "summary_md": "## Task\nt\n",
+                    "memory_md": "# Memory Handbook\n\n## Lessons\n",
+                }
+
             memory = FilesystemMemory(root=tmp, distiller=distill)
-            for run_id in ("r1", "r2"):
-                state = State(f"task {run_id}")
-                state.send("task", "user", "agent", f"task {run_id}")
-                memory.finish(
-                    MemoryContext(
-                        agent="agent",
-                        task=f"task {run_id}",
-                        memory_name="demo",
-                        run_id=run_id,
-                        state=state,
-                    )
+            state = State("t")
+            state.send("task", "user", "agent", "t")
+            memory.finish(
+                MemoryContext(
+                    agent="agent",
+                    task="t",
+                    memory_name="demo",
+                    run_id="r1",
+                    state=state,
                 )
-            handbook = (Path(tmp) / "demo" / "MEMORY.md").read_text(encoding="utf-8")
+            )
+            handbook = (memory_dir / "MEMORY.md").read_text(encoding="utf-8")
 
-        durable = _section_body(handbook, "Durable Lessons")
-        run_updates = _section_body(handbook, "Run Updates")
-
-        # Promoted exactly once, and only in Durable Lessons.
-        self.assertIn(lesson, durable)
-        self.assertEqual(durable.count(lesson), 1)
-        self.assertNotIn(lesson, run_updates)
-        # Run Updates keeps a pointer per recent run, not a verbatim copy.
-        self.assertIn("### runs/r2", handbook)
-        self.assertIn("Lessons promoted to Durable Lessons above.", run_updates)
-        self.assertIn("runs/r2/summary.md", run_updates)
-        # The pointer sentinel is never folded back into Durable Lessons.
-        self.assertNotIn("Lessons promoted to Durable Lessons above.", durable)
+        self.assertIn("- One.", handbook)
+        self.assertIn("- Three.", handbook)
 
     def test_finish_stores_state_memory_artifacts_without_duplicate_submission(
         self,
@@ -645,7 +653,7 @@ class FilesystemMemoryTest(unittest.TestCase):
 
             def distill(payload):
                 payloads.append(payload)
-                return {"memory_updates": ""}
+                return {"memory_md": ""}
 
             def artifact_builder(ctx):
                 del ctx  # products come from the workspace, not the run State
@@ -706,25 +714,28 @@ class FilesystemMemoryTest(unittest.TestCase):
         self.assertIn("transcript.md ## <n>", prompt)
 
     def test_policy_block_inlines_summary_and_bans_line_numbers(self) -> None:
-        # P3: summary excerpt is inline, so the agent should not re-open it.
-        # P1: locate transcript evidence by grep anchor, not line ranges.
-        # P5: read memory by absolute path, not via an env-var assignment that does
-        # not survive the fresh per-call shell.
+        # P3: the summary excerpt is inlined directly into the policy block.
+        # P1: locate transcript evidence by searching for an anchor, not line ranges.
+        # P5: read memory by absolute path, not via an env-var assignment or other
+        # state that does not persist between separate actions.
         with tempfile.TemporaryDirectory() as tmp:
             memory = FilesystemMemory(root=tmp)
             ctx = MemoryContext(agent="agent", task="t", memory_name="demo")
             messages = memory.initial(ctx)
             text = text_of(messages[0].content)
 
-        self.assertIn("already inline below", text)
-        self.assertIn("do not re-open that file", text)
-        self.assertIn("grep on the cited anchor", text)
+        # P3: the memory_summary.md excerpt is carried inline in the block.
+        self.assertIn("<memory_summary.md_excerpt>", text)
+        self.assertIn("searching for the cited anchor", text)
         self.assertNotIn("targeted line ranges", text)
         # P5: no broken MEMORY_DIR= prefix guidance; show an absolute-path read.
         self.assertNotIn("MEMORY_DIR=", text)
         self.assertNotIn("copy this exact assignment", text)
-        self.assertIn("fresh shell", text)
-        self.assertIn(f"cat {tmp}/demo/MEMORY.md", text)
+        self.assertIn("persists between separate actions", text)
+        self.assertIn(f"{tmp}/demo/MEMORY.md", text)
+        # Tool-neutral: no shell-specific tool names baked into the prompt.
+        self.assertNotIn("cat ", text)
+        self.assertNotIn("grep", text)
 
     def test_ensure_layout_writes_skeletons_without_readme(self) -> None:
         # README.md was an unreferenced orphan (no injected text pointed at it),
@@ -757,70 +768,6 @@ class FilesystemMemoryTest(unittest.TestCase):
         self.assertIn("keywords", text)  # one of the INDEX table columns
         # transcript heading format is spelled out so the grep anchor (P1) lands.
         self.assertIn("## <n>. <role> (<kind>, <sender> -> <target>)", text)
-
-    def test_cap_section_bullets_keeps_newest_and_bounds_count(self) -> None:
-        # P4: Durable Lessons stays bounded; the newest bullets survive.
-        from simple_agent_lab.memory.filesystem import _cap_section_bullets
-
-        bullets = "\n".join(f"- lesson {index}" for index in range(50))
-        text = (
-            "# Memory Handbook\n\n## Durable Lessons\n\n"
-            + bullets
-            + "\n\n## Run Updates\n"
-        )
-
-        capped = _cap_section_bullets(text, "Durable Lessons", 40)
-        body = capped.split("## Durable Lessons", 1)[1].split("## Run Updates", 1)[0]
-
-        self.assertEqual(body.count("- lesson "), 40)
-        self.assertIn("- lesson 49", capped)
-        self.assertIn("- lesson 10", capped)
-        self.assertNotIn("- lesson 0\n", capped)
-        self.assertNotIn("- lesson 9\n", capped)
-
-    def test_finish_caps_durable_lessons_across_many_runs(self) -> None:
-        # P4 end-to-end: promotion accumulates, but the durable section is capped
-        # to the newest DEFAULT_MAX_DURABLE_LESSONS lessons.
-        from simple_agent_lab.memory.filesystem import (
-            DEFAULT_MAX_DURABLE_LESSONS,
-            _section_body,
-        )
-
-        total_runs = DEFAULT_MAX_DURABLE_LESSONS + 5
-
-        def distill(payload):
-            run_id = payload.context.run_id
-            return {
-                "summary_md": f"## Task\n{payload.task}\n",
-                "index_row": {"summary": f"s {run_id}"},
-                "memory_updates": f"- Durable lesson for {run_id} only.",
-            }
-
-        with tempfile.TemporaryDirectory() as tmp:
-            memory = FilesystemMemory(root=tmp, distiller=distill)
-            for run_index in range(1, total_runs + 1):
-                run_id = f"r{run_index}"
-                state = State(f"task {run_id}")
-                state.send("task", "user", "agent", f"task {run_id}")
-                memory.finish(
-                    MemoryContext(
-                        agent="agent",
-                        task=f"task {run_id}",
-                        memory_name="demo",
-                        run_id=run_id,
-                        state=state,
-                    )
-                )
-
-            handbook = (Path(tmp) / "demo" / "MEMORY.md").read_text(encoding="utf-8")
-            durable = _section_body(handbook, "Durable Lessons")
-
-        bullet_count = sum(
-            1 for line in durable.splitlines() if line.strip().startswith("- ")
-        )
-        self.assertEqual(bullet_count, DEFAULT_MAX_DURABLE_LESSONS)
-        self.assertIn(f"Durable lesson for r{total_runs} only.", durable)
-        self.assertNotIn("Durable lesson for r1 only.", durable)
 
     def test_filesystem_memory_uses_unique_run_directory_for_collisions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
