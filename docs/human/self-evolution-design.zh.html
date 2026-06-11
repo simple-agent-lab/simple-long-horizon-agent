@@ -1,0 +1,637 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>自我改进机制 · 设计汇报 · Simple Agent Lab</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1d212b; --ink: #e6e8ee;
+    --muted: #9aa3b2; --line: #2a2f3a; --accent: #6ea8fe; --accent2: #7ee2b8;
+    --warn: #f0b86e; --code: #0b0d11; --chip: #232838; --bad: #f08080;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.75 -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+          "Microsoft YaHei", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap { max-width: 1020px; margin: 0 auto; padding: 48px 24px 96px; }
+  header h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  header p.sub { color: var(--muted); margin: 0 0 28px; font-size: 16px; }
+  h2 { font-size: 21px; margin: 48px 0 14px; letter-spacing: -0.005em;
+       border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; color: var(--accent); }
+  p { margin: 0 0 14px; }
+  a { color: var(--accent); }
+  code, pre { font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; }
+  code { background: var(--chip); padding: 1px 6px; border-radius: 5px; font-size: 13.5px; }
+  pre {
+    background: var(--code); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px 18px; overflow-x: auto; font-size: 13px; line-height: 1.55; margin: 0 0 14px;
+  }
+  pre .c { color: #6b7385; } pre .k { color: var(--accent); }
+  pre .s { color: var(--accent2); } pre .d { color: var(--warn); }
+  figure { margin: 20px 0 10px; }
+  figure svg { width: 100%; height: auto; display: block; background: var(--panel2);
+               border: 1px solid var(--line); border-radius: 12px; }
+  figcaption { color: var(--muted); font-size: 13px; text-align: center; margin-top: 8px; }
+  .svg-label { fill: var(--ink); font: 13px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .svg-sub   { fill: var(--muted); font: 11.5px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .svg-mono  { fill: var(--accent2); font: 11px "SF Mono", ui-monospace, Menlo, monospace; }
+  .svg-title { fill: var(--accent); font: 700 12px -apple-system, "PingFang SC", sans-serif;
+               letter-spacing: 0.06em; }
+  .svg-flow  { font: 10.5px -apple-system, "PingFang SC", sans-serif; }
+  .lede {
+    background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    border-radius: 10px; padding: 16px 18px; margin: 0 0 18px;
+  }
+  .lede b { color: #fff; }
+  .lede ul { margin: 0; }
+  .note {
+    background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--warn);
+    border-radius: 10px; padding: 12px 16px; margin: 14px 0; font-size: 14.5px;
+  }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: var(--panel2); color: var(--accent); font-weight: 600; }
+  tr:nth-child(even) td { background: var(--panel); }
+  td b { color: #fff; }
+  ul, ol { margin: 0 0 14px; padding-left: 22px; }
+  li { margin: 5px 0; }
+  .ok { color: var(--accent2); } .no { color: var(--bad); } .mid { color: var(--warn); }
+  .qs li { margin: 10px 0; }
+  .qs b { color: var(--warn); }
+  footer { margin-top: 56px; color: var(--muted); font-size: 13.5px;
+           border-top: 1px solid var(--line); padding-top: 16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>自我改进机制 · 设计汇报</h1>
+  <p class="sub">Simple Agent Lab · 2026-06 · 分支 <code>claude/self-evolving-mechanism-jvy0q1</code>（PR #30）·
+  这页可以单独评审；代码和详细材料见 §10。</p>
+</header>
+
+<div class="lede">
+<ul>
+<li><b>做什么：</b>让 agent 自己改进时，也有版本、对比和回滚。agent 的一个版本就是一个目录（bundle）；
+想改进就先生成一个新目录；新旧版本做同题对比（gate），赢了才切过去；每次结果都会写进决策日志。</li>
+<li><b>定位：</b>我们做可审计的自我改进底座，不和优化算法抢活。GEPA、RL 训练器这类东西，都当成一个接入函数来用（§1）。</li>
+<li><b>用户怎么用：</b>研究员只需要学三个普通函数（§2.1）；安全规则固定住，策略怎么写完全开放（§2.5）。</li>
+<li><b>现状：</b>8 个模块已经写完，19 个单测通过，不调模型的 demo 也能跑；核心数据都有类型保护（§5）。</li>
+<li><b>希望评审：</b>请重点看 §9 的 6 个问题。</li>
+</ul>
+</div>
+
+<h2>1 · 目标和定位</h2>
+<p><b>目标：</b>让 agent 用自己的运行记录持续改进。先支持经验、技能、提示词这类不训练权重的改法，
+后面再接模型权重训练；两类改法都走同一套流程。</p>
+<div class="note">
+<b>定位来自一个空位。</b>GEPA 管 prompt，Agent Lightning 管权重，Mem0 管记忆——各种改进手段都有人做，
+但“怎么管这些改进”还缺一层。我们的标准很简单：每次改动都能说清四件事——
+<b>凭什么改 · 跟谁比 · 为什么接受 · 出问题怎么退回去</b>。
+</div>
+
+<h2>2 · 核心设计</h2>
+
+<h3>2.1 研究员只学三个函数</h3>
+<p>用法参考 verl 和 slime 的思路：要自定义打分就写一个函数，要自定义 rollout 也只给一个函数。</p>
+<pre>
+lab = Lab(workspace, rollout=...)            <span class="c"># ① 跑什么：容器 suite 或任意函数</span>
+
+<span class="k">def</span> <span class="d">my_reward</span>(run) -> float: ...            <span class="c"># ② 怎么算分：可省略，默认读 result.json</span>
+    <span class="k">return</span> run.result[<span class="s">"resolved"</span>]            <span class="c">#    run 是只读视图，带 result/reward/events/dir</span>
+
+<span class="k">def</span> <span class="d">my_strategy</span>(ctx): ...                   <span class="c"># ③ 怎么改：可省略，让进化 agent 自己决定</span>
+    <span class="k">return</span> ctx.propose(kind=<span class="s">"lesson"</span>, edits={...}, note=..., evidence=[...])
+
+lab.step(my_strategy)   <span class="c"># 跑 → 对比 → 赢了上线，输了留档，返回一句结论</span>
+lab.evolve(provider)    <span class="c"># 不写策略：进化 agent 自己诊断、自己选办法</span>
+lab.history()           <span class="c"># 实验史    lab.rollback()  # 回滚</span>
+</pre>
+<p><b>框架只守一条：strategy 只能提案。</b>它返回什么都不会直接生效，必须赢过对比才能上线。
+所以策略写错了，或者被坏数据带偏了，最多浪费一次评测，不会污染当前版本。</p>
+
+<h3>2.2 整体架构：一个循环，一条审计链</h3>
+
+<figure>
+<svg viewBox="0 0 1000 660" xmlns="http://www.w3.org/2000/svg" role="img"
+     aria-label="自我改进框架整体架构图：四个步骤的循环和审计链">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7.5" markerHeight="7.5"
+            orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6ea8fe"/></marker>
+    <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7.5" markerHeight="7.5"
+            orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7ee2b8"/></marker>
+    <marker id="arrw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7.5" markerHeight="7.5"
+            orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#f0b86e"/></marker>
+  </defs>
+
+  <!-- 用户入口外框 -->
+  <rect x="12" y="14" width="976" height="600" rx="14" fill="none"
+        stroke="#7ee2b8" stroke-opacity="0.45" stroke-dasharray="8 6"/>
+  <text x="30" y="40" class="svg-title" fill="#7ee2b8">用户入口</text>
+  <text x="92" y="40" class="svg-sub">研究员只写 reward / strategy 两个函数；lab.step() / evolve() / history() / rollback() 驱动下面这一圈</text>
+
+  <!-- 安全底座（含 ③④ 与决策日志） -->
+  <rect x="40" y="292" width="920" height="294" rx="12" fill="#141821"
+        stroke="#6ea8fe" stroke-opacity="0.5" stroke-dasharray="7 5"/>
+  <text x="56" y="316" class="svg-title">底座 · 安全边界</text>
+  <text x="188" y="316" class="svg-sub">普通代码，提案者改不到；版本不可变，promote 是唯一能改当前版本的动作</text>
+
+  <!-- ① 执行 -->
+  <rect x="70" y="70" width="270" height="130" rx="12" fill="#171a21" stroke="#2a2f3a"/>
+  <text x="90" y="100" class="svg-label" font-weight="700">① 执行 RUN</text>
+  <text x="90" y="124" class="svg-sub">加载当前版本，跑任务，产出 runs</text>
+  <rect x="90" y="142" width="116" height="38" rx="6" fill="none" stroke="#7ee2b8" stroke-opacity="0.7"/>
+  <text x="148" y="157" text-anchor="middle" class="svg-flow" fill="#7ee2b8">⊕ 评测 suite</text>
+  <text x="148" y="173" text-anchor="middle" class="svg-flow" fill="#9aa3b2">跑什么题 · 怎么判分</text>
+  <rect x="214" y="142" width="116" height="38" rx="6" fill="none" stroke="#7ee2b8" stroke-opacity="0.7"/>
+  <text x="272" y="157" text-anchor="middle" class="svg-flow" fill="#7ee2b8">⊕ 容器后端</text>
+  <text x="272" y="173" text-anchor="middle" class="svg-flow" fill="#9aa3b2">决定在哪里跑</text>
+
+  <!-- ② 提案 -->
+  <rect x="660" y="70" width="270" height="130" rx="12" fill="#171a21" stroke="#2a2f3a"/>
+  <text x="680" y="92" class="svg-label" font-weight="700">② 提案 PROPOSE</text>
+  <text x="680" y="112" class="svg-sub">读运行经验和历史，起草一个改动</text>
+  <rect x="680" y="120" width="120" height="36" rx="6" fill="none" stroke="#7ee2b8" stroke-opacity="0.7"/>
+  <text x="740" y="134" text-anchor="middle" class="svg-flow" fill="#7ee2b8">⊕ strategy 函数</text>
+  <text x="740" y="149" text-anchor="middle" class="svg-flow" fill="#9aa3b2">人写怎么改</text>
+  <rect x="806" y="120" width="120" height="36" rx="6" fill="none" stroke="#7ee2b8" stroke-opacity="0.7"/>
+  <text x="866" y="134" text-anchor="middle" class="svg-flow" fill="#7ee2b8">⊕ cookbook</text>
+  <text x="866" y="149" text-anchor="middle" class="svg-flow" fill="#9aa3b2">现成的改法配方</text>
+  <rect x="680" y="160" width="120" height="36" rx="6" fill="none" stroke="#7ee2b8" stroke-opacity="0.7"/>
+  <text x="740" y="174" text-anchor="middle" class="svg-flow" fill="#7ee2b8">⊕ 进化 agent</text>
+  <text x="740" y="189" text-anchor="middle" class="svg-flow" fill="#9aa3b2">让 agent 自己改</text>
+  <rect x="806" y="160" width="120" height="36" rx="6" fill="none" stroke="#7ee2b8" stroke-opacity="0.7"/>
+  <text x="866" y="174" text-anchor="middle" class="svg-flow" fill="#7ee2b8">⊕ 训练器·仓外</text>
+  <text x="866" y="189" text-anchor="middle" class="svg-flow" fill="#9aa3b2">练出新权重当候选</text>
+
+  <!-- ③ 验证 -->
+  <rect x="660" y="332" width="270" height="130" rx="12" fill="#171a21" stroke="#2a2f3a"/>
+  <text x="680" y="362" class="svg-label" font-weight="700">③ 验证 GATE</text>
+  <text x="680" y="384" class="svg-sub">新旧版本跑同一批题（测过的可复用）</text>
+  <rect x="680" y="398" width="120" height="38" rx="6" fill="none" stroke="#7ee2b8" stroke-opacity="0.7"/>
+  <text x="740" y="413" text-anchor="middle" class="svg-flow" fill="#7ee2b8">⊕ reward 函数</text>
+  <text x="740" y="429" text-anchor="middle" class="svg-flow" fill="#9aa3b2">怎么给一次运行打分</text>
+  <rect x="806" y="398" width="120" height="38" rx="6" fill="none" stroke="#7ee2b8" stroke-opacity="0.7"/>
+  <text x="866" y="413" text-anchor="middle" class="svg-flow" fill="#7ee2b8">⊕ criterion</text>
+  <text x="866" y="429" text-anchor="middle" class="svg-flow" fill="#9aa3b2">怎样才算赢</text>
+
+  <!-- ④ 生效 -->
+  <rect x="70" y="332" width="270" height="130" rx="12" fill="#171a21" stroke="#2a2f3a"/>
+  <text x="90" y="362" class="svg-label" font-weight="700">④ 生效 PROMOTE</text>
+  <text x="90" y="386" class="svg-sub">接受 → 切指针 · 回滚 = 切回去</text>
+  <rect x="90" y="398" width="116" height="38" rx="6" fill="none" stroke="#7ee2b8" stroke-opacity="0.7"/>
+  <text x="148" y="413" text-anchor="middle" class="svg-flow" fill="#7ee2b8">⊕ auto_promote</text>
+  <text x="148" y="429" text-anchor="middle" class="svg-flow" fill="#9aa3b2">上线要不要人确认</text>
+  <rect x="214" y="398" width="116" height="38" rx="6" fill="none" stroke="#9aa3b2" stroke-opacity="0.7"/>
+  <text x="272" y="413" text-anchor="middle" class="svg-flow" fill="#9aa3b2">🔒 机制固定</text>
+  <text x="272" y="429" text-anchor="middle" class="svg-flow" fill="#9aa3b2">不可变 · 永不删除</text>
+
+  <!-- 决策日志底座 -->
+  <rect x="70" y="500" width="860" height="64" rx="10" fill="#171a21" stroke="#2a2f3a"/>
+  <text x="90" y="526" class="svg-label" font-weight="700">决策日志</text>
+  <text x="184" y="526" class="svg-mono">decisions.jsonl · append-only</text>
+  <text x="90" y="548" class="svg-sub">每次验证记一条：候选 / 指标 / delta / 理由 / 证据 —— 既是实验记录，也是审计链</text>
+  <rect x="806" y="514" width="104" height="22" rx="6" fill="none" stroke="#9aa3b2" stroke-opacity="0.7"/>
+  <text x="858" y="529" text-anchor="middle" class="svg-flow" fill="#9aa3b2">🔒 底座固定</text>
+
+  <!-- 循环箭头（顺时针，零交叉） -->
+  <path d="M340,135 L654,135" stroke="#7ee2b8" stroke-width="2.4" fill="none" marker-end="url(#arr2)"/>
+  <text x="498" y="124" text-anchor="middle" class="svg-flow" fill="#7ee2b8">runs（经验）</text>
+
+  <path d="M795,200 L795,326" stroke="#6ea8fe" stroke-width="2.4" fill="none" marker-end="url(#arr)"/>
+  <text x="805" y="268" class="svg-flow" fill="#6ea8fe">候选（只能提案）</text>
+
+  <path d="M660,397 L346,397" stroke="#f0b86e" stroke-width="2.4" fill="none" marker-end="url(#arrw)"/>
+  <text x="502" y="386" text-anchor="middle" class="svg-flow" fill="#f0b86e">接受 → promote</text>
+
+  <path d="M205,332 L205,206" stroke="#7ee2b8" stroke-width="2.4" fill="none" marker-end="url(#arr2)"/>
+  <text x="215" y="268" class="svg-flow" fill="#7ee2b8">装载新版本</text>
+
+  <!-- 日志的写与读（虚线，次要） -->
+  <path d="M795,462 L795,496" stroke="#6ea8fe" stroke-width="1.5" fill="none"
+        stroke-dasharray="4 3" marker-end="url(#arr)"/>
+  <text x="805" y="484" class="svg-flow" fill="#9aa3b2">每条判定</text>
+  <path d="M930,532 L952,532 L952,135 L934,135" stroke="#6ea8fe" stroke-width="1.5" fill="none"
+        stroke-dasharray="4 3" marker-end="url(#arr)"/>
+  <text transform="rotate(-90, 966, 330)" x="966" y="330" text-anchor="middle"
+        class="svg-flow" fill="#9aa3b2">读历史 · hit_rate</text>
+
+  <!-- 图例 -->
+  <g class="svg-flow">
+    <text x="70" y="600" fill="#7ee2b8">⊕ 扩展点：写函数或放目录</text>
+    <text x="330" y="600" fill="#9aa3b2">🔒 底座固定</text>
+    <line x1="430" y1="596" x2="456" y2="596" stroke="#7ee2b8" stroke-width="2.2"/>
+    <text x="462" y="600" fill="#9aa3b2">数据</text>
+    <line x1="510" y1="596" x2="536" y2="596" stroke="#6ea8fe" stroke-width="2.2"/>
+    <text x="542" y="600" fill="#9aa3b2">提案</text>
+    <line x1="590" y1="596" x2="616" y2="596" stroke="#f0b86e" stroke-width="2.2"/>
+    <text x="622" y="600" fill="#9aa3b2">唯一变更</text>
+    <line x1="700" y1="596" x2="726" y2="596" stroke="#6ea8fe" stroke-width="1.5" stroke-dasharray="4 3"/>
+    <text x="732" y="600" fill="#9aa3b2">审计（写/读日志）</text>
+  </g>
+</svg>
+<figcaption>顺时针看：① 加载当前版本跑题，得到 runs → ② 提案方读 runs，起草改动 → ③ gate 按规则比较新旧结果
+（测过的一侧可复用，不用重跑）→ ④ 赢了才切指针。每次对比都会写一条决策日志。
+四个节点上的 ⊕ 合起来，恰好就是 §2.5 的五个开放问题：跑什么（①）· 怎么改（②）· 怎么打分、怎么判（③）·
+上线要不要人确认（④）；🔒 是固定规则。</figcaption>
+</figure>
+
+<h3>2.3 三个名词、两个动作、五条规则</h3>
+<pre>
+名词（全是文件和目录，没有服务，也没有注册中心）:
+  Bundle        一个目录 = agent 的一个版本（provider.json + prompt.md +
+                playbook.md + lessons.jsonl + skills/）；内容哈希即版本号，
+                "当前用哪版"是一个指针文件
+  Run           跑一次任务的产物目录（out/result.json + out/trajectory.jsonl）
+  Decision log  只追加的 JSONL：每过一次 gate 记一条，带证据引用
+
+  （Bundle / Run 在代码里也是只读类型视图；类型全景见 §2.4）
+
+动作（对外只有这两个）:
+  rollout(bundle, slice, run_id) -> runs    <span class="c"># 每次调用都传入题集切片；守卫切片和 held-out 共用</span>
+  update(runs, bundle) -> candidate_bundle  <span class="c"># 主要扩展点；具体做法放 cookbook</span>
+
+组合（无独立实现）:
+  gate     = 新旧各测一遍 + 判定 + 记日志（测过的 (bundle,切片) 可复用）
+  promote  = 改一个指针文件      rollback = 指针改回去      archive = 目录不删除
+</pre>
+<ol>
+<li><b>bundle 只能整体上线</b>——context 和权重可能互相适配，所以评测、记账、回滚都按整个 bundle 哈希来；</li>
+<li><b>底座不能自改</b>——gate、日志、指针都是普通代码，候选版本改不到，这是防经验投毒的硬边界；</li>
+<li><b>历史都保留</b>——DGM-H 的消融显示，删掉历史候选后长期收益会掉光；这轮没用的草稿，后面可能有用；</li>
+<li><b>运行中不改自己</b>——改自己的提案从下回合才生效；回滚就是把指针改回去；</li>
+<li><b>API 只保留两个动作</b>——反思、GEPA、技能归纳、训练都做成 cookbook 函数，不塞进框架本体。</li>
+</ol>
+
+<h3>2.4 核心数据结构</h3>
+<p><b>磁盘里的文件是真相，dataclass 只是更好读的视图。</b>目录树里的每样东西，代码里都有对应类型；
+框架不会把裸 Path 直接丢给调用方，IDE 补全看到的就是 schema。</p>
+<pre>
+工作区布局（默认 .evolution/，所有状态都在文件里，ls 和 cat 就能查）:
+  bundles/&lt;hash&gt;/            不可变版本目录；manifest.json 记谱系（哈希不含 manifest）
+  pointers/task.json         "当前用哪版" = {"hash": …}；meta.json 也一样；
+                             shadow/&lt;ns&gt;/ 是隔离的影子指针（imp@k 评测用）
+  runs/&lt;run_id&gt;/&lt;instance&gt;/  执行产物：input/instance.json · out/result.json
+                             · out/trajectory.jsonl；run_id 层有 bundle.json 溯源戳
+  decisions.jsonl            决策日志，只追加
+  episodes/                  进化 agent 的回合轨迹
+</pre>
+<pre>
+<span class="c"># ════ 视图：盖在目录上，只读、按需读取；.dir 永远保留给底层操作 ═══════════════</span>
+
+@dataclass(frozen=<span class="k">True</span>)
+<span class="k">class</span> <span class="d">Run</span>:                        <span class="c"># 一次 instance 运行，对应 runs/run_id/instance/</span>
+    dir: Path                     <span class="c"># 唯一构造参数；下面的属性都是访问时才读文件</span>
+    instance_id: str              <span class="c">#   = dir.name</span>
+    run_id: str                   <span class="c">#   = 上级目录名</span>
+    ref: str                      <span class="c">#   = "run_id/instance_id"，写进日志的引用形式</span>
+    ok: bool                      <span class="c">#   有 result.json 吗（没有 = 这次跑挂了）</span>
+    result: Mapping[str, Any]     <span class="c">#   套件原始结果，bench 自定义字段全保留</span>
+    reward: float | <span class="k">None</span>          <span class="c">#   = result["reward"]，标准键的便捷读法</span>
+    bundle: str                   <span class="c">#   这次运行装载的 bundle 哈希（溯源戳）</span>
+    <span class="k">def</span> <span class="d">events</span>(self) -&gt; tuple[Mapping, ...]: ...   <span class="c"># 轨迹事件</span>
+
+@dataclass(frozen=<span class="k">True</span>)
+<span class="k">class</span> <span class="d">Bundle</span>:                     <span class="c"># agent 的一个版本，对应 bundles/hash/</span>
+    dir: Path
+    hash: str                     <span class="c">#   内容哈希 = 版本号</span>
+    manifest: Manifest
+    parent: str | <span class="k">None</span>            <span class="c">#   父版本哈希（谱系）</span>
+    <span class="k">def</span> <span class="d">read</span>(self, filename: str) -&gt; str: ...      <span class="c"># 读行为文件，缺省 ""</span>
+    <span class="k">def</span> <span class="d">files</span>(self) -&gt; tuple[str, ...]: ...
+
+@dataclass(frozen=<span class="k">True</span>)
+<span class="k">class</span> <span class="d">Manifest</span>:                   <span class="c"># 关于内容的元数据，不参与哈希</span>
+    level: str                    <span class="c"># "task" | "meta"</span>
+    parent: str | <span class="k">None</span>
+    producer: str                 <span class="c"># 谁生成的：人 / strategy 函数名 / evolution-agent</span>
+    evidence: tuple[str, ...]     <span class="c"># 为什么改：run.ref 或 trace id，绝不写绝对路径</span>
+    note: str
+
+<span class="c"># ════ 提案侧：研究员或进化 agent 产出的东西 ═══════════════════════════════</span>
+
+@dataclass(frozen=<span class="k">True</span>)
+<span class="k">class</span> <span class="d">Proposal</span>:                   <span class="c"># strategy 的返回值：一个候选改动</span>
+    kind: str                                <span class="c"># "lesson" | "skill" | "prompt" | …</span>
+    edits: Mapping[str, str | bytes | <span class="k">None</span>]  <span class="c"># 路径 -&gt; 新内容；None = 删除该文件</span>
+    note: str
+    evidence: tuple[str, ...] = ()
+    base: str = <span class="s">""</span>                           <span class="c"># 从哪个历史版本分叉；"" 表示当前版本</span>
+    criterion: Criterion | <span class="k">None</span> = <span class="k">None</span>       <span class="c"># 本提案自带的判据（如效率目标）</span>
+
+@dataclass(frozen=<span class="k">True</span>)
+<span class="k">class</span> <span class="d">EpisodeContext</span>:             <span class="c"># strategy 能看到的全部</span>
+    runs: tuple[Run, ...]                    <span class="c"># 最近跑出来的结果</span>
+    current: Bundle                          <span class="c"># 当前版本</span>
+    decisions: tuple[Decision, ...]          <span class="c"># 完整实验史，包括被拒的候选</span>
+    reward: RewardFn                         <span class="c"># 和 gate 同一个打分定义</span>
+    @property
+    <span class="k">def</span> <span class="d">failures</span>(self) -&gt; tuple[Run, ...]: ...     <span class="c"># 得分≤0 的 runs；连续分数自己过滤</span>
+    <span class="k">def</span> <span class="d">bundle</span>(self, hash: str) -&gt; Bundle: ...      <span class="c"># 取任意历史版本（含被拒）</span>
+    <span class="k">def</span> <span class="d">propose</span>(self, **kw) -&gt; Proposal: ...
+
+<span class="c"># ════ 评测侧：gate 会用到的东西 ══════════════════════════════════════════</span>
+
+@dataclass(frozen=<span class="k">True</span>)
+<span class="k">class</span> <span class="d">EvalSlice</span>:                  <span class="c"># 冻结题集 = 一次对比的考卷</span>
+    suite: str                    <span class="c"># 带版本 pin，比如 "swebench==0.3.1"</span>
+    instances: tuple[Mapping, ...]
+    instances_sha: str            <span class="c"># 题集指纹，会写进日志</span>
+
+@dataclass(frozen=<span class="k">True</span>)
+<span class="k">class</span> <span class="d">Measure</span>:                    <span class="c"># 量什么：每个 run 取一个数，再汇总</span>
+    name: str
+    per_run: Callable[[Run], float]          <span class="c"># 从 Run（含 bench 自定字段）取数</span>
+    aggregate: Callable[[Sequence[float]], float] = mean   <span class="c"># 聚合方式可换</span>
+
+@dataclass(frozen=<span class="k">True</span>)
+<span class="k">class</span> <span class="d">MeasureFrame</span>:               <span class="c"># 一次测量的结果，分两层</span>
+    name: str
+    value: float                  <span class="c"># 汇总值，写进日志</span>
+    per_run: Mapping[str, float]  <span class="c"># instance_id -&gt; 值，给配对统计用</span>
+
+Measurement = Mapping[str, MeasureFrame]     <span class="c"># 多维度：每个 Measure 一项</span>
+
+@dataclass(frozen=<span class="k">True</span>)
+<span class="k">class</span> <span class="d">Criterion</span>:                  <span class="c"># 怎么判：两组指标 -&gt; 裁决</span>
+    describe: str                 <span class="c"># 写进日志的判定规则说明</span>
+    <span class="k">def</span> <span class="d">judge</span>(self, baseline: Measurement,
+              candidate: Measurement) -&gt; Judgment: ...
+
+@dataclass(frozen=<span class="k">True</span>)
+<span class="k">class</span> <span class="d">Judgment</span>:
+    accepted: bool
+    deltas: Mapping[str, float]   <span class="c"># 逐维度 候选 - 基线</span>
+    reason: str                   <span class="c"># 人能看懂的理由，原样进日志</span>
+
+<span class="c"># ════ 三个扩展点的函数类型 ══════════════════════════════════════════════</span>
+RewardFn   = Callable[[Run], float]          <span class="c"># float 只是单目标的便利用法；</span>
+                                             <span class="c"># 多维分数：判据按名引用 result 字段（§4）</span>
+StrategyFn = Callable[[EpisodeContext], Proposal | <span class="k">None</span>]
+Rollout    = Callable[[Bundle, EvalSlice, str], Sequence[Run]]
+</pre>
+<p><b>这些类型连起来，就是整个循环。</b>一次 <code>lab.step()</code> 的类型流向如下。代码里也收在
+<code>lab.py</code> 的 step() 一个函数里，按顺序读就是这张图；§2.2 架构图里的每条箭头，在这里都有对应签名。</p>
+<pre>
+EpisodeContext(runs, current, decisions)         <span class="c"># 观察：三个存储区的只读快照</span>
+  │                                              <span class="c">#   runs/ · pointers/ · decisions.jsonl</span>
+  └─ strategy(ctx) ──────────────▶ <span class="k">Proposal</span>      <span class="c"># 提案：edits + base + criterion</span>
+       └─ stage_bundle(base, edits) ─▶ <span class="k">Bundle</span>    <span class="c"># 候选：manifest.parent = base.hash</span>
+            └─ gate(baseline=当前 Bundle, candidate=候选 Bundle):
+                 rollout(Bundle, EvalSlice, id) ─▶ [<span class="k">Run</span>]        <span class="c"># 新旧各一组，测过的可复用</span>
+                 Measure(每个 Run) ──汇总────────▶ <span class="k">Measurement</span>   <span class="c"># {name: MeasureFrame}</span>
+                 Criterion.judge(基线, 候选) ─────▶ <span class="k">Judgment</span>      <span class="c"># accepted + 可读 reason</span>
+            └─ <span class="k">Decision</span> 追加进 decisions.jsonl                   <span class="c"># 终点：见下面的 JSON</span>
+                 accepted 且 auto_promote ───────▶ promote()      <span class="c"># 指针指向候选 Bundle</span>
+
+下一回合可以从 EpisodeContext.decisions 读到这条 Decision，循环就接上了
+</pre>
+<p><b>类型之间不直接互相挂对象，跨存储只存引用。</b><code>Manifest.parent</code> /
+<code>Proposal.base</code> / <code>Decision.candidate["bundle"]</code> 存的是内容哈希，
+<code>Decision.runs</code> 和 evidence 存的是相对 ref。这样日志不会绑死在某台机器的路径上，
+以后搬目录、换远程存储都还能用。</p>
+<p><b>一条决策日志大概长这样。</b>这是 Decision 的序列化，也就是上图的终点。汇总值写进日志；
+每个 instance 的原始值留在 runs 目录里，随时可以重算。</p>
+<pre>
+{<span class="s">"id"</span>: <span class="s">"gate-000042"</span>, <span class="s">"level"</span>: <span class="s">"task"</span>, <span class="s">"episode"</span>: <span class="s">"step-000017"</span>, <span class="s">"kind"</span>: <span class="s">"skill"</span>,
+ <span class="s">"baseline"</span>:  {<span class="s">"bundle"</span>: <span class="s">"ab12…"</span>, <span class="s">"measurements"</span>: {<span class="s">"reward"</span>: 0.34}},
+ <span class="s">"candidate"</span>: {<span class="s">"bundle"</span>: <span class="s">"cd34…"</span>, <span class="s">"parent"</span>: <span class="s">"ab12…"</span>,   <span class="c"># 谱系写进日志，做树分析不用扫 manifest</span>
+               <span class="s">"evidence"</span>: [<span class="s">"trace:…"</span>], <span class="s">"note"</span>: <span class="s">"…"</span>, <span class="s">"measurements"</span>: {<span class="s">"reward"</span>: 0.41}},
+ <span class="s">"slice"</span>: {<span class="s">"suite"</span>: <span class="s">"swebench==0.3.1"</span>, <span class="s">"instances_sha"</span>: <span class="s">"ef56…"</span>, <span class="s">"n"</span>: 20},
+ <span class="s">"deltas"</span>: {<span class="s">"reward"</span>: 0.07}, <span class="s">"decision"</span>: <span class="s">"accepted"</span>,
+ <span class="s">"reason"</span>: <span class="s">"[improve(reward, min_delta=0)] reward 0.34 -&gt; 0.41 (meets min_delta 0)"</span>,
+ <span class="s">"runs"</span>: {<span class="s">"baseline"</span>: <span class="s">"gate-000041-baseline"</span>,          <span class="c"># 复用旧测量时，直接引用旧 run</span>
+          <span class="s">"candidate"</span>: <span class="s">"gate-000042-candidate"</span>}}
+</pre>
+<p><b>查重键是 (candidate, baseline, slice) 三元组。</b>同一个候选，如果基线换了，就是一个新问题；
+被拒的候选也要能拿出来重测。<b>持久记录只写相对引用。</b>evidence 一律用 <code>run.ref</code>
+（run_id/instance_id），不写绝对路径。日志应该比任何一台机器都活得久，这条约定以后补不了。</p>
+
+<h3>2.5 哪些固定，哪些开放</h3>
+<p><b>自我改进还没有标准答案，所以只固定安全规则，策略都可以换。</b>研究别的搜索方式时，不需要改框架本体。</p>
+<table>
+<tr><th>🔒 固定规则</th><th>⊕ 开放策略（就五个问题）</th></tr>
+<tr><td>版本不可变、内容寻址；日志只追加；上线必须有 gate 证据；历史不删除；底座代码不能自改</td>
+<td>跑什么（rollout）· 怎么打分（reward；多维分数 = 判据直接引用 result 字段）·
+怎么判（criterion，可逐提案覆盖）· 怎么改（strategy / update；提案里顺带决定
+<b>从哪个版本分叉</b>、本次用什么判据、要不要删文件）· 上线要不要人确认（auto_promote）</td></tr>
+</table>
+<p><b>每个开放点都只需要最小改法。</b>要么传普通函数，要么传构造参数；没有注册表、没有子类、也没有配置文件。</p>
+<pre>
+<span class="c">── 跑什么 rollout：任何 (bundle, slice, run_id) -> [Run] 的函数 ──────────────</span>
+<span class="k">def</span> <span class="d">my_rollout</span>(bundle, slice_, run_id):
+    score = run_my_agent(prompt=bundle.read(<span class="s">"prompt.md"</span>))  <span class="c"># 怎么跑随你</span>
+    out = ws / <span class="s">"runs"</span> / run_id / <span class="s">"case-1"</span> / <span class="s">"out"</span>; out.mkdir(parents=<span class="k">True</span>)
+    (out / <span class="s">"result.json"</span>).write_text(json.dumps({<span class="s">"reward"</span>: score}))
+    <span class="k">return</span> [Run(out.parent)]
+<span class="c"># 跑容器评测套件则不用写：rollout=dataset_rollout(suite=…, backend=…, …)</span>
+
+<span class="c">── 怎么算分 reward：一个 Run 进、一个 float 出 ───────────────────────────────</span>
+lab = Lab(ws, rollout=…, reward=<span class="k">lambda</span> run: 1.0 <span class="k">if</span> run.result[<span class="s">"resolved"</span>] <span class="k">else</span> 0.0)
+<span class="c"># 同一个定义用两处：gate 怎么算分，ctx.failures 怎么判断失败</span>
+
+<span class="c">── 多维分数：判据直接按名字引用，引用即注册 ──────────────────────────────────</span>
+<span class="c"># result.json 里有 {"reward": …, "compile_ok": …} 就够了，什么都不用注册</span>
+lab = Lab(…, criterion=guarded(improve(<span class="s">"reward"</span>), [not_worse(<span class="s">"compile_ok"</span>)]))
+<span class="c"># 名字解析顺序：reward → 打分函数；cost_tokens 等内置；其余 → result.json 同名字段</span>
+
+<span class="c">── 怎么判 criterion：全局换，或单次提案自带 ──────────────────────────────────</span>
+lab = Lab(…, criterion=paired_improve(<span class="s">"reward"</span>))      <span class="c"># 全局换成配对检验</span>
+ctx.propose(…, criterion=guarded(minimize(<span class="s">"cost_tokens"</span>, min_gain=0.10),
+                                 [not_worse(<span class="s">"reward"</span>)]))  <span class="c"># 这次只优化效率</span>
+
+<span class="c">── 改什么 strategy：读失败，提一个改动 ──────────────────────────────────────</span>
+<span class="k">def</span> <span class="d">add_lesson</span>(ctx):
+    <span class="k">if not</span> ctx.failures: <span class="k">return None</span>
+    line = json.dumps({<span class="s">"lesson"</span>: <span class="s">"check pytest fixtures first"</span>})
+    <span class="k">return</span> ctx.propose(kind=<span class="s">"lesson"</span>,
+        edits={<span class="s">"lessons.jsonl"</span>: ctx.current.read(<span class="s">"lessons.jsonl"</span>) + line + <span class="s">"\n"</span>},
+        note=<span class="s">"lesson from repeated setup failures"</span>,
+        evidence=[r.ref <span class="k">for</span> r <span class="k">in</span> ctx.failures])
+
+<span class="c">── 从哪分叉 base：树形搜索只需要这一个参数 ─────────────────────────────────</span>
+<span class="k">def</span> <span class="d">branch_from_best_rejected</span>(ctx):
+    rejected = [d <span class="k">for</span> d <span class="k">in</span> ctx.decisions <span class="k">if</span> d.decision == <span class="s">"rejected"</span>]
+    pick = max(rejected, key=<span class="k">lambda</span> d: d.candidate[<span class="s">"measurements"</span>][<span class="s">"reward"</span>])
+    base = pick.candidate[<span class="s">"bundle"</span>]                    <span class="c"># 被拒候选也可以继续拿来改</span>
+    <span class="k">return</span> ctx.propose(kind=<span class="s">"prompt"</span>, base=base,
+        edits={<span class="s">"prompt.md"</span>: ctx.bundle(base).read(<span class="s">"prompt.md"</span>) + <span class="s">" …tweak"</span>},
+        note=<span class="s">"tune the most promising rejected variant"</span>)
+
+<span class="c">── 删除一个文件：用墓碑记录删除 ─────────────────────────────────────────────</span>
+ctx.propose(kind=<span class="s">"skill"</span>, edits={<span class="s">"skills/flaky/SKILL.md"</span>: <span class="k">None</span>},
+            note=<span class="s">"retire over-triggering skill"</span>)
+
+<span class="c">── 上线要不要人确认：一个构造参数 ───────────────────────────────────────────</span>
+lab = Lab(…, auto_promote=<span class="k">False</span>)           <span class="c"># 人工确认模式：</span>
+r = lab.step(s); lab.promote(r.candidate)  <span class="c">#   看过证据再上线；没有 gate 证据的哈希会被拒</span>
+</pre>
+<p><b>默认值只是最便宜的起步方案。</b>当前默认是单谱系爬山、improve("reward")、自动上线；框架并不偏向它。
+上面 base 的例子就是最小版树形搜索；不同命名空间各拿一个指针，就能做种群，框架代码不用改。
+少用的旋钮沉到了引擎室，不占用户面：自定义聚合方式直接构造 Measure，强制重测调
+<code>gate(reuse_runs=False)</code>，元回合触发策略等 imp@k 增量一起来。</p>
+
+<h2>3 · 进化 agent：不写 strategy 时由谁决定</h2>
+<p><b>它和固定流水线的区别是：改什么由 agent 当场判断。</b>同一批失败轨迹，这回合可能判断为“知识缺口”，于是写 lesson；
+如果 lesson 没过 gate，下回合可能改判为“模式问题”，转去写 SKILL.md。固定流水线则永远只会用同一种办法。</p>
+<pre>
+五个工具，权限都在工具层卡住:
+  query_runs        哪些题目反复失败、成本多少
+  read_trace        打开一条轨迹定位失败原因
+  read_decisions    之前试过什么、什么有效（hit_rate 可当先验）
+  write_candidate   起草候选，<b>只能写进暂存区</b>；base=&lt;哈希&gt; 可从任意历史版本（含被拒的）分叉
+  run_gate          触发 A/B，每回合有限额——<b>上线只能走这条路</b>
+
+回合: 观察 → 诊断 → 挑手段 → 起草 → 过 gate → 解读 → 记日志
+上线不在 agent 手里: 宿主侧代码读决策日志后切指针
+回合轨迹写进 episodes/: 提案动机和判定解读也能审计
+</pre>
+<p><b>进化 agent 自己也是一个 bundle，所以它也能被改进。</b>DGM-H 里去掉这层，收益同样会掉光。
+改“改进者”时，用 <b>imp@k</b> 来打分：给候选 k 个回合预算，再和现任比，看谁让任务 agent 提升更多。</p>
+<table>
+<tr><th></th><th>任务回合（常态）</th><th>元回合（稀少）</th></tr>
+<tr><td>改谁</td><td>任务 agent 的 bundle</td><td>进化 agent 自己的 bundle（下回合生效）</td></tr>
+<tr><td>怎么判</td><td>冻结题集上的 reward / 成本等指标</td><td>imp@k（用影子指针隔离，不污染真实谱系）</td></tr>
+<tr><td>成本</td><td>题集 ≤2 遍（基线可复用）</td><td>约 2×k 个回合</td></tr>
+<tr><td>何时触发</td><td>每回合</td><td>命中率走低 + 周期兜底；一次只上一个 meta 候选</td></tr>
+</table>
+<p><b>自指问题靠不可变性收住：</b>一个回合内配置不变，改自己只影响下个回合；再往上不做 meta-meta，底座永远不能改。</p>
+
+<h2>4 · 评测：先量，再判</h2>
+<p><b>Measure 负责量：</b>每个 run 取一个数，再按均值、求和、pass@k 等方式汇总。结果分两层：汇总值写进日志，
+每个 instance 的原始值留给配对统计。<b>Criterion 负责判：</b>比较两组指标，给出接受或拒绝，以及一句能看懂的理由。
+成本、轮数、报错率都可以成为改进目标。</p>
+<p><b>分数不只限于一个 float。</b>每个 bench 的 result.json 想写什么字段都行，<code>Run.result</code> 会原样保留；
+“标准 reward 键”只是默认的单目标用法。多维分数的接法更直接：<b>判据按名字引用字段，引用即注册</b>。</p>
+<pre>
+<span class="c"># 某代码 bench 产出 {"compile_ok": 1.0, "tests_passed_rate": 0.83, "lint": 7.2}</span>
+lab = Lab(…,
+    reward=<span class="k">lambda</span> r: r.result[<span class="s">"tests_passed_rate"</span>],   <span class="c"># 主目标维度</span>
+    criterion=guarded(improve(<span class="s">"reward"</span>), [not_worse(<span class="s">"compile_ok"</span>)]))
+<span class="c"># compile_ok 不用注册：判据引用的名字自动解析到 result.json 的同名字段</span>
+</pre>
+<p>量纲安全靠切片保证：一个切片固定一个 suite，分数只在同一个 bench 的新旧版本之间比，不跨 bench 比。
+LLM rubric 打分也走同一个形状：给单个 run 打 0–10 分的 judge，就是一个 per_run Measure。
+判据只看数字，不直接看原始轨迹，这是刻意设计的：裁决理由必须能写成日志里的一句话。</p>
+<pre>
+improve("reward")                                  <span class="c"># 默认：质量爬坡</span>
+paired_improve("reward")                           <span class="c"># 类似符号检验：逐 instance 配对数净胜场，</span>
+                                                   <span class="c">#   "+9/-2" 比 "均值高 0.05" 更抗噪</span>
+guarded(minimize("cost_tokens", min_gain=0.10),
+        guards=[not_worse("reward")])              <span class="c"># 效率回合：质量不降，token 省 10%</span>
+</pre>
+<p><b>我们故意不提供加权求和。</b>“reward 0.34→0.41 达标；守卫通过”三个月后还能看懂；
+“综合分 0.73 &gt; 0.68”很难说清到底赢在哪。非目标回归探针因此只是一个普通守卫；
+imp@k 也只是把“一个回合”当评测单元的 Measure，不需要特殊代码路径。</p>
+
+<h2>5 · 现状：已经做完什么，还缺什么</h2>
+<table>
+<tr><th>模块</th><th>职责</th><th>状态</th></tr>
+<tr><td><code>evolution/lab.py</code></td><td><b>用户入口</b>：Lab + reward + strategy；step / evolve / history / rollback / promote</td><td><span class="ok">✅ 测试覆盖</span></td></tr>
+<tr><td><code>evolution/bundle.py</code></td><td>内容寻址、暂存（含删除墓碑 / 二进制）、指针上线回滚、影子命名空间、Bundle 视图</td><td><span class="ok">✅ 测试覆盖</span></td></tr>
+<tr><td><code>evolution/gate.py</code></td><td>Measure × Criterion（含配对判据）、切片版本 pin、查重、<b>测量复用（稳定后成本减半）</b></td><td><span class="ok">✅ 测试覆盖</span></td></tr>
+<tr><td><code>evolution/decisions.py</code></td><td>决策日志：追加、过滤读、(候选, 基线, 切片) 三元组查重、hit_rate</td><td><span class="ok">✅ 测试覆盖</span></td></tr>
+<tr><td><code>evolution/catalog.py</code></td><td>Run 视图 + 只读索引 + 按 (bundle, 切片) 找已有测量</td><td><span class="ok">✅</span></td></tr>
+<tr><td><code>evolution/agent.py</code></td><td>进化 agent + 五个工具 + 回合驱动（宿主侧上线，轨迹写进 episodes/）</td><td><span class="ok">✅ 工具级测试</span></td></tr>
+<tr><td><code>evolution/rollout.py</code></td><td>dataset_rollout：bundle → 容器 env 契约 + 溯源戳</td><td><span class="mid">▲ 只通了 provider</span></td></tr>
+<tr><td><code>scripts/run_evolution_demo.py</code></td><td>确定性演示：stage → gate → promote → rollback，零模型调用</td><td><span class="ok">✅ 可跑</span></td></tr>
+</table>
+<pre>
+$ python scripts/run_evolution_demo.py
+step-000001: playbook ACCEPTED, promoted — reward 0.4 -> 0.7 (meets min_delta 0)
+step-000002: playbook rejected — reward 0.7 -> 0.7 (misses min_delta 0)
+rolled back: task -> 7848db63f1c4
+</pre>
+<p><b>三个已知缺口</b>（代码内有注释标注）：</p>
+<ol>
+<li><b>容器注入目前只打通了 provider</b>——prompt / playbook / skills 进容器，还需要在容器内 agent 装配处加一个注入口，下一步做；</li>
+<li><b>imp@k 和元回合调度还没做</b>——影子指针机制已经有了，还差调度逻辑；</li>
+<li><b>相似度查重和 bandit 调度</b>——计划放在 MVP 之后。</li>
+</ol>
+
+<h2>6 · 路线图</h2>
+<pre>
+MVP      底座 + 进化 agent（单谱系）              <span class="c">← 骨架已落地，还差容器注入 + e2e</span>
+         验收: 日志里出现≥2种改进手段 / ≥1次上线复跑可复现 / 回滚有效 / 被拒候选可检索
+  ↓
++meta    meta 候选 + imp@k（gate 不变，换一个 Measure）
++效率    相似度查重、bandit 先验、只读 dashboard
+  ↓
++训练    slime/Tinker adapter = cookbook 里的第一个"慢 update"（per-turn 导出保证
+         训练输入 = 压缩后模型真实看到的内容；溯源字段已预埋）
+  ↓
++RL      rollout() 包一层 HTTP（签名不变），接 prime-rl / verl 类训练器
++搜索    archive 上做种群 / 分支搜索（只换选择器，存储和 gate 原样复用）
+</pre>
+
+<h2>7 · 设计是怎么收敛的（5 次推倒重来）</h2>
+<table>
+<tr><th>版本</th><th>形态</th><th>为什么被推翻</th></tr>
+<tr><td>v1</td><td>九阶段路线图，四条免训练线 + 三条训练线</td><td>太贪心，像综述，不像能落地的方案</td></tr>
+<tr><td>v2</td><td>最小闭环：收集 → 从固定 prompt 里蒸馏 lesson → 注入 → 对比</td><td>本质是 ETL：永远只产 lesson，“自我改进”的味道不够</td></tr>
+<tr><td>v3</td><td>两层：进化 agent 拿主意 + 确定性底座管安全</td><td>方向定下来；读 DGM-H 后补 meta 层和 archive</td></tr>
+<tr><td>v4</td><td>bundle + 五平面 + 双时间尺度</td><td>五个平面是画给论文的，写代码用不上</td></tr>
+<tr><td>v5</td><td>库优先：三个名词、两个动作</td><td>评审反馈：① 裸 Path 不利于以后分布式；② 六个名词上手太重</td></tr>
+<tr><td>v6</td><td>v5 + Lab 用户入口（三个函数）；分布式立场写成文档</td><td>二轮讨论：① 扩展点全收裸 Path，契约只能靠记；② 搜索策略固定得太死</td></tr>
+<tr><td>v7</td><td><b>当前形态</b>：全链路强类型视图、每次调用传切片、配对判据、测量复用、任意版本可分叉、安全规则和策略分层（§2.5）</td><td>——</td></tr>
+</table>
+<p><b>关于分布式的态度</b>（回应 v5 评审①）：内容寻址 bundle + 只追加日志，本来就很容易分布式化
+（和 git 对象 / OCI 层类似，哈希就是对象存储 key）；所有 I/O 都收在三个模块函数后面，换存储后端时不用动调用方。
+真正需要协调的只有三处：指针 CAS、日志追加、run 产物位置。显式 Store 协议等第二种后端真的出现时再加。</p>
+
+<h2>8 · 外部依据：参考了哪些工作</h2>
+<table>
+<tr><th>来源</th><th>结论</th><th>落点</th></tr>
+<tr><td><b>HyperAgents / DGM-H</b>（Meta 2026）</td><td>去掉 meta 自改或 archive，收益几乎归零；用 imp@k 评估 meta agent；评测固定，父代选择要隔离</td>
+<td>meta 候选 + imp@k；历史永不删除；任意版本可分叉（机制进底座，选择策略放 playbook）</td></tr>
+<tr><td><b>ACE</b>（ICLR'26）</td><td>整篇重写 playbook 会冲掉已有积累（context collapse）</td><td>playbook 只允许逐条 delta</td></tr>
+<tr><td><b>Zombie Agents</b></td><td>恶意内容一旦混进经验库，会跨 run 自我强化</td><td>来源必填 · 只进暂存区 · 上线只能走 gate · 一键回滚</td></tr>
+<tr><td><b>Tinker</b></td><td>暴露原语，不要包一个 train()；具体方法放 cookbook</td><td>API 停在两个动作</td></tr>
+<tr><td><b>slime</b></td><td>train / rollout 用 buffer 解耦</td><td>训练就是一个慢 update 函数；checkpoint 上线也要过 gate</td></tr>
+<tr><td><b>ShinkaEvolve</b></td><td>新颖性查重 + bandit 可以省评测预算</td><td>gate 前先免费查重（已实现）；hit_rate 留给 bandit 用</td></tr>
+<tr><td><b>DSPy×MLflow / Prime Intellect</b></td><td>父子 run 谱系；评测环境可 pin</td><td>决策日志记谱系；切片带版本 pin + 题集哈希</td></tr>
+<tr><td>EvolveR / Decocted / JitRL</td><td>存蒸馏经验，带正负计数</td><td>lesson 结构 + helpful/harmful 字段</td></tr>
+<tr><td>SAGE / Skills-in-the-wild</td><td>技能描述过宽会伤无关任务</td><td>skill 候选必须加测无关切片</td></tr>
+</table>
+<p><b>竞品策略一句话：</b>不和自我改进框架（EvoAgentX、AgentEvolver）拼算法，做它们缺的可审计底座；
+prompt 优化器（GEPA）和 RL 训练器（verl / slime / Agent Lightning）都作为 update 函数接进来；
+记忆产品（Mem0 / Zep）先不碰；进化式代码优化（AlphaEvolve 系）只借机制。</p>
+
+<h2>9 · 想请大家拍板的问题</h2>
+<ol class="qs">
+<li><b>定位</b>：“可审计底座 + 优化算法靠集成”这个方向成立吗？有没有漏看的竞品或威胁？</li>
+<li><b>整体上线</b>：不单独上线一条 lesson / 一个 prompt，而是整个 bundle 一起上线。这样候选会更粗，单项归因更难，
+但能保护 context 和权重之间的适配。这个取舍能接受吗？</li>
+<li><b>权限默认值</b>：人工确认模式已经实现（<code>auto_promote=False</code> 时，accepted 候选要等显式
+<code>lab.promote()</code>；没有 gate 证据的哈希一律拒绝）。默认设成“任务候选自动上线，meta 候选人工确认”，可以吗？</li>
+<li><b>评测抽象</b>：只给“目标 + 守卫”，不做加权求和，会不会卡住真实需求？哪些守卫应该默认强制开
+（非目标探针、tool_error_rate）？</li>
+<li><b>meta 层节奏</b>：imp@k 的 k 和触发阈值从多少开始合适？我建议它排在 MVP 后第一个做，原因主要是成本：
+每次 meta gate 贵 k 倍，但机制上不需要新东西。这个顺序同意吗？</li>
+<li><b>容器注入入口</b>：prompt / playbook / skills 进容器，是做一个通用的容器内装配覆盖，还是让各个 suite 自己支持？
+这个决定会影响下一步怎么拆。</li>
+</ol>
+
+<h2>10 · 材料</h2>
+<ul>
+<li>代码：<code>src/simple_agent_lab/evolution/</code>（8 模块）· 测试：<code>tests/unit/test_evolution.py</code>（19 个）·
+演示：<code>scripts/run_evolution_demo.py</code></li>
+<li>详细材料（本页已经自包含，下面是方便继续下钻）：设计备忘录 <code>docs/design/20260610-self-evolution-mechanism.md</code>（why + 文献综述）·
+技术规范 <code>docs/design/20260610-evolution-framework-spec.md</code>（how + 完整接口约定）</li>
+<li>PR #30：分支 <code>claude/self-evolving-mechanism-jvy0q1</code></li>
+<li>外部参考：HyperAgents（github.com/facebookresearch/Hyperagents）· ACE（arXiv 2510.04618）·
+slime（github.com/THUDM/slime）· GEPA（github.com/gepa-ai/gepa）· Zombie Agents（arXiv 2602.15654）</li>
+</ul>
+
+<footer>
+评审快照 · 生成于 2026-06-11 · 后续设计变更以 docs/design/ 和决策日志为准 · Simple Agent Lab
+</footer>
+
+</div>
+</body>
+</html>
