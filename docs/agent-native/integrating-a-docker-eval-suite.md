@@ -63,9 +63,9 @@ Optional:
   `extract_result`). When `SAL_MEMORY_HOME` is set the runner injects it as
   FilesystemMemory's `artifact_builder`, so the product is captured inside
   `memory.finish` at the standard `SESSION_END` hook — while the workspace is
-  still intact, before `extract_result`. SWE-bench returns its `model_patch.diff`
-  here. Omit it to use memory's generic defaults; the generic layer stays
-  patch-agnostic.
+  still intact, before `extract_result`. A coding suite, for example, would
+  collect its final `git diff` as `model_patch.diff` here. Omit it to use
+  memory's generic defaults; the generic layer stays patch-agnostic.
 
 Reference: `src/simple_agent_lab/evals/suites/swebench/container.py`.
 

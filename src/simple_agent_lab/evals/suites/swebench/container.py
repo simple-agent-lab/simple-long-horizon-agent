@@ -17,11 +17,6 @@ SWE-bench-specific and runs *inside* the image:
   and captures its log into ``result.json``; the host turns that into a verdict
   via `evaluate_predictions.reuse_eval_row` (the official grader needs the gold
   test spec, which lives host-side).
-- `memory_artifacts(workspace, instance, *, context)` — optional: the run's
-  durable memory products (the `model_patch.diff`). The generic runner injects
-  it as FilesystemMemory's ``artifact_builder`` when persistent memory is active,
-  so the patch enters memory at the standard ``SESSION_END`` hook with no
-  patch-specific flow in the generic layer.
 - `agent_spec()` — optional: the SWE-bench prompt/role and the agent flavor
   (``bash`` | ``bash_task`` | ``bash_skills``, from the ``AGENT_FLAVOR`` env
   var). ``bash_skills`` adds the ``read`` tool and advertises any discovered
@@ -43,7 +38,6 @@ from typing import Any
 
 from simple_agent_lab.agents.bash_task import BASH_TASK_EXPLORER_ADDENDUM
 from simple_agent_lab.evals.protocols import AgentSpec
-from simple_agent_lab.memory import FilesystemArtifact
 
 from .patch import (
     git_diff,
@@ -190,57 +184,11 @@ def extract_result(
 ) -> dict[str, Any]:
     """Collect the staged `git diff` as the SWE-bench prediction patch."""
 
-    return {"model_patch": _staged_patch(workspace, instance, context)}
-
-
-def memory_artifacts(
-    workspace: Path,
-    instance: Mapping[str, Any],
-    *,
-    context: Mapping[str, Any] | None = None,
-) -> list[FilesystemArtifact]:
-    """Collect this run's durable memory products from the workspace.
-
-    The generic runner injects this as FilesystemMemory's ``artifact_builder``
-    when persistent memory is active (see ``memory_hooks_from_env``), so the
-    SWE-bench patch is recorded as a durable artifact from inside
-    ``memory.finish``. The standard ``SESSION_END`` hook fires that finish while
-    the workspace/git state is still intact (before ``extract_result``), so the
-    same staged ``git diff`` used for scoring is what enters memory — the
-    single most valuable thing to remember from a coding run — without teaching
-    the generic runner anything about patches. The shared ``(workspace,
-    instance, *, context)`` shape means this patch matches the scored product.
-    """
-
-    patch = _staged_patch(workspace, instance, context)
-    if not patch:
-        return []
-    return [
-        FilesystemArtifact(
-            name="model_patch.diff",
-            content=patch,
-            description="Final unified git diff (model_patch) produced by the run.",
-        )
-    ]
-
-
-def _staged_patch(
-    workspace: Path,
-    instance: Mapping[str, Any],
-    context: Mapping[str, Any] | None,
-) -> str:
-    """Run the staged SWE-bench diff once, shared by extract_result + memory.
-
-    Both the scored product and the memory artifact derive from the exact same
-    ``git diff`` (same language ignore-rules, same baseline commit), so the patch
-    remembered in memory is byte-for-byte the patch that gets scored.
-    """
-
     context = context or {}
     record = dict(instance)
     language = str(context.get("language") or instance_language(record))
     commit = context.get("baseline_commit") or instance_base_commit(record)
-    return git_diff(Path(workspace), language=language, commit=commit)
+    return {"model_patch": git_diff(Path(workspace), language=language, commit=commit)}
 
 
 def evaluate(
