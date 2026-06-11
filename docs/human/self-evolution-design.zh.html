@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>自进化机制 · 设计评审 · Simple Agent Lab</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1d212b; --ink: #e6e8ee;
+    --muted: #9aa3b2; --line: #2a2f3a; --accent: #6ea8fe; --accent2: #7ee2b8;
+    --warn: #f0b86e; --code: #0b0d11; --chip: #232838; --bad: #f08080;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.75 -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+          "Microsoft YaHei", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap { max-width: 1020px; margin: 0 auto; padding: 48px 24px 96px; }
+  header h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  header p.sub { color: var(--muted); margin: 0 0 28px; font-size: 16px; }
+  h2 { font-size: 21px; margin: 48px 0 14px; letter-spacing: -0.005em;
+       border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; color: var(--accent); }
+  p { margin: 0 0 14px; }
+  a { color: var(--accent); }
+  code, pre { font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; }
+  code { background: var(--chip); padding: 1px 6px; border-radius: 5px; font-size: 13.5px; }
+  pre {
+    background: var(--code); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px 18px; overflow-x: auto; font-size: 13px; line-height: 1.55; margin: 0 0 14px;
+  }
+  pre .c { color: #6b7385; } pre .k { color: var(--accent); }
+  pre .s { color: var(--accent2); } pre .d { color: var(--warn); }
+  .lede {
+    background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    border-radius: 10px; padding: 16px 18px; margin: 0 0 18px;
+  }
+  .lede b { color: #fff; }
+  .note {
+    background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--warn);
+    border-radius: 10px; padding: 12px 16px; margin: 14px 0; font-size: 14.5px;
+  }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: var(--panel2); color: var(--accent); font-weight: 600; }
+  tr:nth-child(even) td { background: var(--panel); }
+  td b { color: #fff; }
+  ul, ol { margin: 0 0 14px; padding-left: 22px; }
+  li { margin: 5px 0; }
+  .ok { color: var(--accent2); } .no { color: var(--bad); } .mid { color: var(--warn); }
+  .chip { display: inline-block; background: var(--chip); border-radius: 6px;
+          padding: 0 8px; font-size: 12.5px; color: var(--muted); margin-right: 6px; }
+  .qs li { margin: 10px 0; }
+  .qs b { color: var(--warn); }
+  footer { margin-top: 56px; color: var(--muted); font-size: 13.5px;
+           border-top: 1px solid var(--line); padding-top: 16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>自进化机制 · 设计评审</h1>
+  <p class="sub">Simple Agent Lab · 2026-06 · 分支 <code>claude/self-evolving-mechanism-jvy0q1</code>（PR #30）·
+  本页是整轮设计讨论的自包含整理，供团队评审；规范文本以
+  <code>docs/design/</code> 下两份英文文档为准。</p>
+</header>
+
+<div class="lede">
+<b>一段话讲完整个设计：</b>agent 的行为是一个目录（bundle）；进化是提出一个新目录（update）；
+证据是跑两遍比一比（gate）；历史是一本只追加的决策日志（decision log）。
+所有聪明都在进化 agent 和 update 函数里，所有保证都在确定性基座里。
+<b>当前状态：</b>设计文档两份已合入分支，骨架代码（≈1450 行，9 个测试全过）已可运行。
+</div>
+
+<h2>1 · 目标与定位</h2>
+<p>目标：在本仓库上构建一个自进化闭环——离线数据管线生产经验，在线（训练与免训练两轨）
+消费经验改进 agent。扫完市场后的定位判断：</p>
+<div class="note">
+<b>不做最强的优化器，做唯一可审计的自进化基座。</b>
+GEPA 只管 prompt、Agent Lightning 只管权重、Mem0 只管记忆——没有人提供
+“所有进化产物（lesson / skill / prompt / checkpoint）走同一条证据链、同一道晋升门”的底座。
+每个变更必须能回答：基于什么证据、对比了什么、为什么接受、怎么撤销。
+这与仓库既有 ADR（<code>treat-self-evolution-as-harness-capability</code>）的精神完全一致。
+</div>
+
+<h2>2 · 设计是如何收敛的（讨论史）</h2>
+<p>方案经历了五次关键转折，每一次都改变了架构形态——评审时了解“为什么不是更简单/更复杂的版本”：</p>
+<table>
+<tr><th>阶段</th><th>方案形态</th><th>被推翻的原因</th></tr>
+<tr><td>v1</td><td>九阶段路线图：离线管线 + 记忆/playbook/技能/提示词四条免训练轨 + SFT/DPO/RL 训练轨</td>
+<td>太大，survey 病——把领域里每个好想法都排进了计划</td></tr>
+<tr><td>v2</td><td>砍成最小闭环：收集 → 蒸馏 lesson → 注入 → 对比</td>
+<td><b>太像 ETL</b>：蒸馏 prompt 写死，永远只产 lesson，没有“agent 在决策”</td></tr>
+<tr><td>v3</td><td>双层：确定性基座（gate/日志/归档）+ 进化 agent（自主选干预手段）</td>
+<td>方向确立；读 HyperAgents（DGM-H）后补强 meta 层与 archive 优先级</td></tr>
+<tr><td>v4</td><td>统一训练轨：参考 slime 提出 bundle + 五平面 + 双时间尺度</td>
+<td>平面病——五个平面是给论文看的，不是给代码看的</td></tr>
+<tr><td>v5</td><td><b>最终形态（方案 A，库优先）：三名词两动词</b>，B（服务化）/C（种群搜索）为兼容的生长方向</td>
+<td>—— 当前方案</td></tr>
+</table>
+
+<h2>3 · 文献与竞品：我们吸收了什么</h2>
+<h3>3.1 直接进入设计的研究结论</h3>
+<table>
+<tr><th>来源</th><th>结论</th><th>落进设计的位置</th></tr>
+<tr><td><b>HyperAgents / DGM-H</b>（Meta FAIR 2026-03）</td>
+<td>① 去掉 meta 自改或去掉 archive，增益都≈0；② imp@k 度量 meta agent；③ 它自主发明的 performance tracker / persistent memory 正是我们手工设计的 catalog / decision log</td>
+<td>meta 候选 kind + imp@k 门禁；“拒绝≠删除”，archive 进 MVP 验收；基座=它刻意固定的外层</td></tr>
+<tr><td><b>ACE</b>（ICLR'26）</td><td>整体重写导致 context collapse；要逐条增量更新</td><td>playbook delta 是候选 kind，禁止整体重写</td></tr>
+<tr><td><b>Zombie Agents</b>（2026-02）</td><td>对抗内容可进入经验库并跨 run 自强化</td><td>溯源字段必填、staging/promoted 分离、gate 唯一晋升通道、一键回滚</td></tr>
+<tr><td><b>Tinker</b>（Thinking Machines）</td><td>暴露原语而非 train() 包装；方法放 cookbook</td><td>核心 API 永远只有两个动词；所有策略是 cookbook 函数</td></tr>
+<tr><td><b>slime</b>（THUDM）</td><td>train/rollout 靠 data buffer 解耦；同步/异步</td><td>训练=一个“慢 update 函数”；内环不设门禁、外环必须过门禁</td></tr>
+<tr><td><b>ShinkaEvolve</b>（Sakana）</td><td>bandit 调度 + 新颖性拒绝省评测预算</td><td>gate 前免费查重（已实现哈希级）；hit_rate 作为 bandit 先验面</td></tr>
+<tr><td><b>DSPy×MLflow / Prime Intellect</b></td><td>父子 run 谱系；环境作为可 pin 的版本化模块</td><td>decision log 父子引用结构；EvalSlice 带 suite 版本 pin + 切片哈希</td></tr>
+<tr><td>EvolveR / Decocted Experience / JitRL</td><td>存蒸馏后的 lesson 而非原始轨迹；结果计数反馈</td><td>lesson 候选 kind 的形态与 helpful/harmful 计数</td></tr>
+<tr><td>SAGE / SkillRL / Skills-in-the-wild</td><td>技能库有效但描述过触发会回退</td><td>skill 候选必须过非目标切片守卫</td></tr>
+</table>
+
+<h3>3.2 竞品地图与“集成而非竞争”策略</h3>
+<table>
+<tr><th>赛道</th><th>代表</th><th>策略</th></tr>
+<tr><td>自进化框架</td><td>EvoAgentX、AgentEvolver、DGM-H（研究代码）</td><td>差异化：可审计证据链是它们共同的空白</td></tr>
+<tr><td>Prompt 优化器</td><td>GEPA/DSPy（已进 MLflow、Google Cloud）</td><td><span class="ok">集成</span>：GEPA 是 write_candidate 上游的一个 update 函数</td></tr>
+<tr><td>Agent RL 训练</td><td>Agent Lightning、verl、SkyRL、slime</td><td><span class="ok">集成</span>：训练器=慢 update；我们只做环境/数据/门禁侧</td></tr>
+<tr><td>记忆产品</td><td>Mem0、Zep、Letta</td><td><span class="no">不碰</span>：生产级检索不是我们的仗</td></tr>
+<tr><td>进化式代码优化</td><td>AlphaEvolve、OpenEvolve、ShinkaEvolve</td><td>借机制（bandit/新颖性），对象不同（它们进化单程序）</td></tr>
+</table>
+
+<h2>4 · 核心架构：三个名词、两个动词、五条不变量</h2>
+<pre>
+名词（全是文件，无服务、无注册中心）:
+  Bundle   一个目录 = 一个版本的 agent 行为
+           （provider.json + prompt.md + playbook.md + lessons.jsonl + skills/）
+           内容哈希即版本；“当前版本”是一个指针文件
+  Run      一次 rollout 的产物目录（out/result.json + out/trajectory.jsonl，复用现有评测产物）
+  Decision log  只追加的 JSONL：每次门禁判定一条，带证据引用
+
+动词（仅有的两个接口）:
+  rollout(bundle, instances) -> runs        <span class="c"># 已有：包装 run_dataset()</span>
+  update(runs, bundle) -> candidate_bundle  <span class="c"># 唯一扩展点；实现放 cookbook</span>
+
+组合（不是组件）:
+  gate    = rollout×2 + 判定 + 记日志        promote = 改一个指针文件
+  rollback = 把指针改回去                    archive = 不删目录
+</pre>
+<p>五条永不破坏的不变量：</p>
+<ol>
+<li><b>bundle 整体晋升</b>——context 与权重共适应（为 base model 调的 playbook 在 SFT 后可能变累赘），评测/记账/回滚对象永远是 bundle 哈希；</li>
+<li><b>基座非 agent 化且不可进化</b>——gate、日志、归档、指针是普通代码，任何候选改不到（Zombie-Agents 防线）；</li>
+<li><b>永不删除</b>——被拒候选保留为踏脚石（DGM-H 消融：没有 archive 增益归零）；</li>
+<li><b>运行中的 agent 不改自己</b>——meta 晋升下一回合生效；</li>
+<li><b>核心 API 停在两个动词</b>——反思/GEPA/技能归纳/slime 训练全是 cookbook 里的 update 函数（Tinker 纪律）。</li>
+</ol>
+
+<h2>5 · 进化 agent 与双层更新（task / meta）</h2>
+<p>和固定管线的本质区别：<b>干预空间开放、假设由 agent 提</b>。同一批失败轨迹，这回合可能判断
+“是知识缺口，产 lesson”，下回合 lesson 没过 gate，改判“是模式问题，写 SKILL.md”。
+固定管线只是这个设计的退化情形（agent 永远选同一种干预）。</p>
+<pre>
+进化 agent（普通 Agent，五个工具，权限在工具层强制）:
+  query_runs        哪些 instance 在反复失败、成本如何（catalog）
+  read_trace        span 树定位失败模式
+  read_decisions    过去试过什么、什么有效（hit_rate = bandit 先验）
+  write_candidate   <b>只能写 staging</b>；kind=meta 时改自己的 bundle
+  run_gate          触发 A/B；<b>唯一的晋升通道</b>（每回合限额）
+
+回合: 观察 → 诊断 → 选干预手段 → 起草 → gate → 解读 → 记日志
+晋升: host 侧驱动器读 decision log 后移指针 —— agent 拿不到 promote
+</pre>
+<table>
+<tr><th></th><th>任务回合（稳态）</th><th>元回合（稀少）</th></tr>
+<tr><td>修改对象</td><td>B_task</td><td>B_meta（进化 agent 下一个化身）</td></tr>
+<tr><td>门禁判据</td><td>冻结切片上的 reward/cost 等量度</td><td><b>imp@k</b>：k 回合预算内产出的 task agent 提升量</td></tr>
+<tr><td>成本</td><td>2×切片</td><td>≈2×k×回合成本；影子指针命名空间隔离，评测期间的“晋升”不污染真实谱系</td></tr>
+<tr><td>触发</td><td>每回合</td><td>命中率衰减 + 周期兜底；一次只晋升一个 meta 候选</td></tr>
+</table>
+<p>自指由不可变性闭合：agent 回合开始装载某哈希的 bundle，回合内不变；改自己只影响下个化身；
+不需要 meta-meta——再往上的 gate/日志/选择逻辑是基座，故意永远不可改（DGM-H 划的同一条线）。</p>
+
+<h2>6 · 评测抽象：Measure × Criterion</h2>
+<p>评测不绑死在任务分上——成本、轮数、工具报错率都是合法进化目标：</p>
+<pre>
+Measure   量什么: runs -> 命名标量     <span class="c"># reward / cost_tokens / latency / turns / tool_error_rate</span>
+Criterion 怎么判: 两组量度 -> Judgment（accepted + 逐维 delta + <b>人话 reason</b>）
+
+improve("reward")                                  <span class="c"># MVP 默认：质量爬坡</span>
+guarded(minimize("cost_tokens", min_gain=0.10),
+        guards=[not_worse("reward")])              <span class="c"># 效率回合：质量不降省 10% token</span>
+</pre>
+<p><b>刻意不提供加权求和</b>：约束式判定的每条日志都带可读理由
+（“reward 0.34→0.41 达标；tool_error_rate 守卫通过”），加权分数解释不了“为什么”。
+非目标回归探针由此降级为一个普通守卫；imp@k 也只是一个以回合为评测单元的 Measure。</p>
+
+<h2>7 · 已落地的骨架（commit <code>ec1a4fa</code>）</h2>
+<table>
+<tr><th>模块</th><th>职责</th><th>状态</th></tr>
+<tr><td><code>evolution/bundle.py</code></td><td>内容寻址（哈希排除 manifest）、staging、指针晋升/回滚、shadow namespace</td><td><span class="ok">✅ 测试覆盖</span></td></tr>
+<tr><td><code>evolution/decisions.py</code></td><td>decision log：追加/过滤读/查重/hit_rate</td><td><span class="ok">✅ 测试覆盖</span></td></tr>
+<tr><td><code>evolution/gate.py</code></td><td>Measure×Criterion、EvalSlice 版本 pin、新颖性拒绝、Rollout 依赖注入</td><td><span class="ok">✅ 测试覆盖</span></td></tr>
+<tr><td><code>evolution/catalog.py</code></td><td>run 目录只读索引</td><td><span class="ok">✅</span></td></tr>
+<tr><td><code>evolution/rollout.py</code></td><td>dataset_rollout：bundle 的 provider → 容器 env 契约 + 溯源戳</td><td><span class="mid">▲ 仅 provider 通了</span></td></tr>
+<tr><td><code>evolution/agent.py</code></td><td>进化 agent + 五工具 + run_episode（host 侧晋升）</td><td><span class="ok">✅ 工具级测试</span></td></tr>
+<tr><td><code>scripts/run_evolution_demo.py</code></td><td>确定性演示：stage→gate→promote→rollback，零模型调用</td><td><span class="ok">✅ 可跑</span></td></tr>
+</table>
+<pre>
+$ python scripts/run_evolution_demo.py
+initial bundle promoted: 7848db63f1c4
+candidate staged:        adb6a68ceedc
+gate gate-000001: accepted=True
+  reward 0.4 -> 0.7 (meets min_delta 0)
+promoted: task -> adb6a68ceedc
+rollback: task -> 7848db63f1c4
+</pre>
+<p><b>已知缺口</b>（代码内有注释标注）：① 容器内注入只通了 provider，prompt/playbook/skills
+进容器需要 spec §2.4 的 agent_spec 接缝（下一增量）；② imp@k/元回合调度未实现（shadow
+namespace 机制已就位）；③ 相似度级新颖性查重与 bandit 调度按规范留待 MVP 后；④ 进化 agent
+自身回合 trace 尚未落盘到 episodes/。</p>
+
+<h2>8 · 路线图</h2>
+<pre>
+MVP      基座三件套 + 进化 agent（单谱系）        <span class="c">← 骨架已落地，差容器注入 + e2e</span>
+         验收: 日志出现≥2种干预手段 / ≥1次晋升可复现 / 回滚有效 / 拒绝候选可检索
+  ↓
++meta    meta 候选 + imp@k（同一 gate，换 Measure）
++效率    相似度新颖性拒绝、bandit 先验、只读 dashboard（wandb 仅作可选写穿导出）
+  ↓
++训练    slime/Tinker adapter = cookbook 里第一个“慢 update”（SFT 数据用 per-turn 导出，
+         保证训练输入 = 压缩后模型真实所见；预埋字段已就位）
+  ↓
++RL      rollout() 包成 HTTP（签名不变）接 prime-rl/verl 类训练器
++搜索    archive 上的种群/分支搜索（换选择器，存储与 gate 复用）
+</pre>
+
+<h2>9 · 请 reviewer 重点表态的问题</h2>
+<ol class="qs">
+<li><b>定位</b>：“可审计的自进化基座、集成而非竞争”这个定位是否成立？有没有我们漏掉的竞品空白或威胁？</li>
+<li><b>bundle 整体晋升不变量</b>：是否接受“永远不单独晋升一个 lesson/prompt”的代价（候选粒度变粗）换取共适应安全？</li>
+<li><b>权限边界</b>：晋升放在 host 侧驱动器（agent 无 promote 工具）是否足够，还是需要人工 review 档位（accepted → 待人确认 → promoted）？</li>
+<li><b>评测抽象</b>：拒绝加权求和、只用“目标+守卫”是否会限制真实需求？默认守卫集（非目标探针、tool_error_rate）哪些应强制？</li>
+<li><b>meta 层节奏</b>：imp@k 的 k 和元回合触发阈值如何起步？是否同意“MVP 后第一个扩展”的排期而不是进 MVP？</li>
+<li><b>容器注入接缝</b>：prompt/playbook/skills 进容器，倾向扩展通用 in-container AgentSpec 覆盖，还是每个 suite 自行支持？（影响下一增量的形状）</li>
+<li><b>骨架代码</b>：模块切分、Rollout 依赖注入、decision log schema 有无异议——这三处定型后改动成本最高。</li>
+</ol>
+
+<h2>10 · 相关材料</h2>
+<ul>
+<li>设计备忘录（why + 文献 + 备选方案）：<code>docs/design/20260610-self-evolution-mechanism.md</code></li>
+<li>技术规范（how，方案 A）：<code>docs/design/20260610-evolution-framework-spec.md</code></li>
+<li>骨架代码：<code>src/simple_agent_lab/evolution/</code> · 测试：<code>tests/unit/test_evolution.py</code> · 演示：<code>scripts/run_evolution_demo.py</code></li>
+<li>PR #30：分支 <code>claude/self-evolving-mechanism-jvy0q1</code>（文档与代码的全部提交历史）</li>
+<li>关键外部参考：HyperAgents（github.com/facebookresearch/Hyperagents）、ACE（arXiv 2510.04618）、
+AgentEvolver（arXiv 2511.10395）、slime（github.com/THUDM/slime）、GEPA（github.com/gepa-ai/gepa）、
+Zombie Agents（arXiv 2602.15654）</li>
+</ul>
+
+<footer>
+本页为评审快照，后续设计变更以 <code>docs/design/</code> 与 decision log 为准。
+生成于 2026-06-11 · Simple Agent Lab
+</footer>
+
+</div>
+</body>
+</html>

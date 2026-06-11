@@ -15,6 +15,13 @@ walkthrough than as a terse decision record or an API reference, it belongs here
   `uv` binary) to `LocalDockerBackend` as read-only bind mounts, and let the
   bootstrap install with `--no-index`. Covers the shared-filesystem assumption
   and the common bind-mount/ABI pitfalls. Open it in a browser.
+- `self-evolution-design.zh.html` — the design-review snapshot for the
+  evolution framework (Chinese): how the design converged, the literature and
+  competitor landscape it absorbed, the three-nouns/two-verbs architecture,
+  the task/meta update mechanics, the implemented skeleton, the roadmap, and
+  the concrete questions reviewers should weigh in on. The living design lives
+  in `docs/design/`; this page is the team-review companion. Open it in a
+  browser.
 
-Both human docs have a Chinese version alongside (`*.zh.html`) with a language
-switcher in the header.
+The two guides have a Chinese version alongside (`*.zh.html`) with a language
+switcher in the header; the design-review page is currently Chinese-only.
