@@ -1,16 +1,29 @@
-"""Evolution framework (library-first skeleton).
+"""Evolution framework.
 
-Three nouns, two verbs: a *bundle* (immutable directory = one version of
-agent behavior), a *run* (one rollout's artifacts), and the *decision log*
-(append-only gate verdicts). ``rollout`` produces runs from a bundle;
-``update`` functions (cookbook code, not framework code) propose candidate
-bundles; the ``gate`` compares and logs; promotion moves a pointer.
+User surface (verl/slime-style — plain functions, the framework owns the
+machinery; see ``lab.py`` for the quickstart):
 
-Design: docs/design/20260610-evolution-framework-spec.md. The containerized
-rollout adapter lives in ``simple_agent_lab.evolution.rollout`` and is
-imported explicitly (it pulls in the evals framework).
+    Lab          one experiment: workspace + how to run + how to score
+    reward fn    (run_dir) -> float                 # optional, verl-style
+    strategy fn  (EpisodeContext) -> Proposal|None  # optional; omit and use
+                                                    # lab.evolve() for the
+                                                    # agent-driven mode
+
+Engine room (imported explicitly when you work on the framework itself):
+content-addressed bundles, the gate (measures x criteria), the append-only
+decision log, the run catalog, and the containerized rollout adapter in
+``simple_agent_lab.evolution.rollout``. Design:
+docs/design/20260610-evolution-framework-spec.md.
 """
 
+from simple_agent_lab.evolution.lab import (
+    EpisodeContext,
+    Lab,
+    Proposal,
+    RewardFn,
+    StepReport,
+    StrategyFn,
+)
 from simple_agent_lab.evolution.bundle import (
     Manifest,
     bundle_hash,
@@ -44,15 +57,16 @@ from simple_agent_lab.evolution.gate import (
     minimize,
     not_worse,
 )
-from simple_agent_lab.evolution.agent import (
-    EpisodeReport,
-    EvolutionConfig,
-    make_evolution_agent,
-    make_evolution_tools,
-    run_episode,
-)
 
 __all__ = [
+    # --- user surface ---
+    "Lab",
+    "EpisodeContext",
+    "Proposal",
+    "StepReport",
+    "RewardFn",
+    "StrategyFn",
+    # --- engine room ---
     "Manifest",
     "bundle_hash",
     "load_provider",
@@ -81,9 +95,4 @@ __all__ = [
     "improve",
     "minimize",
     "not_worse",
-    "EpisodeReport",
-    "EvolutionConfig",
-    "make_evolution_agent",
-    "make_evolution_tools",
-    "run_episode",
 ]

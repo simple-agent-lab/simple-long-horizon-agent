@@ -9,7 +9,7 @@ import pytest
 
 from simple_agent_lab.evolution import (
     EvalSlice,
-    EvolutionConfig,
+    Lab,
     Manifest,
     bundle_hash,
     build_catalog,
@@ -25,7 +25,7 @@ from simple_agent_lab.evolution import (
     resolve,
     stage_bundle,
 )
-from simple_agent_lab.evolution.agent import make_evolution_tools
+from simple_agent_lab.evolution.agent import EvolutionConfig, make_evolution_tools
 from simple_agent_lab.tools import tool_result_text
 
 
@@ -199,6 +199,64 @@ def test_catalog_indexes_runs_with_bundle_stamp(tmp_path):
     rows = build_catalog(runs)
     assert len(rows) == 1
     assert rows[0].bundle == "abc123" and rows[0].reward == 0.0
+
+
+# --------------------------------------------------------------------------- #
+# Lab: the user surface (strategy + reward as plain functions)
+# --------------------------------------------------------------------------- #
+def test_lab_step_with_custom_strategy_and_reward(tmp_path):
+    def rollout(bundle_dir, run_id):
+        # Score lives in a custom file; the reward fn below reads it.
+        strength = "strong" in (bundle_dir / "prompt.md").read_text()
+        instance = tmp_path / "runs" / run_id / "i1"
+        (instance / "out").mkdir(parents=True)
+        (instance / "out" / "result.json").write_text(
+            json.dumps({"resolved": strength})
+        )
+        return [instance]
+
+    def my_reward(run_dir):  # verl-style: one run dir in, one float out
+        return (
+            1.0
+            if json.loads((run_dir / "out" / "result.json").read_text())["resolved"]
+            else 0.0
+        )
+
+    def my_strategy(ctx):
+        assert ctx.failures  # the observe rollout of the weak baseline
+        return ctx.propose(
+            kind="prompt",
+            edits={"prompt.md": ctx.current("prompt.md") + " strong"},
+            note="strengthen prompt",
+            evidence=[ctx.failures[0].path],
+        )
+
+    lab = Lab(tmp_path, rollout=rollout, reward=my_reward, seed={"prompt.md": "weak"})
+    report = lab.step(my_strategy)
+    assert report.accepted and report.promoted_to
+    assert "strong" in (resolve(tmp_path, "task") / "prompt.md").read_text()
+    assert "ACCEPTED" in report.text and "accepted" in lab.history()
+
+    # A strategy may also decline to propose.
+    assert not lab.step(lambda ctx: None).proposed
+
+
+def test_lab_rollback_returns_to_parent(tmp_path):
+    def rollout(bundle_dir, run_id):
+        instance = tmp_path / "runs" / run_id / "i1"
+        (instance / "out").mkdir(parents=True)
+        reward = 1.0 if "v2" in (bundle_dir / "prompt.md").read_text() else 0.0
+        (instance / "out" / "result.json").write_text(json.dumps({"reward": reward}))
+        return [instance]
+
+    lab = Lab(tmp_path, rollout=rollout, seed={"prompt.md": "v1"})
+    lab.step(
+        lambda ctx: ctx.propose(kind="prompt", edits={"prompt.md": "v2"}, note="v2")
+    )
+    assert "v2" in (resolve(tmp_path, "task") / "prompt.md").read_text()
+    assert "rolled back" in lab.rollback()
+    assert "v1" in (resolve(tmp_path, "task") / "prompt.md").read_text()
+    assert "already at the initial version" in lab.rollback()
 
 
 # --------------------------------------------------------------------------- #

@@ -138,7 +138,27 @@ GEPA 只管 prompt、Agent Lightning 只管权重、Mem0 只管记忆——没�
 <tr><td>进化式代码优化</td><td>AlphaEvolve、OpenEvolve、ShinkaEvolve</td><td>借机制（bandit/新颖性），对象不同（它们进化单程序）</td></tr>
 </table>
 
-<h2>4 · 核心架构：三个名词、两个动词、五条不变量</h2>
+<h2>4 · 核心架构：用户面三个函数，机房六个构件</h2>
+
+<p>对标 verl / slime 的集成模型（verl 接自定义 reward = 写一个 <code>compute_score()</code> 函数；
+slime 接自定义 rollout = <code>--rollout-function-path</code> 指一个函数）：<b>研究员只面对三个概念，
+全部是普通函数</b>；bundle / gate / decision log / catalog 这些名词是机房，不出现在用户代码里。</p>
+<pre>
+<span class="c"># 研究员需要学的全部（已实现，scripts/run_evolution_demo.py 可跑）：</span>
+lab = Lab(workspace, rollout=...)            <span class="c"># ① 跑什么（容器 suite 或任意函数）</span>
+
+<span class="k">def</span> <span class="d">my_reward</span>(run_dir) -> float: ...        <span class="c"># ② 怎么打分（可省略=读 result.json，verl 式）</span>
+
+<span class="k">def</span> <span class="d">my_strategy</span>(ctx): ...                   <span class="c"># ③ 怎么改（可省略=进化 agent 自主决策）</span>
+    <span class="k">return</span> ctx.propose(kind=<span class="s">"lesson"</span>, edits={...}, note=..., evidence=[...])
+
+lab.step(my_strategy)   <span class="c"># 跑→对比→自动晋升/拒绝，返回人话结论</span>
+lab.evolve(provider)    <span class="c"># 不写策略：进化 agent 自己诊断、选手段</span>
+lab.history()           <span class="c"># 实验史    lab.rollback()  # 回滚</span>
+</pre>
+<p>版本管理、证据门禁、审计日志、回滚——全部由框架在 <code>step()</code> 内部强制执行，
+策略函数<b>只能提案，无法绕过对比直接生效</b>。下图是机房视角（维护者/审计者看的），
+五条不变量在这一层成立：</p>
 
 <figure>
 <svg viewBox="0 0 1000 830" xmlns="http://www.w3.org/2000/svg" role="img"
@@ -378,16 +398,19 @@ guarded(minimize("cost_tokens", min_gain=0.10),
 <tr><td><code>evolution/catalog.py</code></td><td>run 目录只读索引</td><td><span class="ok">✅</span></td></tr>
 <tr><td><code>evolution/rollout.py</code></td><td>dataset_rollout：bundle 的 provider → 容器 env 契约 + 溯源戳</td><td><span class="mid">▲ 仅 provider 通了</span></td></tr>
 <tr><td><code>evolution/agent.py</code></td><td>进化 agent + 五工具 + run_episode（host 侧晋升）</td><td><span class="ok">✅ 工具级测试</span></td></tr>
+<tr><td><code>evolution/lab.py</code></td><td><b>用户面门面</b>：Lab / reward 函数 / strategy 函数（verl 式集成），step/evolve/history/rollback</td><td><span class="ok">✅ 测试覆盖</span></td></tr>
 <tr><td><code>scripts/run_evolution_demo.py</code></td><td>确定性演示：stage→gate→promote→rollback，零模型调用</td><td><span class="ok">✅ 可跑</span></td></tr>
 </table>
 <pre>
-$ python scripts/run_evolution_demo.py
-initial bundle promoted: 7848db63f1c4
-candidate staged:        adb6a68ceedc
-gate gate-000001: accepted=True
-  reward 0.4 -> 0.7 (meets min_delta 0)
-promoted: task -> adb6a68ceedc
-rollback: task -> 7848db63f1c4
+$ python scripts/run_evolution_demo.py        <span class="c"># 研究员视角，零模型调用</span>
+step-000001: playbook ACCEPTED, promoted — reward 0.4 -> 0.7 (meets min_delta 0)
+step-000002: playbook rejected — reward 0.7 -> 0.7 (misses min_delta 0)
+
+experiment log:
+gate-000001 [playbook] accepted: [improve(reward, min_delta=0)] reward 0.4 -> 0.7 …
+gate-000002 [playbook] rejected: [improve(reward, min_delta=0)] reward 0.7 -> 0.7 …
+
+rolled back: task -> 7848db63f1c4
 </pre>
 <p><b>已知缺口</b>（代码内有注释标注）：① 容器内注入只通了 provider，prompt/playbook/skills
 进容器需要 spec §2.4 的 agent_spec 接缝（下一增量）；② imp@k/元回合调度未实现（shadow

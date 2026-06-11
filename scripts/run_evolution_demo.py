@@ -1,9 +1,9 @@
-"""Walk the evolution substrate end to end, deterministically (no model calls).
+"""The evolution framework from a researcher's seat, deterministically.
 
-Demonstrates the loop from docs/design/20260610-evolution-framework-spec.md
-with a stub rollout whose reward depends on the bundle's playbook content:
-stage an initial bundle, propose a candidate, gate it, promote on acceptance,
-then show the decision log and a rollback.
+Everything a user touches is in this file: a rollout (here a stub standing
+in for a real eval suite), an optional reward function, and a strategy
+function. Versioning, comparison, the experiment log, and rollback are the
+framework's job. Design: docs/design/20260610-evolution-framework-spec.md.
 
 Usage:
     PYTHONPATH=src python scripts/run_evolution_demo.py [--workspace DIR]
@@ -16,21 +16,13 @@ import json
 import tempfile
 from pathlib import Path
 
-from simple_agent_lab.evolution import (
-    EvalSlice,
-    Manifest,
-    bundle_hash,
-    gate,
-    promote,
-    read_decisions,
-    resolve,
-    stage_bundle,
-)
+from simple_agent_lab.evolution import EpisodeContext, Lab, Proposal
 
 
 def stub_rollout(runs_root: Path):
-    """Reward 0.4, +0.3 when the playbook mentions checking pytest fixtures —
-    a stand-in for a real eval suite so the walkthrough stays deterministic."""
+    """Stand-in for a real eval suite: reward 0.4, +0.3 when the playbook
+    mentions checking pytest fixtures. Swap for evolution.rollout.dataset_rollout
+    to run real containerized suites."""
 
     def rollout(bundle_dir: Path, run_id: str) -> list[Path]:
         playbook = bundle_dir / "playbook.md"
@@ -44,6 +36,23 @@ def stub_rollout(runs_root: Path):
     return rollout
 
 
+def my_strategy(ctx: EpisodeContext) -> Proposal | None:
+    """A 10-line strategy: when runs underperform, add one playbook bullet."""
+
+    weak = [r for r in ctx.runs if r.reward is not None and r.reward < 0.5]
+    if not weak:
+        return None
+    return ctx.propose(
+        kind="playbook",
+        edits={
+            "playbook.md": ctx.current("playbook.md")
+            + "- When tests fail on setup, check pytest fixtures first.\n"
+        },
+        note="playbook bullet: check pytest fixtures before editing tests",
+        evidence=[r.path for r in weak],
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace", type=Path, default=None)
@@ -51,59 +60,19 @@ def main() -> None:
     workspace = args.workspace or Path(tempfile.mkdtemp(prefix="evolution-demo-"))
     print(f"workspace: {workspace}\n")
 
-    # 1. An initial task bundle becomes "current" by promotion.
-    initial = stage_bundle(
+    lab = Lab(
         workspace,
-        manifest=Manifest(level="task", producer="demo", note="initial"),
-        edits={"prompt.md": "You are a careful software agent."},
-    )
-    promote(workspace, "task", initial)
-    print(f"initial bundle promoted: {bundle_hash(initial)}")
-
-    # 2. A candidate = file edits on top of the current bundle (what the
-    #    evolution agent's write_candidate tool does).
-    candidate = stage_bundle(
-        workspace,
-        base=resolve(workspace, "task"),
-        manifest=Manifest(
-            level="task",
-            parent=bundle_hash(initial),
-            producer="demo",
-            evidence=["trace:demo-failure-7"],
-            note="playbook bullet: check pytest fixtures before editing tests",
-        ),
-        edits={
-            "playbook.md": "- When tests fail on setup, check pytest fixtures first.\n"
-        },
-    )
-    print(f"candidate staged:        {bundle_hash(candidate)}")
-
-    # 3. The gate: rollout both on the frozen slice, judge, log the decision.
-    result = gate(
-        workspace,
-        baseline=resolve(workspace, "task"),
-        candidate=candidate,
-        slice_=EvalSlice(suite="demo", instances=({"instance_id": "demo-1"},)),
         rollout=stub_rollout(workspace / "runs"),
-        kind="playbook",
-        episode="ep-000001",
+        seed={"prompt.md": "You are a careful software agent."},
     )
-    print(f"\ngate {result.decision_id}: accepted={result.judgment.accepted}")
-    print(f"  {result.judgment.reason}")
 
-    # 4. Promotion is separate from judgment, and rollback is a pointer move.
-    if result.judgment.accepted:
-        promote(workspace, "task", candidate)
-        print(f"promoted: task -> {bundle_hash(candidate)}")
-    promote(workspace, "task", initial)
-    print(f"rollback: task -> {bundle_hash(resolve(workspace, 'task'))}")
+    print(lab.step(my_strategy).text)  # observe -> propose -> compare -> promote
+    print(lab.step(my_strategy).text)  # nothing left to fix: no proposal
 
-    print("\ndecision log:")
-    for decision in read_decisions(workspace):
-        print(
-            f"  {decision.id} [{decision.level}/{decision.kind}] "
-            f"{decision.decision}: {decision.reason}"
-        )
+    print("\nexperiment log:")
+    print(lab.history())
+
+    print(f"\n{lab.rollback()}")  # pointers move; nothing is deleted
 
 
 if __name__ == "__main__":
