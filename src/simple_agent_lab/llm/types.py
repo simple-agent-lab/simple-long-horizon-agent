@@ -40,7 +40,7 @@ from ..messages import (
 )
 
 if TYPE_CHECKING:
-    from .provider import Provider
+    from .provider import Provider, ReasoningEffort
 
 
 StopReason = Literal["end_turn", "tool_use", "max_tokens", "error"]
@@ -135,6 +135,9 @@ class LLMRequest:
     system_prompt: str | None = None
     temperature: float | None = None  # None → use provider.default_temperature
     max_tokens: int | None = None
+    # Provider-agnostic reasoning depth; adapters translate it to each
+    # endpoint's wire shape. None → fall back to provider.default_reasoning.
+    reasoning: ReasoningEffort | None = None
     timeout_seconds: float | None = 60.0
     extra: dict[str, Any] = field(
         default_factory=dict

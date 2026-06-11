@@ -1,4 +1,4 @@
-"""Unit-smoke for the generic eval framework (ADR 0017).
+"""Unit-smoke for the generic eval framework (ADR generic-containerized-eval-framework).
 
 No Docker. Covers the two seams — `ContainerBackend` (`FakeBackend` for
 orchestration, `LocalProcessBackend` for a real in-process agent run) and
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -32,12 +33,21 @@ from simple_agent_lab.evals import (
     Suite,
     run_suite_instance,
 )
+from simple_agent_lab.evals.protocols import MCP_KEY
 
 # Internal helpers live in their own modules, not the top-level facade.
 from simple_agent_lab.evals.runner import build_command, container_name
 from simple_agent_lab.evals.stores import HttpArtifactClient
 
 SWEBENCH_CONTAINER = "simple_agent_lab.evals.suites.swebench.container"
+try:
+    import mcp  # noqa: F401
+
+    HAS_MCP = True
+except ImportError:  # pragma: no cover - exercised only without the extra
+    HAS_MCP = False
+
+_MCP_SKIP_REASON = "mcp extra not installed (install with: uv sync --extra mcp)"
 
 
 class _DemoSuite:
@@ -100,6 +110,44 @@ class OrchestrationTest(unittest.TestCase):
             result = json.loads((artifacts.run_dir / RESULT_KEY).read_text())
             self.assertEqual(result["answer"], "42")
 
+    def test_run_suite_instance_stages_mcp_config_separately(self) -> None:
+        instance = {"instance_id": "demo-1", "problem": "p", "gold": "SECRET"}
+        mcp_config = {
+            "servers": [
+                {
+                    "name": "workspace",
+                    "transport": "stdio",
+                    "command": "python",
+                    "args": ["-m", "server"],
+                    "cwd": "/testbed",
+                }
+            ]
+        }
+
+        def on_run(spec: RunSpec, store) -> None:
+            agent_input = json.loads(store.get(INSTANCE_KEY).decode("utf-8"))
+            staged_mcp = json.loads(store.get(MCP_KEY).decode("utf-8"))
+            self.assertNotIn("servers", agent_input)
+            self.assertEqual(staged_mcp, mcp_config)
+            store.put(TRACE_KEY, b'{"meta": {"suite": "demo"}}\n')
+            store.put(RESULT_KEY, b'{"answer": "ok"}\n')
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            artifacts = run_suite_instance(
+                suite=_DemoSuite(),
+                instance=instance,
+                backend=FakeBackend(on_run=on_run),
+                store=LocalDirStore(root),
+                run_root=root,
+                run_id="run-x",
+                provider="fake",
+                mcp_config=mcp_config,
+            )
+
+            staged = json.loads((artifacts.run_dir / MCP_KEY).read_text())
+            self.assertEqual(staged, mcp_config)
+
     def test_build_command_targets_the_generic_runner(self) -> None:
         spec = RunSpec(
             suite_name="s",
@@ -116,6 +164,23 @@ class OrchestrationTest(unittest.TestCase):
         self.assertEqual(cmd[:2], ("bash", "-lc"))
         self.assertIn("simple_agent_lab.evals.in_container", cmd[-1])
         self.assertIn("--find-links /wh", cmd[-1])
+
+    def test_build_command_installs_mcp_extra_when_requested(self) -> None:
+        spec = RunSpec(
+            suite_name="s",
+            container_module="m",
+            instance_id="i",
+            launch_spec=LaunchSpec(image="img", workdir="/w"),
+            max_turns=5,
+            provider="fake",
+            api_kind="openai-chat",
+            wheelhouse_mount="/wh",
+            run_name="n",
+            package_extras=("mcp",),
+        )
+        cmd = build_command(spec)
+
+        self.assertIn("simple-agent-lab[mcp]", cmd[-1])
 
 
 class HostHttpStoreTest(unittest.TestCase):
@@ -206,6 +271,61 @@ class LocalProcessBackendTest(unittest.TestCase):
             trace = json.loads(bound.get(TRACE_KEY).decode("utf-8"))
             self.assertEqual(trace["meta"]["suite"], "swebench")
             self.assertFalse(trace["meta"]["in_progress"])
+
+    @unittest.skipUnless(HAS_MCP, _MCP_SKIP_REASON)
+    def test_run_suite_instance_in_process_with_mcp_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "testbed"
+            repo.mkdir()
+
+            def git(*args: str) -> None:
+                subprocess.run(
+                    ["git", *args], cwd=repo, check=True, capture_output=True
+                )
+
+            git("init")
+            git("config", "user.email", "t@example.invalid")
+            git("config", "user.name", "T")
+            git("config", "commit.gpgsign", "false")
+            (repo / "app.py").write_text("x = 1\n", encoding="utf-8")
+            git("add", "-A")
+            git("commit", "-m", "base")
+
+            root = Path(tmp) / "runs"
+            store = LocalDirStore(root)
+            artifacts = run_suite_instance(
+                suite=_SwebenchLikeSuite(),
+                instance={
+                    "instance_id": "demo__repo-mcp",
+                    "problem_statement": "Inspect the workspace.",
+                    "language": "python",
+                },
+                backend=LocalProcessBackend(workspace=repo),
+                store=store,
+                run_root=root,
+                run_id="mcp",
+                provider="fake",
+                max_turns=1,
+                mcp_config={
+                    "servers": [
+                        {
+                            "name": "workspace",
+                            "transport": "stdio",
+                            "command": sys.executable,
+                            "args": [
+                                "-m",
+                                "simple_agent_lab.mcp.workspace_server",
+                            ],
+                            "cwd": str(repo),
+                        }
+                    ]
+                },
+            )
+
+            self.assertEqual(artifacts.status_code, 0, artifacts.logs)
+            trace = json.loads(store.bind(artifacts.run_dir).get(TRACE_KEY))
+            tools = trace["model_turns"][0]["tools"]
+            self.assertIn("workspace_list_files", {tool["name"] for tool in tools})
 
     def test_oracle_run_reproduces_gold_patch(self) -> None:
         """Oracle mode applies the gold patch (no model) and extract reproduces it.
@@ -343,7 +463,7 @@ class LocalProcessBackendTest(unittest.TestCase):
 class InEnvScoringTest(unittest.TestCase):
     """In-environment scoring: the container-half `evaluate` hook writes the
     verdict into result.json during the run, gated on staged `eval_inputs`
-    (ADR 0020). No separate scoring driver."""
+    (ADR collapse-scorer-seam-into-run-primitive). No separate scoring driver."""
 
     @staticmethod
     def _reuse_module() -> str:
@@ -659,7 +779,7 @@ class SubmitReconcileTest(unittest.TestCase):
     def test_reconcile_completes_off_result_without_instance_record(self) -> None:
         """Reconcile keys completion on result.json — decoupled from the instance.
 
-        The run/score split (ADR 0019) means reconcile no longer needs the
+        The run/score split (ADR scorer-seam-and-scoring-topology) means reconcile no longer needs the
         instance record; a missing input/instance.json does not fail a run whose
         result.json landed. The instance re-enters only at the score phase.
         """
@@ -1177,6 +1297,77 @@ class CreateKwargsTest(unittest.TestCase):
             kwargs["entrypoint"], ""
         )  # "" included (clears image ENTRYPOINT)
         self.assertNotIn("platform", kwargs)  # omitted when unset
+
+
+class RequestExtraFromEnvTest(unittest.TestCase):
+    """request_extra now carries only session headers; reasoning moved to the
+    provider so adapters map it per-model (no API-kind branching here)."""
+
+    def test_no_headers_yields_empty(self) -> None:
+        from simple_agent_lab.evals.in_container import request_extra_from_env
+
+        self.assertEqual(request_extra_from_env(env={}), {})
+
+    def test_session_headers_only(self) -> None:
+        from simple_agent_lab.evals.in_container import request_extra_from_env
+
+        extra = request_extra_from_env(
+            env={"OPENAI_SESSION_ID": "s", "OPENAI_LOG_ID": "l"}
+        )
+        self.assertEqual(
+            extra,
+            {"extra_headers": {"extra": '{"session_id":"s"}', "X-TT-logid": "l"}},
+        )
+
+    def test_reasoning_no_longer_in_request_extra(self) -> None:
+        from simple_agent_lab.evals.in_container import request_extra_from_env
+
+        # Effort is now a provider field, not a request_extra key.
+        self.assertEqual(request_extra_from_env(env={"REASONING_EFFORT": "high"}), {})
+
+
+class ProviderReasoningFromEnvTest(unittest.TestCase):
+    """OPENAI provider picks up a normalized, validated reasoning effort that is
+    independent of the API kind — the adapter maps it to the wire shape."""
+
+    _BASE = {"OPENAI_MODEL": "gpt-x", "OPENAI_AUTH_TOKEN": "tok"}
+
+    def _provider(self, **extra: str):
+        from simple_agent_lab.evals.in_container import provider_from_env
+
+        return provider_from_env(kind="openai", env={**self._BASE, **extra})
+
+    def test_default_reasoning_from_neutral_env(self) -> None:
+        self.assertEqual(
+            self._provider(REASONING_EFFORT="high").default_reasoning, "high"
+        )
+
+    def test_legacy_openai_env_still_honored(self) -> None:
+        self.assertEqual(
+            self._provider(OPENAI_REASONING_EFFORT="low").default_reasoning, "low"
+        )
+
+    def test_neutral_env_wins_over_legacy(self) -> None:
+        prov = self._provider(REASONING_EFFORT="high", OPENAI_REASONING_EFFORT="low")
+        self.assertEqual(prov.default_reasoning, "high")
+
+    def test_unset_is_none(self) -> None:
+        self.assertIsNone(self._provider().default_reasoning)
+
+    def test_invalid_effort_raises(self) -> None:
+        with self.assertRaises(SystemExit):
+            self._provider(REASONING_EFFORT="ultra")
+
+    def test_effort_is_api_kind_independent(self) -> None:
+        from simple_agent_lab.evals.in_container import provider_from_env
+
+        for api_kind in ("openai-chat", "openai-responses"):
+            prov = provider_from_env(
+                kind="openai",
+                api_kind=api_kind,
+                env={**self._BASE, "REASONING_EFFORT": "medium"},
+            )
+            self.assertEqual(prov.default_reasoning, "medium")
 
 
 if __name__ == "__main__":

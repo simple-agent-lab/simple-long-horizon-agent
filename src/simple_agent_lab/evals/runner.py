@@ -14,7 +14,7 @@ the instance and writes the result/trajectory through the one bound store.
 
 `build_command` is the in-container CLI contract (bootstrap + `python -m
 simple_agent_lab.evals.in_container`); only container backends use it. The
-run-directory convention (ADR 0016) is preserved: one
+run-directory convention (ADR eval-output-directory-convention) is preserved: one
 ``<run_root>/<run_id>/<instance_id>/`` tree with ``input/instance.json`` and
 ``out/{trajectory,prediction}.jsonl``.
 """
@@ -44,7 +44,7 @@ GENERIC_RUNNER_MODULE = "simple_agent_lab.evals.in_container"
 
 @dataclass(frozen=True)
 class RunPaths:
-    """The standard per-instance directory tree (ADR 0016)."""
+    """The standard per-instance directory tree (ADR eval-output-directory-convention)."""
 
     root: Path
     input_dir: Path
@@ -71,7 +71,7 @@ def _safe_part(value: str) -> str:
 
 
 def prepare_run_directory(*, run_root: Path, run_id: str, instance_id: str) -> RunPaths:
-    """Create the input/out dirs for one instance (ADR 0016 layout)."""
+    """Create the input/out dirs for one instance (ADR eval-output-directory-convention layout)."""
 
     root = run_root.resolve() / _safe_part(run_id) / _safe_part(instance_id)
     input_dir = root / "input"
@@ -131,6 +131,7 @@ def build_command(spec: RunSpec) -> tuple[str, ...]:
         runner_argv=runner_argv,
         install=spec.install,
         wheelhouse_mount=spec.wheelhouse_mount,
+        package_extras=spec.package_extras,
     )
     return tuple(spec.launch_spec.shell) + (script,)
 
@@ -148,8 +149,10 @@ def run_suite_instance(
     max_turns: int = 75,
     provider_env: Mapping[str, str] | None = None,
     install: bool = True,
+    package_extras: tuple[str, ...] = (),
     wheelhouse_mount: str | None = None,
     name: str | None = None,
+    mcp_config: Mapping[str, Any] | None = None,
 ) -> RunArtifacts:
     """Run one instance and return where its artifacts landed.
 
@@ -179,6 +182,7 @@ def run_suite_instance(
         (json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8"),
     )
     _stage_eval_inputs(suite, instance, bound)
+    _stage_mcp_config(mcp_config, bound)
     binding = bound.container_binding()
 
     spec = RunSpec(
@@ -191,6 +195,7 @@ def run_suite_instance(
         api_kind=api_kind,
         provider_env=dict(provider_env or {}),
         install=install,
+        package_extras=package_extras,
         wheelhouse_mount=wheelhouse_mount,
         run_name=name or container_name(suite.name, instance_id, run_id),
     )
@@ -226,4 +231,21 @@ def _stage_eval_inputs(
     bound.put(
         EVAL_KEY,
         (json.dumps(dict(payload), ensure_ascii=False) + "\n").encode("utf-8"),
+    )
+
+
+def _stage_mcp_config(
+    mcp_config: Mapping[str, Any] | None, bound: ArtifactStore
+) -> None:
+    """Stage optional MCP server config under MCP_KEY, separate from task input."""
+
+    if not mcp_config:
+        return
+    from .protocols import MCP_KEY
+
+    bound.put(
+        MCP_KEY,
+        (
+            json.dumps(dict(mcp_config), ensure_ascii=False, sort_keys=True) + "\n"
+        ).encode("utf-8"),
     )

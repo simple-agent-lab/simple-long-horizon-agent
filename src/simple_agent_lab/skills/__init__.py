@@ -6,7 +6,7 @@ deterministic things: discover skills into metadata (path, not body), render
 a ``<skills_instructions>`` menu, and inject a named skill's body on a
 ``/mention``. The model loads a skill by *reading* its ``SKILL.md`` (the
 ``read`` tool) and runs its scripts via ``bash`` — there is no skill-execution
-engine. See ``docs/decisions/0021-add-agent-skills.md``.
+engine. See ``docs/decisions/20260602-add-agent-skills.md``.
 """
 
 from .discovery import (
@@ -25,7 +25,7 @@ from .prompt import (
     skills_menu_message,
     system_prompt_with_skills,
 )
-from .runtime import run_with_skills, skill_body_messages
+from .runtime import init_state_with_skills, run_with_skills, skill_body_messages
 
 __all__ = [
     "BUNDLED_LIBRARY_DIR",
@@ -42,5 +42,6 @@ __all__ = [
     "skills_menu_message",
     "system_prompt_with_skills",
     "run_with_skills",
+    "init_state_with_skills",
     "skill_body_messages",
 ]

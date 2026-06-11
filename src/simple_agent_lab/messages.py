@@ -258,7 +258,17 @@ class UserMessage:
 
 
 @dataclass(frozen=True)
-class SystemMessage:
+class RuntimeMessage:
+    """A message the runtime/harness injects into the transcript.
+
+    The third actor alongside user and assistant: context the runtime adds —
+    sub-agent preludes, skill menus, summaries, hook emissions — not the
+    model's persona. `role` stays `"system"`: that is only how it rides the
+    wire (providers offer no separate "runtime" slot); the type name reflects
+    *who* produced it. Distinct from `Agent.system_prompt`, the fixed
+    per-request preamble that never enters the transcript.
+    """
+
     role: Literal["system"] = field(default="system", init=False)
     content: MessageContent = ()
     sender: AgentName = "system"
@@ -290,7 +300,7 @@ class AssistantMessage:
         return tool_calls_of(self.content)
 
 
-Message: TypeAlias = UserMessage | SystemMessage | AssistantMessage
+Message: TypeAlias = UserMessage | RuntimeMessage | AssistantMessage
 
 
 def user_message(
@@ -304,15 +314,15 @@ def user_message(
     return _build_message(UserMessage, content, sender, target, kind, sidecar)
 
 
-def system_message(
+def runtime_message(
     content: ContentInput = "",
     *,
     sender: AgentName = "system",
     target: AgentName = "all",
     kind: MessageKind = "system",
     sidecar: MessageSidecar | None = None,
-) -> SystemMessage:
-    return _build_message(SystemMessage, content, sender, target, kind, sidecar)
+) -> RuntimeMessage:
+    return _build_message(RuntimeMessage, content, sender, target, kind, sidecar)
 
 
 def assistant_message(
@@ -337,7 +347,7 @@ def assistant_message(
     )
 
 
-_MessageT = TypeVar("_MessageT", UserMessage, SystemMessage, AssistantMessage)
+_MessageT = TypeVar("_MessageT", UserMessage, RuntimeMessage, AssistantMessage)
 
 
 def _build_message(
@@ -587,7 +597,7 @@ def make_message(
             sidecar=sidecar,
         )
     if role == "system":
-        return system_message(
+        return runtime_message(
             content,
             sender=sender or "system",
             target=target or "all",

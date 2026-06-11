@@ -5,7 +5,7 @@
   across a remote daemon with no third-party middleware.
 
 An object-store store (S3/GCS) for fully decoupled runs is a future addition —
-just another `ArtifactStore` (ADR 0017); none ships today.
+just another `ArtifactStore` (ADR generic-containerized-eval-framework); none ships today.
 
 `container_store_from_env` reconstructs the container-side store from the env
 the host's `ContainerBinding` set.

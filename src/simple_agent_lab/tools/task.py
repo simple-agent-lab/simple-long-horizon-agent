@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
-from simple_agent_lab.messages import Message, message_text, system_message, text_of
+from simple_agent_lab.messages import Message, message_text, runtime_message, text_of
 
 from . import AbortFlag, AgentTool, ToolResult, ToolUpdateFn, text_result
 
@@ -155,7 +155,7 @@ def _context_messages(
     messages: list[Message] = []
     if default_context and default_context.strip():
         messages.append(
-            system_message(
+            runtime_message(
                 default_context.strip(),
                 sender=tool_name,
                 target=target,
@@ -164,7 +164,7 @@ def _context_messages(
         )
     if call_context:
         messages.append(
-            system_message(
+            runtime_message(
                 call_context,
                 sender=tool_name,
                 target=target,

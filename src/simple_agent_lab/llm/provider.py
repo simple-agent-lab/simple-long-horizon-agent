@@ -28,6 +28,23 @@ ApiKind = Literal[
 ]
 
 
+# Provider-agnostic reasoning depth. A caller says how hard to think *once*;
+# each adapter translates this single knob to the field its endpoint expects
+# (OpenAI Chat top-level ``reasoning_effort``, OpenAI Responses nested
+# ``reasoning={"effort": ...}``, Anthropic ``thinking``/``output_config`` for
+# 4.6+ or ``thinking={"budget_tokens": N}`` for older models). The
+# model-specific quirks live in the adapters, never in callers. For raw control
+# the per-request ``LLMRequest.extra`` passthrough still wins over this.
+ReasoningEffort = Literal["minimal", "low", "medium", "high", "xhigh"]
+REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+)
+
+
 @dataclass(frozen=True)
 class Provider:
     """Pure-data provider config. JSON-serializable; no callables."""
@@ -39,6 +56,10 @@ class Provider:
     api_key_env: str = ""  # env var name; "" = no key needed (fake / local)
     default_temperature: float = 1.0
     default_max_tokens: int | None = None
+    # Reasoning depth applied when a request doesn't set its own
+    # `LLMRequest.reasoning`. Configure once on the provider and every agent
+    # run built on it inherits the effort; adapters map it to the wire shape.
+    default_reasoning: ReasoningEffort | None = None
     context_window: int | None = None  # advisory only; not enforced
     # When True, adapters that hold the model's prior reasoning replay it
     # on the next request so multi-turn tool-use stays continuous. Flip off

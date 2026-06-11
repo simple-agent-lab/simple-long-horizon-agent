@@ -33,7 +33,7 @@ if str(ROOT) not in sys.path:
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from simple_agent_lab.trajectory import json_safe, read_jsonl, write_jsonl  # noqa: E402
+from simple_agent_lab.trace import json_safe, read_jsonl, write_jsonl  # noqa: E402
 
 
 DEFAULT_DATASET = "princeton-nlp/SWE-bench_Verified"
@@ -140,6 +140,19 @@ def run_official_harness(args: argparse.Namespace) -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
     report_dir = official_report_dir(args)
     report_dir.mkdir(parents=True, exist_ok=True)
+    # The official harness reads the predictions file as one JSON object per
+    # line, but our predictions are written pretty-printed (write_jsonl, indent=2
+    # — readable in the trace viewer). Re-emit a compact one-per-line copy for
+    # the subprocess so it doesn't choke on multi-line records. ``gold`` is a
+    # sentinel the harness resolves itself, so pass it through untouched.
+    if str(args.predictions) == "gold":
+        predictions_arg = "gold"
+    else:
+        compact_predictions = run_dir / "predictions_compact.jsonl"
+        with compact_predictions.open("w", encoding="utf-8") as fh:
+            for record in load_predictions(args.predictions):
+                fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+        predictions_arg = str(compact_predictions)
     command = [
         sys.executable,
         "-m",
@@ -149,7 +162,7 @@ def run_official_harness(args: argparse.Namespace) -> None:
         "--split",
         args.split,
         "--predictions_path",
-        prediction_path_for_harness(args.predictions),
+        predictions_arg,
         "--max_workers",
         str(args.max_workers),
         "--run_id",
@@ -451,7 +464,7 @@ def parity_mismatches(
 ) -> list[dict[str, Any]]:
     """Compare official "separate" rows to "reuse" rows; list resolved disagreements.
 
-    The hard parity requirement (ADR 0019): the in-environment "reuse" verdict
+    The hard parity requirement (ADR scorer-seam-and-scoring-topology): the in-environment "reuse" verdict
     must match the official harness. Empty list == parity holds for this sample.
     Keyed on ``metrics.instance_id`` (falls back to ``trace_id``).
     """
@@ -491,7 +504,7 @@ def eval_rows_from_official(
     The pure normalize step shared by the official CLI path (`--run-official`)
     and the in-environment "reuse" path (`reuse_eval_row`). Routing both through
     this one mapping is what makes their rows byte-identical and the reuse
-    verdict trustable against the official harness (parity gate; ADR 0020).
+    verdict trustable against the official harness (parity gate; ADR collapse-scorer-seam-into-run-primitive).
     """
 
     results = eval_results_for_predictions(
@@ -564,7 +577,7 @@ def reuse_eval_row(
     host-side — so this small helper does the last step here. It routes through
     the *same* `eval_result_from_official` mapping as ``--run-official``, so the
     rows are interchangeable and the parity gate (`parity_mismatches`) can
-    cross-check the reuse verdict against the official harness (ADR 0020).
+    cross-check the reuse verdict against the official harness (ADR collapse-scorer-seam-into-run-primitive).
     """
 
     from evals.swebench import harness
@@ -719,6 +732,31 @@ def _instance_id_for_run_dir(run_dir: Path) -> str:
     return run_dir.name
 
 
+def run_scoped_eval_results_path(predictions: str) -> str:
+    """Default eval-result output, bound to the run that produced the predictions.
+
+    Lands at ``<predictions_dir>/<run_id>/eval_results.jsonl`` — inside the run
+    directory, beside the per-instance trajectories — so each judge is tied to
+    one run rather than accumulating in a suite-level file keyed only by
+    instance_id (which collides across runs of the same instance). The run_id is
+    the predictions stem with the ``.fixed`` / ``_predictions`` suffixes
+    stripped, inverting how the collect-predictions step names the file
+    (``<run_id>_predictions.jsonl``). The trace viewer derives the same run_id
+    from this path and joins verdicts to trajectories by (run_id, instance_id).
+    """
+    p = Path(predictions)
+    stem = p.name
+    for ext in (".jsonl", ".json"):
+        if stem.endswith(ext):
+            stem = stem[: -len(ext)]
+            break
+    if stem.endswith(".fixed"):
+        stem = stem[: -len(".fixed")]
+    if stem.endswith("_predictions"):
+        stem = stem[: -len("_predictions")]
+    return str(p.parent / stem / "eval_results.jsonl")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -811,7 +849,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--verify-parity",
         action="store_true",
         help=(
-            "Parity gate (ADR 0019): cross-check the official 'separate' rows "
+            "Parity gate (ADR scorer-seam-and-scoring-topology): cross-check the official 'separate' rows "
             "against a 'reuse' eval-result JSONL (--reuse-results) and exit "
             "non-zero on any resolved disagreement."
         ),
@@ -848,23 +886,23 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         raise SystemExit("Pass at most one of --pro or --multilingual.")
     if args.pro:
         args.predictions = args.predictions or str(DEFAULT_PRO_PREDICTIONS)
-        args.jsonl = args.jsonl or str(DEFAULT_PRO_EVAL_RESULTS)
         args.official_output_dir = args.official_output_dir or str(
             DEFAULT_PRO_OFFICIAL_OUTPUT_DIR
         )
     elif args.multilingual:
         args.dataset_name = DEFAULT_MULTILINGUAL_DATASET
         args.predictions = args.predictions or str(DEFAULT_MULTILINGUAL_PREDICTIONS)
-        args.jsonl = args.jsonl or str(DEFAULT_MULTILINGUAL_EVAL_RESULTS)
         args.official_output_dir = args.official_output_dir or str(
             DEFAULT_MULTILINGUAL_OFFICIAL_OUTPUT_DIR
         )
     else:
         args.predictions = args.predictions or str(DEFAULT_PREDICTIONS)
-        args.jsonl = args.jsonl or str(DEFAULT_EVAL_RESULTS)
         args.official_output_dir = args.official_output_dir or str(
             DEFAULT_OFFICIAL_OUTPUT_DIR
         )
+    # Default eval-result output is bound to the run that produced the
+    # predictions (see run_scoped_eval_results_path); --jsonl still overrides.
+    args.jsonl = args.jsonl or run_scoped_eval_results_path(args.predictions)
     return args
 
 

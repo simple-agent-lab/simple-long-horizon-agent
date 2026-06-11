@@ -2,12 +2,12 @@
 
 ``run_with_skills`` is the skills analogue of ``Agent.run``: it builds the
 ``State``, records the menu and any ``/mention`` skill bodies *before* the
-task (so they are present at the first sample), seeds the task, and drives the
-existing ``core.run`` loop. Recording up front — rather than mutating context
-mid-flight — keeps every message the model sees visible in ``state.events``,
-exactly like ``task_tool`` records its context messages. The core loop is
-untouched: loading a skill (the ``read`` tool) and running its scripts (the
-``bash`` tool) are ordinary tool calls.
+task (so they are present at the first sample), records the task, and drives
+the existing ``core.run`` loop. Recording up front — rather than mutating
+context mid-flight — keeps every message the model sees visible in
+``state.events``, exactly like ``task_tool`` records its context messages. The
+core loop is untouched: loading a skill (the ``read`` tool) and running its
+scripts (the ``bash`` tool) are ordinary tool calls.
 """
 
 from __future__ import annotations
@@ -79,7 +79,7 @@ def _skill_file_manifest(base_dir: str) -> str:
     return "\n".join(entries)
 
 
-def run_with_skills(
+def init_state_with_skills(
     agent: Agent,
     task: str,
     *,
@@ -87,24 +87,21 @@ def run_with_skills(
     roots: Sequence[SkillRoot] | None = None,
     preload: Sequence[str] = (),
     cwd: str = ".",
-    max_turns: int = 10,
-    abort: AbortFlag = lambda: False,
-) -> tuple[State, Iterator[Event]]:
-    """Run ``agent`` on ``task`` with skills advertised and injected.
+) -> State:
+    """Build the initial ``State`` for a skills-aware run.
 
-    Skills are on by default. ``skills`` (pre-discovered) takes precedence over
-    ``roots``; if neither is given, discovery uses ``default_skill_roots(cwd)``.
-    Pass a filtered ``skills=`` list (and/or ``preload`` of names) to scope
-    skills per agent — there are no per-agent directories. ``preload`` names
-    have their full bodies injected up front (like Claude Code's subagent
-    ``skills:`` field), in addition to any ``/mention`` in the task. A
-    ``/no-skills`` directive disables the whole layer for this run. ``agent`` is
-    expected to already carry a ``read`` tool (to load skill content) and a
-    ``bash`` tool (to run skill scripts).
+    The skills analogue of ``Agent``'s default state initializer: discover
+    skills, parse the task's ``/mention`` / ``/no-skills`` directives, then
+    record the skills menu and any mentioned/preloaded skill bodies *before*
+    the task message so they are present at the first sample. Returns the
+    initialized ``State``; the caller drives ``core.run``.
 
-    Returns ``(state, events)`` like ``Agent.run``: ``events`` is a lazy
-    generator the caller iterates to advance the loop, and ``state`` is
-    populated as it runs.
+    This is exactly the shape of :data:`~simple_agent_lab.core.StateInitFn`, so
+    it can be installed as an ``Agent.init_state`` (bind the keyword config with
+    a small closure) to make a *bare* agent skills-aware: ``agent.run(task)`` then
+    advertises the menu without a separate run path. ``skills`` (pre-discovered)
+    takes precedence over ``roots``; if neither is given, discovery uses
+    ``default_skill_roots(cwd)``.
     """
 
     discovered: Sequence[SkillMetadata]
@@ -128,5 +125,45 @@ def run_with_skills(
             state.record(message)
 
     state.send("task", "user", agent.name, directives.cleaned_task)
+    return state
+
+
+def run_with_skills(
+    agent: Agent,
+    task: str,
+    *,
+    skills: Sequence[SkillMetadata] | None = None,
+    roots: Sequence[SkillRoot] | None = None,
+    preload: Sequence[str] = (),
+    cwd: str = ".",
+    max_turns: int = 10,
+    abort: AbortFlag = lambda: False,
+) -> tuple[State, Iterator[Event]]:
+    """Run ``agent`` on ``task`` with skills advertised and injected.
+
+    A thin wrapper over :func:`init_state_with_skills` + ``core.run`` for
+    callers that drive a skills run in one call (the interactive demo, the
+    gateway). Building a *bare, reusable* skills agent instead? Install
+    :func:`init_state_with_skills` as the agent's ``init_state`` (see
+    ``agents.make_skill_agent``) and just call ``agent.run``.
+
+    Skills are on by default. ``skills`` (pre-discovered) takes precedence over
+    ``roots``; if neither is given, discovery uses ``default_skill_roots(cwd)``.
+    Pass a filtered ``skills=`` list (and/or ``preload`` of names) to scope
+    skills per agent — there are no per-agent directories. ``preload`` names
+    have their full bodies injected up front (like Claude Code's subagent
+    ``skills:`` field), in addition to any ``/mention`` in the task. A
+    ``/no-skills`` directive disables the whole layer for this run. ``agent`` is
+    expected to already carry a ``read`` tool (to load skill content) and a
+    ``bash`` tool (to run skill scripts).
+
+    Returns ``(state, events)`` like ``Agent.run``: ``events`` is a lazy
+    generator the caller iterates to advance the loop, and ``state`` is
+    populated as it runs.
+    """
+
+    state = init_state_with_skills(
+        agent, task, skills=skills, roots=roots, preload=preload, cwd=cwd
+    )
     events = run(agent, state, max_turns=max_turns, abort=abort)
     return state, events

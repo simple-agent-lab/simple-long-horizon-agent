@@ -27,11 +27,23 @@ Pass-through request options via `LLMRequest.extra`:
     extra["top_p"]         : float
     extra["top_k"]         : int
     extra["stop_sequences"]: list[str]
+    extra["thinking"]      : dict          (raw reasoning override; see note)
+    extra["output_config"] : dict          (raw adaptive-thinking override)
+
+Prefer the typed ``LLMRequest.reasoning`` / ``Provider.default_reasoning`` knob:
+the adapter maps it to the shape each model takes — older models want
+``thinking={"type": "enabled", "budget_tokens": N}`` (effort -> budget via
+``_EFFORT_BUDGET_TOKENS``), while 4.6+ models reject that with a 400 and instead
+take ``thinking={"type": "adaptive"}`` + ``output_config={"effort": ...}``
+(picked by ``_is_adaptive_thinking_model``). Reasoning has no single wire shape,
+so ``extra["thinking"]``/``extra["output_config"]`` stay as escape hatches that
+are passed through verbatim and take precedence over the normalized knob.
 """
 
 from __future__ import annotations
 
 import os
+import re
 from typing import Any, Iterator
 
 from ...messages import (
@@ -57,6 +69,45 @@ from ..types import (
 
 
 DEFAULT_MAX_TOKENS = 4096
+
+# Anthropic rejects a thinking budget below this floor.
+ANTHROPIC_MIN_THINKING_BUDGET = 1024
+# Effort -> thinking budget for models that take ``budget_tokens`` (pre-4.6).
+# Values mirror LiteLLM's defaults; each is clamped up to the floor above.
+_EFFORT_BUDGET_TOKENS: dict[str, int] = {
+    "minimal": 1024,
+    "low": 1024,
+    "medium": 2048,
+    "high": 4096,
+    "xhigh": 8192,
+}
+# Model ids carry the version as ``...-<major>-<minor>`` (e.g. claude-opus-4-7)
+# or ``claude-3-7-sonnet``; the first number pair is the family version.
+_MODEL_VERSION_RE = re.compile(r"(\d+)-(\d+)")
+
+
+def _is_adaptive_thinking_model(model: str) -> bool:
+    """Claude 4.6+ takes ``thinking={"type": "adaptive"}`` + ``output_config``.
+
+    Older models take ``thinking={"type": "enabled", "budget_tokens": N}`` and
+    reject adaptive with a 400. Version is read off the model id; an
+    unparseable id is treated as old (the conservative, widely-accepted shape).
+    """
+    match = _MODEL_VERSION_RE.search(model)
+    if not match:
+        return False
+    return (int(match.group(1)), int(match.group(2))) >= (4, 6)
+
+
+def _reasoning_kwargs(effort: str, model: str) -> dict[str, Any]:
+    """Translate a normalized effort to the wire shape this model expects."""
+    if _is_adaptive_thinking_model(model):
+        return {
+            "thinking": {"type": "adaptive"},
+            "output_config": {"effort": effort},
+        }
+    budget = max(ANTHROPIC_MIN_THINKING_BUDGET, _EFFORT_BUDGET_TOKENS[effort])
+    return {"thinking": {"type": "enabled", "budget_tokens": budget}}
 
 
 def stream(req: LLMRequest) -> Iterator[StreamEvent]:
@@ -96,6 +147,11 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         kwargs["temperature"] = temperature
     if req.timeout_seconds:
         kwargs["timeout"] = req.timeout_seconds
+    # Translate the normalized reasoning knob to the shape this model takes.
+    # A raw extra["thinking"]/extra["output_config"] (below) wins over it.
+    effort = req.reasoning or req.provider.default_reasoning
+    if effort:
+        kwargs.update(_reasoning_kwargs(effort, req.provider.model))
     for key in (
         "extra_headers",
         "extra_body",
@@ -103,6 +159,8 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         "top_p",
         "top_k",
         "stop_sequences",
+        "thinking",
+        "output_config",
     ):
         if key in req.extra:
             kwargs[key] = req.extra[key]

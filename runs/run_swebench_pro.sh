@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the agent on SWE-bench Pro through the Suite framework (ADR 0017).
+# Run the agent on SWE-bench Pro through the Suite framework (ADR generic-containerized-eval-framework).
 #
 # Usage:
 #   bash runs/run_swebench_pro.sh                                            # default instance
@@ -171,6 +171,7 @@ run_container() {
     --dotenv .env \
     --max-turns "$MAX_TURNS" \
     --run-id "$RUN_ID" \
+    --agent-flavor "${AGENT_FLAVOR:-bash}" \
     --run-root "$CONTAINER_RUN_ROOT" \
     --wheelhouse "$WHEELHOUSE" \
     --uv-binary "$SWEBENCH_UV_BIN" \

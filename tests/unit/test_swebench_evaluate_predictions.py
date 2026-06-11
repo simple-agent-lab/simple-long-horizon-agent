@@ -42,11 +42,14 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
                 / "evals/out/swebench_pro/swebench_pro_predictions.jsonl"
             ),
         )
+        # Eval results are now bound to the run that produced the predictions:
+        # <predictions_dir>/<run_id>/eval_results.jsonl (run_id = predictions
+        # stem minus the _predictions suffix).
         self.assertEqual(
             args.jsonl,
             str(
                 evaluate_predictions.ROOT
-                / "evals/out/swebench_pro/swebench_pro_eval_results.jsonl"
+                / "evals/out/swebench_pro/swebench_pro/eval_results.jsonl"
             ),
         )
         self.assertEqual(
@@ -68,7 +71,7 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
             args.jsonl,
             str(
                 evaluate_predictions.ROOT
-                / "evals/out/swebench_multilingual/swebench_multilingual_eval_results.jsonl"
+                / "evals/out/swebench_multilingual/swebench_multilingual/eval_results.jsonl"
             ),
         )
         self.assertEqual(
@@ -76,6 +79,33 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
             str(evaluate_predictions.DEFAULT_MULTILINGUAL_OFFICIAL_OUTPUT_DIR),
         )
         self.assertEqual(args.dataset_name, "SWE-bench/SWE-bench_Multilingual")
+
+    def test_eval_results_default_binds_to_run_dir_of_predictions(self) -> None:
+        # A run-specific predictions file (<run_id>_predictions.jsonl) puts the
+        # verdicts inside that run's directory, beside its trajectories.
+        args = evaluate_predictions.parse_args(
+            [
+                "--multilingual",
+                "--predictions",
+                "evals/out/swebench_multilingual/multilingual-3-20260609-164525_predictions.jsonl",
+            ]
+        )
+        self.assertEqual(
+            args.jsonl,
+            "evals/out/swebench_multilingual/multilingual-3-20260609-164525/eval_results.jsonl",
+        )
+
+    def test_eval_results_default_strips_fixed_suffix(self) -> None:
+        args = evaluate_predictions.parse_args(
+            [
+                "--predictions",
+                "evals/out/swebench/my-run_predictions.fixed.jsonl",
+            ]
+        )
+        self.assertEqual(
+            args.jsonl,
+            "evals/out/swebench/my-run/eval_results.jsonl",
+        )
 
     def test_official_paths_default_under_run_specific_output_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -420,7 +450,7 @@ def _separate_row(instance_id: str, *, resolved: bool) -> dict[str, object]:
 
 
 class ReuseEvalRowTest(unittest.TestCase):
-    """In-environment ("reuse") scoring helper, no Docker (ADR 0020).
+    """In-environment ("reuse") scoring helper, no Docker (ADR collapse-scorer-seam-into-run-primitive).
 
     `reuse_eval_row` grades what the container-half ``evaluate`` hook merged into
     ``result.json``. The no-Docker branches (an explicit verdict, a missing
@@ -462,7 +492,7 @@ class ReuseEvalRowTest(unittest.TestCase):
 
 
 class ParityGateTest(unittest.TestCase):
-    """The parity gate (hard requirement, ADR 0020): reuse must match official."""
+    """The parity gate (hard requirement, ADR collapse-scorer-seam-into-run-primitive): reuse must match official."""
 
     def test_parity_holds_when_reuse_matches_official(self) -> None:
         separate = [

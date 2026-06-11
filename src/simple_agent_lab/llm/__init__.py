@@ -21,7 +21,7 @@ To add a new provider, write an adapter function and register it::
     register_adapter("my-api", stream)
 """
 
-from .provider import ApiKind, Provider
+from .provider import REASONING_EFFORTS, ApiKind, Provider, ReasoningEffort
 from .bridge import (
     llm_response_to_assistant_message,
     message_to_llm_message,
@@ -60,6 +60,8 @@ from . import adapters as _adapters  # noqa: F401
 
 __all__ = [
     "ApiKind",
+    "REASONING_EFFORTS",
+    "ReasoningEffort",
     "ContentBlock",
     "LLMMessage",
     "LLMRequest",

@@ -1,4 +1,4 @@
-"""Generic containerized eval framework (ADR 0017).
+"""Generic containerized eval framework (ADR generic-containerized-eval-framework).
 
 Add a benchmark suite by implementing a small `Suite` (host half: launch shape
 + the agent-visible task input) and a container module
@@ -32,6 +32,7 @@ from .batch import reconcile_dataset, submit_dataset
 from .protocols import (
     EVAL_KEY,
     INSTANCE_KEY,
+    MCP_KEY,
     RESULT_KEY,
     TRACE_KEY,
     AgentSpec,
@@ -60,6 +61,7 @@ from .stores import HostHttpStore, LocalDirStore
 __all__ = [
     "EVAL_KEY",
     "INSTANCE_KEY",
+    "MCP_KEY",
     "RESULT_KEY",
     "TRACE_KEY",
     "AgentSpec",

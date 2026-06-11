@@ -49,7 +49,7 @@ needed as a routing hint.
   "updated on", "as of <date>", "inspected on <date>", or similar lines. They
   go stale on the next edit and cause avoidable merge conflicts.
 - Express freshness through content that can be checked against the repo
-  (paths, commands, exports, ADR numbers, commit refs), not a hand-maintained
+  (paths, commands, exports, ADR slugs, commit refs), not a hand-maintained
   date.
 - Exception: a date that records an immutable historical event may stay — ADR
   acceptance or withdrawal metadata, a dated owner decision, or a changelog

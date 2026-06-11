@@ -30,6 +30,7 @@ __all__ = [
     "text_result",
     "tool_result_text",
     "make_read_tool",
+    "make_edit_tool",
 ]
 
 
@@ -126,3 +127,4 @@ def tool_result_text(result: ToolResult) -> str:
 # Re-export after the common tool shapes are defined; `task` imports them.
 from .task import task_tool  # noqa: E402
 from .read import make_read_tool  # noqa: E402
+from .edit import make_edit_tool  # noqa: E402

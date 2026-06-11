@@ -29,6 +29,7 @@ import random
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -53,7 +54,7 @@ from simple_agent_lab.protocols import (  # noqa: E402
     TurnStartEvent,
 )
 from simple_agent_lab.state import State  # noqa: E402
-from simple_agent_lab.trajectory import (  # noqa: E402
+from simple_agent_lab.trace import (  # noqa: E402
     LiveTraceSession,
     TraceMeta,
     default_stderr_flush_error,
@@ -77,7 +78,7 @@ TEXT_SAMPLES = [
     "Verifying the fix passes the failing test.",
 ]
 TOOL_RESULT_SAMPLES = [
-    "agents/\ncore.py\ncontext_view.py\nllm/\nmessages.py\nprotocols.py\nstate.py\ntools/\ntrace.py\ntrajectory.py",
+    "agents/\ncore.py\ncontext_view.py\nllm/\nmessages.py\nprotocols.py\nstate.py\ntools/\ntrace/",
     "def wc_lines(path):\n    with open(path) as f:\n        return len(f.read().split('\\n')) - 1",
     "src/simple_agent_lab/tools/wc.py:1:def wc_lines(path):\ntests/unit/test_wc.py:8:    assert wc_lines('fixtures/3lines.txt') == 3",
     "============= 1 passed in 0.34s ==============",
@@ -200,8 +201,8 @@ def main() -> None:
         out_path.unlink()
 
     state = State(task="Fix the failing wc-line regression and ship a tiny test.")
-    # Seed the conversation with the original task as a user message so the
-    # viewer's "task" preview lines up with what the agent actually sees.
+    # Initialize the conversation with the original task as a user message so
+    # the viewer's "task" preview lines up with what the agent actually sees.
     state.send("task", "user", args.agent, state.task)
     state.record_event(AgentStartEvent())
 
@@ -260,13 +261,19 @@ def main() -> None:
         )
         state.record_event(AgentEndEvent(reason="done"))
 
+    meta_fn = trace_meta.meta_fn
+
+    def final_meta() -> dict[str, Any]:
+        base_meta = meta_fn() if meta_fn is not None else {}
+        return {**dict(base_meta or {}), "in_progress": False}
+
     write_canonical_trace(
         out_path,
         state=state,
         trace_meta=TraceMeta(
             trace_id=trace_meta.trace_id,
             producer=trace_meta.producer,
-            meta_fn=lambda: {**dict(trace_meta.meta_fn() or {}), "in_progress": False},
+            meta_fn=final_meta,
         ),
     )
 

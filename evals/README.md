@@ -35,7 +35,7 @@ Record types:
 
 ## Adding a Containerized Suite
 
-The generic framework lives in `simple_agent_lab.evals` (ADR 0017). It supplies
+The generic framework lives in `simple_agent_lab.evals` (ADR generic-containerized-eval-framework). It supplies
 the container lifecycle, the Python/uv bootstrap, the run-directory convention,
 and the one artifact seam, so a new Docker benchmark only implements what is
 genuinely suite-specific:
@@ -250,7 +250,7 @@ run-only).
 ### Scoring
 
 There is no separate scoring driver: scoring is expressed through the run
-primitive (ADR 0020). A run produces `out/result.json`, and scoring takes one of
+primitive (ADR collapse-scorer-seam-into-run-primitive). A run produces `out/result.json`, and scoring takes one of
 three shapes depending on where it belongs:
 
 - **In the run environment — the `evaluate` hook.** The container half exposes an
@@ -295,13 +295,13 @@ For SWE-bench, enable in-environment scoring with
 The default runtimes — `LocalProcessBackend` or `LocalDockerBackend`, with
 `LocalDirStore` — are compatible with the Observatory trace viewer
 (`studio/trace-viewer`) and its live tail with no extra wiring, because the
-framework preserves the viewer's three on-disk expectations (ADR 0016):
+framework preserves the viewer's three on-disk expectations (ADR eval-output-directory-convention):
 
 - **Layout** `<run_root>/<run_id>/<instance_id>/out/trajectory.jsonl` — the
   viewer parses `run_id` / `instance_id` from exactly this shape.
 - **Filename** `trajectory.jsonl` (the `out/trajectory.jsonl` artifact key).
 - **Schema** `simple-agent-lab.trajectory.v3`, written by
-  `simple_agent_lab.trajectory.trace_record(...)`.
+  `simple_agent_lab.trace.trace_record(...)`.
 
 Live updates work because the in-container runner re-`put`s the trajectory key
 on a cadence and `LocalDirStore` writes it atomically (`os.replace`), so a

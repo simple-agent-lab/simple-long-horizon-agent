@@ -3,7 +3,7 @@
 A step-by-step guide for a developer or coding agent adding a new benchmark that
 runs an agent **inside a Docker image** (like SWE-bench). It is the concrete
 "how", on top of the architecture in
-[ADR 0017](../decisions/0017-generic-containerized-eval-framework.md); for
+[ADR generic-containerized-eval-framework](../decisions/20260531-generic-containerized-eval-framework.md); for
 running across machines see
 [multi-machine-deployment.md](multi-machine-deployment.md).
 
@@ -21,7 +21,7 @@ everything else (container lifecycle, Python/uv bootstrap, the run-directory
 layout, artifact movement, concurrency, host-reentrant batches). You write ~2
 small files; you do **not** modify the eval image and you do **not** copy the
 agent into it (it is `pip install`ed at container start — see "Runtime
-injection" in ADR 0017).
+injection" in ADR generic-containerized-eval-framework).
 
 ```
 your suite =
@@ -79,7 +79,7 @@ Create `evals/<name>/suite.py` with a class satisfying the `Suite` protocol:
   the container half's `evaluate` hook. **Staging gold is the toggle** that turns
   in-environment scoring on; **return `None`** to score elsewhere (a follow-up
   run or the official harness). There is no `scorer()` method and no separate
-  score driver (ADR 0020): in-environment scoring is the `evaluate` hook, whose
+  score driver (ADR collapse-scorer-seam-into-run-primitive): in-environment scoring is the `evaluate` hook, whose
   verdict is merged into `out/result.json`. See
   [`evals/README.md`](../../evals/README.md#scoring).
 
@@ -112,7 +112,7 @@ long runs the host should not babysit, `submit_dataset(...)` + `reconcile_datase
 (detach, leave, re-attach). See [`evals/README.md`](../../evals/README.md) for
 both and the backend×store selection table.
 
-## Step 4 — wire up outputs and a runner (ADR 0016)
+## Step 4 — wire up outputs and a runner (ADR eval-output-directory-convention)
 
 - `evals/out/<name>/README.md` documenting the output layout, plus a
   `.gitignore` negation so that README survives.

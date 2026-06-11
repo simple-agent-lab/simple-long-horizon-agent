@@ -75,8 +75,8 @@ class CoreTest(unittest.TestCase):
         self.assertEqual(state.events[-1].kind, "agent_end")
 
     def test_run_accepts_a_multimodal_content_list_task(self) -> None:
-        """`Agent.run` takes `str` or content blocks; a text+image task is seeded
-        as one user message carrying both blocks (the multimodal task path)."""
+        """`Agent.run` takes `str` or content blocks; a text+image task is
+        recorded as one user message carrying both blocks."""
         from simple_agent_lab.messages import ImageBlock
 
         def writer(visible: list[Message]) -> Message:
@@ -94,7 +94,7 @@ class CoreTest(unittest.TestCase):
         for _ in events:
             pass
 
-        # The seeded task message preserves both content blocks (text + image).
+        # The initial task message preserves both content blocks (text + image).
         blocks = state.messages[0].content
         self.assertEqual(len(blocks), 2)
         self.assertIsInstance(blocks[0], TextBlock)
@@ -195,6 +195,89 @@ class CoreTest(unittest.TestCase):
 
         final = next(message for message in state.messages if message.kind == "final")
         self.assertEqual(message_text(final), "done")
+
+    def test_resume_continues_session_and_trace_with_a_rebuilt_agent(self) -> None:
+        # A follow-up can swap the agent (e.g. a different reasoning effort)
+        # while reusing the same `state`: the new agent sees the prior turn,
+        # and the trajectory keeps accumulating on one `state.events`.
+        from simple_agent_lab import AgentStartEvent
+
+        def first(visible: list[Message]) -> Message:
+            del visible
+            return assistant_message("one", sender="w", target="user", kind="final")
+
+        seen: dict[str, Any] = {}
+
+        def second(visible: list[Message]) -> Message:
+            seen["texts"] = [message_text(m) for m in visible]
+            return assistant_message("two", sender="w", target="user", kind="final")
+
+        agent_a = Agent("w", first)
+        state, events = agent_a.run("first task")
+        for _ in events:
+            pass
+
+        # Rebuild with the SAME name; resume the SAME state.
+        agent_b = Agent("w", second)
+        returned_state, events2 = agent_b.resume(state, "follow up")
+        for _ in events2:
+            pass
+
+        # Same state object handed back.
+        self.assertIs(returned_state, state)
+        # Session continuity: the rebuilt agent saw the prior answer + the
+        # follow-up message it must now act on.
+        self.assertIn("one", seen["texts"])
+        self.assertIn("follow up", seen["texts"])
+        # Trace continuity: both turns live on one trajectory.
+        starts = [e for e in state.events if isinstance(e, AgentStartEvent)]
+        self.assertEqual(len(starts), 2)
+        finals = [m for m in state.messages if m.kind == "final"]
+        self.assertEqual([message_text(m) for m in finals], ["one", "two"])
+
+    def test_init_state_hook_builds_the_initial_state(self) -> None:
+        # An `init_state` callable lets a higher layer (e.g. skills) record
+        # extra context messages before the task without touching `run`.
+        # Default `run` records only the task message; an initializer can
+        # prepend its own.
+        def writer(visible: list[Message]) -> Message:
+            del visible
+            return assistant_message(
+                "done", sender="stateful", target="user", kind="final"
+            )
+
+        def init_state(agent: Agent, task: Any) -> State:
+            state = State(task=task)
+            state.send("context", "primer", agent.name, "PRELUDE")
+            state.send("task", "user", agent.name, task)
+            return state
+
+        agent = Agent("stateful", writer, init_state=init_state)
+        state, events = agent.run("real task")
+        for _ in events:
+            pass
+
+        self.assertTrue(any(m.sender == "primer" for m in state.messages))
+        self.assertEqual(
+            [message_text(m) for m in state.messages if m.kind != "final"][:2],
+            ["PRELUDE", "real task"],
+        )
+
+    def test_default_init_state_records_only_the_task(self) -> None:
+        # With no initializer, `run` keeps its original behavior: one task
+        # message.
+        def writer(visible: list[Message]) -> Message:
+            del visible
+            return assistant_message("ok", sender="plain", target="user", kind="final")
+
+        agent = Agent("plain", writer)
+        state, events = agent.run("just the task")
+        for _ in events:
+            pass
+
+        non_final = [m for m in state.messages if m.kind != "final"]
+        self.assertEqual(len(non_final), 1)
+        self.assertEqual(message_text(non_final[0]), "just the task")
 
     def test_max_turns_exhausted_reports_truncation_in_agent_end(self) -> None:
         # If the agent never emits `final`, the run was truncated by the
@@ -347,6 +430,10 @@ class CoreTest(unittest.TestCase):
             "ContextView",
             "Event",
             "EventKind",
+            "HookContext",
+            "HookDecision",
+            "HookFiredEvent",
+            "HookPoint",
             "ImageBlock",
             "Message",
             "MessageContent",
@@ -363,7 +450,7 @@ class CoreTest(unittest.TestCase):
             "Span",
             "State",
             "SummarizeStrategy",
-            "SystemMessage",
+            "RuntimeMessage",
             "TextBlock",
             "ThinkingBlock",
             "TieredStrategy",
@@ -391,6 +478,7 @@ class CoreTest(unittest.TestCase):
             "estimate_message_tokens",
             "event_record",
             "is_tool_result_message",
+            "make_edit_tool",
             "make_llm_agent",
             "make_message",
             "make_read_tool",
@@ -403,7 +491,7 @@ class CoreTest(unittest.TestCase):
             "run_trace_from_state",
             "run_with_skills",
             "spans_from_events",
-            "system_message",
+            "runtime_message",
             "task_tool",
             "text_of",
             "text_result",

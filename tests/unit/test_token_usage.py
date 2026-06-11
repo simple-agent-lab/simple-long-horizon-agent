@@ -14,7 +14,7 @@ from simple_agent_lab import (
     estimate_context_tokens,
     estimate_message_chars,
     estimate_message_tokens,
-    system_message,
+    runtime_message,
     user_message,
 )
 from simple_agent_lab import (
@@ -223,8 +223,8 @@ class EstimateMessageTokensTest(unittest.TestCase):
         expected = math.ceil(estimate_message_chars(message) / CHARS_PER_TOKEN)
         self.assertEqual(estimate_message_tokens(message), expected)
 
-    def test_system_message_falls_back(self) -> None:
-        message = system_message("be helpful")
+    def test_runtime_message_falls_back(self) -> None:
+        message = runtime_message("be helpful")
         expected = math.ceil(estimate_message_chars(message) / CHARS_PER_TOKEN)
         self.assertEqual(estimate_message_tokens(message), expected)
 

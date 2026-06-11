@@ -5,7 +5,7 @@ Preset agents (the bash agent and friends) live under
 package's protocol/runtime/LLM/tool layers, not part of the core
 surface. Import them explicitly, e.g.::
 
-    from simple_agent_lab.agents.bash import make_bash_agent
+    from simple_agent_lab.agents.starter import make_bash_agent
 """
 
 from .core import Agent, run
@@ -18,6 +18,7 @@ from .protocols import (
     ContextCompressionEvent,
     Event,
     EventKind,
+    HookFiredEvent,
     MessageEvent,
     ModelRequestEvent,
     ModelResponseEvent,
@@ -26,6 +27,11 @@ from .protocols import (
     ToolExecutionUpdateEvent,
     TurnEndEvent,
     TurnStartEvent,
+)
+from .hooks import (
+    HookContext,
+    HookDecision,
+    HookPoint,
 )
 from .compression import (
     SummarizeStrategy,
@@ -53,7 +59,7 @@ from .messages import (
     MessageKind,
     MessageSidecar,
     Role,
-    SystemMessage,
+    RuntimeMessage,
     TextBlock,
     ThinkingBlock,
     TokenUsage,
@@ -63,20 +69,22 @@ from .messages import (
     assistant_message,
     is_tool_result_message,
     message_text,
-    system_message,
+    runtime_message,
     text_of,
     tool_result_message,
     tool_results_message,
     tool_results_of,
     user_message,
 )
-from .trace import append_openai_training_record, openai_training_record, print_trace
-from .trajectory import (
+from .trace import (
     ModelTurn,
     RunTrace,
     Span,
+    append_openai_training_record,
     event_record,
     model_turns_from_events,
+    openai_training_record,
+    print_trace,
     run_trace_from_state,
     spans_from_events,
 )
@@ -92,6 +100,7 @@ from .tools import (
     tool_result_text,
 )
 from .tools.read import make_read_tool
+from .tools.edit import make_edit_tool
 from .skills import (
     SkillMetadata,
     SkillRoot,
@@ -107,6 +116,10 @@ __all__ = [
     "ContextCompressionEvent",
     "Event",
     "EventKind",
+    "HookContext",
+    "HookDecision",
+    "HookFiredEvent",
+    "HookPoint",
     "MessageEvent",
     "ModelRequestEvent",
     "ModelResponseEvent",
@@ -124,7 +137,7 @@ __all__ = [
     "MessageKind",
     "MessageSidecar",
     "Role",
-    "SystemMessage",
+    "RuntimeMessage",
     "TextBlock",
     "ThinkingBlock",
     "TokenUsage",
@@ -162,7 +175,7 @@ __all__ = [
     "spans_from_events",
     "append_openai_training_record",
     "openai_training_record",
-    "system_message",
+    "runtime_message",
     "task_tool",
     "tool_result_message",
     "tool_results_message",
@@ -176,6 +189,7 @@ __all__ = [
     "text_result",
     "tool_result_text",
     "make_read_tool",
+    "make_edit_tool",
     "SkillMetadata",
     "SkillRoot",
     "discover_skills",

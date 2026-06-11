@@ -1,4 +1,4 @@
-"""Generic in-container runner (ADR 0017).
+"""Generic in-container runner (ADR generic-containerized-eval-framework).
 
 This module is what runs *inside* the eval container, invoked as
 ``python -m simple_agent_lab.evals.in_container`` (it ships in the wheel, so
@@ -30,21 +30,26 @@ import inspect
 import json
 import os
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, cast
 
-from ..agents.bash import make_bash_agent
-from ..agents.bash_task import make_bash_task_agent
+from ..agents.starter import (
+    MCP_ADDENDUM,
+    AgentSession,
+    agent_session,
+    make_bash_agent,
+    make_bash_task_agent,
+)
 from ..core import Agent
-from ..llm import ApiKind, Provider
+from ..llm import REASONING_EFFORTS, ApiKind, Provider, ReasoningEffort
 from ..llm_agent import make_llm_agent
 from ..skills import system_prompt_with_skills
 from ..state import State
 from ..tools.bash import make_bash_tool
 from ..tools.read import make_read_tool
-from ..trajectory import run_trace_from_state, trace_record
+from ..trace import run_trace_from_state, trace_record
 from .protocols import RESULT_KEY, TRACE_KEY, AgentSpec, ArtifactStore, ContainerTask
 from .stores import container_store_from_env
 
@@ -63,6 +68,10 @@ OPENAI_AUTH_ENV = "OPENAI_AUTH_TOKEN"
 OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
 OPENAI_SESSION_ID_ENV = "OPENAI_SESSION_ID"
 OPENAI_LOG_ID_ENV = "OPENAI_LOG_ID"
+# Provider-agnostic reasoning depth, set on the provider so every adapter maps
+# it to its own wire shape. The legacy OpenAI-specific name is still honored.
+REASONING_EFFORT_ENV = "REASONING_EFFORT"
+OPENAI_REASONING_EFFORT_ENV = "OPENAI_REASONING_EFFORT"
 API_KIND_ENV = "API_KIND"
 API_KIND_CHOICES = ("openai-chat", "openai-responses")
 DEFAULT_RESPONSES_MAX_OUTPUT_TOKENS = 32768
@@ -101,7 +110,7 @@ def build_agent(
     if spec.flavor == "bash_skills":
         # bash + read, with agent skills discovered under `cwd` and advertised
         # in the system prompt; the model loads a skill by reading its SKILL.md
-        # and runs its scripts via bash (ADR 0021).
+        # and runs its scripts via bash (ADR add-agent-skills).
         return make_llm_agent(
             name=spec.name,
             provider=provider,
@@ -163,6 +172,79 @@ def _resolve_agent(
     )
 
 
+def _agent_spec(module: ModuleType) -> AgentSpec:
+    factory = getattr(module, "agent_spec", None)
+    return factory() if callable(factory) else AgentSpec()
+
+
+def _resolve_mcp_session(
+    module: ModuleType,
+    *,
+    provider: Provider,
+    cwd: Path,
+    request_extra: Mapping[str, Any] | None,
+    mcp_servers: Sequence[Any],
+    max_turns: int,
+) -> AgentSession:
+    """Build an MCP-owning session for the suite's supported agent flavor."""
+
+    if callable(getattr(module, "build_agent", None)):
+        raise SystemExit(
+            "MCP config is not supported with a custom container build_agent hook; "
+            "use agent_spec() with a supported flavor instead."
+        )
+
+    spec = _agent_spec(module)
+    system_prompt = _with_mcp_addendum(spec.system_prompt)
+    if spec.flavor == "bash":
+        return agent_session(
+            provider,
+            cwd=cwd,
+            name=spec.name,
+            role=spec.role,
+            system_prompt=system_prompt,
+            mcp_servers=mcp_servers,
+            request_extra=request_extra,
+            max_turns=max_turns,
+        )
+    if spec.flavor == "bash_task":
+        return agent_session(
+            provider,
+            cwd=cwd,
+            explorer=True,
+            name=spec.name,
+            role=spec.role,
+            system_prompt=system_prompt,
+            mcp_servers=mcp_servers,
+            request_extra=request_extra,
+            max_turns=max_turns,
+        )
+    if spec.flavor == "bash_skills":
+        return agent_session(
+            provider,
+            cwd=cwd,
+            read=True,
+            name=spec.name,
+            role=spec.role,
+            system_prompt=_with_mcp_addendum(
+                system_prompt_with_skills(spec.system_prompt, cwd=cwd)
+            ),
+            mcp_servers=mcp_servers,
+            request_extra=request_extra,
+            max_turns=max_turns,
+        )
+    raise SystemExit(
+        f"Unsupported agent flavor {spec.flavor!r}; "
+        "expected 'bash', 'bash_task', or 'bash_skills'."
+    )
+
+
+def _with_mcp_addendum(system_prompt: str) -> str:
+    if MCP_ADDENDUM in system_prompt:
+        return system_prompt
+    return "\n\n".join(part for part in (system_prompt, MCP_ADDENDUM) if part)
+
+
 # --------------------------------------------------------------------------- #
 # Provider from env (generic OpenAI-compatible + fake)
 # --------------------------------------------------------------------------- #
@@ -193,7 +275,29 @@ def provider_from_env(
             else None
         ),
         default_temperature=1.0,
+        default_reasoning=_reasoning_from_env(source),
     )
+
+
+def _reasoning_from_env(source: Mapping[str, str]) -> ReasoningEffort | None:
+    """Read the normalized reasoning effort; the adapter maps it per-model.
+
+    Honors the provider-agnostic ``REASONING_EFFORT`` and the legacy
+    ``OPENAI_REASONING_EFFORT`` name. An unrecognized value is a hard error so
+    a typo fails fast rather than silently reaching the model unmapped.
+    """
+    effort = (
+        source.get(REASONING_EFFORT_ENV, "")
+        or source.get(OPENAI_REASONING_EFFORT_ENV, "")
+    ).strip()
+    if not effort:
+        return None
+    if effort not in REASONING_EFFORTS:
+        raise SystemExit(
+            f"Unsupported reasoning effort {effort!r}; "
+            f"expected one of {REASONING_EFFORTS}."
+        )
+    return cast(ReasoningEffort, effort)
 
 
 def request_extra_from_env(*, env: Mapping[str, str] | None = None) -> dict[str, Any]:
@@ -280,16 +384,35 @@ def run_in_container(
     else:
         if provider is None:
             raise SystemExit("a Provider is required unless oracle=True")
-        agent = _resolve_agent(
-            module, provider=provider, cwd=workdir, request_extra=request_extra
-        )
-        state, events = agent.run(task, max_turns=max_turns)
+        mcp_servers = _load_mcp_servers(store)
         last = 0.0
-        for _ in events:
-            now = time.monotonic()
-            if now - last >= flush_interval_s:
-                store.put(TRACE_KEY, trace_bytes(in_progress=True))
-                last = now
+        if mcp_servers:
+            if not isinstance(task, str):
+                raise SystemExit("MCP-enabled eval runs currently require a text task")
+            with _resolve_mcp_session(
+                module,
+                provider=provider,
+                cwd=workdir,
+                request_extra=request_extra,
+                mcp_servers=mcp_servers,
+                max_turns=max_turns,
+            ) as session:
+                state, events = session.run(task, max_turns=max_turns)
+                for _ in events:
+                    now = time.monotonic()
+                    if now - last >= flush_interval_s:
+                        store.put(TRACE_KEY, trace_bytes(in_progress=True))
+                        last = now
+        else:
+            agent = _resolve_agent(
+                module, provider=provider, cwd=workdir, request_extra=request_extra
+            )
+            state, events = agent.run(task, max_turns=max_turns)
+            for _ in events:
+                now = time.monotonic()
+                if now - last >= flush_interval_s:
+                    store.put(TRACE_KEY, trace_bytes(in_progress=True))
+                    last = now
 
     extract = tasks.extract_result
     result = dict(extract(workdir, instance, **_context_kwargs(extract, context)))
@@ -337,6 +460,20 @@ def _load_eval_inputs(store: ArtifactStore) -> dict[str, Any]:
     return json.loads(raw.decode("utf-8") or "{}")
 
 
+def _load_mcp_servers(store: ArtifactStore) -> tuple[Any, ...]:
+    """Read optional staged MCP config and return validated server configs."""
+
+    from .protocols import MCP_KEY
+
+    try:
+        raw = store.get(MCP_KEY)
+    except (FileNotFoundError, OSError):
+        return ()
+    from simple_agent_lab.mcp.config_file import mcp_server_configs_from_json
+
+    return mcp_server_configs_from_json(raw.decode("utf-8"), source=MCP_KEY)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Generic in-container eval runner.")
     parser.add_argument("--container-module", required=True)
@@ -374,7 +511,7 @@ def main(argv: list[str] | None = None) -> None:
         trace_id=f"{args.suite_name}.{args.instance_id}",
         producer=f"suite:{args.suite_name}",
         suite_name=args.suite_name,
-        request_extra=request_extra_from_env() if args.provider == "openai" else {},
+        request_extra=(request_extra_from_env() if args.provider == "openai" else {}),
         oracle=oracle,
     )
     print(f"wrote result + trajectory for {args.instance_id} via artifact store")

@@ -26,7 +26,7 @@ Freshness:
 1. Should SWE-bench and Docker remain optional local validation, or should any
    part of that setup become required CI?
 
-   Evidence: ADR 0011 and `evals/swebench/README.md` keep SWE-bench as an
+   Evidence: ADR keep-benchmark-suites-as-eval-adapters and `evals/swebench/README.md` keep SWE-bench as an
    optional external dependency; the adapter's unit tests (covered by `run_ci.sh`)
    avoid Docker.
 
