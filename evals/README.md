@@ -57,8 +57,9 @@ genuinely suite-specific:
    and `extract_result(workspace, instance)` (the "product", e.g. a `git diff`).
    Optional: `prepare(workspace, instance)` for pre-run setup (its return value
    is threaded back into `extract_result` as `context`), `agent_spec()` for the
-   prompt/role and bash-vs-bash_task flavor, or `build_agent(...)` for full
-   control. It **ships in the wheel** under
+   prompt/role and bash-vs-bash_task flavor, `memory_artifacts(...)` to expose
+   run products to persistent memory, or `build_agent(...)` for full control.
+   It **ships in the wheel** under
    `src/simple_agent_lab/evals/suites/<suite>/` (importing only stdlib + the
    installed runtime), so the in-container runner imports it with zero copying.
 
@@ -72,6 +73,7 @@ from simple_agent_lab.evals import (
 
 backend = LocalProcessBackend(workspace=ws)        # local dev: in-process, no Docker
 # backend = LocalDockerBackend()                   # one machine, containerized
+# backend = LocalDockerBackend(memory_home="evals/out/memory")  # persistent memory
 # backend = RemoteDockerBackend(base_url="tcp://worker:2375")  # remote daemon
 
 run_suite_instance(
@@ -100,6 +102,14 @@ cadence (the live trace). `result.json` is the single decoupling artifact; when 
 suite scores in the run environment (the `evaluate` hook) its verdict is merged
 into the same `result.json`, otherwise scoring is a follow-up run or the official
 harness (see [Scoring](#scoring)).
+
+Persistent memory is opt-in. For local Docker runs,
+`LocalDockerBackend(memory_home=...)` bind-mounts a host memory directory into
+the container and sets `SAL_MEMORY_HOME`. The in-container runner then attaches
+filesystem-memory lifecycle hooks. A container half may also define
+`memory_artifacts(workspace, instance, *, context)` to return durable
+`FilesystemArtifact` values such as a final patch diff; memory captures them at
+`SESSION_END` before `extract_result` runs.
 
 The same suite runs against a remote daemon by swapping `backend` / `store` —
 both are `Protocol`s, so the suite and runner do not change. `HostHttpStore`

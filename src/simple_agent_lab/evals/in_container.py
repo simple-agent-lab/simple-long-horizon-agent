@@ -30,7 +30,7 @@ import inspect
 import json
 import os
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, cast
@@ -43,6 +43,7 @@ from ..agents.starter import (
     make_bash_task_agent,
 )
 from ..core import Agent
+from ..hooks import HookMap
 from ..llm import REASONING_EFFORTS, ApiKind, Provider, ReasoningEffort
 from ..llm_agent import make_llm_agent
 from ..skills import system_prompt_with_skills
@@ -50,12 +51,23 @@ from ..state import State
 from ..tools.bash import make_bash_tool
 from ..tools.read import make_read_tool
 from ..trace import run_trace_from_state, trace_record
-from .protocols import RESULT_KEY, TRACE_KEY, AgentSpec, ArtifactStore, ContainerTask
+from .protocols import (
+    MEMORY_HOME_ENV,
+    MEMORY_NAME_ENV,
+    MEMORY_RUN_ID_ENV,
+    RESULT_KEY,
+    TRACE_KEY,
+    AgentSpec,
+    ArtifactStore,
+    ContainerTask,
+)
 from .stores import container_store_from_env
 
 __all__ = [
     "build_agent",
     "main",
+    "memory_home_from_env",
+    "memory_hooks_from_env",
     "provider_from_env",
     "run_in_container",
 ]
@@ -77,6 +89,77 @@ API_KIND_CHOICES = ("openai-chat", "openai-responses")
 DEFAULT_RESPONSES_MAX_OUTPUT_TOKENS = 32768
 
 
+def memory_home_from_env(env: Mapping[str, str] | None = None) -> Path | None:
+    """Return the optional in-container persistent-memory directory."""
+
+    source = env if env is not None else os.environ
+    value = source.get(MEMORY_HOME_ENV, "").strip()
+    if not value:
+        return None
+    return Path(value).expanduser()
+
+
+def memory_hooks_from_env(
+    provider: Provider,
+    *,
+    agent_name: str,
+    request_extra: Mapping[str, Any] | None = None,
+    artifact_builder: Callable[[Any], Iterable[Any]] | None = None,
+    env: Mapping[str, str] | None = None,
+) -> HookMap:
+    """Build filesystem-memory lifecycle hooks for an in-container run.
+
+    With no ``SAL_MEMORY_HOME`` this returns ``{}``, leaving non-memory runs
+    unchanged. When active, the distiller reuses the agent provider and request
+    extras so memory's model call carries the same gateway headers as the main
+    agent.
+    """
+
+    memory_home = memory_home_from_env(env)
+    if memory_home is None:
+        return {}
+
+    from ..memory import (
+        FilesystemMemory,
+        MemoryContext,
+        make_filesystem_distiller,
+    )
+
+    source = env if env is not None else os.environ
+    memory = FilesystemMemory(
+        root=memory_home,
+        distiller=make_filesystem_distiller(provider, request_extra=request_extra),
+        artifact_builder=artifact_builder,
+    )
+    ctx = MemoryContext(
+        agent=agent_name,
+        task="",  # filled from runtime State at recall and finish
+        run_id=source.get(MEMORY_RUN_ID_ENV, "").strip(),
+        memory_name=source.get(MEMORY_NAME_ENV, "").strip(),
+    )
+    return memory.bind(ctx).hooks
+
+
+def _memory_artifact_builder(
+    module: ModuleType,
+    *,
+    workdir: Path,
+    instance: Mapping[str, Any],
+    context: Mapping[str, Any],
+) -> Callable[[Any], Iterable[Any]] | None:
+    """Adapt a suite's optional ``memory_artifacts`` hook."""
+
+    collector = getattr(module, "memory_artifacts", None)
+    if not callable(collector):
+        return None
+
+    def build(_memory_ctx: Any) -> Iterable[Any]:
+        del _memory_ctx
+        return collector(workdir, instance, **_context_kwargs(collector, context))
+
+    return build
+
+
 # --------------------------------------------------------------------------- #
 # Agent construction (suite-tunable via agent_spec or a full build_agent hook)
 # --------------------------------------------------------------------------- #
@@ -86,8 +169,11 @@ def build_agent(
     provider: Provider,
     cwd: Path,
     request_extra: Mapping[str, Any] | None = None,
+    hooks: HookMap | None = None,
 ) -> Agent:
     """Build the agent for `spec.flavor` with the suite's prompt/role/name."""
+
+    hooks = hooks or {}
 
     if spec.flavor == "bash":
         return make_bash_agent(
@@ -97,6 +183,7 @@ def build_agent(
             role=spec.role,
             system_prompt=spec.system_prompt,
             request_extra=request_extra,
+            hooks=hooks,
         )
     if spec.flavor == "bash_task":
         return make_bash_task_agent(
@@ -106,6 +193,7 @@ def build_agent(
             role=spec.role,
             system_prompt=spec.system_prompt,
             request_extra=request_extra,
+            hooks=hooks,
         )
     if spec.flavor == "bash_skills":
         # bash + read, with agent skills discovered under `cwd` and advertised
@@ -119,6 +207,7 @@ def build_agent(
             system_prompt=system_prompt_with_skills(spec.system_prompt, cwd=cwd),
             target="user",
             request_extra=request_extra,
+            hooks=hooks,
         )
     raise SystemExit(
         f"Unsupported agent flavor {spec.flavor!r}; "
@@ -154,6 +243,8 @@ def _resolve_agent(
     provider: Provider,
     cwd: Path,
     request_extra: Mapping[str, Any] | None,
+    instance: Mapping[str, Any],
+    context: Mapping[str, Any],
 ) -> Agent:
     """A container module may supply `build_agent` for full control, else `agent_spec`.
 
@@ -167,8 +258,20 @@ def _resolve_agent(
         return custom(provider=provider, cwd=cwd, request_extra=request_extra)
     factory = getattr(module, "agent_spec", None)
     spec = factory() if callable(factory) else AgentSpec()
+    hooks = memory_hooks_from_env(
+        provider,
+        agent_name=spec.name,
+        request_extra=request_extra,
+        artifact_builder=_memory_artifact_builder(
+            module, workdir=cwd, instance=instance, context=context
+        ),
+    )
     return build_agent(
-        spec=spec, provider=provider, cwd=cwd, request_extra=request_extra
+        spec=spec,
+        provider=provider,
+        cwd=cwd,
+        request_extra=request_extra,
+        hooks=hooks,
     )
 
 
@@ -185,6 +288,8 @@ def _resolve_mcp_session(
     request_extra: Mapping[str, Any] | None,
     mcp_servers: Sequence[Any],
     max_turns: int,
+    instance: Mapping[str, Any],
+    context: Mapping[str, Any],
 ) -> AgentSession:
     """Build an MCP-owning session for the suite's supported agent flavor."""
 
@@ -195,6 +300,14 @@ def _resolve_mcp_session(
         )
 
     spec = _agent_spec(module)
+    hooks = memory_hooks_from_env(
+        provider,
+        agent_name=spec.name,
+        request_extra=request_extra,
+        artifact_builder=_memory_artifact_builder(
+            module, workdir=cwd, instance=instance, context=context
+        ),
+    )
     system_prompt = _with_mcp_addendum(spec.system_prompt)
     if spec.flavor == "bash":
         return agent_session(
@@ -206,6 +319,7 @@ def _resolve_mcp_session(
             mcp_servers=mcp_servers,
             request_extra=request_extra,
             max_turns=max_turns,
+            hooks=hooks,
         )
     if spec.flavor == "bash_task":
         return agent_session(
@@ -218,6 +332,7 @@ def _resolve_mcp_session(
             mcp_servers=mcp_servers,
             request_extra=request_extra,
             max_turns=max_turns,
+            hooks=hooks,
         )
     if spec.flavor == "bash_skills":
         return agent_session(
@@ -232,6 +347,7 @@ def _resolve_mcp_session(
             mcp_servers=mcp_servers,
             request_extra=request_extra,
             max_turns=max_turns,
+            hooks=hooks,
         )
     raise SystemExit(
         f"Unsupported agent flavor {spec.flavor!r}; "
@@ -396,6 +512,8 @@ def run_in_container(
                 request_extra=request_extra,
                 mcp_servers=mcp_servers,
                 max_turns=max_turns,
+                instance=instance,
+                context=context,
             ) as session:
                 state, events = session.run(task, max_turns=max_turns)
                 for _ in events:
@@ -405,7 +523,12 @@ def run_in_container(
                         last = now
         else:
             agent = _resolve_agent(
-                module, provider=provider, cwd=workdir, request_extra=request_extra
+                module,
+                provider=provider,
+                cwd=workdir,
+                request_extra=request_extra,
+                instance=instance,
+                context=context,
             )
             state, events = agent.run(task, max_turns=max_turns)
             for _ in events:

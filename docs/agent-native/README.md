@@ -62,6 +62,10 @@ The current source-of-truth layers are:
 - `src/simple_agent_lab/mcp/`: optional Model Context Protocol integration —
   connect to MCP servers and wrap their tools (including multimodal results)
   as `AgentTool`s, behind the `mcp` extra. See ADR mcp-as-tool-source.
+- `src/simple_agent_lab/memory/`: optional memory boundary. Filesystem memory
+  binds through core lifecycle hooks, injects model-visible recall context at
+  session start, and persists Markdown evidence plus distilled handbooks after
+  the run. See `docs/agent-native/memory.md`.
 - `src/simple_agent_lab/trace/`: the three-layer trace (Event → Span →
   Training) split by concern — `spans.py`/`training.py` (pure event→span/turn
   transforms), `run_trace.py` (record schema), `jsonl.py` (atomic JSONL IO),
@@ -124,6 +128,7 @@ Stop and collect more evidence before changing behavior when:
 | Multi-agent delegation (`task` tool) | `src/simple_agent_lab/tools/task.py`, `src/simple_agent_lab/agents/starter.py` (`agent_session(explorer=True)` parent + explorer worker), `tests/unit/test_bash_task_agent.py`, `src/simple_agent_lab/core.py` docstring | Sub-agent delegation shape: a parent picks one worker via `subagent_type` and gets its final message back as the tool result. |
 | MCP tools (incl. multimodal) | ADR mcp-as-tool-source, `src/simple_agent_lab/mcp/README.md`, `tests/unit/test_mcp.py`, `scripts/run_mcp_agent_demo.py` | MCP servers wrapped as `AgentTool`s at the tool boundary; image results map straight to `ImageBlock`. Optional `mcp` extra. |
 | Agent skills (discover/advertise/load `SKILL.md`) | ADR add-agent-skills, ADR pluggable-state-init-hook, `src/simple_agent_lab/skills/`, `src/simple_agent_lab/agents/starter.py` (`make_skill_agent`), `src/simple_agent_lab/tools/read.py`, `tests/unit/test_skills.py`, `tests/unit/test_read_tool.py` | Read-based skills: a prompt menu plus model-driven `read`/`bash`; on by default with `/no-skills`. Installed via the core `Agent.init_state` hook so a bare `agent.run` is skills-aware (`make_skill_agent`). Benchmark `bash_skills` flavor folds the menu into the system prompt. |
+| Filesystem memory / distillation | `docs/agent-native/memory.md`, `src/simple_agent_lab/memory/`, `src/simple_agent_lab/hooks.py`, `src/simple_agent_lab/evals/in_container.py`, `tests/unit/test_memory.py` | Memory stays outside core: recall and finish are lifecycle hooks; evals opt in through `SAL_MEMORY_*` env and optional suite `memory_artifacts`. |
 | Trace printing or OpenAI Chat JSONL export | ADR extra-channel-and-two-layer-trace, ADR three-layer-trace-event-span-training, `src/simple_agent_lab/trace/render.py`, `src/simple_agent_lab/trace/openai_export.py`, `tests/unit/test_openai_training.py` | Trace rendering and provider-shaped transcript export. |
 | Trajectories, spans, or training data | ADR collect-training-trajectories-across-design-versions, ADR keep-benchmark-suites-as-eval-adapters, ADR three-layer-trace-event-span-training, `src/simple_agent_lab/trace/` (`spans.py`, `training.py`, `run_trace.py`), `evals/README.md`, `evals/swebench/README.md` | Three-layer trace: Event → Span → Training. |
 | Docker incremental trace / host viewer | `docs/agent-native/docker-live-trace.md`, `src/simple_agent_lab/trace/live.py` (`LiveTraceSession`), `scripts/run_live_trace_demo.py` | Bind-mount contract and reusable live export API. |

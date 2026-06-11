@@ -13,6 +13,7 @@ Useful test targets:
 - Context visibility.
 - Model adapter boundaries.
 - Trace or run record behavior.
+- Filesystem memory recall, evidence writing, and eval wiring.
 - Example workflows.
 - Bash tool execution and the deterministic bash-use demo.
 
