@@ -30,11 +30,13 @@ from evals.swebench.harness import (
     is_swebench_pro,
     is_swebench_pro_instance,
     load_instance,
+    load_mcp_config_payload,
     prediction_record,
     prepare_project_wheel,
     prepare_wheelhouse,
     prepare_wheelhouse_for_run,
     resolve_api_kind,
+    resolve_mcp_config_path,
     resolve_workdir,
     sanitized_instance,
 )
@@ -286,6 +288,43 @@ class SwebenchHarnessTest(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "Unsupported API_KIND"):
             resolve_api_kind("unknown-api")
 
+    def test_resolve_mcp_config_path_prefers_cli_then_env(self) -> None:
+        with mock.patch.dict("os.environ", {}, clear=True):
+            self.assertIsNone(resolve_mcp_config_path(None))
+            self.assertEqual(resolve_mcp_config_path("cli.json"), "cli.json")
+
+        with mock.patch.dict("os.environ", {"MCP_CONFIG": "env.json"}, clear=True):
+            self.assertEqual(resolve_mcp_config_path(None), "env.json")
+            self.assertEqual(resolve_mcp_config_path("cli.json"), "cli.json")
+
+    def test_load_mcp_config_payload_validates_and_returns_json_object(self) -> None:
+        payload = {
+            "servers": [
+                {
+                    "name": "workspace",
+                    "transport": "stdio",
+                    "command": "python",
+                    "args": ["-m", "server"],
+                    "cwd": "/testbed",
+                }
+            ]
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "mcp.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+
+            loaded = load_mcp_config_payload(path)
+
+        self.assertEqual(loaded, payload)
+
+    def test_load_mcp_config_payload_rejects_invalid_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "mcp.json"
+            path.write_text('{"servers": [{"name": "bad"}]}', encoding="utf-8")
+
+            with self.assertRaisesRegex(SystemExit, "MCP config"):
+                load_mcp_config_payload(path)
+
     def test_load_instance_accepts_instances_wrapper(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "instances.json"
@@ -330,6 +369,25 @@ class SwebenchHarnessTest(unittest.TestCase):
         # Steps 3+: pip download installs exactly the locked requirements.
         self.assertIn("download", calls[2])
         self.assertEqual(calls[2][-2:], ["-r", requirements_path])
+
+    def test_prepare_wheelhouse_can_include_mcp_extra(self) -> None:
+        calls: list[list[str]] = []
+
+        def runner(command: list[str]) -> None:
+            calls.append(command)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            prepare_wheelhouse(Path(tmp), runner=runner, extras=("mcp",))
+
+        self.assertIn("--extra", calls[1])
+        extra_index = calls[1].index("--extra")
+        self.assertEqual(calls[1][extra_index + 1], "mcp")
+        download_platforms = [
+            command[command.index("--platform") + 1]
+            for command in calls
+            if "download" in command
+        ]
+        self.assertEqual(download_platforms, ["manylinux2014_x86_64"])
 
     def test_locked_requirements_pin_core_runtime_and_exclude_extra(self) -> None:
         uv = shutil.which("uv")

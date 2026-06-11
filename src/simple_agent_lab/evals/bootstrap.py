@@ -48,8 +48,13 @@ fi
 "$AGENT_PYTHON" --version"""
 
 
-def _install_line(wheelhouse_mount: str | None) -> str:
-    pkg = shlex.quote("simple-agent-lab")
+def _package_name(package_extras: tuple[str, ...]) -> str:
+    extra_text = f"[{','.join(package_extras)}]" if package_extras else ""
+    return shlex.quote(f"simple-agent-lab{extra_text}")
+
+
+def _install_line(wheelhouse_mount: str | None, package_extras: tuple[str, ...]) -> str:
+    pkg = _package_name(package_extras)
     if wheelhouse_mount:
         find_links = shlex.quote(wheelhouse_mount)
         return (
@@ -69,6 +74,7 @@ def bootstrap_script(
     runner_argv: tuple[str, ...],
     install: bool = True,
     wheelhouse_mount: str | None = None,
+    package_extras: tuple[str, ...] = (),
 ) -> str:
     """Return the shell script run as the container's main process.
 
@@ -79,7 +85,7 @@ def bootstrap_script(
 
     parts = [_PYTHON_SETUP]
     if install:
-        parts.append(_install_line(wheelhouse_mount))
+        parts.append(_install_line(wheelhouse_mount, package_extras))
     quoted = " ".join(shlex.quote(part) for part in runner_argv)
     parts.append(f'"$AGENT_PYTHON" {quoted}')
     return "\n".join(parts)

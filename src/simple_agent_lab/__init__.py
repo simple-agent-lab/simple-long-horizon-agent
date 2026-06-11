@@ -5,7 +5,7 @@ Preset agents (the bash agent and friends) live under
 package's protocol/runtime/LLM/tool layers, not part of the core
 surface. Import them explicitly, e.g.::
 
-    from simple_agent_lab.agents.bash import make_bash_agent
+    from simple_agent_lab.agents.starter import make_bash_agent
 """
 
 from .core import Agent, run
