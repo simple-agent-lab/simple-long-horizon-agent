@@ -4,10 +4,15 @@ User surface (verl/slime-style — plain functions, the framework owns the
 machinery; see ``lab.py`` for the quickstart):
 
     Lab          one experiment: workspace + how to run + how to score
-    reward fn    (run_dir) -> float                 # optional, verl-style
+    reward fn    (Run) -> float                     # optional, verl-style
     strategy fn  (EpisodeContext) -> Proposal|None  # optional; omit and use
                                                     # lab.evolve() for the
                                                     # agent-driven mode
+
+Extension points take typed read-only views, never raw paths: ``Run`` (one
+instance run: result / reward / events / dir) and ``Bundle`` (one agent
+version: read / manifest / hash / dir). The directories stay the source of
+truth; the views are how code learns the layout contract.
 
 Engine room (imported explicitly when you work on the framework itself):
 content-addressed bundles, the gate (measures x criteria), the append-only
@@ -23,8 +28,10 @@ from simple_agent_lab.evolution.lab import (
     RewardFn,
     StepReport,
     StrategyFn,
+    default_reward,
 )
 from simple_agent_lab.evolution.bundle import (
+    Bundle,
     Manifest,
     bundle_hash,
     load_provider,
@@ -33,13 +40,13 @@ from simple_agent_lab.evolution.bundle import (
     resolve,
     stage_bundle,
 )
-from simple_agent_lab.evolution.catalog import CatalogRow, build_catalog
+from simple_agent_lab.evolution.catalog import Run, build_catalog, runs_for
 from simple_agent_lab.evolution.decisions import (
     Decision,
     append_decision,
     hit_rate,
     read_decisions,
-    seen_candidate,
+    seen_comparison,
 )
 from simple_agent_lab.evolution.gate import (
     COST_TOKENS,
@@ -48,6 +55,7 @@ from simple_agent_lab.evolution.gate import (
     GateResult,
     Judgment,
     Measure,
+    MeasureFrame,
     Measurement,
     REWARD,
     Rollout,
@@ -56,6 +64,7 @@ from simple_agent_lab.evolution.gate import (
     improve,
     minimize,
     not_worse,
+    paired_improve,
 )
 
 __all__ = [
@@ -66,6 +75,10 @@ __all__ = [
     "StepReport",
     "RewardFn",
     "StrategyFn",
+    "default_reward",
+    # --- typed views (what's inside a path) ---
+    "Run",
+    "Bundle",
     # --- engine room ---
     "Manifest",
     "bundle_hash",
@@ -74,19 +87,20 @@ __all__ = [
     "read_manifest",
     "resolve",
     "stage_bundle",
-    "CatalogRow",
     "build_catalog",
+    "runs_for",
     "Decision",
     "append_decision",
     "hit_rate",
     "read_decisions",
-    "seen_candidate",
+    "seen_comparison",
     "COST_TOKENS",
     "Criterion",
     "EvalSlice",
     "GateResult",
     "Judgment",
     "Measure",
+    "MeasureFrame",
     "Measurement",
     "REWARD",
     "Rollout",
@@ -95,4 +109,5 @@ __all__ = [
     "improve",
     "minimize",
     "not_worse",
+    "paired_improve",
 ]

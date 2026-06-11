@@ -1,10 +1,11 @@
-"""Rollout adapter: a bundle in, eval-suite run directories out.
+"""Rollout adapter: a bundle in, eval-suite runs out.
 
-``Rollout`` (defined in evolution/gate.py) is just a callable so the gate can
-be tested with stubs; this module provides the real implementation over the
-containerized eval framework. The signature deliberately carries everything a
-future HTTP wrapper needs — serving it later changes the executor, not the
-contract.
+``Rollout`` (defined in evolution/gate.py) is just a callable so the gate
+can be tested with stubs; this module provides the real implementation over
+the containerized eval framework. The slice arrives per call — the same
+rollout serves the main gate, guard slices, held-out rotation, and shadow
+evaluation. The signature deliberately carries everything a future HTTP
+wrapper needs — serving it later changes the executor, not the contract.
 """
 
 from __future__ import annotations
@@ -23,7 +24,8 @@ from simple_agent_lab.evals.in_container import (
     OPENAI_MODEL_ENV,
 )
 from simple_agent_lab.evals.protocols import ArtifactStore, ContainerBackend, Suite
-from simple_agent_lab.evolution.bundle import bundle_hash, load_provider, read_manifest
+from simple_agent_lab.evolution.bundle import Bundle, load_provider
+from simple_agent_lab.evolution.catalog import Run
 from simple_agent_lab.evolution.gate import EvalSlice, Rollout
 
 
@@ -54,19 +56,18 @@ def dataset_rollout(
     backend: ContainerBackend,
     store: ArtifactStore,
     runs_root: Path,
-    slice_: EvalSlice,
     concurrency: int = 1,
     run_kwargs: Mapping[str, Any] | None = None,
 ) -> Rollout:
-    """Build a Rollout that fans the slice out through `run_dataset`.
+    """Build a Rollout that fans the per-call slice out through `run_dataset`.
 
     NOTE (skeleton): only the provider travels into the container today.
     Injecting prompt.md / playbook / lessons / skills requires the suite
     `agent_spec` seam described in the spec (§2.4) — the next increment.
     """
 
-    def rollout(bundle_dir: Path, run_id: str) -> Sequence[Path]:
-        provider, provider_env = _provider_args(bundle_dir)
+    def rollout(bundle: Bundle, slice_: EvalSlice, run_id: str) -> Sequence[Run]:
+        provider, provider_env = _provider_args(bundle.dir)
         run_dataset(
             suite=suite,
             instances=slice_.instances,
@@ -84,12 +85,12 @@ def dataset_rollout(
         (run_dir / "bundle.json").write_text(
             json.dumps(
                 {
-                    "bundle": bundle_hash(bundle_dir),
-                    "level": read_manifest(bundle_dir).level,
+                    "bundle": bundle.hash,
+                    "level": bundle.manifest.level,
                     "slice": slice_.describe(),
                 }
             )
         )
-        return sorted(p for p in run_dir.iterdir() if p.is_dir())
+        return [Run(p) for p in sorted(run_dir.iterdir()) if p.is_dir()]
 
     return rollout

@@ -72,9 +72,18 @@ Grouped by the question each line of work answers.
   task score; (3) the meta-level improvements DGM-H invents autonomously —
   performance tracking and persistent memory with causal hypotheses — are
   precisely the catalog and decision log/lessons this memo hand-designs, so our
-  substrate doubles as a strong prior. DGM-H deliberately keeps parent
-  selection and evaluation fixed for stability and safety — the same
-  boundary our deterministic substrate draws.
+  substrate doubles as a strong prior. On boundaries, DGM-H keeps
+  *evaluation* fixed; parent selection it makes editable but contained —
+  the shipped seed selector (`select_next_parent.py`) is uniform random
+  over valid parents (with per-node scores and child counts computed as
+  raw material for evolved selectors), it runs sandboxed inside the
+  lineage, and a `can_select_next_parent` flag falls back to the last
+  working version when an evolved selector breaks; the host keeps fixed
+  weighted methods (`score_child_prop`: sigmoid-scaled score × child-count
+  decay) as the outer fallback. We draw the same line with simpler means:
+  the branch *mechanism* (any archived bundle may be a candidate's base)
+  is substrate; the branch *policy* (which base to pick) lives in the
+  evolution agent's playbook, which is already sandboxed and gated.
 
 ### 1.3 Training-free intervention kinds (the evolution agent's toolbox)
 
@@ -192,13 +201,26 @@ Division of labor:
   harness, every episode leaves a full trace: why a hypothesis was
   proposed and how the gate result was read is itself auditable, which is
   exactly the ADR's inspectability requirement.
-- **Rejection is not deletion.** The archive keeps every candidate with
-  its gate result. DGM-H's ablation shows stepping stones are what make
-  sustained improvement possible: a rejected skill draft may be the right
-  raw material two episodes later, and `read_decisions()` retrieval over
-  rejected candidates is the degenerate (single-lineage) form of DGM-style
-  branching search. Population/branching over the archive is a later
-  upgrade that changes the selector, not the stores.
+- **Rejection is not deletion — and retention is branchable.** The
+  archive keeps every candidate with its gate result, and any archived
+  bundle — rejected ones included — can serve as the *base* of a new
+  candidate (`propose(base=...)` / `write_candidate(base=...)`). That is
+  the stepping-stone mechanic whose removal collapses gains in DGM-H's
+  ablation; a hill climb that only ever drafts from the current pointer
+  is the collapsing arm. The gate baseline stays the current pointer
+  whatever the base, so promotion semantics are unchanged. *Which* node
+  to branch from is policy, not substrate: it lives in the strategy
+  function or the evolution agent's playbook, where it can itself evolve.
+  Full population search over the archive remains a later upgrade that
+  changes the selector, not the stores.
+- **Defaults are policies, not positions.** Self-evolution is an open
+  problem, and this is a researcher's framework: the substrate fixes only
+  the guarantees (immutability, evidence-gated promotion, append-only
+  audit, rollback). Search topology, acceptance rule, branch-point
+  selection, scoring, and promotion timing are all swappable plain
+  functions whose defaults (single lineage, `improve("reward")`,
+  auto-promote) encode a starting point, not a position — the spec's §0
+  records the fixed/open split explicitly.
 - **The evolution agent is itself an evolvable artifact (the DGM-H
   meta layer).** Its system prompt, episode playbook, and tool
   descriptions live in the artifact store like everything else. A *meta

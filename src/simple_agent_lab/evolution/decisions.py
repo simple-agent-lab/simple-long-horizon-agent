@@ -92,11 +92,19 @@ def read_decisions(
     return rows[-limit:] if limit is not None else rows
 
 
-def seen_candidate(workspace: Path, candidate_hash: str) -> bool:
-    """Exact-duplicate novelty check: has this bundle already been judged?"""
+def seen_comparison(
+    workspace: Path, *, candidate: str, baseline: str, instances_sha: str
+) -> bool:
+    """Novelty check, keyed on the whole comparison — was this exact
+    (candidate, baseline, slice) triple already judged? The same content
+    against a *moved* baseline or a different slice is novel again, so
+    archived stepping stones stay re-testable."""
 
     return any(
-        d.candidate.get("bundle") == candidate_hash for d in read_decisions(workspace)
+        d.candidate.get("bundle") == candidate
+        and d.baseline.get("bundle") == baseline
+        and d.slice.get("instances_sha") == instances_sha
+        for d in read_decisions(workspace)
     )
 
 

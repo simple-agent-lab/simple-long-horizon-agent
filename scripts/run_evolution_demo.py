@@ -16,7 +16,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from simple_agent_lab.evolution import EpisodeContext, Lab, Proposal
+from simple_agent_lab.evolution import Bundle, EpisodeContext, EvalSlice, Lab, Proposal, Run
 
 
 def stub_rollout(runs_root: Path):
@@ -24,14 +24,12 @@ def stub_rollout(runs_root: Path):
     mentions checking pytest fixtures. Swap for evolution.rollout.dataset_rollout
     to run real containerized suites."""
 
-    def rollout(bundle_dir: Path, run_id: str) -> list[Path]:
-        playbook = bundle_dir / "playbook.md"
-        text = playbook.read_text() if playbook.exists() else ""
-        reward = 0.4 + (0.3 if "pytest fixtures" in text else 0.0)
+    def rollout(bundle: Bundle, slice_: EvalSlice, run_id: str) -> list[Run]:
+        reward = 0.4 + (0.3 if "pytest fixtures" in bundle.read("playbook.md") else 0.0)
         instance = runs_root / run_id / "demo-1"
         (instance / "out").mkdir(parents=True, exist_ok=True)
         (instance / "out" / "result.json").write_text(json.dumps({"reward": reward}))
-        return [instance]
+        return [Run(instance)]
 
     return rollout
 
@@ -45,11 +43,11 @@ def my_strategy(ctx: EpisodeContext) -> Proposal | None:
     return ctx.propose(
         kind="playbook",
         edits={
-            "playbook.md": ctx.current("playbook.md")
+            "playbook.md": ctx.current.read("playbook.md")
             + "- When tests fail on setup, check pytest fixtures first.\n"
         },
         note="playbook bullet: check pytest fixtures before editing tests",
-        evidence=[r.path for r in weak],
+        evidence=[r.ref for r in weak],  # workspace-relative refs, never paths
     )
 
 

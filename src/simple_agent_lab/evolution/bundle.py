@@ -42,6 +42,48 @@ class Manifest:
     schema: str = BUNDLE_SCHEMA
 
 
+@dataclass(frozen=True)
+class Bundle:
+    """One agent version, as a typed read-only view over its directory.
+
+    The directory stays the source of truth (``ls`` shows the same
+    contract); this view only reads. Layout: ``manifest.json`` (lineage,
+    excluded from the hash) plus any subset of behavior files —
+    ``provider.json``, ``prompt.md``, ``playbook.md``, ``lessons.jsonl``,
+    ``skills/``. ``dir`` is always exposed: anything not wrapped here is
+    one ``open()`` away.
+    """
+
+    dir: Path
+
+    @property
+    def hash(self) -> str:
+        return bundle_hash(self.dir)
+
+    @property
+    def manifest(self) -> Manifest:
+        return read_manifest(self.dir)
+
+    @property
+    def parent(self) -> str | None:
+        return self.manifest.parent
+
+    def read(self, filename: str) -> str:
+        """One behavior file's content ("" when absent)."""
+
+        path = self.dir / filename
+        return path.read_text() if path.exists() else ""
+
+    def files(self) -> tuple[str, ...]:
+        return tuple(
+            sorted(
+                p.relative_to(self.dir).as_posix()
+                for p in self.dir.rglob("*")
+                if p.is_file() and p.name != MANIFEST_NAME
+            )
+        )
+
+
 def bundle_hash(bundle_dir: Path) -> str:
     """Content hash over every file except the manifest.
 
@@ -82,44 +124,55 @@ def stage_bundle(
     workspace: Path,
     *,
     manifest: Manifest,
-    base: Path | None = None,
-    edits: Mapping[str, str] | None = None,
-) -> Path:
-    """Create an immutable candidate bundle and return its directory.
+    base: Bundle | None = None,
+    edits: Mapping[str, str | bytes | None] | None = None,
+) -> Bundle:
+    """Create an immutable candidate bundle and return its typed view.
 
-    Copies ``base`` (if given), applies ``edits`` (relative path -> full file
-    content), then stores the result under ``bundles/<hash>/``. Staging the
-    same content twice lands on the same directory — content addressing makes
-    duplicate proposals visible for free.
+    Copies ``base`` (if given), applies ``edits``, then stores the result
+    under ``bundles/<hash>/``. An edit value is the full new file content
+    (``str`` for text, ``bytes`` for binary) or ``None`` — a tombstone that
+    removes the file inherited from ``base`` (how a skill is retired).
+    Staging the same content twice lands on the same directory — content
+    addressing makes duplicate proposals visible for free.
     """
 
     tmp = workspace / "tmp" / uuid.uuid4().hex
     tmp.mkdir(parents=True)
     if base is not None:
-        shutil.copytree(base, tmp, dirs_exist_ok=True)
+        shutil.copytree(base.dir, tmp, dirs_exist_ok=True)
         (tmp / MANIFEST_NAME).unlink(missing_ok=True)
     for rel, content in (edits or {}).items():
         rel_path = Path(rel)
         if rel_path.is_absolute() or ".." in rel_path.parts:
             raise ValueError(f"edit path must be relative, got: {rel!r}")
         target = tmp / rel_path
+        if content is None:  # tombstone: retire the inherited file
+            target.unlink(missing_ok=True)
+            continue
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content)
+        if isinstance(content, bytes):
+            target.write_bytes(content)
+        else:
+            target.write_text(content)
 
     digest = bundle_hash(tmp)
     final = workspace / "bundles" / digest
     if final.exists():
-        shutil.rmtree(tmp)  # identical content already stored; reuse it
-    else:
-        final.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(tmp), str(final))
+        # Identical content already stored: reuse it and KEEP its manifest.
+        # First provenance wins — rewriting lineage here would mutate the
+        # archive, and rollback walks manifest parents.
+        shutil.rmtree(tmp)
+        return Bundle(final)
+    final.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(tmp), str(final))
     created = manifest.created or datetime.now(timezone.utc).isoformat()
     record = asdict(manifest) | {
         "created": created,
         "evidence": list(manifest.evidence),
     }
     (final / MANIFEST_NAME).write_text(json.dumps(record, indent=2))
-    return final
+    return Bundle(final)
 
 
 def _pointer_path(workspace: Path, pointer: str, namespace: str) -> Path:
@@ -129,8 +182,8 @@ def _pointer_path(workspace: Path, pointer: str, namespace: str) -> Path:
     return base / f"{pointer}.json"
 
 
-def resolve(workspace: Path, pointer: str, *, namespace: str = "") -> Path:
-    """Follow a pointer ("task" | "meta") to its current bundle directory."""
+def resolve(workspace: Path, pointer: str, *, namespace: str = "") -> Bundle:
+    """Follow a pointer ("task" | "meta") to its current bundle."""
 
     path = _pointer_path(workspace, pointer, namespace)
     if not path.exists():
@@ -142,18 +195,18 @@ def resolve(workspace: Path, pointer: str, *, namespace: str = "") -> Path:
     bundle_dir = workspace / "bundles" / digest
     if not bundle_dir.is_dir():
         raise FileNotFoundError(f"pointer {pointer!r} -> missing bundle {digest}")
-    return bundle_dir
+    return Bundle(bundle_dir)
 
 
 def promote(
-    workspace: Path, pointer: str, bundle_dir: Path, *, namespace: str = ""
+    workspace: Path, pointer: str, bundle: Bundle, *, namespace: str = ""
 ) -> None:
-    """Atomically point ``pointer`` at ``bundle_dir`` — the only mutation."""
+    """Atomically point ``pointer`` at ``bundle`` — the only mutation."""
 
     path = _pointer_path(workspace, pointer, namespace)
     path.parent.mkdir(parents=True, exist_ok=True)
     record = {
-        "hash": bundle_hash(bundle_dir),
+        "hash": bundle.hash,
         "updated": datetime.now(timezone.utc).isoformat(),
     }
     tmp = path.with_suffix(".tmp")
