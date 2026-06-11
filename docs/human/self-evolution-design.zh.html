@@ -81,7 +81,9 @@
 <b>一段话讲完整个设计：</b>agent 的行为是一个目录（bundle）；进化是提出一个新目录（update）；
 证据是跑两遍比一比（gate）；历史是一本只追加的决策日志（decision log）。
 所有聪明都在进化 agent 和 update 函数里，所有保证都在确定性基座里。
-<b>当前状态：</b>设计文档两份已合入分支，骨架代码（≈1450 行，9 个测试全过）已可运行。
+<b>研究员不需要学这些名词</b>——用户面是 verl/slime 式的三个普通函数（§4）。
+<b>当前状态：</b>设计文档两份 + 骨架代码 + Lab 用户面已合入分支（11 个测试全过，demo 可跑）；
+首轮评审的两条反馈已处理（§9）。
 </div>
 
 <h2>1 · 目标与定位</h2>
@@ -107,7 +109,10 @@ GEPA 只管 prompt、Agent Lightning 只管权重、Mem0 只管记忆——没�
 <td>方向确立；读 HyperAgents（DGM-H）后补强 meta 层与 archive 优先级</td></tr>
 <tr><td>v4</td><td>统一训练轨：参考 slime 提出 bundle + 五平面 + 双时间尺度</td>
 <td>平面病——五个平面是给论文看的，不是给代码看的</td></tr>
-<tr><td>v5</td><td><b>最终形态（方案 A，库优先）：三名词两动词</b>，B（服务化）/C（种群搜索）为兼容的生长方向</td>
+<tr><td>v5</td><td>方案 A（库优先）：三名词两动词，B（服务化）/C（种群搜索）为兼容的生长方向</td>
+<td>首轮评审两条反馈：① Path-based 缺分布式扩展性；② 六个名词对研究员仍太多</td></tr>
+<tr><td>v6</td><td><b>当前形态：v5 + Lab 用户面</b>——研究员面只剩三个普通函数（verl/slime 式），
+六名词降为机房；分布式立场写入 spec §7.1（内容寻址/append-only 天然可分布，模块边界即存储接缝）</td>
 <td>—— 当前方案</td></tr>
 </table>
 
@@ -161,7 +166,7 @@ lab.history()           <span class="c"># 实验史    lab.rollback()  # 回滚<
 五条不变量在这一层成立：</p>
 
 <figure>
-<svg viewBox="0 0 1000 830" xmlns="http://www.w3.org/2000/svg" role="img"
+<svg viewBox="0 -62 1000 892" xmlns="http://www.w3.org/2000/svg" role="img"
      aria-label="进化框架整体架构图">
   <defs>
     <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7"
@@ -171,6 +176,18 @@ lab.history()           <span class="c"># 实验史    lab.rollback()  # 回滚<
     <marker id="arrw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7"
             orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#f0b86e"/></marker>
   </defs>
+
+  <!-- ===================== 用户面 ===================== -->
+  <rect x="20" y="-54" width="960" height="42" rx="10" fill="#171a21"
+        stroke="#7ee2b8" stroke-opacity="0.6"/>
+  <text x="36" y="-28" class="svg-title" fill="#7ee2b8">用户面（研究员可见的全部）</text>
+  <text x="320" y="-28" class="svg-mono">Lab(workspace, rollout)</text>
+  <text x="520" y="-28" class="svg-mono">reward(run_dir) -> float</text>
+  <text x="724" y="-28" class="svg-mono">strategy(ctx) -> 提案</text>
+  <text x="880" y="-28" class="svg-sub">（后两个可省略）</text>
+  <path d="M500,-12 L500,12" stroke="#7ee2b8" stroke-width="1.4" fill="none"
+        stroke-dasharray="4 3" marker-end="url(#arr2)"/>
+  <text x="508" y="6" class="svg-flow" fill="#9aa3b2">step()/evolve()/history()/rollback() —— 以下全部是机房</text>
 
   <!-- ===================== 控制层 ===================== -->
   <rect x="30" y="40" width="580" height="130" rx="10" fill="#171a21" stroke="#2a2f3a"/>
@@ -321,8 +338,9 @@ lab.history()           <span class="c"># 实验史    lab.rollback()  # 回滚<
     <text x="670" y="804" fill="#9aa3b2">仓外（梯度永不入仓）</text>
   </g>
 </svg>
-<figcaption>整体架构（方案 A · 库优先）：控制层做决策，确定性基座做保证，rollout 平面复用评测设施，
-cookbook 收纳一切策略；橙色 promote 是全系统唯一的变更原语。</figcaption>
+<figcaption>整体架构（v6 · 库优先 + Lab 用户面）：最上方绿框是研究员可见的全部；
+其下控制层做决策，确定性基座做保证，rollout 平面复用评测设施，cookbook 收纳一切策略；
+橙色 promote 是全系统唯一的变更原语。</figcaption>
 </figure>
 
 <pre>
@@ -432,7 +450,25 @@ MVP      基座三件套 + 进化 agent（单谱系）        <span class="c">�
 +搜索    archive 上的种群/分支搜索（换选择器，存储与 gate 复用）
 </pre>
 
-<h2>9 · 请 reviewer 重点表态的问题</h2>
+<h2>9 · 评审反馈与待表态问题</h2>
+
+<h3>9.0 首轮反馈的处理结果（已落地）</h3>
+<table>
+<tr><th>反馈</th><th>处理</th><th>落点</th></tr>
+<tr><td>“目前都基于 Path，扩展到分布式系统缺乏扩展性”</td>
+<td>立场成文：内容寻址 bundle + append-only 日志本就是最易分布的结构（git/OCI/CAS 同款）；
+全部 I/O 已收在模块函数后面——<b>模块边界即存储接缝</b>，换后端不改调用方；
+只有三个点需要协调原语（指针 CAS / 日志追加 / run 产物位置），其中 run 产物已由
+evals 的 ArtifactStore/RemoteDockerBackend 解决。显式 Store 协议<b>刻意推迟</b>到出现第二种后端。</td>
+<td>spec §7.1</td></tr>
+<tr><td>“BUNDLE/GATE/DECISION LOG/CATALOG/ROLLOUT/COOKBOOK 概念太多，研究员不好上手”</td>
+<td>对标 verl 的 compute_score / slime 的 rollout-function-path，用户面收成
+<b>Lab + reward 函数 + strategy 函数</b>三个概念；策略只能提案、无法绕过对比；
+自定义 reward 同时重定义 ctx.failures 与 gate 度量（同一定义）。六名词降为机房，不出现在用户代码。</td>
+<td>spec §3.3 · <code>evolution/lab.py</code>（已实现+测试）</td></tr>
+</table>
+
+<h3>9.1 仍请 reviewer 表态的问题</h3>
 <ol class="qs">
 <li><b>定位</b>：“可审计的自进化基座、集成而非竞争”这个定位是否成立？有没有我们漏掉的竞品空白或威胁？</li>
 <li><b>bundle 整体晋升不变量</b>：是否接受“永远不单独晋升一个 lesson/prompt”的代价（候选粒度变粗）换取共适应安全？</li>
