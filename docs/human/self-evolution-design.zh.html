@@ -32,6 +32,16 @@
   }
   pre .c { color: #6b7385; } pre .k { color: var(--accent); }
   pre .s { color: var(--accent2); } pre .d { color: var(--warn); }
+  figure { margin: 20px 0 10px; }
+  figure svg { width: 100%; height: auto; display: block; background: var(--panel2);
+               border: 1px solid var(--line); border-radius: 12px; }
+  figcaption { color: var(--muted); font-size: 13px; text-align: center; margin-top: 8px; }
+  .svg-label { fill: var(--ink); font: 13px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .svg-sub   { fill: var(--muted); font: 11.5px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .svg-mono  { fill: var(--accent2); font: 11px "SF Mono", ui-monospace, Menlo, monospace; }
+  .svg-title { fill: var(--accent); font: 700 12px -apple-system, "PingFang SC", sans-serif;
+               letter-spacing: 0.06em; }
+  .svg-flow  { font: 10.5px -apple-system, "PingFang SC", sans-serif; }
   .lede {
     background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent);
     border-radius: 10px; padding: 16px 18px; margin: 0 0 18px;
@@ -129,6 +139,172 @@ GEPA 只管 prompt、Agent Lightning 只管权重、Mem0 只管记忆——没�
 </table>
 
 <h2>4 · 核心架构：三个名词、两个动词、五条不变量</h2>
+
+<figure>
+<svg viewBox="0 0 1000 830" xmlns="http://www.w3.org/2000/svg" role="img"
+     aria-label="进化框架整体架构图">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7"
+            orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6ea8fe"/></marker>
+    <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7"
+            orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7ee2b8"/></marker>
+    <marker id="arrw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7"
+            orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#f0b86e"/></marker>
+  </defs>
+
+  <!-- ===================== 控制层 ===================== -->
+  <rect x="30" y="40" width="580" height="130" rx="10" fill="#171a21" stroke="#2a2f3a"/>
+  <text x="46" y="66" class="svg-title">进化 AGENT —— 普通 Agent，装载 B_meta</text>
+  <text x="46" y="88" class="svg-sub">每回合：观察 → 诊断 → 选干预手段 → 起草候选 → 过 gate → 解读 → 记日志</text>
+  <g>
+    <rect x="46" y="104" width="92" height="24" rx="6" fill="#232838" stroke="#2a2f3a"/>
+    <text x="92" y="120" text-anchor="middle" class="svg-mono">query_runs</text>
+    <rect x="146" y="104" width="90" height="24" rx="6" fill="#232838" stroke="#2a2f3a"/>
+    <text x="191" y="120" text-anchor="middle" class="svg-mono">read_trace</text>
+    <rect x="244" y="104" width="118" height="24" rx="6" fill="#232838" stroke="#2a2f3a"/>
+    <text x="303" y="120" text-anchor="middle" class="svg-mono">read_decisions</text>
+    <rect x="370" y="104" width="124" height="24" rx="6" fill="#232838" stroke="#6ea8fe"/>
+    <text x="432" y="120" text-anchor="middle" class="svg-mono">write_candidate</text>
+    <rect x="502" y="104" width="80" height="24" rx="6" fill="#232838" stroke="#6ea8fe"/>
+    <text x="542" y="120" text-anchor="middle" class="svg-mono">run_gate</text>
+  </g>
+  <text x="46" y="152" class="svg-sub">meta 候选 = 改自己的 bundle，下一回合生效（自指由不可变性闭合）</text>
+
+  <rect x="650" y="40" width="320" height="130" rx="10" fill="#171a21" stroke="#2a2f3a"/>
+  <text x="666" y="66" class="svg-title">回合驱动器 run_episode —— HOST 普通代码</text>
+  <text x="666" y="92" class="svg-sub">读 decision log → 执行晋升 / 回滚</text>
+  <text x="666" y="112" class="svg-sub">元回合触发：命中率衰减 + 周期兜底</text>
+  <text x="666" y="132" class="svg-sub">imp@k 用影子指针命名空间隔离评测</text>
+
+  <!-- ===================== 确定性基座 ===================== -->
+  <rect x="20" y="225" width="960" height="300" rx="12" fill="#141821"
+        stroke="#6ea8fe" stroke-opacity="0.55" stroke-dasharray="7 5"/>
+  <text x="36" y="249" class="svg-title">确定性基座 · 安全边界</text>
+
+  <rect x="45" y="265" width="280" height="240" rx="10" fill="#171a21" stroke="#2a2f3a"/>
+  <text x="57" y="287" class="svg-title">BUNDLE STORE（内容寻址）</text>
+  <text x="57" y="309" class="svg-mono">bundles/&lt;hash&gt;/   不可变</text>
+  <text x="57" y="326" class="svg-mono">  provider.json / prompt.md</text>
+  <text x="57" y="343" class="svg-mono">  playbook / lessons / skills/</text>
+  <text x="57" y="360" class="svg-mono">pointers/task.json → ab12…</text>
+  <text x="57" y="377" class="svg-mono">pointers/meta.json → cd34…</text>
+  <text x="57" y="394" class="svg-mono">pointers/shadow/&lt;gate&gt;/ imp@k</text>
+  <text x="57" y="424" class="svg-sub">晋升 = 改指针 · 回滚 = 改回去</text>
+  <text x="57" y="442" class="svg-sub">staging 即存储 · archive 永不删除</text>
+  <text x="57" y="460" class="svg-sub">bundle 整体晋升（context×权重共适应）</text>
+
+  <rect x="355" y="265" width="300" height="240" rx="10" fill="#171a21" stroke="#2a2f3a"/>
+  <text x="367" y="287" class="svg-title">GATE —— 晋升的唯一通道</text>
+  <text x="367" y="309" class="svg-mono">① 新颖性查重（免费，先于 rollout）</text>
+  <text x="367" y="326" class="svg-mono">② rollout(基线)  ③ rollout(候选)</text>
+  <text x="367" y="343" class="svg-mono">④ Measure × Criterion → Judgment</text>
+  <text x="367" y="360" class="svg-mono">⑤ append 判定（带人话 reason）</text>
+  <text x="367" y="390" class="svg-sub">Measure：reward / cost_tokens / turns…</text>
+  <text x="367" y="408" class="svg-sub">Criterion：improve / minimize / not_worse</text>
+  <text x="367" y="426" class="svg-sub">/ guarded —— 拒绝加权和，判定可解释</text>
+  <text x="367" y="444" class="svg-sub">EvalSlice：suite==版本 + 实例哈希</text>
+  <text x="367" y="462" class="svg-sub">Rollout 依赖注入：stub 可测 / 容器可换</text>
+
+  <rect x="685" y="265" width="270" height="130" rx="10" fill="#171a21" stroke="#2a2f3a"/>
+  <text x="697" y="287" class="svg-title">DECISION LOG</text>
+  <text x="697" y="309" class="svg-mono">decisions.jsonl  append-only</text>
+  <text x="697" y="330" class="svg-sub">每条：基线/候选/量度/delta/理由/证据</text>
+  <text x="697" y="348" class="svg-sub">hit_rate → bandit 先验 · 元回合触发</text>
+  <text x="697" y="366" class="svg-sub">= 审计链 + 实验追踪（无需 wandb）</text>
+
+  <rect x="685" y="410" width="270" height="95" rx="10" fill="#171a21" stroke="#2a2f3a"/>
+  <text x="697" y="432" class="svg-title">CATALOG</text>
+  <text x="697" y="453" class="svg-sub">runs/ 只读索引（按需扫描，无服务）</text>
+  <text x="697" y="471" class="svg-sub">instance · bundle · reward · 成本 · 路径</text>
+  <text x="697" y="489" class="svg-sub">供 query_runs 与数据集导出复用</text>
+
+  <!-- ===================== Rollout 平面 ===================== -->
+  <rect x="20" y="560" width="600" height="145" rx="10" fill="#171a21" stroke="#2a2f3a"/>
+  <text x="36" y="582" class="svg-title">ROLLOUT 平面 —— 复用现有评测设施</text>
+  <text x="36" y="604" class="svg-mono">rollout(bundle, slice) = run_dataset() → 容器 × N</text>
+  <text x="36" y="626" class="svg-sub">注入：provider.json → env 契约 · prompt.md → AgentSpec</text>
+  <text x="36" y="644" class="svg-sub">playbook / lessons → kind="context"（永不被压缩）· skills/ → 技能根</text>
+  <text x="36" y="668" class="svg-sub">产物：out/result.json（标准 reward 键）+ out/trajectory.jsonl（三层 trace）</text>
+  <text x="36" y="686" class="svg-sub">+ bundle 溯源戳（Zombie-Agents 防线的源头一环）</text>
+
+  <!-- ===================== Cookbook ===================== -->
+  <rect x="650" y="560" width="330" height="105" rx="10" fill="#171a21" stroke="#2a2f3a"/>
+  <text x="662" y="582" class="svg-title">COOKBOOK —— update 函数（唯一扩展点）</text>
+  <text x="662" y="604" class="svg-mono">reflect_lessons · induce_skill · gepa_prompt</text>
+  <text x="662" y="621" class="svg-mono">slime_sft（慢）· 自定义策略 = 再写一个函数</text>
+  <text x="662" y="646" class="svg-sub">同一签名：update(runs, bundle) → 候选 bundle</text>
+
+  <!-- ===================== 仓外 ===================== -->
+  <rect x="650" y="700" width="330" height="75" rx="10" fill="none"
+        stroke="#9aa3b2" stroke-dasharray="5 4"/>
+  <text x="662" y="722" class="svg-title" fill="#9aa3b2">仓外 —— 外部训练器（slime / verl / Tinker）</text>
+  <text x="662" y="744" class="svg-sub">per-turn 导出 → SFT / DPO / RL → checkpoint</text>
+  <text x="662" y="761" class="svg-sub">回来只是一个新的 provider.json（走同一道 gate）</text>
+
+  <!-- ===================== 连线 ===================== -->
+  <!-- agent -> staging -->
+  <path d="M200,170 L200,261" stroke="#6ea8fe" stroke-width="1.6" fill="none" marker-end="url(#arr)"/>
+  <text x="206" y="216" class="svg-flow" fill="#6ea8fe">write_candidate（只写 staging）</text>
+  <!-- agent -> gate -->
+  <path d="M470,170 L470,261" stroke="#6ea8fe" stroke-width="1.6" fill="none" marker-end="url(#arr)"/>
+  <text x="476" y="247" class="svg-flow" fill="#6ea8fe">run_gate（回合限额）</text>
+  <!-- substrate -> agent (read-only) -->
+  <path d="M70,225 L70,174" stroke="#6ea8fe" stroke-width="1.4" fill="none"
+        stroke-dasharray="4 3" marker-end="url(#arr)"/>
+  <text x="78" y="196" class="svg-flow" fill="#9aa3b2">只读查询</text>
+  <!-- decision log -> driver -->
+  <path d="M820,265 L820,174" stroke="#6ea8fe" stroke-width="1.6" fill="none" marker-end="url(#arr)"/>
+  <text x="828" y="222" class="svg-flow" fill="#6ea8fe">已接受的判定</text>
+  <!-- driver -> pointers (promote) -->
+  <path d="M660,170 L660,205 L260,205 L260,261" stroke="#f0b86e" stroke-width="1.8"
+        fill="none" marker-end="url(#arrw)"/>
+  <text x="648" y="199" text-anchor="end" class="svg-flow" fill="#f0b86e">promote = 改指针（唯一变更原语）</text>
+  <!-- gate -> decision log -->
+  <path d="M655,330 L681,330" stroke="#6ea8fe" stroke-width="1.6" fill="none" marker-end="url(#arr)"/>
+  <text x="668" y="320" text-anchor="middle" class="svg-flow" fill="#6ea8fe">append</text>
+  <!-- gate <-> rollout -->
+  <path d="M430,505 L430,556" stroke="#6ea8fe" stroke-width="1.6" fill="none" marker-end="url(#arr)"/>
+  <text x="438" y="538" class="svg-flow" fill="#6ea8fe">rollout ×2</text>
+  <path d="M530,560 L530,509" stroke="#7ee2b8" stroke-width="1.6" fill="none" marker-end="url(#arr2)"/>
+  <text x="538" y="538" class="svg-flow" fill="#7ee2b8">runs</text>
+  <!-- bundle -> rollout (load/inject) -->
+  <path d="M185,505 L185,556" stroke="#7ee2b8" stroke-width="1.6" fill="none" marker-end="url(#arr2)"/>
+  <text x="52" y="538" class="svg-flow" fill="#7ee2b8">装载 bundle → 注入</text>
+  <!-- runs -> cookbook -->
+  <path d="M624,612 L646,612" stroke="#7ee2b8" stroke-width="1.6" fill="none" marker-end="url(#arr2)"/>
+  <text x="635" y="602" text-anchor="middle" class="svg-flow" fill="#7ee2b8">读 runs</text>
+  <!-- cookbook -> staging -->
+  <path d="M672,560 L672,252 L304,252 L304,261" stroke="#6ea8fe" stroke-width="1.4"
+        fill="none" marker-end="url(#arr)"/>
+  <text x="318" y="246" class="svg-flow" fill="#6ea8fe">update() 候选 → staging</text>
+  <!-- cookbook <-> external trainer -->
+  <path d="M815,665 L815,696" stroke="#6ea8fe" stroke-width="1.4" fill="none"
+        stroke-dasharray="4 3" marker-end="url(#arr)"/>
+  <text x="824" y="686" class="svg-flow" fill="#9aa3b2">慢 update（梯度在仓外）</text>
+  <!-- meta/task bundle load back to agent -->
+  <path d="M45,310 L14,310 L14,100 L26,100" stroke="#7ee2b8" stroke-width="1.4"
+        fill="none" stroke-dasharray="4 3" marker-end="url(#arr2)"/>
+  <text transform="rotate(-90, 8, 235)" x="8" y="235" text-anchor="middle"
+        class="svg-flow" fill="#7ee2b8">B_meta / B_task 装载（meta 晋升下一回合生效）</text>
+
+  <!-- ===================== 图例 ===================== -->
+  <g class="svg-flow">
+    <line x1="36" y1="800" x2="64" y2="800" stroke="#6ea8fe" stroke-width="1.8"/>
+    <text x="70" y="804" fill="#9aa3b2">调用 / 写 staging</text>
+    <line x1="186" y1="800" x2="214" y2="800" stroke="#7ee2b8" stroke-width="1.8"/>
+    <text x="220" y="804" fill="#9aa3b2">数据 / 装载</text>
+    <line x1="316" y1="800" x2="344" y2="800" stroke="#f0b86e" stroke-width="1.8"/>
+    <text x="350" y="804" fill="#9aa3b2">晋升（唯一变更）</text>
+    <line x1="478" y1="800" x2="506" y2="800" stroke="#9aa3b2" stroke-width="1.6" stroke-dasharray="4 3"/>
+    <text x="512" y="804" fill="#9aa3b2">只读 / 跨期生效</text>
+    <rect x="636" y="792" width="26" height="15" rx="4" fill="none" stroke="#9aa3b2" stroke-dasharray="4 3"/>
+    <text x="670" y="804" fill="#9aa3b2">仓外（梯度永不入仓）</text>
+  </g>
+</svg>
+<figcaption>整体架构（方案 A · 库优先）：控制层做决策，确定性基座做保证，rollout 平面复用评测设施，
+cookbook 收纳一切策略；橙色 promote 是全系统唯一的变更原语。</figcaption>
+</figure>
+
 <pre>
 名词（全是文件，无服务、无注册中心）:
   Bundle   一个目录 = 一个版本的 agent 行为
