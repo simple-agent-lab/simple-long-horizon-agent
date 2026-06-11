@@ -109,7 +109,7 @@ parameter everywhere) holds all evolution state:
 
 Everything under `bundles/` and `decisions.jsonl` is append-only by
 convention; `write_jsonl_atomic` (already in
-`src/simple_agent_lab/trajectory/jsonl.py`) is reused for all writes.
+`src/simple_agent_lab/trace/jsonl.py`) is reused for all writes.
 
 ### 1.1 Typed views over the layout
 
@@ -275,7 +275,7 @@ skills?") — the DSPy signature idea applied to updaters.
 
 `cookbook/slime_sft.py` is the reference *slow* updater: export per-turn
 pairs via `model_turns_from_events()`
-(`src/simple_agent_lab/trajectory/training.py`) into the trainer's data
+(`src/simple_agent_lab/trace/training.py`) into the trainer's data
 format, submit the external job, poll, then `stage_bundle()` with only
 `provider.json` edited to the new checkpoint endpoint. The trainer's
 inner loop (its own rollout/buffer/weight-sync cadence) is invisible

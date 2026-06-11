@@ -141,9 +141,9 @@ Most of the loop's read side exists today:
 | Loop stage | Existing support |
 |---|---|
 | run | `src/simple_agent_lab/core.py` loop; eval harness `src/simple_agent_lab/evals/runner.py`, `src/simple_agent_lab/evals/dataset.py` (concurrent rollout) |
-| trace | three-layer trajectory (event → span → training pair): `src/simple_agent_lab/trajectory/spans.py`, `src/simple_agent_lab/trajectory/training.py`, `src/simple_agent_lab/trajectory/run_trace.py` (`simple-agent-lab.trajectory.v3`), live JSONL via `src/simple_agent_lab/trajectory/live.py` |
+| trace | three-layer trajectory (event → span → training pair): `src/simple_agent_lab/trace/spans.py`, `src/simple_agent_lab/trace/training.py`, `src/simple_agent_lab/trace/run_trace.py` (`simple-agent-lab.trajectory.v3`), live JSONL via `src/simple_agent_lab/trace/live.py` |
 | evaluate | suite `evaluate()` hook writes verdicts into `out/result.json`; candidate+judge composition in `examples/bench_suite/` |
-| distill (export) | `src/simple_agent_lab/trace.py` exports OpenAI fine-tuning records; `model_turns_from_events()` yields per-turn (visible context, response, tools) pairs |
+| distill (export) | `src/simple_agent_lab/trace/openai_export.py` exports OpenAI fine-tuning records; `model_turns_from_events()` yields per-turn (visible context, response, tools) pairs |
 | inject context | skills runtime `src/simple_agent_lab/skills/runtime.py` injects SKILL.md bodies; `src/simple_agent_lab/context_view.py` controls model-visible context; `kind="context"` messages are never compressed |
 | swap model | `Provider` is a frozen data record (`src/simple_agent_lab/llm/provider.py`) — pointing at a new checkpoint or endpoint is a one-field change |
 | build the evolution agent itself | the runtime: the evolution agent is an ordinary `Agent` with tools, so its own decision process is a trace |

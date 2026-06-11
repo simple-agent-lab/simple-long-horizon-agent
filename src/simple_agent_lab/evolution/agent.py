@@ -323,7 +323,7 @@ def run_episode(
 
 
 def _save_episode_trace(workspace: Path, episode: str, state) -> None:
-    from simple_agent_lab.trajectory.run_trace import run_trace_from_state, trace_record
+    from simple_agent_lab.trace.run_trace import run_trace_from_state, trace_record
 
     trace = run_trace_from_state(
         state=state, trace_id=episode, producer="evolution-agent"
