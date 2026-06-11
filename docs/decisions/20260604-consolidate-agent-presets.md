@@ -1,4 +1,11 @@
-# ADR 0022: Consolidate agent presets behind one AgentSession + toolsets
+---
+title: "Consolidate Agent Presets behind one AgentSession + Toolsets"
+status: Accepted
+date: 2026-06-04
+slug: consolidate-agent-presets
+---
+
+# Consolidate Agent Presets behind one AgentSession + Toolsets
 
 ## Status
 
@@ -100,13 +107,15 @@ wrapper that presets the MCP capability on `agent_session()` and forwards the
 rest. This restores a convenient name without bringing back the per-kind silos:
 the composable core stays the single implementation, so
 `mcp_session(provider, [...], skills=True)` still composes freely. (A
-`skill_session()` was briefly added alongside it, then dropped — see ADR 0023:
+`skill_session()` was briefly added alongside it, then dropped — see
+`pluggable-state-init-hook`:
 skills are state initialization, not a resource, so they need no session.)
 
-## Follow-up (2026-06-05): skills moved to a state initializer (see ADR 0023)
+## Follow-up (2026-06-05): skills moved to a state initializer
 
 `AgentSession.run` no longer branches on skills. Skills are now installed as an
-`Agent.init_state` (the core hook added in ADR 0023):
+`Agent.init_state` (the core hook added in
+`pluggable-state-init-hook`):
 `agent_session(skills=...)` builds that initializer in `__enter__`, and the new
 `make_skill_agent()` factory returns a **bare** `Agent` carrying the same
 initializer — symmetric with

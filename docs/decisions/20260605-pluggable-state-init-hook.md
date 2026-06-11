@@ -1,4 +1,11 @@
-# ADR 0023: A pluggable state initializer makes skills a bare-agent capability
+---
+title: "A Pluggable State Initializer Makes Skills a Bare-Agent Capability"
+status: Accepted
+date: 2026-06-05
+slug: pluggable-state-init-hook
+---
+
+# A Pluggable State Initializer Makes Skills a Bare-Agent Capability
 
 ## Status
 
@@ -6,12 +13,12 @@ Accepted
 
 ## Context
 
-ADR 0021 added agent skills as a *run path*: `run_with_skills(agent, task)`
+`add-agent-skills` added agent skills as a *run path*: `run_with_skills(agent, task)`
 builds the initial `State` differently from `Agent.run` — it records a skills
 menu and any `/mention`ed or preloaded skill bodies *before* the task — then
-drives the same `core.run` loop. ADR 0022 then consolidated agent construction
-behind `AgentSession`, whose `run` branched between `run_with_skills` and
-`Agent.run`.
+drives the same `core.run` loop. `consolidate-agent-presets` then consolidated
+agent construction behind `AgentSession`, whose `run` branched between
+`run_with_skills` and `Agent.run`.
 
 This left skills awkward to expose as a simple builder. Bash is a *tool*, so
 `make_bash_agent` returns a bare `Agent` and `agent.run` just works. A skill is
@@ -19,7 +26,7 @@ not a tool — its menu lives in the conversation `State`, initialized per run
 and gated by per-task directives. So a hypothetical `make_skill_agent`
 returning a bare `Agent` would be a footgun: `agent.run(task)` would silently
 skip all skills behavior, because `Agent.run` hardcoded plain single-task state
-initialization and had no hook to do otherwise. The interim workarounds — a
+initialization and had no hook to do otherwise. The interim workarounds - a
 `skill_session` wrapper, then a `SkillsAgent` runner type — both added a
 parallel construct whose only job was to call `run_with_skills` instead of
 `agent.run`.
