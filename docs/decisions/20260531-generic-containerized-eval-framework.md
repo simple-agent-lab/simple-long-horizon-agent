@@ -187,7 +187,7 @@ ships today.
 
 The agent code is **not built into the eval image**. The container's main process
 is `python -m simple_agent_lab.evals.in_container`, and the bootstrap script
-`pip install`s `simple-agent-lab` into an isolated `/tmp/agent-venv` at startup —
+`pip install`s `simple-agent-lab` into an isolated `/opt/agent-venv` at startup —
 never touching the image's own environment that the benchmark under test depends
 on. The agent sees `/testbed` exactly as the upstream image ships it.
 

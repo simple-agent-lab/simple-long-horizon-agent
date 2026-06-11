@@ -31,7 +31,7 @@ host (scheduler; little compute)        workers (just a daemon + images)
 
 The agent code is **not built into the eval image**. The container's main
 process is `python -m simple_agent_lab.evals.in_container`, and the bootstrap
-script `pip install`s `simple-agent-lab` into an isolated `/tmp/agent-venv` at
+script `pip install`s `simple-agent-lab` into an isolated `/opt/agent-venv` at
 startup — never touching the image's own (conda) environment that the benchmark
 under test depends on. `/testbed` stays exactly as the upstream image ships it;
 the agent sees a normal local repo and a normal bash tool.
