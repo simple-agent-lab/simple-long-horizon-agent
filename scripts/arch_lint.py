@@ -6,8 +6,7 @@ invariants that the codebase already satisfies; this script keeps them true:
 1. Layering. Every internal module belongs to a zone with a rank. A module may
    only import modules in its own zone or a lower one. In particular the
    foundation (`messages`) imports nothing internal, and the runtime core never
-   depends on peripheral subsystems (agents, evals, mcp, trajectory, gateway,
-   trace).
+   depends on peripheral subsystems (agents, evals, mcp, trace, gateway).
 2. Provider isolation. Only provider adapters may import a provider SDK, so the
    runtime core stays provider-neutral.
 3. Optional-dependency confinement. Heavy optional dependencies stay inside the
@@ -59,7 +58,6 @@ MODULE_ZONES = {
     # peripheral subsystems: may depend on core, but core must not depend back
     "agents": PERIPHERAL,
     "trace": PERIPHERAL,
-    "trajectory": PERIPHERAL,
     "evals": PERIPHERAL,
     "mcp": PERIPHERAL,
     "tui_gateway": PERIPHERAL,

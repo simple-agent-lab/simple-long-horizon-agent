@@ -301,7 +301,7 @@ framework preserves the viewer's three on-disk expectations (ADR eval-output-dir
   viewer parses `run_id` / `instance_id` from exactly this shape.
 - **Filename** `trajectory.jsonl` (the `out/trajectory.jsonl` artifact key).
 - **Schema** `simple-agent-lab.trajectory.v3`, written by
-  `simple_agent_lab.trajectory.trace_record(...)`.
+  `simple_agent_lab.trace.trace_record(...)`.
 
 Live updates work because the in-container runner re-`put`s the trajectory key
 on a cadence and `LocalDirStore` writes it atomically (`os.replace`), so a

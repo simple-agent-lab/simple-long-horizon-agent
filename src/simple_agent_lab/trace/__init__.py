@@ -2,14 +2,18 @@
 
 Layer 1 — **Event** (``protocols.py``): append-only runtime log.
 Layer 2 — **Span** (``spans.py``): structured operations derived from events.
-Layer 3 — **Training** (``training.py``): model-visible input/output pairs.
+Layer 3 — **Training** (``training.py`` / ``openai_export.py``): model-visible
+input/output pairs.
 
-The package keeps one import surface (``simple_agent_lab.trajectory``) but
+The package keeps one import surface (``simple_agent_lab.trace``) but
 splits the work by concern so each piece stays small and readable:
 
+- ``render`` — ``print_trace``, the human-readable console view of Layer 1.
 - ``jsonl`` — JSON-safe coercion + (atomic) JSONL read/write.
 - ``spans`` — ``Span`` model and the event → span tree extraction.
-- ``training`` — ``ModelTurn`` model and training-pair extraction.
+- ``training`` — ``ModelTurn`` model and provider-neutral training pairs.
+- ``openai_export`` — OpenAI Chat fine-tuning JSONL export (the package's
+  one provider-specific module).
 - ``run_trace`` — ``RunTrace`` value plus the canonical record schema.
 - ``live`` — the IO/concurrency-heavy incremental ("live") export edge.
 
@@ -37,6 +41,11 @@ from .live import (
     trace_meta_from_run_trace,
     write_canonical_trace,
 )
+from .openai_export import (
+    append_openai_training_record,
+    openai_training_record,
+)
+from .render import print_trace
 from .run_trace import (
     SCHEMA,
     RunTrace,
@@ -64,12 +73,15 @@ __all__ = [
     "SCHEMA",
     "Span",
     "TraceMeta",
+    "append_openai_training_record",
     "default_stderr_flush_error",
     "event_record",
     "json_safe",
     "live_trace_path_from_env",
     "merge_sub_agent_spans",
     "model_turns_from_events",
+    "openai_training_record",
+    "print_trace",
     "read_jsonl",
     "run_agent_with_live_trace",
     "run_trace_from_state",

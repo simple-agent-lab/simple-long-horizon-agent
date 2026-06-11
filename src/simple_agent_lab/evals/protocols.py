@@ -42,6 +42,7 @@ INSTANCE_KEY = "input/instance.json"  # host puts (sanitized), container gets
 EVAL_KEY = (
     "input/eval.json"  # host puts (gold scoring inputs), container `evaluate` gets
 )
+MCP_KEY = "input/mcp.json"  # host puts optional MCP server config, container gets
 RESULT_KEY = "out/result.json"  # container puts (raw extract_result), host gets
 TRACE_KEY = "out/trajectory.jsonl"  # container re-puts on a cadence = live trace
 
@@ -236,6 +237,7 @@ class RunSpec:
     api_kind: str
     provider_env: Mapping[str, str] = field(default_factory=dict)
     install: bool = True
+    package_extras: tuple[str, ...] = ()
     wheelhouse_mount: str | None = None
     run_name: str = ""
 

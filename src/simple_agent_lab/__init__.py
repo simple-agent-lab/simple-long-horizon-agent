@@ -5,7 +5,7 @@ Preset agents (the bash agent and friends) live under
 package's protocol/runtime/LLM/tool layers, not part of the core
 surface. Import them explicitly, e.g.::
 
-    from simple_agent_lab.agents.bash import make_bash_agent
+    from simple_agent_lab.agents.starter import make_bash_agent
 """
 
 from .core import Agent, run
@@ -76,13 +76,15 @@ from .messages import (
     tool_results_of,
     user_message,
 )
-from .trace import append_openai_training_record, openai_training_record, print_trace
-from .trajectory import (
+from .trace import (
     ModelTurn,
     RunTrace,
     Span,
+    append_openai_training_record,
     event_record,
     model_turns_from_events,
+    openai_training_record,
+    print_trace,
     run_trace_from_state,
     spans_from_events,
 )

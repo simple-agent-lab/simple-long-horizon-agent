@@ -25,8 +25,8 @@ from simple_agent_lab import (
     message_text,
     tool_results_of,
 )
-from simple_agent_lab.agents.bash import BASH_AGENT_SYSTEM_PROMPT
-from simple_agent_lab.agents.bash_task import (
+from simple_agent_lab.agents.starter import (
+    BASH_AGENT_SYSTEM_PROMPT,
     BASH_TASK_AGENT_SYSTEM_PROMPT,
     BASH_TASK_EXPLORER_ADDENDUM,
     EXPLORER_AGENT_DEFAULT_NAME,

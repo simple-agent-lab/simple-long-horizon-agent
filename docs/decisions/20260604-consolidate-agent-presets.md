@@ -1,0 +1,124 @@
+---
+title: "Consolidate Agent Presets behind one AgentSession + Toolsets"
+status: Accepted
+date: 2026-06-04
+slug: consolidate-agent-presets
+---
+
+# Consolidate Agent Presets behind one AgentSession + Toolsets
+
+## Status
+
+Accepted
+
+## Context
+
+`src/simple_agent_lab/agents/` grew a subfolder per agent kind (`bash/`,
+`bash_task/`, and a `skill/` variant), while two more kinds (`skill`, `mcp`)
+lived only as inline code in demo scripts. All four are really the same shape —
+`make_llm_agent(...)` with a different tool list — yet the wiring was duplicated
+across presets, demos, evals, and tests.
+
+Two of the kinds differ in more than their tool list:
+
+- **skill** swaps the *run path* (`run_with_skills`, which injects a skills
+  menu before the task) for the plain `Agent.run`.
+- **mcp** introduces a *resource lifecycle*: an `MCPConnection` (background
+  thread, and for stdio a subprocess) whose tools are bound to a live
+  connection that must stay open while the run's lazy event generator is
+  consumed.
+
+So a single "vary `tools=[...]`" factory is insufficient. We wanted one
+canonical builder used everywhere, without a declarative config interpreter
+(which `AGENTS.md` warns against as "magic configuration").
+
+## Decision
+
+1. **One runner: `AgentSession`.** A context manager opens any `Toolset`s via a
+   single `ExitStack`, merges their tools with the static tools, builds the
+   `Agent` with the existing `make_llm_agent`, and `.run()` dispatches to
+   `run_with_skills` or `Agent.run`. Exiting closes the toolsets. Definition
+   (`make_llm_agent`) stays separate from execution (`AgentSession`), echoing
+   ADK's agent-vs-runner split.
+
+2. **Resource tools are self-managing `Toolset`s.** A small `Toolset` protocol
+   (`agents/toolsets.py`) lets a resource-bearing tool source own its
+   open/close. `MCPToolset` wraps an `MCPServerConfig`; the session opens and
+   closes it. This is ADK's "drop a toolset into the list, runner owns the
+   exit stack" idea, scaled to our runtime, and generalizes to multiple servers
+   and future resource tools.
+
+3. **Capabilities compose through one front door** (`agents/starter.py`):
+   `agent_session()` turns on bash, read, an explorer `task` tool, skills (a
+   `SkillConfig` flag), and MCP servers (`MCPToolset` entries) in any
+   combination. No per-kind class. (Superseded the original four presets — see
+   the follow-up note below.)
+
+4. **Clean cut.** The per-kind subfolders are deleted; their factory names
+   (`make_bash_agent`, `make_bash_task_agent`) survive as thin back-compat
+   wrappers in `starter.py` returning a plain `Agent` for callers (evals, the
+   TUI gateway) that drive their own run loop. All in-repo call sites moved to
+   `simple_agent_lab.agents.starter`.
+
+## Consequences
+
+- One place defines how an agent is assembled and run; demos/evals/tests share
+  it. Adding a kind is a new preset, not a new subfolder.
+- The MCP connection lifecycle is honest and uniform (`with session:`), not a
+  bespoke `with connect_mcp(...)` dance at every call site.
+- The eval skills path (`src/simple_agent_lab/evals/in_container.py`) still uses
+  `system_prompt_with_skills` (menu in the system prompt), which is distinct
+  from the interactive `run_with_skills` path; this ADR does not unify those.
+- `build_agent` from the design spec was dropped (it only forwarded to
+  `make_llm_agent`); `AgentSession` and the wrappers call `make_llm_agent`
+  directly.
+
+## Alternatives Considered
+
+- **Declarative spec + `run(spec, task)`.** Most "single entry point," but the
+  most interpretive logic, conflicts with the no-magic-config guidance, and
+  opening/closing an MCP connection around a lazy generator inside a plain
+  function is fragile.
+- **Builder only (returns a plain `Agent`).** Smallest, but does not dedup the
+  run path or the MCP/skills wiring — the stated goal.
+
+## Follow-up (2026-06-04): presets superseded by `agent_session()`
+
+The original four preset constructors (`bash_session`, `bash_task_session`,
+`skill_session`, `mcp_session`) implied the kinds were mutually exclusive, but
+they are not — an agent commonly needs skills **and** MCP tools at once. They
+are replaced by a single composable `agent_session()` that enables capabilities
+additively (bash/read/explorer/skills/mcp/extra tools). The runtime
+(`AgentSession`), `Toolset`/`MCPToolset`, `SkillConfig`, and the plain-`Agent`
+back-compat factories (`make_bash_agent`, `make_bash_task_agent`) are unchanged.
+
+## Follow-up (2026-06-05): general `make_agent()` + named session sugar
+
+Two symmetric front doors now exist, sharing the same capability flags:
+`make_agent()` builds a stateless `Agent` from resource-free capabilities
+(bash/read/explorer/tools), and `agent_session()` adds the session-only
+capabilities (skills, MCP). The two named factories (`make_bash_agent`,
+`make_bash_task_agent`) and the explorer wiring inside `agent_session()` are now
+thin reuses of `make_agent` via a shared `_assemble_static_tools` helper, so the
+tool-assembly logic lives in one place.
+
+A named session shortcut `mcp_session()` was re-added, but only as a thin
+wrapper that presets the MCP capability on `agent_session()` and forwards the
+rest. This restores a convenient name without bringing back the per-kind silos:
+the composable core stays the single implementation, so
+`mcp_session(provider, [...], skills=True)` still composes freely. (A
+`skill_session()` was briefly added alongside it, then dropped — see
+`pluggable-state-init-hook`:
+skills are state initialization, not a resource, so they need no session.)
+
+## Follow-up (2026-06-05): skills moved to a state initializer
+
+`AgentSession.run` no longer branches on skills. Skills are now installed as an
+`Agent.init_state` (the core hook added in
+`pluggable-state-init-hook`):
+`agent_session(skills=...)` builds that initializer in `__enter__`, and the new
+`make_skill_agent()` factory returns a **bare** `Agent` carrying the same
+initializer — symmetric with
+`make_bash_agent`, runnable with a plain `agent.run`. The interim `skills_agent`
+runner type is removed. `agent_session`/`mcp_session` remain only for MCP, the
+one capability that owns a live resource.

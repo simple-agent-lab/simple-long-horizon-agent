@@ -56,7 +56,7 @@ from simple_agent_lab.skills import (  # noqa: E402
 )
 from simple_agent_lab.tools.bash import make_bash_tool  # noqa: E402
 from simple_agent_lab.tools.read import make_read_tool  # noqa: E402
-from simple_agent_lab.trajectory import run_trace_from_state, trace_record  # noqa: E402
+from simple_agent_lab.trace import run_trace_from_state, trace_record  # noqa: E402
 
 OPENAI_MODEL_ENV = "OPENAI_MODEL"
 OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"

@@ -25,7 +25,7 @@ from .prompt import (
     skills_menu_message,
     system_prompt_with_skills,
 )
-from .runtime import run_with_skills, skill_body_messages
+from .runtime import init_state_with_skills, run_with_skills, skill_body_messages
 
 __all__ = [
     "BUNDLED_LIBRARY_DIR",
@@ -42,5 +42,6 @@ __all__ = [
     "skills_menu_message",
     "system_prompt_with_skills",
     "run_with_skills",
+    "init_state_with_skills",
     "skill_body_messages",
 ]

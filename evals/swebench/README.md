@@ -19,7 +19,7 @@ The adapter maps SWE-bench onto the generic `Suite` protocol (ADR generic-contai
   `simple_agent_lab.evals.suites.swebench`): the SWE-bench container half builds
   the task, records the trajectory, and writes `result.json` with the final
   `model_patch` (filtering generated files). Incremental traces for the host
-  viewer use the live-trace helpers in `simple_agent_lab.trajectory` — see
+  viewer use the live-trace helpers in `simple_agent_lab.trace` — see
   `docs/agent-native/docker-live-trace.md`.
 - `evaluate_predictions.py` collects per-run `result.json` files into an official
   predictions JSONL (`--collect-predictions`) and runs or normalizes the official
@@ -48,6 +48,14 @@ EOF
 
 # 4. Fetch an instance, build images, and run the agent
 bash runs/run_swebench_suite.sh sympy__sympy-23824
+```
+
+To enable MCP tools for the same instance, keep the provider settings in `.env`
+and point `MCP_CONFIG` at a separate MCP server config:
+
+```bash
+MCP_CONFIG=evals/swebench/mcp.example.json \
+  bash runs/run_swebench_suite.sh sympy__sympy-23824 3 mcp-smoke bash
 ```
 
 ## Docker Setup
@@ -253,6 +261,47 @@ expects, so it is independent of `API_KIND` (`openai-responses` ->
 `OPENAI_REASONING_EFFORT` name is still honored when `REASONING_EFFORT` is unset.
 The run entry also passes `NO_PROXY` and `no_proxy` through when they exist.
 
+MCP server settings live outside `.env`, in a JSON file selected with
+`MCP_CONFIG` or `--mcp-config`. The checked-in example starts the official
+Python Git MCP server inside the SWE-bench container:
+
+```bash
+MCP_CONFIG=evals/swebench/mcp.example.json \
+  bash runs/run_swebench_suite.sh sympy__sympy-23824 3 mcp-smoke bash
+```
+
+The example config is:
+
+```json
+{
+  "servers": [
+    {
+      "name": "git",
+      "transport": "stdio",
+      "command": "/tmp/uv",
+      "args": [
+        "tool",
+        "run",
+        "mcp-server-git",
+        "--repository",
+        "/testbed"
+      ],
+      "cwd": "/testbed",
+      "call_timeout": 30
+    }
+  ]
+}
+```
+
+Stdio MCP servers run inside the benchmark container, so their commands, module
+paths, environment variables, and `cwd` must make sense there. The example uses
+the Linux `uv` binary mounted at `/tmp/uv` by the SWE-bench wrapper, then runs
+`mcp-server-git` through `uv tool run`. The popular official filesystem server
+(`npx -y @modelcontextprotocol/server-filesystem /testbed`) is also a good MCP
+smoke target when the benchmark image has Node.js/npm available. Private or
+local configs can live under the ignored `evals/out/swebench/` tree, for example
+`evals/out/swebench/mcp.local.json`.
+
 The recommended entry points are the run scripts. With no instance argument,
 each script runs a small default instance. Passing one instance id runs that
 instance. Passing `--all` runs the full dataset split; use `--parallel N` to
@@ -291,6 +340,7 @@ uv run python runs/run_swebench_suite.py sympy__sympy-23824 \
   --instance-json evals/out/swebench/instance_sympy__sympy-23824.jsonl \
   --dataset-name princeton-nlp/SWE-bench_Verified \
   --provider openai --api-kind openai-chat --dotenv .env \
+  --mcp-config evals/swebench/mcp.example.json \
   --max-turns 20 --run-id my-run --agent-flavor bash \
   --network-mode host --force
 ```

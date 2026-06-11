@@ -203,8 +203,9 @@ class DirectivesTest(unittest.TestCase):
         self.assertIsInstance(parse_skill_directives("x", set()), SkillDirectives)
 
 
-from simple_agent_lab.agents.bash import make_bash_agent  # noqa: E402
+from simple_agent_lab.agents.starter import make_bash_agent  # noqa: E402
 from simple_agent_lab.llm import Provider  # noqa: E402
+from simple_agent_lab.skills import init_state_with_skills  # noqa: E402
 from simple_agent_lab.skills.runtime import (  # noqa: E402
     run_with_skills,
     skill_body_messages,
@@ -217,6 +218,18 @@ FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "skills"
 class RunWithSkillsTest(unittest.TestCase):
     def _fixture_roots(self) -> list[SkillRoot]:
         return [SkillRoot(str(FIXTURES), "repo")]
+
+    def test_public_init_state_with_skills_records_menu_and_task(self) -> None:
+        agent = make_bash_agent(provider=FAKE_PROVIDER, cwd=str(FIXTURES))
+        state = init_state_with_skills(
+            agent,
+            "echo the word hello",
+            roots=self._fixture_roots(),
+        )
+
+        self.assertEqual(state.task, "echo the word hello")
+        self.assertEqual([m.kind for m in state.messages], ["system", "task"])
+        self.assertIn("echo-fixture", state.messages[0].content[0].text)
 
     def test_skill_body_messages_wrap_body(self) -> None:
         skills = discover_skills(self._fixture_roots())

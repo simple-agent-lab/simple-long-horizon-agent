@@ -40,6 +40,8 @@ product direction, especially if future contributors may wonder why it was chose
 - [Collapse the Scorer Seam into the Run Primitive](20260601-collapse-scorer-seam-into-run-primitive.md) — amends `scorer-seam-and-scoring-topology` and `generic-containerized-eval-framework`, builds on `oracle-run-mode-for-suite-self-check`
 - [Add Agent Skills (read-based, on by default)](20260602-add-agent-skills.md)
 - [Heavyweight Eval Frameworks Are External Arenas, Not the Backbone](20260610-heavyweight-frameworks-as-external-arenas.md)
+- [Consolidate Agent Presets behind one AgentSession + Toolsets](20260604-consolidate-agent-presets.md)
+- [A Pluggable State Initializer Makes Skills a Bare-Agent Capability](20260605-pluggable-state-init-hook.md)
 
 ## Proposed
 
