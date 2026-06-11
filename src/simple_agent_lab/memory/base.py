@@ -25,7 +25,7 @@ from simple_agent_lab.tools import AgentTool
 
 @dataclass(frozen=True)
 class MemoryContext:
-    """Run metadata passed to a memory extension."""
+    """Run metadata passed to memory."""
 
     agent: str
     task: str

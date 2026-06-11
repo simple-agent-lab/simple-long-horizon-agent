@@ -1,4 +1,4 @@
-"""Memory extensions for Simple Agent Lab.
+"""Memory for Simple Agent Lab.
 
 The memory package stays outside the core runtime. Memory implementations can
 inject ordinary messages, recall context, provide ordinary tools, and observe

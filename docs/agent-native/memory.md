@@ -1,4 +1,4 @@
-# Memory Extension Sketch
+# Memory Sketch
 
 Read when:
 
@@ -23,13 +23,13 @@ to a harder-to-reverse memory architecture, promote that decision into
 
 ## Goal
 
-Memory should be a small extension boundary around the current runtime:
+Memory should be a small boundary around the current runtime:
 
 ```text
 Agent + Message + State + build_context_view() + run()
           ^
           |
-   memory extension
+   memory layer
 ```
 
 The first design goal is to support different memory methods without choosing a
@@ -158,7 +158,7 @@ state, events = agent.run(task)
 ```
 
 Current core hooks map `initial(...)` to `SESSION_START` and `finish(...)` to
-`SESSION_END`. `recall(...)` and `record(...)` remain extension methods for a
+`SESSION_END`. `recall(...)` and `record(...)` remain optional methods for a
 future pre-model or after-turn hook point; do not pretend they run live until
 the runtime exposes those points.
 
@@ -174,7 +174,7 @@ Use small role names when a concrete implementation needs them:
   model-directed search or writes.
 - `MemoryInjector`: turns recalled memory into runtime `Message` values.
 
-These roles are lower-level parts. The user-facing extension point should stay
+These roles are lower-level parts. The user-facing entry point should stay
 `Memory` so later implementations do not have to pretend every memory method is
 a store.
 
@@ -241,7 +241,7 @@ Backends are implementation details. Possible backends include:
 - a vector index;
 - a remote memory service.
 
-Keep the package facade small. Top-level imports should expose the extension
+Keep the package facade small. Top-level imports should expose the memory
 protocol and complete memory implementations. For the starter mechanisms, keep
 implementation-specific helpers in the same file as their mechanism rather
 than creating helper modules.
@@ -266,7 +266,7 @@ memory spans in `trajectory/spans.py`.
 
 ## Expected Fits
 
-| Memory method | Extension pieces |
+| Memory method | Memory pieces |
 | --- | --- |
 | Run summary memory | `finish(...)` learner plus `initial(...)` injection |
 | User preference memory | explicit memory tool plus stable `initial(...)` context |
@@ -327,7 +327,7 @@ Mapping to this sketch:
   filesystem snippets before every model request.
 - The path/policy block is `initial(...)` context injection.
 - The existing bash or MCP filesystem tool provides tool exposure; the memory
-  extension may contribute no tools of its own.
+  layer may contribute no tools of its own.
 - Evidence writing and summary/index updates are `finish(...)` learner/sink
   work. Raw run evidence and a minimal `summary.md` should still be written when
   optional distillation fails, so `INDEX.md` never points at a missing summary.
@@ -339,9 +339,9 @@ Mapping to this sketch:
   deterministic section/promotion logic. Determinism lives only in the
   guardrails: an empty rewrite keeps the prior handbook, and a rewrite that is
   oversized, structurally empty, or would erase every lesson is rejected (the
-  prior handbook is kept and a `memory_error.md` marker records the skip). See
-  ADR `model-owned-memory-handbook-rewrite`. `memory_summary.md` is still rebuilt from `INDEX.md` when no
-  model-provided summary was accepted.
+  prior handbook is kept and a `memory_error.md` marker records the skip).
+  `memory_summary.md` is still rebuilt from `INDEX.md` when no model-provided
+  summary was accepted.
 - `make_filesystem_distiller(provider)` builds an explicit no-tools LLM
   distiller. It chooses `memory_name` after seeing the completed run evidence,
   then returns a per-run summary, index row, the full rewritten `MEMORY.md`
@@ -423,7 +423,7 @@ Domain-specific details to generalize:
 
 Abstraction notes:
 
-- The extension layer must support memory methods that expose a directory and
+- The memory layer must support memory methods that expose a directory and
   instructions rather than a direct recall API.
 - It must support a no-tools model call for distillation so memory updates do
   not depend on or pollute the main agent tool surface.
@@ -433,7 +433,7 @@ Abstraction notes:
 
 ### Refinements From The Imported Spec
 
-The imported mechanisms suggest the high-level extension should include these
+The imported mechanisms suggest the high-level memory layer should include these
 pieces before adding a concrete backend:
 
 - A hook context carrying `agent`, `state`, `session_id`, an optional memory
@@ -452,7 +452,7 @@ pieces before adding a concrete backend:
 
 Completed starting point:
 
-1. Protocol/data types and a no-op extension.
+1. Protocol/data types and a no-op memory implementation.
 2. MCP-like memory binding that produces `tools` plus future lifecycle hooks,
    without changing the current agent runtime.
 3. Focused tests for binding shape, transcript extraction, and filesystem

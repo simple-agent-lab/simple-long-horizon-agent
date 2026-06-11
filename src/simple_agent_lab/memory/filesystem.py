@@ -2,8 +2,8 @@
 
 This implementation keeps raw evidence and distilled notes in Markdown files
 under a memory-specific directory. The model reads memory through ordinary file
-tools such as bash or an MCP filesystem server; this extension only injects the
-policy/path and writes evidence after the run.
+tools such as bash or an MCP filesystem server; this memory module only injects
+the policy/path and writes evidence after the run.
 """
 
 from __future__ import annotations
