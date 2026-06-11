@@ -50,15 +50,14 @@ all fit behind the same high-level shape.
   recalled, injected, written, skipped, or blocked.
 - Prefer read-only or explicit-write memory first. Silent long-term writes make
   debugging and teaching harder.
-- Current workspace facts, tests, and tool observations outrank stale memory.
 - Treat "no memory update" as a successful outcome. Durable memory should
   change future agent behavior, save future user effort, or prevent a known
   failure; otherwise leave it out.
-- Prefer progressive disclosure over bulk recall: load a compact summary or
-  index first, then search/open detailed memory only when the task needs it.
 - Do not start with vector or hybrid RAG as the default. Coding-agent memory is
   usually sparse, high-value, and drift-prone enough that inspectable
   file-backed memory is the better first teaching path.
+- For what is worth keeping, provenance, staleness, progressive disclosure, and
+  fast/slow consolidation, see Reference Guidance below.
 
 ## Reference Guidance
 
@@ -101,6 +100,8 @@ memory quality:
   a slow path should consolidate, deduplicate, prune, and resolve conflicts.
 - Keep human-owned project rules in human-owned docs or ADRs. Automatic memory
   may help recall those rules, but should not be their only home.
+- Prefer progressive disclosure over bulk recall: load a compact summary or
+  index first, then search or open detailed memory only when the task needs it.
 
 ## Implemented Shape
 
@@ -229,14 +230,11 @@ model, and `dispatch_tool_calls` already records tool execution events.
 Backends are implementation details. Possible backends include:
 
 - no-op or in-memory stores for tests and demos;
-- `FilesystemMemory`, which injects a filesystem memory directory policy, writes
-  host-owned evidence files at run end, always keeps `INDEX.md` summary links
-  valid, and can apply an optional distiller result to `summary.md`, `INDEX.md`,
-  `MEMORY.md`, and `memory_summary.md`. The distiller returns the full updated
-  `MEMORY.md` handbook (the model owns merging, rewriting, and dropping lessons);
-  `finish(...)` writes that rewrite verbatim when it passes size/erasure guards,
-  keeps the prior handbook on an empty or rejected rewrite, and refreshes
-  `memory_summary.md` when the distiller did not provide one;
+- `FilesystemMemory`, a file-backed implementation that injects a memory
+  directory policy, writes host-owned run evidence, keeps `INDEX.md` links
+  valid, and applies an optional model-owned `MEMORY.md` rewrite behind
+  guardrails. See the Filesystem Memory section below and
+  `src/simple_agent_lab/memory/filesystem.py` for the exact behavior;
 - SQLite or JSONL records;
 - a vector index;
 - a remote memory service.
@@ -262,7 +260,7 @@ work should consider explicit memory events such as:
 The first implementation may instead record injected messages and use existing
 tool events, but it should not leave recall or writes invisible. If memory
 retrieval becomes a durable operation in the runtime, add event pairs and derive
-memory spans in `trajectory/spans.py`.
+memory spans in `src/simple_agent_lab/trace/spans.py`.
 
 ## Expected Fits
 
@@ -285,7 +283,10 @@ filesystem-backed storage, post-run learning, and memory-only model calls.
 
 ### Filesystem Memory
 
-Fit: implemented as `FilesystemMemory`.
+Fit: implemented as `FilesystemMemory`. Treat
+`src/simple_agent_lab/memory/filesystem.py` as the source of truth for exact
+thresholds, file names, and write order; this section explains the intended
+shape and the reasons behind it.
 
 Generalized shape:
 
