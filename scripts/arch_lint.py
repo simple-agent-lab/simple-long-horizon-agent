@@ -63,6 +63,7 @@ MODULE_ZONES = {
     "tui_gateway": PERIPHERAL,
     "skills": PERIPHERAL,
     "memory": PERIPHERAL,
+    "workflow": PERIPHERAL,
 }
 
 # External (third-party) top-level package -> the only internal path prefix

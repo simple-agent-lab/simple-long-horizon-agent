@@ -32,6 +32,9 @@ evals/out/swebench_multilingual/*
 !evals/out/swebench_pro/
 evals/out/swebench_pro/*
 !evals/out/swebench_pro/README.md
+!evals/out/onemillion/
+evals/out/onemillion/*
+!evals/out/onemillion/README.md
 logs/
 .tmp/
 
@@ -46,6 +49,15 @@ docs/reference-architectures/*
 # Superpowers process artifacts (implementation plans, brainstorms) — local
 # scratch only. The durable commitment lands in an ADR under docs/decisions/.
 docs/superpowers/
+
+# Vendored OneMillion-Bench checkout — a separate upstream project kept locally
+# as a reference for the `onemillion` eval suite (its grading logic is ported
+# into the wheel under simple_agent_lab.evals.suites.onemillion). Never pushed:
+# it has its own git repo, license, dataset, and a large tech_report.pdf.
+/OneMillion-Bench/
+
+# Local-only testing notes for the OneMillion-Bench suite (kept off the repo).
+evals/onemillion/TESTING.md
 
 # uv
 # (commit uv.lock; ignore the local cache only)
