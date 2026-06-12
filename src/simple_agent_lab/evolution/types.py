@@ -1,6 +1,9 @@
-"""The complete vocabulary of the evolution framework: five read-only views
-plus three small supporting types. Views wrap a directory and parse lazily;
-the directory is the source of truth and ``.dir`` is always the escape hatch.
+"""The complete vocabulary of the evolution framework.
+
+Two of the nouns are read-only directory views — ``Version`` and ``Run`` wrap a
+directory and parse lazily, with the directory as the source of truth and
+``.dir`` as the escape hatch. The rest (``Slice``, ``Proposal``, ``Verdict``,
+``Decision``, ``Context``, ``Manifest``) are plain in-memory value objects.
 """
 
 from __future__ import annotations
