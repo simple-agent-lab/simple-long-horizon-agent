@@ -1,0 +1,106 @@
+"""The default rollout: a version in, eval-suite runs out.
+
+A thin wrapper over the existing concurrent eval driver (``run_dataset``). The
+run_id is deterministic in ``(version, slice)`` so an unchanged side is measured
+once and reused across steps (measurement reuse, for free). The factory binds
+deployment concerns; the slice travels per call.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+from typing import Any, Callable
+
+from simple_agent_lab.evals.dataset import run_dataset
+from simple_agent_lab.evals.in_container import (
+    API_KIND_CHOICES,
+    API_KIND_ENV,
+    OPENAI_AUTH_ENV,
+    OPENAI_BASE_URL_ENV,
+    OPENAI_MODEL_ENV,
+)
+from simple_agent_lab.evals.protocols import ArtifactStore, ContainerBackend, Suite
+from simple_agent_lab.evolution.types import PROVIDER_NAME, Run, Slice, Version
+
+Rollout = Callable[[Version, Slice], Sequence[Run]]
+
+
+def _provider_args(version: Version) -> tuple[str, dict[str, str]]:
+    """Translate a version's provider.json into run_dataset provider kwargs."""
+
+    path = version.dir / PROVIDER_NAME
+    if not path.is_file():
+        return "fake", {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    api = data.get("api", "fake")
+    if api == "fake":
+        return "fake", {}
+    env = {OPENAI_MODEL_ENV: data["model"]}
+    if data.get("base_url"):
+        env[OPENAI_BASE_URL_ENV] = data["base_url"]
+    if api in API_KIND_CHOICES:
+        env[API_KIND_ENV] = api
+    key_env = data.get("api_key_env", "")
+    if key_env and os.environ.get(key_env):
+        env[OPENAI_AUTH_ENV] = os.environ[key_env]
+    return "openai", env
+
+
+def dataset_rollout(
+    *,
+    suite: Suite,
+    backend: ContainerBackend,
+    store: ArtifactStore,
+    runs_root: Path,
+    concurrency: int = 1,
+    run_kwargs: Mapping[str, Any] | None = None,
+) -> Rollout:
+    runs_root = Path(runs_root).resolve()
+
+    def rollout(version: Version, slice_: Slice) -> Sequence[Run]:
+        run_id = f"{version.hash}-{slice_.sha}"
+        run_dir = runs_root / run_id
+        if not _already_measured(run_dir, slice_):
+            provider, provider_env = _provider_args(version)
+            extra = dict(run_kwargs or {})
+            api_kind = extra.pop("api_kind", _api_kind(provider_env))
+            run_dataset(
+                suite=suite,
+                instances=slice_.instances,
+                backend=backend,
+                store=store,
+                run_root=runs_root,
+                run_id=run_id,
+                concurrency=concurrency,
+                provider=provider,
+                provider_env=provider_env,
+                api_kind=api_kind,
+                **extra,
+            )
+            run_dir.mkdir(parents=True, exist_ok=True)
+            (run_dir / "version.json").write_text(
+                json.dumps(
+                    {"version": version.hash, "slice": slice_.id, "sha": slice_.sha}
+                ),
+                encoding="utf-8",
+            )
+        return [Run(p) for p in sorted(run_dir.iterdir()) if p.is_dir()]
+
+    return rollout
+
+
+def _api_kind(provider_env: Mapping[str, str]) -> str:
+    """The in-container API kind, mirroring the env the provider was built with."""
+
+    return provider_env.get(API_KIND_ENV, "openai-chat")
+
+
+def _already_measured(run_dir: Path, slice_: Slice) -> bool:
+    if not run_dir.is_dir():
+        return False
+    have = {p.name for p in run_dir.iterdir() if p.is_dir()}
+    want = {str(inst.get("instance_id", n)) for n, inst in enumerate(slice_.instances)}
+    return want.issubset(have)
