@@ -95,7 +95,9 @@ def stage(
 
         meta = manifest or Manifest()
         meta = Manifest(
-            parent=meta.parent if meta.parent is not None else (base.hash if base else None),
+            parent=meta.parent
+            if meta.parent is not None
+            else (base.hash if base else None),
             producer=meta.producer,
             evidence=meta.evidence,
             note=meta.note,
@@ -149,7 +151,9 @@ def promote(workspace: Path, version_: Version, *, namespace: str = "") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f"{path.name}.part")
     tmp.write_text(
-        json.dumps({"hash": version_.hash, "updated": _now()}, indent=2, sort_keys=True),
+        json.dumps(
+            {"hash": version_.hash, "updated": _now()}, indent=2, sort_keys=True
+        ),
         encoding="utf-8",
     )
     tmp.replace(path)

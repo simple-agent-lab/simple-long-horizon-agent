@@ -16,8 +16,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 # Aggregated/per-run score shapes shared by reward + criterion.
-DimScores = Mapping[str, float]                      # one run: {dim: value}
-RunScores = Mapping[str, DimScores]                  # {instance_id: {dim: value}}
+DimScores = Mapping[str, float]  # one run: {dim: value}
+RunScores = Mapping[str, DimScores]  # {instance_id: {dim: value}}
 
 BUNDLE_SCHEMA = "simple-agent-lab.version.v1"
 MANIFEST_NAME = "manifest.json"
@@ -117,7 +117,9 @@ class Run:
         path = self.dir / "out" / "trajectory.jsonl"
         if not path.is_file():
             return ()
-        lines = [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        lines = [
+            ln for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()
+        ]
         if not lines:
             return ()
         try:

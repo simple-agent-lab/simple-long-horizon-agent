@@ -41,8 +41,12 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(store.current(self.ws).hash, a.hash)
 
     def test_restage_preserves_original_manifest(self) -> None:
-        first = store.stage(self.ws, base=None, edits={"p": "x"}, manifest=Manifest(note="first"))
-        again = store.stage(self.ws, base=None, edits={"p": "x"}, manifest=Manifest(note="second"))
+        first = store.stage(
+            self.ws, base=None, edits={"p": "x"}, manifest=Manifest(note="first")
+        )
+        again = store.stage(
+            self.ws, base=None, edits={"p": "x"}, manifest=Manifest(note="second")
+        )
         self.assertEqual(first.hash, again.hash)
         self.assertEqual(again.manifest.note, "first")  # first provenance wins
 

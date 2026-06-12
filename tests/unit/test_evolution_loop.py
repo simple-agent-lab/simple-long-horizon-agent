@@ -51,7 +51,9 @@ class LoopTest(unittest.TestCase):
 
     def test_accepted_proposal_promotes(self) -> None:
         def strategy(ctx: Context) -> Proposal:
-            return Proposal(edits={"prompt.md": "strong"}, note="try strong", kind="prompt")
+            return Proposal(
+                edits={"prompt.md": "strong"}, note="try strong", kind="prompt"
+            )
 
         decision = loop.step(self.ws, self._components(strategy), self.slice)
         self.assertTrue(decision.accepted)
@@ -60,7 +62,9 @@ class LoopTest(unittest.TestCase):
 
     def test_rejected_proposal_keeps_current(self) -> None:
         def strategy(ctx: Context) -> Proposal:
-            return Proposal(edits={"prompt.md": "weak"}, note="no change", kind="prompt")
+            return Proposal(
+                edits={"prompt.md": "weak"}, note="no change", kind="prompt"
+            )
 
         decision = loop.step(self.ws, self._components(strategy), self.slice)
         self.assertFalse(decision.accepted)

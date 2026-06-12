@@ -123,9 +123,7 @@ class Experiment:
         rows = log.read(self.workspace, limit=limit)
         if not rows:
             return "no decisions yet"
-        return "\n".join(
-            f"{d.id} [{d.kind}] {d.outcome}: {d.reason}" for d in rows
-        )
+        return "\n".join(f"{d.id} [{d.kind}] {d.outcome}: {d.reason}" for d in rows)
 
     def rollback(self) -> str:
         parent = store.current(self.workspace).parent

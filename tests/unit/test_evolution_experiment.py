@@ -41,7 +41,9 @@ class ExperimentTest(unittest.TestCase):
         exp = self._experiment()
 
         def to_strong(ctx) -> Proposal:
-            return Proposal(edits={"prompt.md": "strong"}, note="upgrade", kind="prompt")
+            return Proposal(
+                edits={"prompt.md": "strong"}, note="upgrade", kind="prompt"
+            )
 
         decision = exp.step(to_strong)
         self.assertTrue(decision.accepted)

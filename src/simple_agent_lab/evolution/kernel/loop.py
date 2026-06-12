@@ -94,9 +94,7 @@ def step(
     if proposal.base:
         base = store.version(workspace, proposal.base)
         if not base.dir.is_dir():
-            raise ValueError(
-                f"proposal.base {proposal.base!r} is not a known version"
-            )
+            raise ValueError(f"proposal.base {proposal.base!r} is not a known version")
     else:
         base = current
     candidate = store.stage(

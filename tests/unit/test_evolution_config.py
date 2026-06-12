@@ -14,7 +14,7 @@ class RegistryTest(unittest.TestCase):
         self.assertTrue(crit(base, cand).accepted)
 
     def test_register_and_build_custom(self) -> None:
-        registry.REWARDS["myreward"] = lambda: (lambda run: 1.0)
+        registry.REWARDS["myreward"] = lambda: lambda run: 1.0
         fn = registry.build("reward", Use("myreward"))
         self.assertEqual(fn(object()), 1.0)
 

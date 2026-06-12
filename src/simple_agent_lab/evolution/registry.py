@@ -39,7 +39,6 @@ def register(category: str, name: str, factory: Callable[..., Any]) -> None:
 def build(category: str, use: Use) -> Any:
     table = _TABLES[category]
     if use.name not in table:
-        raise KeyError(
-            f"unknown {category} {use.name!r}; registered: {sorted(table)}"
-        )
-    return table[use.name](**dict(use.args))
+        raise KeyError(f"unknown {category} {use.name!r}; registered: {sorted(table)}")
+    factory = table[use.name]
+    return factory(**use.args)

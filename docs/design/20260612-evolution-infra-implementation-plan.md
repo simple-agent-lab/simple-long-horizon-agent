@@ -1677,7 +1677,8 @@ def build(category: str, use: Use) -> Any:
         raise KeyError(
             f"unknown {category} {use.name!r}; registered: {sorted(table)}"
         )
-    return table[use.name](**dict(use.args))
+    factory = table[use.name]
+    return factory(**use.args)
 ```
 
 - [ ] **Step 4: Run test to verify it passes**

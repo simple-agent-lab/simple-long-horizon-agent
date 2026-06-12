@@ -53,7 +53,9 @@ def not_worse(dim: str = "reward", *, tol: float = 0.0) -> Criterion:
         delta = c - b
         accepted = c >= b - tol
         word = "ok" if accepted else "regressed"
-        return Verdict(accepted, f"guard {dim} {word} ({delta:+.4g}, tol {tol})", {dim: delta})
+        return Verdict(
+            accepted, f"guard {dim} {word} ({delta:+.4g}, tol {tol})", {dim: delta}
+        )
 
     return judge
 
