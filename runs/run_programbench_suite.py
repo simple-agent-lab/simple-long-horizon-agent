@@ -49,7 +49,13 @@ from simple_agent_lab.evals.runner import container_name  # noqa: E402
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("instance_id")
-    parser.add_argument("--max-turns", type=int, default=150)
+    parser.add_argument("--max-turns", type=int, default=1000)
+    parser.add_argument(
+        "--wall-time-seconds",
+        type=float,
+        default=21600,
+        help="Wall-clock time limit for the agent run in seconds (default: 21600 = 6h).",
+    )
     parser.add_argument(
         "--run-id", default=f"programbench-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     )
@@ -143,6 +149,7 @@ def main() -> None:
     print("==> Running ProgramBench instance through ProgrambenchSuite")
     print(f"    instance:        {args.instance_id}")
     print(f"    max-turns:       {args.max_turns}")
+    print(f"    wall-time:       {args.wall_time_seconds}s ({args.wall_time_seconds / 3600:.1f}h)")
     print(f"    run-id:          {args.run_id}")
     print(f"    image-tag:       {args.image_tag}")
     print(f"    cmd net-isolate: {isolation}")
@@ -159,6 +166,7 @@ def main() -> None:
         provider=args.provider,
         api_kind=provider_env[harness.API_KIND_ENV],
         max_turns=args.max_turns,
+        wall_time_seconds=args.wall_time_seconds,
         provider_env=provider_env,
         wheelhouse_mount=harness.DEFAULT_WHEELHOUSE_MOUNT,
         name=name,

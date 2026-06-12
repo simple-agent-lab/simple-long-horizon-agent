@@ -440,6 +440,7 @@ def run_in_container(
     provider: Provider | None,
     workdir: Path,
     max_turns: int,
+    wall_time_seconds: float | None = None,
     store: ArtifactStore,
     trace_id: str,
     producer: str,
@@ -501,6 +502,15 @@ def run_in_container(
         if provider is None:
             raise SystemExit("a Provider is required unless oracle=True")
         mcp_servers = _load_mcp_servers(store)
+        abort_fn = lambda: False  # noqa: E731
+        if wall_time_seconds is not None:
+            _deadline = time.monotonic() + wall_time_seconds
+            abort_fn = lambda: time.monotonic() >= _deadline  # noqa: E731
+            print(
+                f"[in_container] wall-time limit: {wall_time_seconds:.0f}s "
+                f"({wall_time_seconds / 3600:.1f}h)",
+                flush=True,
+            )
         last = 0.0
         if mcp_servers:
             if not isinstance(task, str):
@@ -515,7 +525,9 @@ def run_in_container(
                 instance=instance,
                 context=context,
             ) as session:
-                state, events = session.run(task, max_turns=max_turns)
+                state, events = session.run(
+                    task, max_turns=max_turns, abort=abort_fn
+                )
                 for _ in events:
                     now = time.monotonic()
                     if now - last >= flush_interval_s:
@@ -530,7 +542,9 @@ def run_in_container(
                 instance=instance,
                 context=context,
             )
-            state, events = agent.run(task, max_turns=max_turns)
+            state, events = agent.run(
+                task, max_turns=max_turns, abort=abort_fn
+            )
             for _ in events:
                 now = time.monotonic()
                 if now - last >= flush_interval_s:
@@ -605,6 +619,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--workdir", default="/testbed")
     parser.add_argument("--max-turns", type=int, default=75)
     parser.add_argument(
+        "--wall-time-seconds",
+        type=float,
+        default=None,
+        help="Wall-clock time limit for the agent run (seconds). None = no limit.",
+    )
+    parser.add_argument(
         "--provider", choices=["fake", "openai", "oracle"], default="openai"
     )
     parser.add_argument(
@@ -630,6 +650,7 @@ def main(argv: list[str] | None = None) -> None:
         provider=provider,
         workdir=Path(args.workdir),
         max_turns=args.max_turns,
+        wall_time_seconds=args.wall_time_seconds,
         store=store,
         trace_id=f"{args.suite_name}.{args.instance_id}",
         producer=f"suite:{args.suite_name}",

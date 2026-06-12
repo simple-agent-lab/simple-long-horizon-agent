@@ -17,7 +17,7 @@ source runs/_swebench_uv.sh
 
 DEFAULT_INSTANCE_ID="abishekvashok__cmatrix.5c082c6"
 RUN_ROOT="evals/out/programbench"
-MAX_TURNS=150
+MAX_TURNS=1000
 RUN_ID="programbench-$(date +%Y%m%d-%H%M%S)"
 RUN_ALL=0
 PARALLEL=1

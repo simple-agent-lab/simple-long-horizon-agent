@@ -109,7 +109,7 @@ def build_command(spec: RunSpec) -> tuple[str, ...]:
     never builds a command.
     """
 
-    runner_argv = (
+    runner_argv: list[str] = [
         "-m",
         GENERIC_RUNNER_MODULE,
         "--container-module",
@@ -126,9 +126,11 @@ def build_command(spec: RunSpec) -> tuple[str, ...]:
         spec.provider,
         "--api-kind",
         spec.api_kind,
-    )
+    ]
+    if spec.wall_time_seconds is not None:
+        runner_argv += ["--wall-time-seconds", str(spec.wall_time_seconds)]
     script = bootstrap_script(
-        runner_argv=runner_argv,
+        runner_argv=tuple(runner_argv),
         install=spec.install,
         wheelhouse_mount=spec.wheelhouse_mount,
         package_extras=spec.package_extras,
@@ -147,6 +149,7 @@ def run_suite_instance(
     provider: str = "openai",
     api_kind: str = "openai-chat",
     max_turns: int = 75,
+    wall_time_seconds: float | None = None,
     provider_env: Mapping[str, str] | None = None,
     install: bool = True,
     package_extras: tuple[str, ...] = (),
@@ -198,6 +201,7 @@ def run_suite_instance(
         package_extras=package_extras,
         wheelhouse_mount=wheelhouse_mount,
         run_name=name or container_name(suite.name, instance_id, run_id),
+        wall_time_seconds=wall_time_seconds,
     )
     outcome = backend.run(spec, store=bound, binding=binding)
     bound.collect_outputs()
