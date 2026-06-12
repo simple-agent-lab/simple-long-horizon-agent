@@ -38,7 +38,12 @@ def _provider_args(version: Version) -> tuple[str, dict[str, str]]:
     api = data.get("api", "fake")
     if api == "fake":
         return "fake", {}
-    env = {OPENAI_MODEL_ENV: data["model"]}
+    model = data.get("model")
+    if not model:
+        raise ValueError(
+            f"provider.json for version {version.hash} sets api={api!r} but no 'model'"
+        )
+    env = {OPENAI_MODEL_ENV: model}
     if data.get("base_url"):
         env[OPENAI_BASE_URL_ENV] = data["base_url"]
     if api in API_KIND_CHOICES:
@@ -58,6 +63,13 @@ def dataset_rollout(
     concurrency: int = 1,
     run_kwargs: Mapping[str, Any] | None = None,
 ) -> Rollout:
+    """Bind deployment concerns (suite/backend/store/runs_root) into a ``Rollout``.
+
+    Returns a closure that takes the per-call ``(version, slice_)`` and returns
+    one ``Run`` per instance, rolling only when the ``(version, slice)`` has not
+    already been measured (otherwise it reuses the existing result.json).
+    """
+
     runs_root = Path(runs_root).resolve()
 
     def rollout(version: Version, slice_: Slice) -> Sequence[Run]:
@@ -99,8 +111,12 @@ def _api_kind(provider_env: Mapping[str, str]) -> str:
 
 
 def _already_measured(run_dir: Path, slice_: Slice) -> bool:
+    """A ``(version, slice)`` is measured only when every wanted instance wrote
+    its ``out/result.json``. The harness creates each instance dir at run START,
+    so dir presence alone would treat a crashed/partial run as done and skip the
+    re-roll; gating on the result file makes a partial run re-roll instead."""
+
     if not run_dir.is_dir():
         return False
-    have = {p.name for p in run_dir.iterdir() if p.is_dir()}
     want = {str(inst.get("instance_id", n)) for n, inst in enumerate(slice_.instances)}
-    return want.issubset(have)
+    return all((run_dir / iid / "out" / "result.json").is_file() for iid in want)

@@ -69,6 +69,23 @@ class RolloutTest(unittest.TestCase):
         again = rollout(self.version, slice_)  # same (version, slice) -> reuse
         self.assertEqual(again[0].run_id, run_id)
 
+    def test_partial_prior_run_is_rerolled(self) -> None:
+        slice_ = Slice("demo", ({"instance_id": "i1"},))
+        run_id = f"{self.version.hash}-{slice_.sha}"
+        # Simulate a crashed prior run: the instance dir exists (the harness
+        # creates it at run START) but never wrote out/result.json.
+        ((self.ws / "runs" / run_id / "i1").mkdir(parents=True))
+        rollout = dataset_rollout(
+            suite=_DemoSuite(),
+            backend=FakeBackend(on_run=_simulate(0.5)),
+            store=LocalDirStore(self.ws / "runs"),
+            runs_root=self.ws / "runs",
+        )
+        runs = rollout(self.version, slice_)
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(runs[0].instance_id, "i1")
+        self.assertEqual(runs[0].reward, 0.5)
+
 
 if __name__ == "__main__":
     unittest.main()
