@@ -64,6 +64,7 @@ MODULE_ZONES = {
     "skills": PERIPHERAL,
     "memory": PERIPHERAL,
     "workflow": PERIPHERAL,
+    "evolution": PERIPHERAL,
 }
 
 # External (third-party) top-level package -> the only internal path prefix
