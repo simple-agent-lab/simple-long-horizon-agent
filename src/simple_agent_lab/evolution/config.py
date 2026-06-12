@@ -33,4 +33,5 @@ class Config:
     criterion: Use = field(default_factory=lambda: Use("improve", dim="reward"))
     slice_id: str = "custom"
     instances: tuple[Mapping[str, Any], ...] = ()
+    seed: Mapping[str, str] = field(default_factory=dict)
     auto_promote: bool = True

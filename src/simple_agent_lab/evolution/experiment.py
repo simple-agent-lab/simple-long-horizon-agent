@@ -4,19 +4,32 @@ exposes step / run / history / rollback. No policy lives here.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from simple_agent_lab.evolution.components.criterion import improve
+from simple_agent_lab.evolution.components.criterion import Criterion, improve
 from simple_agent_lab.evolution.components.reward import result_key
 from simple_agent_lab.evolution.kernel import log, loop, store
-from simple_agent_lab.evolution.types import Decision, Manifest, Slice, Version
+from simple_agent_lab.evolution.types import (
+    Context,
+    Decision,
+    Manifest,
+    Proposal,
+    RewardFn,
+    Slice,
+    Version,
+)
+
+Strategy = Callable[[Context], "Proposal | None"]
 
 
 @dataclass
 class _Components:
+    # Fields stay ``Any``: the configured strategy default is ``None`` (a Plan-2
+    # seam), which would not satisfy the kernel's non-optional ``Components``
+    # protocol. ``step``/``run`` always pass a concrete strategy via ``replace``.
     rollout: Any
     reward: Any
     strategy: Any
@@ -35,8 +48,9 @@ class Experiment:
         workspace: str | Path,
         *,
         rollout: Any,
-        reward: Any = result_key,
-        criterion: Any | None = None,
+        reward: RewardFn = result_key,
+        strategy: Strategy | None = None,
+        criterion: Criterion | None = None,
         slice_id: str = "custom",
         instances: Sequence[Mapping[str, Any]] = (),
         seed: Mapping[str, str] | None = None,
@@ -46,7 +60,7 @@ class Experiment:
         self._components = _Components(
             rollout=rollout,
             reward=reward,
-            strategy=None,
+            strategy=strategy,
             criterion=criterion or improve("reward"),
         )
         self.slice = Slice(slice_id, tuple(instances))
@@ -57,22 +71,22 @@ class Experiment:
     def from_config(cls, config) -> "Experiment":
         from simple_agent_lab.evolution import registry
 
-        exp = cls.__new__(cls)
-        exp.workspace = Path(config.workspace)
-        exp._components = _Components(
+        strategy = (
+            registry.build("strategy", config.strategy)
+            if config.strategy is not None
+            else None
+        )
+        return cls(
+            config.workspace,
             rollout=registry.build("rollout", config.rollout),
             reward=registry.build("reward", config.reward),
-            strategy=(
-                registry.build("strategy", config.strategy)
-                if config.strategy is not None
-                else None
-            ),
+            strategy=strategy,
             criterion=registry.build("criterion", config.criterion),
+            slice_id=config.slice_id,
+            instances=config.instances,
+            seed=config.seed or None,
+            auto_promote=config.auto_promote,
         )
-        exp.slice = Slice(config.slice_id, tuple(config.instances))
-        exp.auto_promote = config.auto_promote
-        exp._ensure_seed({"prompt.md": ""})
-        return exp
 
     def _ensure_seed(self, seed: Mapping[str, str]) -> None:
         try:
@@ -89,17 +103,17 @@ class Experiment:
     def current(self) -> Version:
         return store.current(self.workspace)
 
-    def step(self, strategy: Any) -> Decision | None:
-        self._components.strategy = strategy
+    def step(self, strategy: Strategy) -> Decision | None:
+        components = replace(self._components, strategy=strategy)
         return loop.step(
-            self.workspace, self._components, self.slice, auto_promote=self.auto_promote
+            self.workspace, components, self.slice, auto_promote=self.auto_promote
         )
 
-    def run(self, strategy: Any, *, n: int = 1) -> list[Decision]:
-        self._components.strategy = strategy
+    def run(self, strategy: Strategy, *, n: int = 1) -> list[Decision]:
+        components = replace(self._components, strategy=strategy)
         return loop.run(
             self.workspace,
-            self._components,
+            components,
             self.slice,
             n=n,
             auto_promote=self.auto_promote,

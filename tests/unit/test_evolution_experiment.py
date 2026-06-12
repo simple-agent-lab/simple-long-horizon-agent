@@ -64,6 +64,36 @@ class ExperimentTest(unittest.TestCase):
         rejected_hash = log.read(self.ws, accepted=False)[0].candidate["hash"]
         self.assertTrue((self.ws / "versions" / rejected_hash).is_dir())
 
+    def test_from_config_builds_and_runs(self) -> None:
+        from simple_agent_lab.evolution import Config, Use, registry
+        from simple_agent_lab.evolution.types import Proposal, Run
+
+        def make_rollout(**_):
+            def rollout(version, slice_):
+                reward = 0.7 if version.read("prompt.md") == "strong" else 0.3
+                d = self.ws / "runs" / f"{version.hash}-{slice_.sha}" / "i1"
+                (d / "out").mkdir(parents=True, exist_ok=True)
+                (d / "out" / "result.json").write_text(json.dumps({"reward": reward}))
+                return [Run(d)]
+
+            return rollout
+
+        registry.ROLLOUTS["demo_stub"] = make_rollout
+        self.addCleanup(registry.ROLLOUTS.pop, "demo_stub", None)
+        cfg = Config(
+            workspace=self.ws,
+            rollout=Use("demo_stub"),
+            slice_id="demo",
+            instances=({"instance_id": "i1"},),
+            seed={"prompt.md": "weak"},
+        )
+        exp = Experiment.from_config(cfg)
+        self.assertEqual(exp.current().read("prompt.md"), "weak")
+        d = exp.step(lambda ctx: Proposal(edits={"prompt.md": "strong"}, kind="prompt"))
+        self.assertIsNotNone(d)
+        self.assertTrue(d.accepted)
+        self.assertEqual(exp.current().read("prompt.md"), "strong")
+
 
 if __name__ == "__main__":
     unittest.main()
