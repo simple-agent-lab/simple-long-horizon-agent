@@ -224,6 +224,9 @@ def run(
     # Default outcome; overridden when the loop breaks on `final` or terminate.
     end_reason: AgentEndReason = "max_turns"
     for _ in range(max_turns):
+        if abort():
+            end_reason = "abort"
+            break
         yield state.record_event(TurnStartEvent(agent=name))
 
         policy = agent.context_policy or ContextPolicy()
