@@ -19,8 +19,10 @@ from typing import Any, Mapping
 from unittest import mock
 
 from simple_agent_lab.evals import (
+    DEFAULT_MEMORY_CONTAINER_HOME,
     EVAL_KEY,
     INSTANCE_KEY,
+    MEMORY_HOME_ENV,
     RESULT_KEY,
     TRACE_KEY,
     FakeBackend,
@@ -944,6 +946,37 @@ class ReviewFixesTest(unittest.TestCase):
             {"bind": UV_CONTAINER_PATH, "mode": "ro"},
         )
 
+    def test_memory_home_is_bind_mounted_read_write(self) -> None:
+        from simple_agent_lab.evals.backends.docker_local import with_local_mounts
+        from simple_agent_lab.evals.protocols import ContainerBinding
+
+        with tempfile.TemporaryDirectory() as tmp:
+            memory_home = Path(tmp) / "memory"
+            bound = with_local_mounts(
+                ContainerBinding(env={"SAL_STORE": "localdir"}),
+                wheelhouse=None,
+                wheelhouse_mount="/agent/wheelhouse",
+                uv_binary=None,
+                memory_home=memory_home,
+            )
+
+            self.assertTrue(memory_home.exists())
+            self.assertEqual(
+                bound.mounts[str(memory_home.resolve())],
+                {"bind": DEFAULT_MEMORY_CONTAINER_HOME, "mode": "rw"},
+            )
+            self.assertEqual(bound.env["SAL_STORE"], "localdir")
+            self.assertEqual(bound.env[MEMORY_HOME_ENV], DEFAULT_MEMORY_CONTAINER_HOME)
+
+    def test_memory_home_from_env_reads_optional_mount_path(self) -> None:
+        from simple_agent_lab.evals.in_container import memory_home_from_env
+
+        self.assertIsNone(memory_home_from_env(env={}))
+        self.assertEqual(
+            memory_home_from_env(env={MEMORY_HOME_ENV: "/agent/memory"}),
+            Path("/agent/memory"),
+        )
+
     def test_wheelhouse_without_mount_path_fails_clearly(self) -> None:
         """A wheelhouse with no in-container find-links path is a misconfiguration."""
         from simple_agent_lab.evals.backends.docker_local import with_local_mounts
@@ -1368,6 +1401,172 @@ class ProviderReasoningFromEnvTest(unittest.TestCase):
                 env={**self._BASE, "REASONING_EFFORT": "medium"},
             )
             self.assertEqual(prov.default_reasoning, "medium")
+
+
+class RunInContainerMemoryWiringTest(unittest.TestCase):
+    """memory.finish runs at SESSION_END with the suite's artifact_builder."""
+
+    def test_memory_finish_persists_suite_artifact_via_session_end(self) -> None:
+        import types
+
+        from simple_agent_lab.evals.in_container import run_in_container
+        from simple_agent_lab.evals.protocols import (
+            AgentSpec,
+            MEMORY_NAME_ENV,
+            MEMORY_RUN_ID_ENV,
+        )
+        from simple_agent_lab.llm import Provider
+        from simple_agent_lab.memory import FilesystemArtifact
+
+        observed: dict[str, Any] = {}
+        patch_text = "diff --git a/x b/x\n+stub change\n"
+
+        module = types.ModuleType("sal_test_stub_container_mem")
+
+        def build_task(instance: Mapping[str, Any], *, workdir: str) -> str:
+            del instance, workdir
+            return "do the stub task"
+
+        def agent_spec() -> AgentSpec:
+            return AgentSpec(name="stub_agent", flavor="bash")
+
+        def extract_result(
+            workspace: Any,
+            instance: Mapping[str, Any],
+            *,
+            context: Mapping[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            del workspace, instance, context
+            return {"model_patch": patch_text}
+
+        def memory_artifacts(
+            workspace: Any,
+            instance: Mapping[str, Any],
+            *,
+            context: Mapping[str, Any] | None = None,
+        ) -> list[FilesystemArtifact]:
+            del context
+            observed["artifact_workspace"] = workspace
+            observed["artifact_instance_id"] = dict(instance).get("instance_id")
+            return [
+                FilesystemArtifact(
+                    name="model_patch.diff",
+                    content=patch_text,
+                    description="Final unified git diff (model_patch).",
+                )
+            ]
+
+        module.build_task = build_task  # type: ignore[attr-defined]
+        module.agent_spec = agent_spec  # type: ignore[attr-defined]
+        module.extract_result = extract_result  # type: ignore[attr-defined]
+        module.memory_artifacts = memory_artifacts  # type: ignore[attr-defined]
+        sys.modules[module.__name__] = module
+        self.addCleanup(lambda: sys.modules.pop(module.__name__, None))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            mem_home = tmp_path / "memory"
+            workdir = tmp_path / "work"
+            workdir.mkdir()
+            store = LocalDirStore(tmp_path / "run")
+            env = {
+                MEMORY_HOME_ENV: str(mem_home),
+                MEMORY_NAME_ENV: "stub-namespace",
+                MEMORY_RUN_ID_ENV: "run-1",
+            }
+            with mock.patch.dict("os.environ", env, clear=False):
+                result, _state = run_in_container(
+                    instance={"instance_id": "stub-1"},
+                    container_module=module.__name__,
+                    provider=Provider(id="fake", api="fake", model="fake-model"),
+                    workdir=workdir,
+                    max_turns=2,
+                    store=store,
+                    trace_id="stub.stub-1",
+                    producer="suite:stub",
+                    suite_name="stub",
+                )
+
+            mem_run_dir = mem_home / "stub-namespace" / "runs" / "run-1"
+            patch_artifact = (mem_run_dir / "artifacts" / "model_patch.diff").read_text(
+                encoding="utf-8"
+            )
+            manifest = (mem_run_dir / "artifacts.md").read_text(encoding="utf-8")
+            index_exists = (mem_home / "stub-namespace" / "INDEX.md").exists()
+
+        self.assertEqual(result["model_patch"], patch_text)
+        self.assertEqual(observed["artifact_workspace"], workdir)
+        self.assertEqual(observed["artifact_instance_id"], "stub-1")
+        self.assertIn("+stub change", patch_artifact)
+        self.assertIn("model_patch.diff", manifest)
+        self.assertTrue(index_exists)
+
+    def test_no_memory_home_leaves_run_unchanged(self) -> None:
+        import types
+
+        from simple_agent_lab.evals.in_container import run_in_container
+        from simple_agent_lab.evals.protocols import AgentSpec
+        from simple_agent_lab.llm import Provider
+
+        observed: dict[str, Any] = {}
+        module = types.ModuleType("sal_test_stub_container_nomem")
+
+        def build_task(instance: Mapping[str, Any], *, workdir: str) -> str:
+            del instance, workdir
+            return "do the stub task"
+
+        def agent_spec() -> AgentSpec:
+            return AgentSpec(name="stub_agent", flavor="bash")
+
+        def extract_result(
+            workspace: Any,
+            instance: Mapping[str, Any],
+            *,
+            context: Mapping[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            del workspace, instance, context
+            return {"model_patch": ""}
+
+        def memory_artifacts(
+            workspace: Any,
+            instance: Mapping[str, Any],
+            *,
+            context: Mapping[str, Any] | None = None,
+        ) -> list[Any]:
+            del workspace, instance, context
+            observed["collector_ran"] = True
+            return []
+
+        module.build_task = build_task  # type: ignore[attr-defined]
+        module.agent_spec = agent_spec  # type: ignore[attr-defined]
+        module.extract_result = extract_result  # type: ignore[attr-defined]
+        module.memory_artifacts = memory_artifacts  # type: ignore[attr-defined]
+        sys.modules[module.__name__] = module
+        self.addCleanup(lambda: sys.modules.pop(module.__name__, None))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            workdir = tmp_path / "work"
+            workdir.mkdir()
+            mem_home = tmp_path / "memory"
+            store = LocalDirStore(tmp_path / "run")
+            with mock.patch.dict("os.environ", {MEMORY_HOME_ENV: ""}, clear=False):
+                result, _state = run_in_container(
+                    instance={"instance_id": "stub-2"},
+                    container_module=module.__name__,
+                    provider=Provider(id="fake", api="fake", model="fake-model"),
+                    workdir=workdir,
+                    max_turns=2,
+                    store=store,
+                    trace_id="stub.stub-2",
+                    producer="suite:stub",
+                    suite_name="stub",
+                )
+
+            self.assertFalse(mem_home.exists())
+
+        self.assertEqual(result["model_patch"], "")
+        self.assertNotIn("collector_ran", observed)
 
 
 if __name__ == "__main__":

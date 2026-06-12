@@ -18,6 +18,7 @@ from typing import Any, Mapping, Sequence
 
 from .context_view import ContextPolicy
 from .core import Agent, StateInitFn
+from .hooks import HookMap
 from .llm.bridge import (
     llm_response_to_assistant_message,
     messages_to_llm_messages,
@@ -43,6 +44,7 @@ def make_llm_agent(
     request_extra: Mapping[str, Any] | None = None,
     reasoning: ReasoningEffort | None = None,
     init_state: StateInitFn | None = None,
+    hooks: HookMap | None = None,
 ) -> Agent:
     """Build an `Agent` whose `generate` is backed by `provider`.
 
@@ -89,4 +91,5 @@ def make_llm_agent(
         context_policy=context_policy,
         system_prompt=effective_system_prompt,
         init_state=init_state,
+        hooks=hooks or {},
     )

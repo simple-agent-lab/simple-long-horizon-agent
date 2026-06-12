@@ -57,6 +57,11 @@ Optional:
   (`"bash"` or `"bash_task"`). Or, for full control, define
   `build_agent(*, provider, cwd, request_extra) -> Agent` and the runner uses it
   instead.
+- `memory_artifacts(workspace, instance, *, context=None)` — durable products to
+  save with persistent memory, returned as `FilesystemArtifact` values. Use this
+  for products like final patches or report files. The generic runner injects it
+  into memory's artifact builder when `SAL_MEMORY_HOME` is set; no suite-specific
+  memory branch belongs in the runner.
 
 Reference: `src/simple_agent_lab/evals/suites/swebench/container.py`.
 
@@ -107,6 +112,12 @@ run_suite_instance(
 )
 ```
 
+Persistent memory is optional. For local Docker runs, pass
+`LocalDockerBackend(memory_home="evals/out/<name>/memory")`; the backend
+bind-mounts that directory and sets `SAL_MEMORY_HOME` for the in-container
+runner. The container half's optional `memory_artifacts(...)` hook then lets
+memory capture run products before `extract_result` reads the final result.
+
 A whole dataset: `run_dataset(..., concurrency=N)` (blocking, parallel) or, for
 long runs the host should not babysit, `submit_dataset(...)` + `reconcile_dataset(...)`
 (detach, leave, re-attach). See [`evals/README.md`](../../evals/README.md) for
@@ -134,7 +145,8 @@ Cover the suite in `tests/unit/` with **no Docker and no network**:
 ## Checklist
 
 - [ ] `container.py`: `build_task`, `extract_result(..., *, context=None)`;
-      optional `prepare` / `agent_spec` / `evaluate` (in-env scoring);
+      optional `prepare` / `agent_spec` / `evaluate` (in-env scoring) /
+      `memory_artifacts` (persistent-memory products);
       **stdlib + wheel imports only**.
 - [ ] `suite.py`: `name`, `container_module`, `launch_spec` (incl. `cap_add`),
       `task_input`, `eval_inputs()` (return `None` to score elsewhere; non-`None`

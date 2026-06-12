@@ -14,6 +14,7 @@ from contextlib import ExitStack, asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator, Sequence
 
+from simple_agent_lab.hooks import HookPoint
 from simple_agent_lab.llm import Provider
 from simple_agent_lab.messages import TextBlock
 from simple_agent_lab.skills import SkillRoot
@@ -407,6 +408,14 @@ class MakeAgentTest(unittest.TestCase):
         )
         self.assertEqual(agent.system_prompt, "custom")
 
+    def test_hooks_attach_to_top_level_agent(self) -> None:
+        from simple_agent_lab.agents.starter import make_agent
+
+        hooks = {HookPoint.SESSION_END: [lambda ctx: None]}
+        agent = make_agent(FAKE_PROVIDER, cwd=str(ROOT), explorer=True, hooks=hooks)
+
+        self.assertIs(agent.hooks, hooks)
+
 
 class MakeSkillAgentTest(unittest.TestCase):
     def test_builds_bare_skills_aware_agent(self) -> None:
@@ -440,6 +449,14 @@ class MakeSkillAgentTest(unittest.TestCase):
 
         agent = make_skill_agent(FAKE_PROVIDER, cwd=str(FIXTURE_SKILLS), explorer=True)
         self.assertIn("task", [t.name for t in agent.tools])
+
+    def test_hooks_attach_to_skill_agent(self) -> None:
+        from simple_agent_lab.agents.starter import make_skill_agent
+
+        hooks = {HookPoint.SESSION_END: [lambda ctx: None]}
+        agent = make_skill_agent(FAKE_PROVIDER, cwd=str(FIXTURE_SKILLS), hooks=hooks)
+
+        self.assertIs(agent.hooks, hooks)
 
 
 @unittest.skipUnless(HAS_MCP, _SKIP_REASON)
@@ -481,6 +498,20 @@ class MCPAgentSessionTest(unittest.TestCase):
             self.assertIn("bash", names)
             self.assertIn("demo_echo", names)
             self.assertIn(MCP_ADDENDUM, session.agent.system_prompt)
+
+    def test_hooks_attach_to_session_agent(self) -> None:
+        from simple_agent_lab.agents.starter import agent_session
+
+        hooks = {HookPoint.SESSION_END: [lambda ctx: None]}
+        config = MCPServerConfig.stdio("demo", "noop")
+        with agent_session(
+            FAKE_PROVIDER,
+            cwd=str(ROOT),
+            mcp_servers=[config],
+            connect=self._in_memory_connect(),
+            hooks=hooks,
+        ) as session:
+            self.assertIs(session.agent.hooks, hooks)
 
     def test_skills_and_mcp_together(self) -> None:
         # The combination the old presets could not express.

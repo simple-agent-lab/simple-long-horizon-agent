@@ -46,6 +46,17 @@ MCP_KEY = "input/mcp.json"  # host puts optional MCP server config, container ge
 RESULT_KEY = "out/result.json"  # container puts (raw extract_result), host gets
 TRACE_KEY = "out/trajectory.jsonl"  # container re-puts on a cadence = live trace
 
+# Optional persistent-memory contract for containerized eval runs. The memory
+# package remains local-filesystem-only; container backends may bind-mount a host
+# directory and point in-container agent assembly at it with this env var.
+MEMORY_HOME_ENV = "SAL_MEMORY_HOME"
+DEFAULT_MEMORY_CONTAINER_HOME = "/agent/memory"
+# Optional in-container memory namespace + run id. The host sets these so the
+# in-container assembly can name the FilesystemMemory namespace (e.g. the repo)
+# and the per-run evidence directory without teaching memory about the suite.
+MEMORY_NAME_ENV = "SAL_MEMORY_NAME"
+MEMORY_RUN_ID_ENV = "SAL_MEMORY_RUN_ID"
+
 
 @dataclass(frozen=True)
 class LaunchSpec:
@@ -177,8 +188,9 @@ class ContainerTask(Protocol):
     functions a new suite must write; ``prepare`` (pre-run setup, threaded into
     ``extract_result`` as ``context``), ``apply_oracle`` (apply the reference
     solution for the model-free oracle self-check), ``evaluate`` (score in the
-    run environment — see below), ``agent_spec``, and ``build_agent`` are
-    optional.
+    run environment — see below), ``memory_artifacts`` (collect this run's
+    durable memory products from the workspace — see below), ``agent_spec``, and
+    ``build_agent`` are optional.
 
     Optional ``evaluate(workspace, instance, *, context)`` scores in the run
     environment: after ``extract_result``, the generic runner calls it when the
@@ -188,6 +200,18 @@ class ContainerTask(Protocol):
     container backends, so ``evaluate`` runs wherever the run ran, with no Docker
     assumption. A suite that scores elsewhere (a follow-up agent-judge run or the
     official harness) simply omits it.
+
+    Optional ``memory_artifacts(workspace, instance, *, context)`` returns this
+    run's durable products as memory ``FilesystemArtifact`` values gathered
+    straight from the workspace — the same ``(workspace, instance, *, context)``
+    shape as ``extract_result``. When persistent memory is active the generic
+    runner injects it as the memory ``artifact_builder``, so the products are
+    captured inside ``memory.finish`` at the standard ``SESSION_END`` hook —
+    while the workspace is still intact, before ``extract_result``. The hook name
+    is generic: any suite can register its own collector, and a suite that does
+    not integrate with memory simply omits it (memory then falls back to its
+    generic defaults). Keeping this a suite-supplied hook is what keeps the
+    runner free of any suite-specific product flow.
     """
 
     def build_task(self, instance: Mapping[str, Any], *, workdir: str) -> ContentInput:

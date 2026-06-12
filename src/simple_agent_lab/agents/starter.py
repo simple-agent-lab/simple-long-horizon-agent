@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator, Mapping, Sequence
 
 from simple_agent_lab.context_view import ContextPolicy
 from simple_agent_lab.core import Agent, StateInitFn
+from simple_agent_lab.hooks import HookMap
 from simple_agent_lab.llm import Provider as LLMProvider
 from simple_agent_lab.llm_agent import make_llm_agent
 from simple_agent_lab.messages import ContentInput
@@ -118,6 +119,7 @@ class AgentSession:
         toolsets: Sequence[Toolset] = (),
         skills: SkillConfig | None = None,
         context_policy: ContextPolicy | None = None,
+        hooks: HookMap | None = None,
         request_extra: Mapping[str, Any] | None = None,
         max_turns: int = 10,
     ) -> None:
@@ -130,6 +132,7 @@ class AgentSession:
         self._toolsets = tuple(toolsets)
         self._skills = skills
         self._context_policy = context_policy
+        self._hooks = hooks or {}
         self._request_extra = request_extra
         self._max_turns = max_turns
 
@@ -173,6 +176,7 @@ class AgentSession:
                 context_policy=self._context_policy,
                 request_extra=self._request_extra,
                 init_state=init_state,
+                hooks=self._hooks,
             )
         except BaseException:
             # A toolset that opened before the failure must still be closed.
@@ -348,6 +352,7 @@ def make_agent(
     context_policy: ContextPolicy | None = None,
     request_extra: Mapping[str, Any] | None = None,
     init_state: StateInitFn | None = None,
+    hooks: HookMap | None = None,
 ) -> Agent:
     """Build a stateless `Agent` by composing resource-free capabilities.
 
@@ -384,6 +389,7 @@ def make_agent(
         context_policy=context_policy,
         request_extra=request_extra,
         init_state=init_state,
+        hooks=hooks,
     )
 
 
@@ -402,6 +408,7 @@ def make_skill_agent(
     system_prompt: str | None = None,
     context_policy: ContextPolicy | None = None,
     request_extra: Mapping[str, Any] | None = None,
+    hooks: HookMap | None = None,
 ) -> Agent:
     """Build a bare, skills-aware `Agent` — the skills twin of `make_bash_agent`.
 
@@ -440,6 +447,7 @@ def make_skill_agent(
         context_policy=context_policy,
         request_extra=request_extra,
         init_state=_skills_init_state(config),
+        hooks=hooks,
     )
 
 
@@ -459,6 +467,7 @@ def agent_session(
     call_timeout: float = 60.0,
     connect: Callable[["MCPServerConfig"], "MCPConnection"] | None = None,
     context_policy: ContextPolicy | None = None,
+    hooks: HookMap | None = None,
     request_extra: Mapping[str, Any] | None = None,
     max_turns: int = 10,
 ) -> AgentSession:
@@ -522,6 +531,7 @@ def agent_session(
         toolsets=toolsets,
         skills=skill_config,
         context_policy=context_policy,
+        hooks=hooks,
         request_extra=request_extra,
         max_turns=max_turns,
     )
@@ -560,6 +570,7 @@ def make_bash_agent(
     role: str = BASH_AGENT_DEFAULT_ROLE,
     system_prompt: str = BASH_AGENT_SYSTEM_PROMPT,
     request_extra: Mapping[str, Any] | None = None,
+    hooks: HookMap | None = None,
 ) -> Agent:
     """Build a bash-using `Agent` — `make_agent` with the bash-agent defaults."""
 
@@ -571,6 +582,7 @@ def make_bash_agent(
         role=role,
         system_prompt=system_prompt,
         request_extra=request_extra,
+        hooks=hooks,
     )
 
 
@@ -586,6 +598,7 @@ def make_bash_task_agent(
     explorer_system_prompt: str = EXPLORER_AGENT_SYSTEM_PROMPT,
     task_max_turns: int = DEFAULT_TASK_MAX_TURNS,
     request_extra: Mapping[str, Any] | None = None,
+    hooks: HookMap | None = None,
 ) -> Agent:
     """Build a parent `Agent` with bash + task(explorer) tools.
 
@@ -612,4 +625,5 @@ def make_bash_task_agent(
         role=role,
         system_prompt=system_prompt,
         request_extra=request_extra,
+        hooks=hooks,
     )
