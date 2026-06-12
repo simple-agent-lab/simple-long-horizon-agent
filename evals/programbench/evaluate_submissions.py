@@ -1,10 +1,11 @@
-"""Score ProgramBench runs with the official ``programbench eval`` harness.
+"""Score ProgramBench runs with the official ProgramBench evaluator.
 
-ProgramBench's authoritative scorer is the official ``programbench`` CLI
+ProgramBench's authoritative scorer is the official ``programbench`` evaluator
 (compile the submission → restore ``./executable`` with a sha256 check → run each
-test branch's pytest → JUnit XML → pass rate). It is not a framework seam (ADR
-0020 / ADR 0022): a run writes its product to ``out/result.json`` and scoring is
-this standalone follow-up CLI.
+test branch's pytest → JUnit XML → pass rate). It is not a framework seam
+(`collapse-scorer-seam-into-run-primitive` /
+`programbench-reverse-engineering-adapter`): a run writes its product to
+``out/result.json`` and scoring is this standalone follow-up step.
 
 The one ProgramBench-specific shaping step is that our container half returns the
 submission tarball base64-encoded inside ``result.json`` (a container half can
@@ -13,7 +14,7 @@ only return bytes through that file). This script:
 1. **collects** — walks ``<run_root>/<run_id>/<id>/out/result.json``, decodes
    ``submission_tar_b64`` back into the ``<eval_dir>/<id>/submission.tar.gz``
    layout the official harness expects, then
-2. **evaluates** — runs ``programbench eval <eval_dir> --image-tag task`` (needs
+2. **evaluates** — calls the official ``programbench`` Python harness (needs
    Docker + the ``programbench`` package + access to the HF test blobs; if that
    dataset needs auth, set ``HF_TOKEN`` in the environment or ``.env``), and
 3. **summarizes** — runs ``programbench info`` for the authoritative scores and
@@ -110,12 +111,11 @@ def collect_submissions(
 
 
 # --------------------------------------------------------------------------- #
-# 2. Evaluate + 3. summarize: shell out to the official CLI
+# 2. Evaluate + 3. summarize: official harness + optional CLI summary
 # --------------------------------------------------------------------------- #
 def run_official_eval(
     eval_dir: Path,
     *,
-    programbench_bin: str = "programbench",
     image_tag: str = harness.DEFAULT_SCORE_IMAGE_TAG,
     workers: int = 1,
     branch_workers: int = 1,
@@ -127,12 +127,11 @@ def run_official_eval(
     slice_spec: str = "",
     summarize_only: bool = False,
 ) -> int:
-    """Run ``programbench eval`` on the rebuilt submissions directory."""
+    """Run the official ProgramBench evaluator on rebuilt submissions."""
 
     run_args = _configure_programbench_docker(cpus=docker_cpus, memory=docker_memory)
     cmd_parts = [
-        programbench_bin,
-        "eval",
+        "programbench.eval.eval_batch.run_eval_batch",
         str(eval_dir),
         "--image-tag",
         image_tag,
@@ -222,7 +221,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "(default: <run_root>/<run_id>_eval).",
     )
     parser.add_argument("--instance-ids", nargs="*", default=None)
-    parser.add_argument("--programbench-bin", default="programbench")
+    parser.add_argument(
+        "--programbench-info-bin",
+        default="programbench",
+        help="Binary used only for the optional `programbench info` summary. "
+        "Evaluation itself imports the official programbench Python package.",
+    )
     parser.add_argument("--image-tag", default=harness.DEFAULT_SCORE_IMAGE_TAG)
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--branch-workers", type=int, default=1)
@@ -265,7 +269,7 @@ def main(argv: list[str] | None = None) -> None:
     args = _build_parser().parse_args(argv)
     # Load .env (e.g. HF_TOKEN for the official scorer's HF test-blob download)
     # without overriding the environment, mirroring the run entry point. The
-    # subprocess `programbench eval` inherits it, so huggingface-hub picks it up.
+    # evaluator inherits it, so huggingface-hub picks it up.
     if args.dotenv:
         harness.load_dotenv(args.dotenv)
     run_root = Path(args.run_root)
@@ -288,7 +292,6 @@ def main(argv: list[str] | None = None) -> None:
     if not args.collect_only and not args.summarize_only:
         code = run_official_eval(
             eval_dir,
-            programbench_bin=args.programbench_bin,
             image_tag=args.image_tag,
             workers=args.workers,
             branch_workers=args.branch_workers,
@@ -311,7 +314,7 @@ def main(argv: list[str] | None = None) -> None:
         )
         print(f"==> wrote score manifest: {scores_path}")
         if not args.no_info:
-            run_official_info(eval_dir, programbench_bin=args.programbench_bin)
+            run_official_info(eval_dir, programbench_bin=args.programbench_info_bin)
 
 
 if __name__ == "__main__":

@@ -1,17 +1,18 @@
-"""ProgramBench container half (ADR 0017): the functions a suite supplies.
+"""ProgramBench container half: the functions a suite supplies.
 
 ProgramBench is a *reverse-engineering* benchmark (facebookresearch/programbench):
 the workspace holds a compiled ``./executable`` plus its bundled docs, and the
 agent must write a brand-new codebase from scratch whose ``./compile.sh``
 rebuilds an executable with identical behavior — inferring that behavior only by
 running ``./executable`` and reading the docs. Two facts make it differ from
-SWE-bench and shape this module (see ADR 0022):
+SWE-bench and shape this module (see
+``programbench-reverse-engineering-adapter``):
 
 - The run's **product is the whole workspace**, not a ``git diff``. The container
   half can only hand bytes back through ``out/result.json``, so ``extract_result``
   tars + gzips the workspace and returns it base64-encoded under
   ``submission_tar_b64``; the host decodes it into the ``<id>/submission.tar.gz``
-  layout the official ``programbench eval`` expects.
+  layout the official ProgramBench evaluator expects.
 - ProgramBench's anti-cheat relies on the agent having **no network** while it
   works. Our agent runs *inside* the container and must reach the model API, so
   instead of ``--network none`` we keep the container online but run **every
@@ -20,7 +21,7 @@ SWE-bench and shape this module (see ADR 0022):
 
 It imports only the standard library and the installed wheel (``core``, ``llm``,
 ``llm_agent``, ``tools.bash``), so it runs inside any ProgramBench image with no
-copied files. Scoring is the official ``programbench eval`` CLI on the host
+copied files. Scoring is the official ProgramBench evaluator on the host
 (``evals/programbench/evaluate_submissions.py``), so there is no ``evaluate``
 hook here and the host stages no ``eval_inputs``.
 """
@@ -361,7 +362,7 @@ def extract_result(
     Mirrors the official runner's ``tar -czf`` of the workspace, but returns it
     base64-encoded in ``result.json`` (the only channel a container half has).
     The host decodes ``submission_tar_b64`` into ``<id>/submission.tar.gz`` for
-    the official ``programbench eval``.
+    the official ProgramBench evaluator.
     """
 
     del context

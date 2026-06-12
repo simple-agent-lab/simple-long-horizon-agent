@@ -525,9 +525,7 @@ def run_in_container(
                 instance=instance,
                 context=context,
             ) as session:
-                state, events = session.run(
-                    task, max_turns=max_turns, abort=abort_fn
-                )
+                state, events = session.run(task, max_turns=max_turns, abort=abort_fn)
                 for _ in events:
                     now = time.monotonic()
                     if now - last >= flush_interval_s:
@@ -542,9 +540,7 @@ def run_in_container(
                 instance=instance,
                 context=context,
             )
-            state, events = agent.run(
-                task, max_turns=max_turns, abort=abort_fn
-            )
+            state, events = agent.run(task, max_turns=max_turns, abort=abort_fn)
             for _ in events:
                 now = time.monotonic()
                 if now - last >= flush_interval_s:

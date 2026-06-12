@@ -66,7 +66,8 @@ __all__ = [
 ]
 
 # ProgramBench's cleanroom image (no build artifacts) is what the agent runs in;
-# the official scorer rebuilds in the ``task`` image. See ADR 0022.
+# the official scorer rebuilds in the ``task`` image. See
+# `programbench-reverse-engineering-adapter`.
 DEFAULT_IMAGE_TAG = "task_cleanroom"
 DEFAULT_SCORE_IMAGE_TAG = "task"
 DEFAULT_WORKDIR = "/workspace"

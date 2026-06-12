@@ -20,7 +20,7 @@ evals/out/programbench/
 └── <run-id>_eval/                  ← built by evaluate_submissions.py
     ├── <instance-id>/
     │   ├── submission.tar.gz       decoded from result.json's submission_tar_b64
-    │   └── <instance-id>.eval.json official `programbench eval` result
+    │   └── <instance-id>.eval.json official ProgramBench eval result
     └── scores.json                 machine-readable manifest
 ```
 
@@ -48,8 +48,8 @@ uv run python evals/programbench/evaluate_submissions.py \
 ```
 
 This rebuilds each `submission.tar.gz` under `<run-id>_eval/` and runs the
-official `programbench eval` (needs Docker + the `programbench` package + access
-to the HF test blobs).
+official ProgramBench evaluator (needs Docker + the `programbench` package +
+access to the HF test blobs).
 
 ## File Sizes
 

@@ -1,8 +1,8 @@
-"""ProgramBench as a `Suite` (ADR 0017) — the reverse-engineering host half.
+"""ProgramBench as a `Suite` — the reverse-engineering host half.
 
 This maps ProgramBench (facebookresearch/programbench) onto one `Suite` whose
 `launch_spec` carries the per-instance launch values as **data**. Two values
-encode the deal in ADR 0022:
+encode the deal in `programbench-reverse-engineering-adapter`:
 
 - `network_mode="host"` keeps the container online (so the in-container agent
   can reach the model API and bootstrap can install the wheel), while
@@ -14,7 +14,7 @@ encode the deal in ADR 0022:
 The container half (``build_task`` / ``build_agent`` / ``prepare`` /
 ``extract_result``) ships in the wheel at
 ``simple_agent_lab.evals.suites.programbench.container``. Scoring is the official
-``programbench eval`` CLI, run on the host by ``evaluate_submissions.py`` (no
+official ProgramBench evaluator, run on the host by ``evaluate_submissions.py`` (no
 in-environment ``evaluate`` hook, so ``eval_inputs`` returns ``None``).
 """
 
@@ -85,9 +85,10 @@ class ProgrambenchSuite:
         return harness.sanitized_instance(dict(instance))
 
     def eval_inputs(self, instance: Mapping[str, Any]) -> dict[str, Any] | None:
-        # ProgramBench scores with the official `programbench eval` CLI on the
+        # ProgramBench scores with the official evaluator on the
         # host (compile → restore ./executable → per-branch pytest), not in the
         # run environment, so no gold is staged and the container half exposes
-        # no `evaluate` hook (ADR 0022 / ADR 0020).
+        # no `evaluate` hook (`programbench-reverse-engineering-adapter` /
+        # `collapse-scorer-seam-into-run-primitive`).
         del instance
         return None

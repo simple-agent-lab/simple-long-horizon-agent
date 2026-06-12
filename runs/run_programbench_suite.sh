@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Run one ProgramBench instance through the generic Suite framework (ADR 0017).
+# Run one ProgramBench instance through the generic Suite framework.
 #
 # The agent is launched via run_suite_instance(ProgrambenchSuite,
 # LocalDockerBackend, LocalDirStore). The container is online (so the agent's
 # model calls work) but each agent bash command runs network-isolated via
-# `unshare --net` (ADR 0022). For batch / parallel runs, use runs/run_programbench.sh.
+# `unshare --net` (`programbench-reverse-engineering-adapter`). For batch /
+# parallel runs, use runs/run_programbench.sh.
 #
 # Usage:
 #   bash runs/run_programbench_suite.sh <instance-id> [max-turns] [run-id]

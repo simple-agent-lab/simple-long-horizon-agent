@@ -22,7 +22,8 @@ That script runs the focused patch extraction, host-helper, and
 prediction-evaluation unit tests without installing SWE-bench or running
 Docker.
 
-The ProgramBench adapter (reverse-engineering; ADR 0022) has a matching
+The ProgramBench adapter (reverse-engineering; ADR
+`programbench-reverse-engineering-adapter`) has a matching
 Docker-free, dependency-free smoke check:
 
 ```bash

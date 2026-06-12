@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run ProgramBench instances in batch through the Suite framework (ADR 0017).
+# Run ProgramBench instances in batch through the Suite framework.
 #
 # Usage:
 #   bash runs/run_programbench.sh                            # default instance

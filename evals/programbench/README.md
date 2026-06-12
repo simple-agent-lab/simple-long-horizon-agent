@@ -7,8 +7,8 @@ codebase from scratch whose `./compile.sh` rebuilds an executable with identical
 behavior — inferring behavior **only** by running `./executable` and reading the
 docs (no original source, no wrapping the binary, no decompiling).
 
-This adapter maps ProgramBench onto the generic `Suite` protocol (ADR 0017) as a
-peer of the SWE-bench adapter:
+This adapter maps ProgramBench onto the generic `Suite` protocol
+(`generic-containerized-eval-framework`) as a peer of the SWE-bench adapter:
 
 - `suite.py` — `ProgrambenchSuite`: `launch_spec` (image `:task_cleanroom`,
   workdir `/workspace`, `network_mode=host`, `cap_add=("SYS_ADMIN",)`),
@@ -19,12 +19,13 @@ peer of the SWE-bench adapter:
   Docker image name, provider env / dotenv, and the offline wheelhouse (reused
   from the SWE-bench host helpers).
 - `evaluate_submissions.py` — the scorer driver: collect each run's
-  `result.json`, decode the submission, and run the official `programbench eval`.
+  `result.json`, decode the submission, and run the official ProgramBench
+  evaluator.
 - The container half ships in the wheel at
   `simple_agent_lab.evals.suites.programbench` (`build_task`, `build_agent`,
   `prepare`, `extract_result`).
 
-## What differs from SWE-bench (ADR 0022)
+## What differs from SWE-bench
 
 ProgramBench forces two adaptations versus the SWE-bench reference:
 
@@ -47,7 +48,7 @@ ProgramBench forces two adaptations versus the SWE-bench reference:
    `--no-network-isolation` to deliberately run un-isolated, which records
    `network_isolated: false` in `result.json`.
 
-Scoring stays the **official** `programbench eval` harness (compile → restore
+Scoring stays the **official** ProgramBench evaluator (compile → restore
 `./executable` with a sha256 check → per-branch pytest → JUnit), so scores match
 the official tool regardless of the inference-time isolation difference.
 
@@ -89,21 +90,21 @@ bash tool is the normal local bash tool — except each command runs network-les
 
 ## Scoring (official harness)
 
-The authoritative scorer is the official `programbench eval` CLI, run on the
-host (it needs Docker + the `programbench` package + access to the HF test
-blobs `programbench/ProgramBench-Tests`). If that dataset needs auth, set
-`HF_TOKEN` in `.env` or the environment — `evaluate_submissions.py` loads `.env`
-without overriding the environment, so the `programbench eval` subprocess
-inherits it and huggingface-hub uses it:
+The authoritative scorer is the official ProgramBench evaluator, run on the host
+(it needs Docker + the `programbench` package + access to the HF test blobs
+`programbench/ProgramBench-Tests`). If that dataset needs auth, set `HF_TOKEN`
+in `.env` or the environment — `evaluate_submissions.py` loads `.env` without
+overriding the environment, so the evaluator inherits it and huggingface-hub uses
+it:
 
 ```bash
 uv run python evals/programbench/evaluate_submissions.py \
   --run-root evals/out/programbench --run-id <run-id> --workers 4
 ```
 
-It rebuilds `submission.tar.gz` under `<run-id>_eval/`, runs `programbench eval
-... --image-tag task`, writes a `scores.json` manifest, and prints the
-authoritative per-instance scores via `programbench info`.
+It rebuilds `submission.tar.gz` under `<run-id>_eval/`, runs the official
+evaluator with `--image-tag task`, writes a `scores.json` manifest, and prints
+the authoritative per-instance scores via `programbench info`.
 
 ## Local Adapter Smoke
 
@@ -119,7 +120,8 @@ uv run python -m unittest tests.unit.test_programbench_suite
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | Run aborts: "requires per-command network isolation" | `unshare --net` unavailable (no `CAP_SYS_ADMIN` / restrictive kernel) | Use a kernel/daemon that permits new net namespaces (CAP_SYS_ADMIN is added by default); pass `--no-network-isolation` only to deliberately run un-isolated |
-| `programbench: command not found` during scoring | scorer not installed | `uv sync --extra programbench`, or pass `--programbench-bin` |
+| `ModuleNotFoundError: programbench` during scoring | scorer package not installed | `uv sync --extra programbench` |
+| `programbench: command not found` during final score summary | optional `programbench info` binary not on PATH | `uv sync --extra programbench`, pass `--programbench-info-bin`, or use `--no-info` |
 | `programbench eval` can't download the HF test blobs | gated/private dataset or anonymous rate limit | Set `HF_TOKEN` in `.env` or the environment (the scorer loads `.env`) |
 | Image pull fails | image not on the daemon | `bash runs/setup_programbench.sh <id> --scoring` |
 | `OPENAI_AUTH_TOKEN` / `OPENAI_MODEL` missing | `.env` not configured | Create `.env` (see Quick Start) |

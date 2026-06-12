@@ -1,4 +1,4 @@
-"""Run one ProgramBench instance through the generic `Suite` framework (ADR 0017).
+"""Run one ProgramBench instance through the generic `Suite` framework.
 
 This is the ProgramBench run entry point: it drives the ProgramBench container
 half through `run_suite_instance(ProgrambenchSuite, LocalDockerBackend,
@@ -14,9 +14,10 @@ Usage (host with Docker + the ProgramBench image pulled):
 
 Reads OPENAI_MODEL / OPENAI_AUTH_TOKEN (and optional OPENAI_BASE_URL) from .env.
 The agent runs *inside* the container with the model API reachable, but each
-agent bash command runs in a network-isolated namespace (see ADR 0022). Score
-the run afterwards with evals/programbench/evaluate_submissions.py. For batch /
-parallel runs over the whole task set, see runs/run_programbench.sh.
+agent bash command runs in a network-isolated namespace (see
+`programbench-reverse-engineering-adapter`). Score the run afterwards with
+evals/programbench/evaluate_submissions.py. For batch / parallel runs over the
+whole task set, see runs/run_programbench.sh.
 """
 
 from __future__ import annotations
@@ -149,7 +150,9 @@ def main() -> None:
     print("==> Running ProgramBench instance through ProgrambenchSuite")
     print(f"    instance:        {args.instance_id}")
     print(f"    max-turns:       {args.max_turns}")
-    print(f"    wall-time:       {args.wall_time_seconds}s ({args.wall_time_seconds / 3600:.1f}h)")
+    print(
+        f"    wall-time:       {args.wall_time_seconds}s ({args.wall_time_seconds / 3600:.1f}h)"
+    )
     print(f"    run-id:          {args.run_id}")
     print(f"    image-tag:       {args.image_tag}")
     print(f"    cmd net-isolate: {isolation}")

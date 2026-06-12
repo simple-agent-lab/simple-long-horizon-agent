@@ -1,4 +1,11 @@
-# ADR 0022: ProgramBench Adapter — Workspace-as-Product and Per-Command Network Isolation
+---
+title: "ProgramBench Adapter: Workspace-as-Product and Per-Command Network Isolation"
+status: Accepted
+date: 2026-06-06
+slug: programbench-reverse-engineering-adapter
+---
+
+# ProgramBench Adapter: Workspace-as-Product and Per-Command Network Isolation
 
 ## Status
 
@@ -11,8 +18,10 @@ Accepted
 `./executable` plus its bundled docs, and the agent must write a brand-new
 codebase whose `./compile.sh` rebuilds an executable with identical behavior,
 inferring that behavior **only** by running `./executable` and reading the docs.
-We want it as a peer of the SWE-bench adapter (ADR 0011, ADR 0017), reusing the
-generic containerized framework rather than growing a second harness.
+We want it as a peer of the SWE-bench adapter
+(`keep-benchmark-suites-as-eval-adapters`,
+`generic-containerized-eval-framework`), reusing the generic containerized
+framework rather than growing a second harness.
 
 Two facts about ProgramBench do not fit the SWE-bench reference shape, and both
 are hard to reverse once runs and scores exist, so they need a recorded
@@ -21,7 +30,8 @@ decision:
 1. **The product is the whole workspace, not a `git diff`.** The agent authors a
    new codebase; the submission ProgramBench scores is `tar -czf` of the
    workspace. The framework's container half can only return *bytes through
-   `out/result.json`* (ADR 0017) — there is no "return a file/dir" channel.
+   `out/result.json`* (`generic-containerized-eval-framework`) — there is no
+   "return a file/dir" channel.
 
 2. **The anti-cheat assumes the agent has no network.** ProgramBench's official
    runner uses `--network none` so the agent cannot fetch the original source
@@ -30,8 +40,8 @@ decision:
    API; bootstrap also `pip install`s the runtime wheel. A fully offline
    container would cut off the agent's own reasoning.
 
-Scoring, as with SWE-bench, should stay the **official** tool (`programbench
-eval`) so our numbers match published results.
+Scoring, as with SWE-bench, should stay the **official** ProgramBench evaluator
+so our numbers match published results.
 
 ## Decision
 
@@ -69,10 +79,10 @@ specific choices:
    falls back to un-isolated commands and records `network_isolated: false` in
    `result.json` instead of failing the run.
 
-Scoring is the official `programbench eval` CLI run on the host — the
-"official-harness as a standalone CLI" shape of ADR 0020, not a framework seam —
-so `eval_inputs` returns `None` and the container half exposes no `evaluate`
-hook.
+Scoring is the official ProgramBench evaluator run on the host — the
+"official-harness as a standalone follow-up" shape of
+`collapse-scorer-seam-into-run-primitive`, not a framework seam — so
+`eval_inputs` returns `None` and the container half exposes no `evaluate` hook.
 
 ## Consequences
 

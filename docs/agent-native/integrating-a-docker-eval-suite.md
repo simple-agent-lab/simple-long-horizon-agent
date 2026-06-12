@@ -66,7 +66,8 @@ Optional:
 Reference: `src/simple_agent_lab/evals/suites/swebench/container.py`. For a
 product that is the *whole workspace* rather than a diff (base64-encoded tar in
 `result.json`) and for isolating *each agent command's* network (`unshare --net`
-via the bash tool's `exec_prefix`), see the ProgramBench adapter and ADR 0022.
+via the bash tool's `exec_prefix`), see the ProgramBench adapter and ADR
+`programbench-reverse-engineering-adapter`.
 
 ## Step 2 — the host half (a `Suite`)
 
