@@ -70,6 +70,23 @@ class LoopTest(unittest.TestCase):
         decision = loop.step(self.ws, self._components(lambda ctx: None), self.slice)
         self.assertIsNone(decision)
 
+    def test_unknown_base_raises(self) -> None:
+        def strategy(ctx: Context) -> Proposal:
+            return Proposal(edits={"prompt.md": "strong"}, base="deadbeef")
+
+        with self.assertRaises(ValueError):
+            loop.step(self.ws, self._components(strategy), self.slice)
+
+    def test_empty_rollout_raises(self) -> None:
+        components = Components(
+            rollout=lambda version, slice_: [],
+            reward=result_key,
+            strategy=lambda ctx: Proposal(edits={"prompt.md": "strong"}, kind="prompt"),
+            criterion=improve("reward"),
+        )
+        with self.assertRaises(ValueError):
+            loop.step(self.ws, components, self.slice)
+
 
 if __name__ == "__main__":
     unittest.main()

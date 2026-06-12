@@ -12,36 +12,44 @@ dataclass).
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Protocol, cast
 
 from simple_agent_lab.evolution.kernel import log, store
 from simple_agent_lab.evolution.types import (
     Context,
     Decision,
     Manifest,
+    Proposal,
+    RewardFn,
     Run,
     RunScores,
     Slice,
+    Verdict,
+    Version,
 )
 
 
 class Components(Protocol):
-    rollout: Any
-    reward: Any
-    strategy: Any
-    criterion: Any
+    rollout: Callable[[Version, Slice], Sequence[Run]]
+    reward: RewardFn
+    strategy: Callable[[Context], Proposal | None]
+    criterion: Callable[[RunScores, RunScores], Verdict]
 
 
-def score(runs: Sequence[Run], reward: Any) -> dict[str, dict[str, float]]:
+def score(runs: Sequence[Run], reward: RewardFn) -> dict[str, dict[str, float]]:
     """Apply ``reward`` to each run, normalizing to {instance_id: {dim: value}}."""
 
     out: dict[str, dict[str, float]] = {}
     for run in runs:
         value = reward(run)
-        dims = value if isinstance(value, Mapping) else {"reward": float(value)}
-        out[run.instance_id] = {k: float(v) for k, v in dims.items()}
+        if isinstance(value, Mapping):
+            mapping = cast("Mapping[str, float]", value)
+            dims = {str(k): float(v) for k, v in mapping.items()}
+        else:
+            dims = {"reward": float(value)}
+        out[run.instance_id] = dims
     return out
 
 
@@ -64,6 +72,11 @@ def step(
     *,
     auto_promote: bool = True,
 ) -> Decision | None:
+    """Run one observe -> propose -> compare -> record cycle.
+
+    Returns the logged ``Decision``, or ``None`` if the strategy declined.
+    """
+
     current = store.current(workspace)
     base_runs = components.rollout(current, slice_)
     proposal = components.strategy(
@@ -78,11 +91,14 @@ def step(
     if proposal is None:
         return None
 
-    base = (
-        store.version(workspace, proposal.base)
-        if proposal.base
-        else current
-    )
+    if proposal.base:
+        base = store.version(workspace, proposal.base)
+        if not base.dir.is_dir():
+            raise ValueError(
+                f"proposal.base {proposal.base!r} is not a known version"
+            )
+    else:
+        base = current
     candidate = store.stage(
         workspace,
         base=base,
@@ -95,6 +111,7 @@ def step(
         ),
     )
     cand_runs = components.rollout(candidate, slice_)
+    _check_pair(base_runs, cand_runs)
 
     base_scores = score(base_runs, components.reward)
     cand_scores = score(cand_runs, components.reward)
@@ -118,6 +135,7 @@ def step(
             "candidate": _run_id(cand_runs),
         },
     )
+    # log first, then promote: prefer an accepted-but-unpromoted record over a promoted version with no log entry
     if verdict.accepted and auto_promote:
         store.promote(workspace, candidate)
     return decision
@@ -131,12 +149,26 @@ def run(
     n: int = 1,
     auto_promote: bool = True,
 ) -> list[Decision]:
+    """Call ``step`` up to ``n`` times, collecting the non-declined decisions."""
+
     out = []
     for _ in range(n):
         decision = step(workspace, components, slice_, auto_promote=auto_promote)
         if decision is not None:
             out.append(decision)
     return out
+
+
+def _check_pair(base_runs: Sequence[Run], cand_runs: Sequence[Run]) -> None:
+    base_ids = {r.instance_id for r in base_runs}
+    cand_ids = {r.instance_id for r in cand_runs}
+    if not base_ids or not cand_ids:
+        raise ValueError("rollout produced no runs; cannot compare")
+    if base_ids != cand_ids:
+        raise ValueError(
+            f"baseline/candidate ran different instances: "
+            f"{sorted(base_ids)} vs {sorted(cand_ids)}"
+        )
 
 
 def _run_id(runs: Sequence[Run]) -> str:
