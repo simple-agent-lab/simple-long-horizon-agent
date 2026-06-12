@@ -36,6 +36,7 @@ one `strategy` slot.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -70,6 +71,39 @@ DEFAULT_PRESERVE_KINDS: tuple[MessageKind, ...] = (
     "summary",
     "context",
 )
+
+
+def format_index_ranges(indices: Sequence[int]) -> str:
+    """Render indices as compact sorted ranges: (2, 3, 4, 7) -> '2-4, 7'."""
+    ordered = sorted(set(indices))
+    if not ordered:
+        return ""
+    ranges: list[str] = []
+    start = prev = ordered[0]
+    for index in ordered[1:]:
+        if index == prev + 1:
+            prev = index
+            continue
+        ranges.append(f"{start}-{prev}" if start != prev else f"{start}")
+        start = prev = index
+    ranges.append(f"{start}-{prev}" if start != prev else f"{start}")
+    return ", ".join(ranges)
+
+
+def source_note(indices: Sequence[int]) -> str:
+    """Provenance footer naming the transcript messages a replacement folded.
+
+    `State` is append-only, so compression never deletes the originals — it
+    only removes them from the active view. This line tells the model where
+    they live; the `recall` tool (`simple_agent_lab.tools.recall`) reads the
+    citation back and fetches the originals by index. Summaries cite, recall
+    retrieves: compression becomes recoverable instead of lossy.
+    """
+    return (
+        f"[Compressed from transcript messages {format_index_ranges(indices)}. "
+        "Originals are retrievable by index via the `recall` tool when it is "
+        "available.]"
+    )
 
 
 @dataclass(frozen=True)
@@ -115,7 +149,9 @@ class ToolCompactStrategy:
             compress_indices=compress_indices,
             replacement=make_message(
                 "system",
-                _format_compact_summary(active, old, self.preview_chars),
+                _format_compact_summary(active, old, self.preview_chars)
+                + "\n"
+                + source_note(compress_indices),
                 sender="runtime",
                 target=agent_name,
                 kind="summary",
@@ -230,11 +266,12 @@ class SummarizeStrategy:
         summary_text = _output_text(output).strip() or (
             "Context was compressed, but the compressor returned no text."
         )
+        compress_indices = tuple(index for index, _ in to_compress)
         return CompressionDecision(
-            compress_indices=tuple(index for index, _ in to_compress),
+            compress_indices=compress_indices,
             replacement=make_message(
                 "system",
-                summary_text,
+                summary_text + "\n\n" + source_note(compress_indices),
                 sender="runtime",
                 target=agent_name,
                 kind="summary",
