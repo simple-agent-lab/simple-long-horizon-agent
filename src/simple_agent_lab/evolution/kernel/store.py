@@ -131,6 +131,8 @@ def stage(
 
 
 def _pointer_path(workspace: Path, *, namespace: str) -> Path:
+    # The shadow/<namespace>/ branch is a reserved Plan-2 seam (sandboxed/shadow
+    # promotion); Plan 1 always uses the default empty namespace.
     if namespace:
         return workspace / "pointers" / "shadow" / namespace / "current.json"
     return workspace / "pointers" / "current.json"

@@ -7,7 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Sequence
 
-from simple_agent_lab.evolution.components.criterion import improve
+from simple_agent_lab.evolution.components.criterion import (
+    guarded,
+    improve,
+    not_worse,
+)
 from simple_agent_lab.evolution.components.reward import result_key
 from simple_agent_lab.evolution.kernel import loop, store
 from simple_agent_lab.evolution.types import Context, Proposal, Run, Slice, Version
@@ -30,6 +34,28 @@ def stub_rollout(rewards_by_prompt: dict[str, float], runs_root: Path):
         return [Run(run_dir)]
 
     return rollout
+
+
+def multi_stub_rollout(metrics_by_prompt: dict[str, dict[str, float]], runs_root: Path):
+    """Like ``stub_rollout`` but writes several dims into ``result.json``."""
+
+    def rollout(version: Version, slice_: Slice) -> list[Run]:
+        metrics = metrics_by_prompt[version.read("prompt.md")]
+        run_dir = runs_root / f"{version.hash}-{slice_.sha}" / "i1"
+        (run_dir / "out").mkdir(parents=True, exist_ok=True)
+        (run_dir / "out" / "result.json").write_text(json.dumps(metrics))
+        return [Run(run_dir)]
+
+    return rollout
+
+
+def multi_reward(run: Run) -> dict[str, float]:
+    """A dict-returning reward exercising loop.score's Mapping branch."""
+
+    return {
+        "reward": run.reward if run.reward is not None else 0.0,
+        "cost": float(run.result.get("cost", 0.0)),
+    }
 
 
 class LoopTest(unittest.TestCase):
@@ -90,6 +116,73 @@ class LoopTest(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             loop.step(self.ws, components, self.slice)
+
+    def _multi_components(
+        self, strategy, metrics: dict[str, dict[str, float]], *, tol: float
+    ) -> Components:
+        return Components(
+            rollout=multi_stub_rollout(metrics, self.ws / "runs"),
+            reward=multi_reward,
+            strategy=strategy,
+            criterion=guarded(improve("reward"), [not_worse("cost", tol=tol)]),
+        )
+
+    def test_multi_dim_reward_guard_passes(self) -> None:
+        # dict reward -> loop.score(Mapping branch) -> multi-dim guarded criterion.
+        # reward climbs (0.3 -> 0.7); cost holds steady so the guard holds -> accept.
+        def strategy(ctx: Context) -> Proposal:
+            return Proposal(
+                edits={"prompt.md": "strong"}, note="try strong", kind="prompt"
+            )
+
+        metrics = {
+            "weak": {"reward": 0.3, "cost": 0.5},
+            "strong": {"reward": 0.7, "cost": 0.5},
+        }
+        decision = loop.step(
+            self.ws, self._multi_components(strategy, metrics, tol=0.0), self.slice
+        )
+        self.assertTrue(decision.accepted)
+        self.assertIn("reward", decision.deltas)
+        self.assertIn("cost", decision.deltas)
+        self.assertAlmostEqual(decision.deltas["reward"], 0.4)
+        self.assertAlmostEqual(decision.deltas["cost"], 0.0)
+        self.assertEqual(store.current(self.ws).read("prompt.md"), "strong")
+
+    def test_multi_dim_reward_guard_fails(self) -> None:
+        # reward still climbs, but the cost dim trips not_worse -> guard rejects.
+        def strategy(ctx: Context) -> Proposal:
+            return Proposal(
+                edits={"prompt.md": "strong"}, note="try strong", kind="prompt"
+            )
+
+        metrics = {
+            "weak": {"reward": 0.3, "cost": 0.5},
+            "strong": {"reward": 0.7, "cost": 0.1},
+        }
+        decision = loop.step(
+            self.ws, self._multi_components(strategy, metrics, tol=0.0), self.slice
+        )
+        self.assertFalse(decision.accepted)
+        self.assertIn("reward", decision.deltas)
+        self.assertIn("cost", decision.deltas)
+        self.assertAlmostEqual(decision.deltas["cost"], -0.4)
+        self.assertEqual(store.current(self.ws).read("prompt.md"), "weak")
+
+    def test_run_collects_only_non_declined_steps(self) -> None:
+        # Improve once (accepted), then decline -> run(n=2) yields a single Decision.
+        calls = {"n": 0}
+
+        def strategy(ctx: Context) -> "Proposal | None":
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return Proposal(edits={"prompt.md": "strong"}, kind="prompt")
+            return None
+
+        result = loop.run(self.ws, self._components(strategy), self.slice, n=2)
+        self.assertEqual(len(result), 1)
+        self.assertTrue(result[0].accepted)
+        self.assertEqual(calls["n"], 2)
 
 
 if __name__ == "__main__":
