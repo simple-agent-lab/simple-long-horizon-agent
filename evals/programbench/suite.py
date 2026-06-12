@@ -51,6 +51,8 @@ class ProgrambenchSuite:
         platform: str = "",
         network_mode: str = "host",
         cap_add: Sequence[str] = ("SYS_ADMIN",),
+        cpus: int | None = 20,
+        mem_limit: str | None = "60g",
     ) -> None:
         self.image_tag = image_tag
         self.platform = platform
@@ -61,6 +63,8 @@ class ProgrambenchSuite:
         # network namespace; drop it and the container half falls back to
         # un-isolated commands (and says so in the result).
         self.cap_add = tuple(cap_add)
+        self.cpus = cpus
+        self.mem_limit = mem_limit
 
     def launch_spec(self, instance: Mapping[str, Any]) -> LaunchSpec:
         image = harness.image_for_instance(dict(instance), image_tag=self.image_tag)
@@ -72,6 +76,9 @@ class ProgrambenchSuite:
             platform=self.platform or None,
             network_mode=self.network_mode or None,
             cap_add=self.cap_add,
+            nano_cpus=self.cpus * 1_000_000_000 if self.cpus else None,
+            mem_limit=self.mem_limit,
+            memswap_limit=self.mem_limit,
         )
 
     def task_input(self, instance: Mapping[str, Any]) -> dict[str, Any]:

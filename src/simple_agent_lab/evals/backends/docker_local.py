@@ -360,4 +360,10 @@ def _create_kwargs(
         kwargs["platform"] = spec.launch_spec.platform
     if spec.launch_spec.network_mode:
         kwargs["network_mode"] = spec.launch_spec.network_mode
+    if spec.launch_spec.nano_cpus is not None:
+        kwargs["nano_cpus"] = spec.launch_spec.nano_cpus
+    if spec.launch_spec.mem_limit is not None:
+        kwargs["mem_limit"] = spec.launch_spec.mem_limit
+    if spec.launch_spec.memswap_limit is not None:
+        kwargs["memswap_limit"] = spec.launch_spec.memswap_limit
     return kwargs

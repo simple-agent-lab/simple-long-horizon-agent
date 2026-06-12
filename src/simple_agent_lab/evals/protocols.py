@@ -87,6 +87,10 @@ class LaunchSpec:
     platform: str | None = None
     cap_add: tuple[str, ...] = ()
     network_mode: str | None = None
+    # Resource limits — None means "no limit" (Docker default).
+    nano_cpus: int | None = None  # 1 CPU = 1_000_000_000
+    mem_limit: str | None = None  # e.g. "60g"
+    memswap_limit: str | None = None  # e.g. "60g" (same as mem_limit disables swap)
 
 
 @dataclass(frozen=True)
@@ -264,6 +268,7 @@ class RunSpec:
     package_extras: tuple[str, ...] = ()
     wheelhouse_mount: str | None = None
     run_name: str = ""
+    wall_time_seconds: float | None = None  # None = no wall-clock limit
 
 
 @dataclass(frozen=True)
