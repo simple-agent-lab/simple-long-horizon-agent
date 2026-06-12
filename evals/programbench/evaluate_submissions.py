@@ -23,7 +23,7 @@ Usage::
 
     uv run python evals/programbench/evaluate_submissions.py \
         --run-root evals/out/programbench --run-id my-run [--instance-ids a b] \
-        [--workers 4] [--branch-workers 2] [--force] [--collect-only]
+        [--workers 4] [--branch-workers 2] [--docker-cpus 20] [--docker-memory 60g] [--force] [--collect-only]
 """
 
 from __future__ import annotations
@@ -45,6 +45,29 @@ for _path in (ROOT, SRC):
 from evals.programbench import harness  # noqa: E402
 
 SUBMISSION_KEY = "submission_tar_b64"
+DEFAULT_DOCKER_MEMORY = "60g"
+
+
+def _configure_programbench_docker(
+    *, cpus: int | None, memory: str | None
+) -> list[str]:
+    """Patch programbench's docker run args before starting eval containers.
+
+    The official ``programbench eval`` CLI exposes ``--docker-cpus`` but not
+    memory. Containers are created via ``programbench.constants.DOCKER_RUN_ARGS``,
+    which we extend with ``--memory`` / ``--memory-swap`` here so each eval
+    container matches the inference launch spec (60g, swap disabled).
+    """
+
+    import programbench.constants as pb_constants
+
+    if cpus is not None:
+        pb_constants.DOCKER_CPUS = cpus
+    run_args: list[str] = []
+    if memory:
+        run_args.extend(["--memory", memory, "--memory-swap", memory])
+    pb_constants.DOCKER_RUN_ARGS = run_args
+    return run_args
 
 
 # --------------------------------------------------------------------------- #
@@ -97,6 +120,7 @@ def run_official_eval(
     workers: int = 1,
     branch_workers: int = 1,
     docker_cpus: int | None = None,
+    docker_memory: str | None = DEFAULT_DOCKER_MEMORY,
     branch_retries: int | None = None,
     force: bool = False,
     filter_spec: str = "",
@@ -105,7 +129,8 @@ def run_official_eval(
 ) -> int:
     """Run ``programbench eval`` on the rebuilt submissions directory."""
 
-    cmd: list[str] = [
+    run_args = _configure_programbench_docker(cpus=docker_cpus, memory=docker_memory)
+    cmd_parts = [
         programbench_bin,
         "eval",
         str(eval_dir),
@@ -117,19 +142,38 @@ def run_official_eval(
         str(branch_workers),
     ]
     if docker_cpus is not None:
-        cmd += ["--docker-cpus", str(docker_cpus)]
+        cmd_parts += ["--docker-cpus", str(docker_cpus)]
+    if docker_memory:
+        cmd_parts += ["--docker-memory", docker_memory, "(via DOCKER_RUN_ARGS)"]
     if branch_retries is not None:
-        cmd += ["--branch-retries", str(branch_retries)]
+        cmd_parts += ["--branch-retries", str(branch_retries)]
     if force:
-        cmd.append("--force")
+        cmd_parts.append("--force")
     if filter_spec:
-        cmd += ["--filter", filter_spec]
+        cmd_parts += ["--filter", filter_spec]
     if slice_spec:
-        cmd += ["--slice", slice_spec]
+        cmd_parts += ["--slice", slice_spec]
     if summarize_only:
-        cmd.append("--summarize-only")
-    print("==> " + " ".join(cmd))
-    return subprocess.run(cmd).returncode
+        cmd_parts.append("--summarize-only")
+    print("==> " + " ".join(cmd_parts))
+    if run_args:
+        print(f"    docker run args: {' '.join(run_args)}")
+
+    from programbench.eval.eval_batch import run_eval_batch
+
+    run_eval_batch(
+        sources=[str(eval_dir)],
+        force=force,
+        workers=workers,
+        branch_workers=branch_workers,
+        docker_cpus=docker_cpus if docker_cpus is not None else 20,
+        filter_spec=filter_spec,
+        slice_spec=slice_spec,
+        summarize_only=summarize_only,
+        image_tag=image_tag,
+        branch_retries=branch_retries if branch_retries is not None else 1,
+    )
+    return 0
 
 
 def run_official_info(eval_dir: Path, *, programbench_bin: str = "programbench") -> int:
@@ -182,7 +226,13 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--image-tag", default=harness.DEFAULT_SCORE_IMAGE_TAG)
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--branch-workers", type=int, default=1)
-    parser.add_argument("--docker-cpus", type=int, default=None)
+    parser.add_argument("--docker-cpus", type=int, default=20)
+    parser.add_argument(
+        "--docker-memory",
+        default=DEFAULT_DOCKER_MEMORY,
+        help="Memory limit per eval container (docker --memory / --memory-swap). "
+        "Passed via programbench.constants.DOCKER_RUN_ARGS; default matches inference (60g).",
+    )
     parser.add_argument("--branch-retries", type=int, default=None)
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--filter", dest="filter_spec", default="")
@@ -243,6 +293,7 @@ def main(argv: list[str] | None = None) -> None:
             workers=args.workers,
             branch_workers=args.branch_workers,
             docker_cpus=args.docker_cpus,
+            docker_memory=args.docker_memory or None,
             branch_retries=args.branch_retries,
             force=args.force,
             filter_spec=args.filter_spec,
