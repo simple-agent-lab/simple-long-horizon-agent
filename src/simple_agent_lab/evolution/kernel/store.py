@@ -3,12 +3,20 @@
 This is kernel code (a guarantee, not a policy point). ``promote`` is the ONLY
 mutation in the whole framework. Versions are never overwritten; rejected ones
 are retained as stepping stones.
+
+The store provides *atomic publish* (rename/replace make a new version or
+pointer visible all-at-once), not crash durability: it does not fsync, so a
+crash mid-write may lose the most recent unflushed bytes. That is an acceptable
+trade for a lab; the invariant is that observers never see a half-written
+version or pointer.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import shutil
+import tempfile
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +30,14 @@ from simple_agent_lab.evolution.types import (
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _safe_dest(scratch: Path, rel: str) -> Path:
+    dst = (scratch / rel).resolve()
+    root = scratch.resolve()
+    if not (dst == root or root in dst.parents):
+        raise ValueError(f"edit path escapes version dir: {rel!r}")
+    return dst
 
 
 def version_hash(version_dir: Path) -> str:
@@ -52,17 +68,17 @@ def stage(
     content returns the existing version with its ORIGINAL manifest.
     """
 
-    scratch = workspace / "versions" / f".staging-{_now().replace(':', '')}"
-    scratch.mkdir(parents=True, exist_ok=True)
+    versions_root = workspace / "versions"
+    versions_root.mkdir(parents=True, exist_ok=True)
+    scratch = Path(tempfile.mkdtemp(dir=versions_root, prefix=".staging-"))
     try:
         if base is not None:
             for rel in base.files():
-                src = base.dir / rel
-                dst = scratch / rel
+                dst = _safe_dest(scratch, rel)
                 dst.parent.mkdir(parents=True, exist_ok=True)
-                dst.write_bytes(src.read_bytes())
+                dst.write_bytes((base.dir / rel).read_bytes())
         for rel, value in edits.items():
-            dst = scratch / rel
+            dst = _safe_dest(scratch, rel)
             if value is None:
                 dst.unlink(missing_ok=True)
                 continue
@@ -73,7 +89,7 @@ def stage(
                 dst.write_text(value, encoding="utf-8")
 
         digest = version_hash(scratch)
-        final = workspace / "versions" / digest
+        final = versions_root / digest
         if final.exists():
             return Version(final)  # first provenance wins
 
@@ -101,13 +117,15 @@ def stage(
             ),
             encoding="utf-8",
         )
-        scratch.rename(final)
+        try:
+            scratch.rename(final)
+        except OSError:
+            if final.exists():
+                return Version(final)  # created concurrently; first provenance wins
+            raise
         return Version(final)
     finally:
-        if scratch.exists():
-            for p in sorted(scratch.rglob("*"), reverse=True):
-                p.unlink() if p.is_file() else p.rmdir()
-            scratch.rmdir()
+        shutil.rmtree(scratch, ignore_errors=True)
 
 
 def _pointer_path(workspace: Path, *, namespace: str) -> Path:

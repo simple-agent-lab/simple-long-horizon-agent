@@ -46,6 +46,12 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(first.hash, again.hash)
         self.assertEqual(again.manifest.note, "first")  # first provenance wins
 
+    def test_stage_rejects_escaping_paths(self) -> None:
+        with self.assertRaises(ValueError):
+            store.stage(self.ws, base=None, edits={"../escape.md": "x"})
+        with self.assertRaises(ValueError):
+            store.stage(self.ws, base=None, edits={"/etc/passwd": "x"})
+
     def test_current_missing_raises(self) -> None:
         with self.assertRaises(FileNotFoundError):
             store.current(self.ws)
