@@ -11,6 +11,8 @@ concrete strategies and the runtime that applies them, depending on
 - `agent_control` — agent-controlled compaction: `make_compact_control` pairs
   a `compact` tool (the model requests compression itself) with the strategy
   that applies the request at the next safe point.
+- `metrics` — `summarize_compression(events)` measures effectiveness (bounded
+  peak, compression ratio, overhead) over a recorded run.
 - `runtime` — the framework that turns a `CompressionDecision` into recorded
   events; strategy authors do not need to read it.
 
@@ -26,6 +28,7 @@ from .agent_control import (
     CompactControl,
     make_compact_control,
 )
+from .metrics import CompressionMetrics, summarize_compression
 from .runtime import _active_context_tokens, maybe_compress_context
 from .strategies import (
     DEFAULT_PRESERVE_KINDS,
@@ -39,6 +42,7 @@ from .strategies import (
 __all__ = [
     "AgentCompactStrategy",
     "CompactControl",
+    "CompressionMetrics",
     "DEFAULT_PRESERVE_KINDS",
     "SummarizeStrategy",
     "TieredStrategy",
@@ -47,6 +51,7 @@ __all__ = [
     "make_compact_control",
     "maybe_compress_context",
     "source_note",
+    "summarize_compression",
     # Re-exported for tests that size an active context directly.
     "_active_context_tokens",
 ]

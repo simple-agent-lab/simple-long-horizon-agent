@@ -38,6 +38,7 @@ from simple_agent_lab import (  # noqa: E402
     run,
     text_of,
 )
+from simple_agent_lab.compression import summarize_compression  # noqa: E402
 from simple_agent_lab.llm import Provider  # noqa: E402
 from simple_agent_lab.llm.env import provider_from_env  # noqa: E402
 from simple_agent_lab.tools import (  # noqa: E402
@@ -141,7 +142,9 @@ def main() -> None:
 
     tool_calls: list[str] = []
     compressions: list[ContextCompressionEvent] = []
+    events = []
     for event in run(agent, state, max_turns=12):
+        events.append(event)
         if isinstance(event, ToolExecutionStartEvent):
             tool_calls.append(event.tool_name)
             print(f"  tool call: {event.tool_name}")
@@ -151,6 +154,10 @@ def main() -> None:
                 f"  compaction: dropped {len(event.compressed_message_indices)} "
                 f"msg(s), {event.before_tokens}->{event.after_tokens} tokens"
             )
+
+    # Real-model effectiveness numbers, alongside the pass/fail checks.
+    metrics = summarize_compression(events)
+    print(f"  effect: {metrics.as_dict()}")
 
     final = next(
         (message for message in reversed(state.messages) if message.kind == "final"),
