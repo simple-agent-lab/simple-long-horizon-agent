@@ -47,6 +47,13 @@ from .env import (
     request_extra_from_env,
     resolve_api_key,
 )
+from .registry import (
+    DEFAULT_MODEL_ALIASES,
+    FAST_ALIAS,
+    STRONG_ALIAS,
+    ModelRegistry,
+    env_names_for,
+)
 from .bridge import (
     llm_response_to_assistant_message,
     message_to_llm_message,
@@ -105,6 +112,11 @@ __all__ = [
     "OPENAI_SESSION_ID_ENV",
     "REASONING_EFFORT_ENV",
     "ProviderEnvNames",
+    "ModelRegistry",
+    "DEFAULT_MODEL_ALIASES",
+    "FAST_ALIAS",
+    "STRONG_ALIAS",
+    "env_names_for",
     "load_dotenv",
     "provider_from_env",
     "reasoning_from_env",
