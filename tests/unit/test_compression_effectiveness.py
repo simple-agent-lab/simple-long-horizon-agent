@@ -25,6 +25,7 @@ from simple_agent_lab import (
     Message,
     State,
     SummarizeStrategy,
+    TieredStrategy,
     ToolCompactStrategy,
     assistant_message,
     run,
@@ -193,6 +194,91 @@ class RecoverabilityTest(unittest.TestCase):
         )
         self.assertFalse(result.is_error)
         self.assertIn(secret, tool_result_text(result))
+
+
+def _run_text_heavy(policy: ContextPolicy, n_steps: int) -> list:
+    """Emit `n_steps` big text messages (no tool calls) under `policy`."""
+    turn = {"n": 0}
+
+    def brain(visible: list[Message]) -> Message:
+        del visible
+        index = turn["n"]
+        turn["n"] += 1
+        if index < n_steps:
+            # Big enough that a few steps cross THRESHOLD with no tool exchanges,
+            # so the tiered policy must fall through to the summarize stage.
+            return assistant_message(
+                "analysis paragraph " + "elaboration " * 400,
+                sender="analyst",
+                target="user",
+                kind="step",
+            )
+        return assistant_message("done", sender="analyst", target="user", kind="final")
+
+    state = State("analyze")
+    state.send("task", "user", "analyst", state.task)
+    agent = Agent("analyst", brain, context_policy=policy)
+    return list(run(agent, state, max_turns=n_steps + 2))
+
+
+def _summarizer() -> Agent:
+    def compressor(visible: list[Message]) -> Message:
+        del visible
+        return assistant_message(
+            "condensed", sender="c", target="runtime", kind="final"
+        )
+
+    return Agent("c", compressor)
+
+
+class StrategyAttributionTest(unittest.TestCase):
+    """Each fold event names the strategy that produced it, so a fold is
+    attributable without sniffing the summary text — the gap this closes."""
+
+    def test_rule_based_folds_are_labeled_tool_compact(self) -> None:
+        events = _run_tool_heavy(_tool_compact(), 8)
+        folds = [e for e in events if isinstance(e, ContextCompressionEvent)]
+        self.assertTrue(folds)
+        self.assertTrue(all(f.strategy == "tool-compact" for f in folds))
+        metrics = summarize_compression(events)
+        self.assertEqual(metrics.folds_by_strategy, {"tool-compact": len(folds)})
+
+    def test_summarize_folds_are_labeled_summarize(self) -> None:
+        policy = ContextPolicy(
+            strategy=SummarizeStrategy(
+                compressor=_summarizer(), threshold_tokens=THRESHOLD, keep_recent=2
+            )
+        )
+        folds = [
+            e
+            for e in _run_text_heavy(policy, 8)
+            if isinstance(e, ContextCompressionEvent)
+        ]
+        self.assertTrue(folds)
+        self.assertTrue(all(f.strategy == "summarize" for f in folds))
+
+    def test_tiered_event_names_the_stage_that_actually_fired(self) -> None:
+        # One TieredStrategy policy, two scenarios: the event self-identifies
+        # which stage fired — the cheap rule-based fold on tool-heavy work, the
+        # LLM summary fallback on text-only work. Previously indistinguishable.
+        def tiered() -> ContextPolicy:
+            return ContextPolicy(
+                strategy=TieredStrategy(
+                    (
+                        ToolCompactStrategy(threshold_tokens=THRESHOLD),
+                        SummarizeStrategy(
+                            compressor=_summarizer(),
+                            threshold_tokens=THRESHOLD,
+                            keep_recent=2,
+                        ),
+                    )
+                )
+            )
+
+        tool_metrics = summarize_compression(_run_tool_heavy(tiered(), 8))
+        text_metrics = summarize_compression(_run_text_heavy(tiered(), 8))
+        self.assertEqual(set(tool_metrics.folds_by_strategy), {"tool-compact"})
+        self.assertEqual(set(text_metrics.folds_by_strategy), {"summarize"})
 
 
 class MetricsShapeTest(unittest.TestCase):

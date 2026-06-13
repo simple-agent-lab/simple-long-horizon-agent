@@ -657,6 +657,7 @@
       "elapsed": 6.5,
       "index": 26,
       "kind": "context_compression",
+      "strategy": "tool-compact",
       "summary_message_index": 5
     },
     {
@@ -1584,6 +1585,7 @@
           3,
           4
         ],
+        "strategy": "tool-compact",
         "summary_message_index": 5
       },
       "end": 6.5,

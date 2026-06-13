@@ -134,11 +134,17 @@ def _run_tool_heavy(policy: ContextPolicy, n_reads: int) -> list:
     return list(run(agent, state, max_turns=n_reads + 2))
 
 
+def _fmt_by_strategy(folds_by_strategy: dict[str, int]) -> str:
+    return (
+        ", ".join(f"{name}:{n}" for name, n in sorted(folds_by_strategy.items())) or "-"
+    )
+
+
 def _print_table(n_reads: int) -> dict[str, int]:
     print(f"\n=== tool-heavy scenario, {n_reads} reads (threshold={THRESHOLD}) ===")
     header = (
-        f"  {'policy':<16} {'reqs':>5} {'compactions':>12} "
-        f"{'peak_tok':>9} {'final_tok':>10} {'kept_frac':>10} {'transcript':>11}"
+        f"  {'policy':<16} {'reqs':>5} {'peak_tok':>9} {'kept_frac':>10} "
+        f"{'folds_by_strategy':<24}"
     )
     print(header)
     print("  " + "-" * (len(header) - 2))
@@ -147,9 +153,9 @@ def _print_table(n_reads: int) -> dict[str, int]:
         metrics = summarize_compression(_run_tool_heavy(factory(), n_reads))
         peaks[label] = metrics.peak_active_tokens
         print(
-            f"  {label:<16} {metrics.model_requests:>5} {metrics.compactions:>12} "
-            f"{metrics.peak_active_tokens:>9} {metrics.final_active_tokens:>10} "
-            f"{metrics.mean_kept_fraction:>10.2f} {metrics.transcript_messages:>11}"
+            f"  {label:<16} {metrics.model_requests:>5} "
+            f"{metrics.peak_active_tokens:>9} {metrics.mean_kept_fraction:>10.2f} "
+            f"{_fmt_by_strategy(metrics.folds_by_strategy):<24}"
         )
     return peaks
 

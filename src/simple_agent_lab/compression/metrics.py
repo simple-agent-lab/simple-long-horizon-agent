@@ -14,8 +14,9 @@ instrumentation — so it works on any recorded run (live or scripted).
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from statistics import mean
 
 from ..protocols import (
@@ -35,11 +36,12 @@ class CompressionMetrics:
     peak is the headline number — a bounded peak across a long run is the whole
     point. `mean_kept_fraction` is the average ``after/before`` over folds (so
     0.25 means each fold cut the active context to a quarter); `tokens_dropped`
-    is the summed ``before - after``. `compressor_overhead` counts folds that
-    cost an LLM call (an `SummarizeStrategy`/agent summary), distinct from the
-    free rule-based folds. `transcript_messages` is the append-only total, which
-    never shrinks — the memory cost that buys recoverability (the originals stay
-    for `recall`).
+    is the summed ``before - after``. `transcript_messages` is the append-only
+    total, which never shrinks — the memory cost that buys recoverability (the
+    originals stay for `recall`). `folds_by_strategy` attributes each fold to the
+    strategy that produced it (`ContextCompressionEvent.strategy`), so a
+    mixed/`TieredStrategy` run shows *which* mechanism fired how often — the free
+    rule-based fold or the LLM summary — not one undifferentiated count.
     """
 
     model_requests: int
@@ -49,8 +51,9 @@ class CompressionMetrics:
     tokens_dropped: int
     mean_kept_fraction: float
     transcript_messages: int
+    folds_by_strategy: dict[str, int] = field(default_factory=dict)
 
-    def as_dict(self) -> dict[str, float]:
+    def as_dict(self) -> dict[str, object]:
         return {
             "model_requests": self.model_requests,
             "compactions": self.compactions,
@@ -59,6 +62,7 @@ class CompressionMetrics:
             "tokens_dropped": self.tokens_dropped,
             "mean_kept_fraction": round(self.mean_kept_fraction, 3),
             "transcript_messages": self.transcript_messages,
+            "folds_by_strategy": dict(self.folds_by_strategy),
         }
 
 
@@ -72,6 +76,7 @@ def summarize_compression(events: Iterable[Event]) -> CompressionMetrics:
     """
     active_series: list[int] = []
     folds: list[tuple[int, int]] = []
+    by_strategy: Counter[str] = Counter()
     transcript_messages = 0
     for event in events:
         if isinstance(event, ModelRequestEvent):
@@ -79,6 +84,7 @@ def summarize_compression(events: Iterable[Event]) -> CompressionMetrics:
             active_series.append(int(tokens))
         elif isinstance(event, ContextCompressionEvent):
             folds.append((event.before_tokens, event.after_tokens))
+            by_strategy[event.strategy or "(unlabeled)"] += 1
         elif isinstance(event, MessageEvent):
             transcript_messages += 1
 
@@ -91,4 +97,5 @@ def summarize_compression(events: Iterable[Event]) -> CompressionMetrics:
         tokens_dropped=sum(before - after for before, after in folds),
         mean_kept_fraction=mean(kept_fractions) if kept_fractions else 1.0,
         transcript_messages=transcript_messages,
+        folds_by_strategy=dict(by_strategy),
     )

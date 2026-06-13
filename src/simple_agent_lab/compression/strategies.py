@@ -156,6 +156,7 @@ class ToolCompactStrategy:
                 target=agent_name,
                 kind="summary",
             ),
+            label="tool-compact",
         )
 
 
@@ -276,6 +277,7 @@ class SummarizeStrategy:
                 target=agent_name,
                 kind="summary",
             ),
+            label="summarize",
         )
 
 

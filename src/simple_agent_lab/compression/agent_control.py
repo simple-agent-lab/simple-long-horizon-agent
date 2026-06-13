@@ -114,6 +114,7 @@ class AgentCompactStrategy:
                 target=agent_name,
                 kind="summary",
             ),
+            label="agent-compact",
         )
 
 

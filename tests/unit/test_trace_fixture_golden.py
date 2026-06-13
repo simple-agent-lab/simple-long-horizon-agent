@@ -466,6 +466,7 @@ def _build_events() -> list[Event]:
                 active_context_indices=[0, 5, 6],
                 before_tokens=4180,
                 after_tokens=1432,
+                strategy="tool-compact",
             ),
             TurnStartEvent(agent=PARENT),
             ModelRequestEvent(
