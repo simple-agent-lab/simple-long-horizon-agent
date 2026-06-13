@@ -31,6 +31,23 @@ if str(ROOT) not in sys.path:
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+# The OpenAI env-var names and the `.env` loader are owned by
+# `simple_agent_lab.llm.env` (single source of truth). This host-side harness
+# only forwards these names into the container; the container half reads them
+# via the same module. See ADR consolidate-provider-env.
+from simple_agent_lab.llm.env import (  # noqa: E402
+    API_KIND_ENV,
+    OPENAI_AUTH_ENV,
+    OPENAI_BASE_URL_ENV,
+    OPENAI_LOG_ID_ENV,
+    OPENAI_MODEL_ENV,
+    OPENAI_SESSION_ID_ENV,
+)
+
+# Re-exported so the run entry (`runs/run_swebench_suite.py`) keeps calling
+# `harness.load_dotenv`; the implementation is owned by `llm.env`.
+from simple_agent_lab.llm.env import load_dotenv as load_dotenv  # noqa: E402,F401
+
 DEFAULT_DATASET = "princeton-nlp/SWE-bench_Verified"
 DEFAULT_MULTILINGUAL_DATASET = "SWE-bench/SWE-bench_Multilingual"
 DEFAULT_SPLIT = "test"
@@ -47,12 +64,6 @@ DEFAULT_MULTILINGUAL_WHEELHOUSE = (
 DEFAULT_PRO_RUN_ROOT = ROOT / "evals/out/swebench_pro"
 DEFAULT_PRO_WHEELHOUSE = ROOT / "evals/out/swebench_pro/wheelhouse/cp311-manylinux"
 DEFAULT_UV_BINARY = shutil.which("uv") or ""
-OPENAI_MODEL_ENV = "OPENAI_MODEL"
-OPENAI_AUTH_ENV = "OPENAI_AUTH_TOKEN"
-OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
-OPENAI_SESSION_ID_ENV = "OPENAI_SESSION_ID"
-OPENAI_LOG_ID_ENV = "OPENAI_LOG_ID"
-API_KIND_ENV = "API_KIND"
 MCP_CONFIG_ENV = "MCP_CONFIG"
 API_KIND_CHOICES = ("openai-chat", "openai-responses")
 AGENT_FLAVOR_CHOICES = ("bash", "bash_task", "bash_skills")
@@ -319,23 +330,6 @@ def _container_environment(provider: str) -> dict[str, str]:
             "Missing required env vars for --provider openai: " + ", ".join(missing)
         )
     return env
-
-
-def load_dotenv(path: str | Path) -> None:
-    """Load simple KEY=VALUE dotenv lines without overriding the environment."""
-
-    dotenv = Path(path)
-    if not dotenv.exists():
-        return
-    for raw_line in dotenv.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[len("export ") :].strip()
-        key, separator, value = line.partition("=")
-        if separator and key.strip() and key.strip() not in os.environ:
-            os.environ[key.strip()] = value.strip().strip("'\"")
 
 
 def resolve_api_kind(value: str | None) -> str:

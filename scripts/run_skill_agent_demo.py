@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -47,6 +46,11 @@ from simple_agent_lab import (  # noqa: E402
     tool_results_of,
 )
 from simple_agent_lab.llm import Provider  # noqa: E402
+from simple_agent_lab.llm.env import (  # noqa: E402
+    FAKE_PROVIDER,
+    load_dotenv,
+    provider_from_env,
+)
 from simple_agent_lab.llm_agent import make_llm_agent  # noqa: E402
 from simple_agent_lab.skills import (  # noqa: E402
     BUNDLED_LIBRARY_DIR,
@@ -58,10 +62,6 @@ from simple_agent_lab.tools.bash import make_bash_tool  # noqa: E402
 from simple_agent_lab.tools.read import make_read_tool  # noqa: E402
 from simple_agent_lab.trace import run_trace_from_state, trace_record  # noqa: E402
 
-OPENAI_MODEL_ENV = "OPENAI_MODEL"
-OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
-OPENAI_AUTH_ENV = "OPENAI_AUTH_TOKEN"
-
 AGENT_NAME = "skill_agent"
 AGENT_ROLE = (
     "You are a capable software agent with a bash tool and a read tool. Use the "
@@ -70,38 +70,10 @@ AGENT_ROLE = (
 )
 
 
-def load_dotenv(path: str) -> None:
-    """Minimal KEY=VALUE loader (no export/quoting frills needed for .env here)."""
-
-    p = Path(path)
-    if not p.is_file():
-        return
-    for line in p.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        os.environ.setdefault(key.strip(), value.strip())
-
-
 def build_openai_provider() -> Provider:
-    model = (os.environ.get(OPENAI_MODEL_ENV) or "").strip()
-    token = (os.environ.get(OPENAI_AUTH_ENV) or "").strip()
-    base_url = (os.environ.get(OPENAI_BASE_URL_ENV) or "").strip() or None
-    missing = [
-        n for n, v in ((OPENAI_MODEL_ENV, model), (OPENAI_AUTH_ENV, token)) if not v
-    ]
-    if missing:
-        raise SystemExit("Missing env for --provider openai: " + ", ".join(missing))
-    os.environ[OPENAI_AUTH_ENV] = token
-    return Provider(
-        id="openai-chat",
-        api="openai-chat",
-        model=model,
-        base_url=base_url,
-        api_key_env=OPENAI_AUTH_ENV,
-        default_temperature=1.0,
-    )
+    # Single source of truth: `simple_agent_lab.llm.env`. `reexport_auth` strips
+    # the token back into os.environ for the adapter to read.
+    return provider_from_env(label="--provider openai", reexport_auth=True)
 
 
 def print_live_event(event: Event) -> None:
@@ -150,7 +122,7 @@ def main() -> None:
         load_dotenv(args.dotenv)
         provider = build_openai_provider()
     else:
-        provider = Provider(id="fake", api="fake", model="fake-model")
+        provider = FAKE_PROVIDER
 
     # Scope the menu: bundled library only (focused) or full real-user discovery.
     if args.all_skills:

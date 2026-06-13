@@ -19,7 +19,6 @@ answer) and exits non-zero if any breaks.
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -29,7 +28,6 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from simple_agent_lab import (  # noqa: E402
-    Agent,
     ContextCompressionEvent,
     ContextPolicy,
     State,
@@ -41,6 +39,7 @@ from simple_agent_lab import (  # noqa: E402
     text_of,
 )
 from simple_agent_lab.llm import Provider  # noqa: E402
+from simple_agent_lab.llm.env import provider_from_env  # noqa: E402
 from simple_agent_lab.tools import (  # noqa: E402
     AgentTool,
     make_recall_tool,
@@ -113,16 +112,14 @@ def _read_doc_tool() -> AgentTool:
 
 
 def _live_provider() -> Provider:
-    model = (os.environ.get("OPENAI_MODEL") or "").strip()
-    if not model:
-        print("SKIP: set OPENAI_MODEL (and OPENAI_BASE_URL / OPENAI_AUTH_TOKEN).")
-        raise SystemExit(0)
-    return Provider(
-        id="live-smoke",
-        api="openai-chat",
-        model=model,
-        base_url=(os.environ.get("OPENAI_BASE_URL") or "").strip() or None,
-        api_key_env="OPENAI_AUTH_TOKEN",
+    # Single source of truth: `simple_agent_lab.llm.env`. Missing creds exit 0
+    # (SKIP) so this opt-in script is safe to invoke unconditionally.
+    def _skip(message: str) -> SystemExit:
+        print(f"SKIP: {message}")
+        return SystemExit(0)
+
+    return provider_from_env(
+        label="OPENAI_MODEL / OPENAI_AUTH_TOKEN", missing_exc=_skip
     )
 
 

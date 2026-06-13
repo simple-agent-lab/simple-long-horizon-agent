@@ -19,6 +19,26 @@ import os
 from pathlib import Path
 from typing import Any
 
+# The OpenAI/Judge env-var names and the `.env` loader are owned by
+# `simple_agent_lab.llm.env` (single source of truth); this host-side harness
+# only forwards them into the container half. See ADR consolidate-provider-env.
+from simple_agent_lab.llm.env import (
+    API_KIND_ENV,
+    JUDGE_API_KIND_ENV,
+    JUDGE_AUTH_ENV,
+    JUDGE_BASE_URL_ENV,
+    JUDGE_MODEL_ENV,
+    OPENAI_AUTH_ENV,
+    OPENAI_BASE_URL_ENV,
+    OPENAI_LOG_ID_ENV,
+    OPENAI_MODEL_ENV,
+    OPENAI_SESSION_ID_ENV,
+)
+
+# Re-exported so the run entry (`runs/run_onemillion_suite.py`) keeps calling
+# `harness.load_dotenv`; the implementation is owned by `llm.env`.
+from simple_agent_lab.llm.env import load_dotenv as load_dotenv  # noqa: F401
+
 ROOT = Path(__file__).resolve().parents[2]
 
 # Where the downloaded OneMillion-Bench dataset is expected, and where per-run
@@ -29,22 +49,11 @@ DEFAULT_WORKDIR = "/workspace"
 
 SUITE_NAME = "onemillion"
 
-# Generator (the model under test) — the framework's shared OpenAI-compatible
-# env contract.
-OPENAI_MODEL_ENV = "OPENAI_MODEL"
-OPENAI_AUTH_ENV = "OPENAI_AUTH_TOKEN"
-OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
-OPENAI_SESSION_ID_ENV = "OPENAI_SESSION_ID"
-OPENAI_LOG_ID_ENV = "OPENAI_LOG_ID"
-API_KIND_ENV = "API_KIND"
+# Generator (the model under test) uses the shared OpenAI-compatible env
+# contract; the judge uses the parallel JUDGE_* set (falling back to OPENAI_*).
+# Both name sets and the loader come from `simple_agent_lab.llm.env` (imported
+# above); only the suite-local passthrough groupings live here.
 API_KIND_CHOICES = ("openai-chat", "openai-responses")
-
-# Judge (the grader) — read by the container-half ``evaluate`` hook. Each falls
-# back to the matching OPENAI_* value when unset (see ``container.py``).
-JUDGE_MODEL_ENV = "JUDGE_MODEL"
-JUDGE_AUTH_ENV = "JUDGE_AUTH_TOKEN"
-JUDGE_BASE_URL_ENV = "JUDGE_BASE_URL"
-JUDGE_API_KIND_ENV = "JUDGE_API_KIND"
 
 OPENAI_PASSTHROUGH_ENVS = (
     OPENAI_MODEL_ENV,
@@ -197,23 +206,6 @@ def container_environment(provider: str) -> dict[str, str]:
             "Missing required env vars for --provider openai: " + ", ".join(missing)
         )
     return env
-
-
-def load_dotenv(path: str | Path) -> None:
-    """Load simple KEY=VALUE dotenv lines without overriding the environment."""
-
-    dotenv = Path(path)
-    if not dotenv.exists():
-        return
-    for raw_line in dotenv.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[len("export ") :].strip()
-        key, separator, value = line.partition("=")
-        if separator and key.strip() and key.strip() not in os.environ:
-            os.environ[key.strip()] = value.strip().strip("'\"")
 
 
 def resolve_api_kind(value: str | None) -> str:

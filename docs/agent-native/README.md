@@ -61,7 +61,10 @@ The current source-of-truth layers are:
   live connection. Skills ride on the core `Agent.init_state` hook
   (`pluggable-state-init-hook`),
   not a session.
-- `src/simple_agent_lab/llm/`: provider-agnostic model access layer.
+- `src/simple_agent_lab/llm/`: provider-agnostic model access layer. Building a
+  `Provider` from environment variables (env-var names, `.env` loading,
+  `provider_from_env`, `FAKE_PROVIDER`, adapter key resolution) is owned by
+  `llm/env.py` — the single source of truth (ADR consolidate-provider-env).
 - `src/simple_agent_lab/mcp/`: optional Model Context Protocol integration —
   connect to MCP servers and wrap their tools (including multimodal results)
   as `AgentTool`s, behind the `mcp` extra. See ADR mcp-as-tool-source.
@@ -126,6 +129,7 @@ Stop and collect more evidence before changing behavior when:
 | Harness workflow or docs-first process | `docs/agent-native/harness-engineering.md`, ADR adopt-harness-engineering-workflow, ADR make-testing-and-feedback-first-priority | Feedback signal and repository-as-harness rules. |
 | Core runtime shape | ADR use-tiny-message-runtime, ADR make-balanced-runtime-the-lead-core-candidate, ADR promote-balanced-runtime-to-src-core, `src/simple_agent_lab/core.py` | Canonical runtime boundary and stateful run-loop rationale. |
 | Message protocol or provider conversion | `CONTEXT.md`, ADR use-role-specific-message-protocol, ADR unify-message-protocol-on-content-blocks, ADR tool-result-as-content-block, `src/simple_agent_lab/messages.py`, `src/simple_agent_lab/llm/README.md` | Runtime-vs-model message boundary and vocabulary. |
+| Provider config / env vars (`OPENAI_*`, `.env`, `Provider`) | ADR consolidate-provider-env, `src/simple_agent_lab/llm/env.py`, `tests/unit/test_evals_framework.py`, `tests/unit/test_onemillion_container.py` | Single source of truth for env-var names, `load_dotenv`, `provider_from_env`, `FAKE_PROVIDER`, and adapter key resolution. Build providers from env here; don't re-declare the names. |
 | Context visibility or budgeting | ADR make-context-view-an-explicit-projection, `src/simple_agent_lab/context_view.py`, `tests/unit/test_core.py`, `tests/unit/test_token_usage.py` | Projection behavior and token-estimate constraints. |
 | Context compression (strategies, recall, `compact`) | ADR recoverable-compression-and-agent-compaction, `src/simple_agent_lab/compression/`, `src/simple_agent_lab/tools/recall.py`, `tests/unit/test_compression_control.py`, `tests/unit/test_core.py` | Summaries cite folded transcript indices; `recall` retrieves originals; `make_compact_control` pairs a `compact` tool with the strategy applying it at the next turn start. |
 | Tool execution or bash demo | `src/simple_agent_lab/tools/`, `src/simple_agent_lab/agents/starter.py` (`agent_session` / `make_bash_agent`), `tests/unit/test_bash_agent.py`, `tests/unit/test_agent_starter.py` | Tool result semantics and deterministic demo checks. |

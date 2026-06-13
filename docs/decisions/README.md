@@ -42,6 +42,7 @@ product direction, especially if future contributors may wonder why it was chose
 - [Consolidate Agent Presets behind one AgentSession + Toolsets](20260604-consolidate-agent-presets.md)
 - [A Pluggable State Initializer Makes Skills a Bare-Agent Capability](20260605-pluggable-state-init-hook.md)
 - [Recoverable Compression and Agent-Controlled Compaction](20260612-recoverable-compression-and-agent-compaction.md)
+- [Consolidate Provider Construction and Env-Var Reading in llm.env](20260613-consolidate-provider-env.md)
 
 ## Proposed
 

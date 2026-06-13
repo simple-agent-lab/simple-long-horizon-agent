@@ -42,7 +42,6 @@ are passed through verbatim and take precedence over the normalized knob.
 
 from __future__ import annotations
 
-import os
 import re
 from typing import Any, Iterator
 
@@ -56,6 +55,7 @@ from ...messages import (
     text_of,
 )
 from . import capture_request, sdk_dump
+from ..env import resolve_api_key
 from ..stream import register_adapter
 from ..types import (
     LLMMessage,
@@ -226,15 +226,9 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
 
 
 def _api_key(req: LLMRequest) -> str | None:
-    env = req.provider.api_key_env
-    if not env:
-        return None
-    api_key = os.environ.get(env)
-    if not api_key:
-        raise RuntimeError(
-            f"Provider {req.provider.id!r} requires env var {env!r}; not set."
-        )
-    return api_key
+    # The Anthropic SDK accepts a None key for keyless endpoints (placeholder is
+    # None, unlike the OpenAI adapters). Shared resolver lives in `llm.env`.
+    return resolve_api_key(req.provider, placeholder=None)
 
 
 def _to_anthropic_messages(req: LLMRequest) -> tuple[str | None, list[dict[str, Any]]]:

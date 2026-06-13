@@ -54,7 +54,9 @@ class Provider:
     model: str  # provider's model id, e.g. "claude-sonnet-4-5"
     base_url: str | None = None  # override SDK default (Ollama, Azure, etc.)
     api_key_env: str = ""  # env var name; "" = no key needed (fake / local)
-    default_temperature: float = 1.0
+    # `None` means "send no temperature" — the OpenAI Responses API rejects the
+    # field, so a responses provider sets this to None and adapters omit it.
+    default_temperature: float | None = 1.0
     default_max_tokens: int | None = None
     # Reasoning depth applied when a request doesn't set its own
     # `LLMRequest.reasoning`. Configure once on the provider and every agent
