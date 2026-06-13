@@ -26,6 +26,7 @@ __all__ = [
     "ToolResult",
     "ToolResultContent",
     "ToolUpdateFn",
+    "coerce_int",
     "task_tool",
     "text_result",
     "tool_result_text",
@@ -123,6 +124,27 @@ def tool_result_text(result: ToolResult) -> str:
     return "\n".join(
         block.text for block in result.content if isinstance(block, TextBlock)
     )
+
+
+def coerce_int(name: str, value: Any, *, minimum: int) -> int:
+    """Coerce a tool argument to an ``int >= minimum``.
+
+    Rejects `bool` (an int subclass, so `True` would otherwise read as 1) and
+    fractional floats (a malformed index, not something to floor). Shared by the
+    read/recall/compact tools' argument parsing; callers that accept an absent
+    value guard for `None`/`""` themselves before calling.
+    """
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be an integer, got {value!r}")
+    if isinstance(value, float) and not value.is_integer():
+        raise ValueError(f"{name} must be an integer, got {value!r}")
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} must be an integer, got {value!r}") from None
+    if number < minimum:
+        raise ValueError(f"{name} must be >= {minimum}, got {number}")
+    return number
 
 
 # Re-export after the common tool shapes are defined; `task` imports them.

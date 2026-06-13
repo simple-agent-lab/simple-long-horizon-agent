@@ -41,7 +41,14 @@ from typing import Any
 
 from ..context_view import CompressionDecision
 from ..messages import Message, MessageKind, make_message
-from ..tools import AbortFlag, AgentTool, ToolResult, ToolUpdateFn, text_result
+from ..tools import (
+    AbortFlag,
+    AgentTool,
+    ToolResult,
+    ToolUpdateFn,
+    coerce_int,
+    text_result,
+)
 from .strategies import DEFAULT_PRESERVE_KINDS, source_note
 
 COMPACT_TOOL_NAME = "compact"
@@ -210,15 +217,4 @@ def _coerce_keep_recent(value: Any) -> int | None:
     """Coerce the optional `keep_recent` argument to a non-negative int."""
     if value is None or value == "":
         return None
-    # bool is an int subclass; reject it so `True` isn't read as keep 1.
-    if isinstance(value, bool):
-        raise ValueError(f"keep_recent must be an integer, got {value!r}")
-    if isinstance(value, float) and not value.is_integer():
-        raise ValueError(f"keep_recent must be an integer, got {value!r}")
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        raise ValueError(f"keep_recent must be an integer, got {value!r}") from None
-    if number < 0:
-        raise ValueError(f"keep_recent must be >= 0, got {number}")
-    return number
+    return coerce_int("keep_recent", value, minimum=0)

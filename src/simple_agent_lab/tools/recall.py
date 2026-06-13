@@ -34,7 +34,7 @@ from simple_agent_lab.messages import (
     tool_results_of,
 )
 
-from . import AbortFlag, AgentTool, ToolResult, ToolUpdateFn, text_result
+from . import AbortFlag, AgentTool, ToolResult, ToolUpdateFn, coerce_int, text_result
 
 if TYPE_CHECKING:
     from simple_agent_lab.state import State
@@ -159,18 +159,4 @@ def _coerce_indices(value: Any, *, max_indices: int) -> list[int]:
         raise ValueError("indices must not be empty")
     if len(value) > max_indices:
         raise ValueError(f"at most {max_indices} indices per call, got {len(value)}")
-    out: list[int] = []
-    for item in value:
-        # bool is an int subclass; reject it so `True` isn't read as index 1.
-        if isinstance(item, bool):
-            raise ValueError(f"indices must be integers, got {item!r}")
-        if isinstance(item, float) and not item.is_integer():
-            raise ValueError(f"indices must be integers, got {item!r}")
-        try:
-            number = int(item)
-        except (TypeError, ValueError):
-            raise ValueError(f"indices must be integers, got {item!r}") from None
-        if number < 0:
-            raise ValueError(f"indices must be >= 0, got {number}")
-        out.append(number)
-    return out
+    return [coerce_int("indices", item, minimum=0) for item in value]
