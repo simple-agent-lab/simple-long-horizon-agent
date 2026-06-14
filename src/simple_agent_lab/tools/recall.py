@@ -42,9 +42,12 @@ if TYPE_CHECKING:
 RECALL_TOOL_NAME = "recall"
 
 # A recalled message goes straight back into the context the compression just
-# shrank, so each one is capped; the cap is per message (not per call) to keep
-# the citation-sized lookups summaries invite cheap and predictable.
+# shrank, so the output is capped on two axes: per message (each rendered
+# message) and per call (the whole batch). The per-call cap is the important
+# one — without it `max_chars_per_message * max_indices` worth of text could be
+# re-injected in a single recall, undoing the compaction that just ran.
 DEFAULT_MAX_CHARS_PER_MESSAGE = 4000
+DEFAULT_MAX_TOTAL_CHARS = 8000
 DEFAULT_MAX_INDICES = 20
 
 
@@ -52,12 +55,15 @@ def make_recall_tool(
     state: "State",
     *,
     max_chars_per_message: int = DEFAULT_MAX_CHARS_PER_MESSAGE,
+    max_total_chars: int = DEFAULT_MAX_TOTAL_CHARS,
     max_indices: int = DEFAULT_MAX_INDICES,
     tool_name: str = RECALL_TOOL_NAME,
 ) -> AgentTool:
     """Return an `AgentTool` that reads original transcript messages off `state`."""
     if max_chars_per_message <= 0:
         raise ValueError("max_chars_per_message must be > 0")
+    if max_total_chars < max_chars_per_message:
+        raise ValueError("max_total_chars must be >= max_chars_per_message")
     if max_indices <= 0:
         raise ValueError("max_indices must be > 0")
 
@@ -81,13 +87,28 @@ def make_recall_tool(
                 f"0-{len(messages) - 1}).",
                 is_error=True,
             )
-        rendered = [
-            render_transcript_message(
+        rendered: list[str] = []
+        used = 0
+        returned = indices
+        for position, index in enumerate(indices):
+            block = render_transcript_message(
                 index, messages[index], max_chars=max_chars_per_message
             )
-            for index in indices
-        ]
-        return text_result("\n\n".join(rendered), details={"indices": indices})
+            cost = len(block) + (2 if rendered else 0)  # 2 for the "\n\n" joiner
+            # Always return the first message (already per-message capped); stop
+            # before the batch as a whole would exceed the per-call budget.
+            if rendered and used + cost > max_total_chars:
+                remaining = len(indices) - position
+                rendered.append(
+                    f"… [recall truncated: {remaining} more message(s) not "
+                    f"shown; this call's {max_total_chars}-char budget is full. "
+                    "Request the rest in a follow-up recall.]"
+                )
+                returned = indices[:position]
+                break
+            rendered.append(block)
+            used += cost
+        return text_result("\n\n".join(rendered), details={"indices": returned})
 
     return AgentTool(
         name=tool_name,

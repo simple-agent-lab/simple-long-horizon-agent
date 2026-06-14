@@ -125,6 +125,43 @@ class RecallToolTest(unittest.TestCase):
         self.assertIn("truncated; 500 chars total", text)
         self.assertNotIn("y" * 200, text)
 
+    def test_per_call_budget_bounds_a_multi_index_recall(self) -> None:
+        # Without a per-call cap a single recall could re-inject
+        # max_chars_per_message * max_indices worth of text, undoing the
+        # compaction that just ran. The budget stops the batch early.
+        state = State("t")
+        state.send("task", "user", "worker", "t")
+        for _ in range(5):
+            state.send("message", "user", "worker", "z" * 500)  # indices 1-5
+        tool = make_recall_tool(
+            state, max_chars_per_message=200, max_total_chars=400
+        )
+        result = tool.execute("call", {"indices": [1, 2, 3, 4, 5]}, _no_abort, None)
+        text = tool_result_text(result)
+        # First message is always returned; the rest is summarized as truncated.
+        self.assertIn("recall truncated", text)
+        self.assertIn("4 more message(s)", text)
+        # details report only what was actually returned, not all requested.
+        self.assertEqual(result.details["indices"], [1])
+
+    def test_first_message_returned_even_when_it_alone_fills_the_budget(self) -> None:
+        state = State("t")
+        state.send("task", "user", "worker", "t")
+        state.send("message", "user", "worker", "z" * 500)  # index 1
+        tool = make_recall_tool(
+            state, max_chars_per_message=400, max_total_chars=400
+        )
+        result = tool.execute("call", {"indices": [1]}, _no_abort, None)
+        self.assertFalse(result.is_error)
+        self.assertEqual(result.details["indices"], [1])
+        self.assertNotIn("recall truncated", tool_result_text(result))
+
+    def test_rejects_total_budget_below_per_message_cap(self) -> None:
+        with self.assertRaises(ValueError):
+            make_recall_tool(
+                State("t"), max_chars_per_message=4000, max_total_chars=1000
+            )
+
 
 class CompactControlTest(unittest.TestCase):
     def test_compact_request_is_applied_at_the_next_turn_start(self) -> None:
