@@ -164,7 +164,9 @@ def make_workflow_runner(
 ) -> WorkflowRunner:
     """Build the `task -> WorkflowResult` runner for the selected workflow."""
 
-    name = (workflow or os.environ.get(WORKFLOW_ENV) or DEFAULT_WORKFLOW).strip().lower()
+    name = (
+        (workflow or os.environ.get(WORKFLOW_ENV) or DEFAULT_WORKFLOW).strip().lower()
+    )
     timeout = _env_float(TIMEOUT_ENV, DEFAULT_TIMEOUT_S)
 
     if name == "single":
@@ -193,9 +195,7 @@ def make_workflow_runner(
             provider, request_extra=request_extra, timeout_seconds=timeout
         )
         rounds = _env_int(REFLECTION_ROUNDS_ENV, 2)
-        return lambda task: run_reflection(
-            generator, critic, task, max_rounds=rounds
-        )
+        return lambda task: run_reflection(generator, critic, task, max_rounds=rounds)
 
     if name == "planner_executor":
         planner = make_planner_agent(
@@ -216,7 +216,9 @@ def make_workflow_runner(
     if name == "parallel":
         n = _env_int(PARALLEL_WORKERS_ENV, 3)
         workers = [
-            _answer_agent(provider, f"worker_{i}", request_extra, timeout_seconds=timeout)
+            _answer_agent(
+                provider, f"worker_{i}", request_extra, timeout_seconds=timeout
+            )
             for i in range(n)
         ]
         aggregator = _answer_agent(
@@ -312,9 +314,7 @@ def build_agent(
         if text.strip():
             response_path.write_text(text, encoding="utf-8")
         _write_steps(steps_path, result)
-        return assistant_message(
-            text, sender=AGENT_NAME, target="user", kind="final"
-        )
+        return assistant_message(text, sender=AGENT_NAME, target="user", kind="final")
 
     return Agent(name=AGENT_NAME, generate=generate, role=AGENT_ROLE)
 

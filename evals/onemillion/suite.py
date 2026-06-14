@@ -1,4 +1,4 @@
-"""OneMillion-Bench as a `Suite` (ADR 0017), mirroring `SwebenchSuite`.
+"""OneMillion-Bench as a `Suite` (ADR 0017).
 
 This is the *host half*: it maps a OneMillion-Bench case onto one `Suite` whose
 launch shape rides along as ``launch_spec`` data, drops the rubrics before the
@@ -73,6 +73,4 @@ class OneMillionWorkflowSuite(OneMillionSuite):
     var (reflection / planner_executor / parallel / chain / routing / single).
     """
 
-    container_module = (
-        "simple_agent_lab.evals.suites.onemillion.workflow_container"
-    )
+    container_module = "simple_agent_lab.evals.suites.onemillion.workflow_container"
