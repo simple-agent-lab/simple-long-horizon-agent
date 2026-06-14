@@ -27,11 +27,46 @@ from simple_agent_lab import (
     text_of,
 )
 from simple_agent_lab.compression import format_index_ranges, source_note
+from simple_agent_lab.messages import (
+    ToolResultBlock,
+    make_message,
+    tool_results_message,
+)
 from simple_agent_lab.tools import make_recall_tool, tool_result_text
 
 
 def _no_abort() -> bool:
     return False
+
+
+def _compact_request_item(
+    index: int,
+    control: object,
+    *,
+    summary: str,
+    keep_recent: int | None = None,
+    call_id: str = "c1",
+    target: str = "worker",
+) -> tuple[int, Message]:
+    """Run the `compact` tool and wrap its result the way the loop records it.
+
+    The request rides in the tool_result bundle's `details` sidecar, exactly as
+    `dispatch_tool_calls` stores it, so the strategy reads it back off `active`.
+    """
+    args: dict[str, object] = {"summary": summary}
+    if keep_recent is not None:
+        args["keep_recent"] = keep_recent
+    result = control.tool.execute(call_id, args, _no_abort, None)  # type: ignore[attr-defined]
+    block = ToolResultBlock(
+        tool_call_id=call_id,
+        tool_name="compact",
+        content=tuple(result.content),
+        is_error=result.is_error,
+    )
+    message = tool_results_message(
+        [block], target=target, sidecar={"details": {call_id: result.details}}
+    )
+    return index, message
 
 
 class IndexCitationTest(unittest.TestCase):
@@ -243,63 +278,88 @@ class CompactControlTest(unittest.TestCase):
         # The run still finishes normally after the fold.
         self.assertEqual(state.messages[-1].kind, "final")
 
-    def test_strategy_is_idle_without_a_pending_request(self) -> None:
+    def test_strategy_is_idle_without_a_request(self) -> None:
         control = make_compact_control()
         active = [
             (0, State("t").send("task", "user", "worker", "t")),
         ]
+        # No tool_result carries a compact_request, so the strategy stays idle.
         self.assertIsNone(control.strategy(active, "worker"))
 
     def test_request_with_nothing_to_fold_is_dropped(self) -> None:
         control = make_compact_control(keep_recent=2)
-        result = control.tool.execute("call", {"summary": "keep this"}, _no_abort, None)
-        self.assertFalse(result.is_error)
-
-        state = State("t")
-        task_message = state.send("task", "user", "worker", "t")
-        recent = state.send("message", "user", "worker", "recent")
-        active = [(0, task_message), (1, recent)]
-        # Only one droppable message and keep_recent=2 -> nothing to fold;
-        # the request is consumed, not deferred.
+        task = State("t").send("task", "user", "worker", "t")
+        request = _compact_request_item(1, control, summary="keep this")
+        # Task is a preserved kind, so the only droppable item is the request
+        # itself and keep_recent=2 protects it -> nothing to fold, every pass.
+        active = [(0, task), request]
         self.assertIsNone(control.strategy(active, "worker"))
         self.assertIsNone(control.strategy(active, "worker"))
 
     def test_keep_recent_override_per_call(self) -> None:
         control = make_compact_control(keep_recent=2)
-        control.tool.execute(
-            "call", {"summary": "fold everything", "keep_recent": 0}, _no_abort, None
+        state = State("t")
+        request = _compact_request_item(
+            3, control, summary="fold everything", keep_recent=0
+        )
+        items = [
+            (0, state.send("task", "user", "worker", "t")),
+            (1, state.send("message", "user", "worker", "a")),
+            (2, state.send("message", "user", "worker", "b")),
+            request,
+        ]
+        decision = control.strategy(items, "worker")
+        assert decision is not None
+        # keep_recent=0 folds every droppable message, the request bundle included.
+        self.assertEqual(decision.compress_indices, (1, 2, 3))
+
+    def test_multiple_requests_in_one_turn_apply_the_first(self) -> None:
+        # Two compact calls share one tool_result bundle (parallel tool pool);
+        # the first call recorded is the one applied, deterministically.
+        control = make_compact_control(keep_recent=0)
+        r1 = control.tool.execute("c1", {"summary": "first call"}, _no_abort, None)
+        r2 = control.tool.execute("c2", {"summary": "second call"}, _no_abort, None)
+        bundle = tool_results_message(
+            [
+                ToolResultBlock("c1", "compact", tuple(r1.content), r1.is_error),
+                ToolResultBlock("c2", "compact", tuple(r2.content), r2.is_error),
+            ],
+            target="worker",
+            sidecar={"details": {"c1": r1.details, "c2": r2.details}},
         )
         state = State("t")
         items = [
             (0, state.send("task", "user", "worker", "t")),
             (1, state.send("message", "user", "worker", "a")),
-            (2, state.send("message", "user", "worker", "b")),
+            (2, bundle),
         ]
         decision = control.strategy(items, "worker")
         assert decision is not None
-        self.assertEqual(decision.compress_indices, (1, 2))
+        self.assertIn("first call", text_of(decision.replacement.content))
 
-    def test_second_pending_request_is_kept_not_overwritten(self) -> None:
-        # Two compact calls in one turn (parallel tool pool): the first wins and
-        # the second is told it was not queued, rather than silently clobbering
-        # the first's acknowledged summary.
-        control = make_compact_control(keep_recent=0)
-        first = control.tool.execute("c1", {"summary": "first wins"}, _no_abort, None)
-        second = control.tool.execute("c2", {"summary": "second"}, _no_abort, None)
-        self.assertFalse(first.is_error)
-        self.assertFalse(second.is_error)
-        self.assertIn("already pending", tool_result_text(second))
-
+    def test_request_is_not_reapplied_once_a_newer_summary_exists(self) -> None:
+        # Exactly-once via the high-water mark: once a fold has spliced a summary
+        # newer than the request, the request is spent and never fires again,
+        # even though it stays in the append-only transcript.
+        control = make_compact_control(keep_recent=1)
         state = State("t")
-        items = [
+        request = _compact_request_item(3, control, summary="folded")
+        active = [
             (0, state.send("task", "user", "worker", "t")),
-            (1, state.send("message", "user", "worker", "a")),
+            (1, state.send("message", "user", "worker", "old one")),
+            (2, state.send("message", "user", "worker", "old two")),
+            request,
         ]
-        decision = control.strategy(items, "worker")
-        assert decision is not None
-        self.assertIn("first wins", text_of(decision.replacement.content))
-        # The slot is now empty: the second request was never stored.
-        self.assertIsNone(control.strategy(items, "worker"))
+        self.assertIsNotNone(control.strategy(active, "worker"))
+
+        # The applied fold splices a summary at a higher transcript index (4)
+        # than the request (3); the request must now be treated as consumed.
+        summary = make_message(
+            "system", "running summary", sender="runtime", target="worker",
+            kind="summary",
+        )
+        applied = [active[0], (4, summary), request]
+        self.assertIsNone(control.strategy(applied, "worker"))
 
     def test_tool_rejects_empty_summary_and_bad_keep_recent(self) -> None:
         control = make_compact_control()

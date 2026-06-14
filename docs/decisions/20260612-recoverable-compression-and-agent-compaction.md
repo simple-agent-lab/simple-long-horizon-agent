@@ -36,16 +36,24 @@ Two capabilities, designed as halves of one loop:
   passes cited indices and gets the original messages rendered verbatim
   (read-only, capped per message). Compression becomes recoverable
   externalization instead of deletion.
-- **Agent-controlled compaction splits decision from application.**
-  `compression.agent_control.make_compact_control()` returns a paired
-  `compact` tool and strategy sharing a single-slot request holder. The
-  model calls `compact(summary=...)` with its own replacement text; the tool
-  only records the request (tool executes run in the worker pool, where
-  mutating `State` is out of bounds). The paired strategy applies it at the
-  next turn start — the loop's one safe compression point, after the pending
-  tool_result bundle is recorded, so a fold can never split an in-flight
-  tool_call from its result. The existing `maybe_compress_context` runtime
-  (pair alignment, sizing, `ContextCompressionEvent`) is reused unchanged.
+- **Agent-controlled compaction splits decision from application, routed
+  through the transcript.** `compression.agent_control.make_compact_control()`
+  returns a paired `compact` tool and strategy. The model calls
+  `compact(summary=...)` with its own replacement text; the tool stays a pure
+  function and returns the request as structured `ToolResult.details`
+  (`{"compact_request": ...}`). The dispatch loop records that into the
+  tool_result bundle's `details` sidecar — single-threaded, at the one safe
+  point — so the request enters the append-only event log (and the trace) like
+  any other tool output, with no shared mutable state between the two halves.
+  The paired strategy runs at the next turn start — the loop's one safe
+  compression point, after the tool_result bundle is recorded, so a fold can
+  never split an in-flight tool_call from its result — reads the most recent
+  `compact_request` back off the active view, and applies it. Exactly-once
+  needs no destructive read: the strategy applies a request only while it is the
+  newest message in the view, and applying splices a `kind="summary"` that
+  outranks it, so it is never the max again. The existing
+  `maybe_compress_context` runtime (pair alignment, sizing,
+  `ContextCompressionEvent`) is reused unchanged.
 
 ## Consequences
 
@@ -56,10 +64,14 @@ Two capabilities, designed as halves of one loop:
   (agent stage first).
 - `make_recall_tool` closes over a `State`, so it pairs with the
   module-level `run(agent, state)` composition rather than `Agent.run(task)`.
-- One `CompactControl` serves one running agent; concurrent runs need their
-  own (the request holder is shared mutable state between its two halves).
-- A request that finds nothing old enough to fold is consumed silently, not
-  deferred — no surprise compactions turns later.
+- The `compact` tool and its strategy share no mutable state, so one
+  `CompactControl` can serve any number of concurrent runs; the request lives
+  in the event log, so it is visible in the trace and recoverable like any
+  other tool output.
+- A request that finds nothing old enough to fold is dropped, not deferred:
+  because it only applies while it is the newest message, it can never fold a
+  later turn's content under a stale summary — no surprise compactions turns
+  later.
 - Representation-level compression (KV cache, visual tokens) and learned
   compression policies stay out of scope: the former needs model internals
   an API client cannot reach, the latter is heavier than the teaching path
@@ -71,10 +83,14 @@ Two capabilities, designed as halves of one loop:
   in the dispatch worker pool where recording events is not thread-safe, and
   a mid-batch fold could orphan the in-flight tool_call whose result is not
   yet recorded. The deferred design reuses the existing safe point instead.
-- **Signal the request through `state.data` or message sidecars.** Both
-  bind the strategy to a specific `State` or overload message metadata; the
-  private holder keeps the pairing explicit and lets the control work with
-  `Agent.run(task)`-created states too (for the compact half).
+- **A shared in-memory request holder between tool and strategy.** The first
+  cut: the tool wrote the request to a single-slot mailbox the strategy read.
+  It worked but stood outside the event-sourced design — the request never
+  entered the log or trace, the holder was mutable state shared across the
+  parallel tool pool (needing its own locking), and one `CompactControl` could
+  serve only one run. Routing the request through the tool_result sidecar
+  instead reuses the loop's existing safe recording point, makes the request a
+  first-class log entry, and drops the shared state entirely.
 - **Mention the recall tool only when it is wired.** Summaries would need to
   know the agent's toolset; instead the footer is unconditional provenance
   ("when it is available"), which stays truthful either way.
