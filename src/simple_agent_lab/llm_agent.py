@@ -14,6 +14,7 @@ concept (no `Agent`, no routing fields, no tool dispatch).
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Any, Mapping, Sequence
 
 from .context_view import ContextPolicy
@@ -45,6 +46,7 @@ def make_llm_agent(
     reasoning: ReasoningEffort | None = None,
     init_state: StateInitFn | None = None,
     hooks: HookMap | None = None,
+    timeout_seconds: float | None = None,
 ) -> Agent:
     """Build an `Agent` whose `generate` is backed by `provider`.
 
@@ -74,6 +76,10 @@ def make_llm_agent(
             reasoning=reasoning,
             extra=dict(request_extra or {}),
         )
+        # Only override `LLMRequest`'s own default timeout when a caller asked
+        # for one — slow high-reasoning models need more than the 60s default.
+        if timeout_seconds is not None:
+            request = dataclasses.replace(request, timeout_seconds=timeout_seconds)
         response = complete_with_tool_call_retry(request)
         kind = "final" if response.stop_reason == "end_turn" else "step"
         return llm_response_to_assistant_message(

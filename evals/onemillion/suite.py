@@ -62,3 +62,17 @@ class OneMillionSuite:
         if not self.in_env_scoring:
             return None
         return harness.eval_payload(dict(instance))
+
+
+class OneMillionWorkflowSuite(OneMillionSuite):
+    """`OneMillionSuite` whose generation runs a multi-agent *workflow*.
+
+    Identical host behavior (task sanitization, rubric staging, judge scoring) —
+    only the container half differs: it points at ``workflow_container``, whose
+    facade ``build_agent`` runs the workflow named by the ``OMB_WORKFLOW`` env
+    var (reflection / planner_executor / parallel / chain / routing / single).
+    """
+
+    container_module = (
+        "simple_agent_lab.evals.suites.onemillion.workflow_container"
+    )

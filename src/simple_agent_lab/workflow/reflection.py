@@ -143,6 +143,7 @@ def make_generator_agent(
     system_prompt: str = GENERATOR_SYSTEM_PROMPT,
     tools: Sequence[AgentTool] = (),
     request_extra: Mapping[str, Any] | None = None,
+    timeout_seconds: float | None = None,
 ) -> Agent:
     """Build a generator `Agent` for the reflection loop."""
     return make_llm_agent(
@@ -153,6 +154,7 @@ def make_generator_agent(
         system_prompt=system_prompt,
         target="user",
         request_extra=request_extra,
+        timeout_seconds=timeout_seconds,
     )
 
 
@@ -164,6 +166,7 @@ def make_critic_agent(
     system_prompt: str = CRITIC_SYSTEM_PROMPT,
     tools: Sequence[AgentTool] = (),
     request_extra: Mapping[str, Any] | None = None,
+    timeout_seconds: float | None = None,
 ) -> Agent:
     """Build a critic `Agent`. Its system prompt must mention the marker that
     `run_reflection`'s `approval_marker` looks for (default "APPROVED")."""
@@ -175,4 +178,5 @@ def make_critic_agent(
         system_prompt=system_prompt,
         target="user",
         request_extra=request_extra,
+        timeout_seconds=timeout_seconds,
     )
