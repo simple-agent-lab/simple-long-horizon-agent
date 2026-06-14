@@ -36,7 +36,8 @@ own `make_compact_control()`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from threading import Lock
 from typing import Any
 
 from ..context_view import CompressionDecision
@@ -64,16 +65,30 @@ class CompactRequest:
 
 @dataclass
 class _RequestHolder:
-    """Single-slot mailbox between the tool (writer) and the strategy (reader)."""
+    """Single-slot mailbox between the tool (writer) and the strategy (reader).
+
+    The tool runs in the parallel tool pool, so two `compact` calls in one turn
+    can hit `put` concurrently. A lock makes the slot's check-and-set atomic and
+    makes the policy first-writer-wins: `put` keeps an already-pending request
+    and reports the rejection so the tool can tell the model, rather than
+    silently overwriting one acknowledged summary with another.
+    """
 
     request: CompactRequest | None = None
+    _lock: Lock = field(default_factory=Lock, repr=False, compare=False)
 
-    def put(self, request: CompactRequest) -> None:
-        self.request = request
+    def put(self, request: CompactRequest) -> bool:
+        """Store `request` if the slot is empty; return whether it was stored."""
+        with self._lock:
+            if self.request is not None:
+                return False
+            self.request = request
+            return True
 
     def take(self) -> CompactRequest | None:
-        request, self.request = self.request, None
-        return request
+        with self._lock:
+            request, self.request = self.request, None
+            return request
 
 
 @dataclass(frozen=True)
@@ -165,7 +180,13 @@ def make_compact_control(
             keep_override = _coerce_keep_recent(args.get("keep_recent"))
         except ValueError as exc:
             return text_result(f"Invalid compact argument: {exc}", is_error=True)
-        holder.put(CompactRequest(summary=summary, keep_recent=keep_override))
+        stored = holder.put(CompactRequest(summary=summary, keep_recent=keep_override))
+        if not stored:
+            return text_result(
+                "A compaction request is already pending for your next turn, so "
+                "this one was not queued (only one applies per turn). Re-issue "
+                "`compact` after it has been applied if you still need to fold.",
+            )
         keep = keep_recent if keep_override is None else keep_override
         return text_result(
             "Compaction scheduled: before your next turn, older messages "

@@ -253,6 +253,28 @@ class CompactControlTest(unittest.TestCase):
         assert decision is not None
         self.assertEqual(decision.compress_indices, (1, 2))
 
+    def test_second_pending_request_is_kept_not_overwritten(self) -> None:
+        # Two compact calls in one turn (parallel tool pool): the first wins and
+        # the second is told it was not queued, rather than silently clobbering
+        # the first's acknowledged summary.
+        control = make_compact_control(keep_recent=0)
+        first = control.tool.execute("c1", {"summary": "first wins"}, _no_abort, None)
+        second = control.tool.execute("c2", {"summary": "second"}, _no_abort, None)
+        self.assertFalse(first.is_error)
+        self.assertFalse(second.is_error)
+        self.assertIn("already pending", tool_result_text(second))
+
+        state = State("t")
+        items = [
+            (0, state.send("task", "user", "worker", "t")),
+            (1, state.send("message", "user", "worker", "a")),
+        ]
+        decision = control.strategy(items, "worker")
+        assert decision is not None
+        self.assertIn("first wins", text_of(decision.replacement.content))
+        # The slot is now empty: the second request was never stored.
+        self.assertIsNone(control.strategy(items, "worker"))
+
     def test_tool_rejects_empty_summary_and_bad_keep_recent(self) -> None:
         control = make_compact_control()
         result = control.tool.execute("call", {}, _no_abort, None)
