@@ -173,11 +173,18 @@ def render_transcript_message(index: int, message: Message, *, max_chars: int) -
 
 
 def _coerce_indices(value: Any, *, max_indices: int) -> list[int]:
-    """Coerce the `indices` argument to a bounded list of non-negative ints."""
+    """Coerce the `indices` argument to a bounded, de-duplicated list of ints.
+
+    The `max_indices` cap is checked against the raw input length (so a
+    pathological all-duplicate array is still rejected), then duplicates are
+    dropped preserving first-occurrence order — recalling the same message
+    twice would only waste the per-call budget and re-inject it twice.
+    """
     if not isinstance(value, (list, tuple)):
         raise ValueError(f"indices must be an array of integers, got {value!r}")
     if not value:
         raise ValueError("indices must not be empty")
     if len(value) > max_indices:
         raise ValueError(f"at most {max_indices} indices per call, got {len(value)}")
-    return [coerce_int("indices", item, minimum=0) for item in value]
+    coerced = [coerce_int("indices", item, minimum=0) for item in value]
+    return list(dict.fromkeys(coerced))

@@ -162,6 +162,32 @@ class RecallToolTest(unittest.TestCase):
                 State("t"), max_chars_per_message=4000, max_total_chars=1000
             )
 
+    def test_deduplicates_indices_preserving_order(self) -> None:
+        state = State("t")
+        state.send("task", "user", "worker", "t")          # 0
+        state.send("message", "user", "worker", "alpha")   # 1
+        state.send("message", "user", "worker", "beta")    # 2
+        tool = make_recall_tool(state)
+        result = tool.execute("call", {"indices": [2, 1, 2, 1]}, _no_abort, None)
+        self.assertFalse(result.is_error)
+        # First-occurrence order kept; each message rendered once.
+        self.assertEqual(result.details["indices"], [2, 1])
+        text = tool_result_text(result)
+        self.assertEqual(text.count("alpha"), 1)
+        self.assertEqual(text.count("beta"), 1)
+        self.assertLess(text.index("beta"), text.index("alpha"))
+
+    def test_max_indices_cap_counts_raw_input_before_dedup(self) -> None:
+        state = State("t")
+        state.send("task", "user", "worker", "t")
+        state.send("message", "user", "worker", "x")  # index 1
+        tool = make_recall_tool(state, max_indices=3)
+        # Four entries, all duplicates of a valid index: still rejected on the
+        # raw length so a pathological array can't slip through dedup.
+        result = tool.execute("call", {"indices": [1, 1, 1, 1]}, _no_abort, None)
+        self.assertTrue(result.is_error)
+        self.assertIn("at most 3 indices", tool_result_text(result))
+
 
 class CompactControlTest(unittest.TestCase):
     def test_compact_request_is_applied_at_the_next_turn_start(self) -> None:
