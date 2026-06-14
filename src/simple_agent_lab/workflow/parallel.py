@@ -129,6 +129,7 @@ def make_aggregator_agent(
     system_prompt: str = AGGREGATOR_SYSTEM_PROMPT,
     tools: Sequence[AgentTool] = (),
     request_extra: Mapping[str, Any] | None = None,
+    timeout_seconds: float | None = None,
 ) -> Agent:
     """Build an aggregator `Agent` for `run_parallel`."""
     return make_llm_agent(
@@ -139,4 +140,5 @@ def make_aggregator_agent(
         system_prompt=system_prompt,
         target="user",
         request_extra=request_extra,
+        timeout_seconds=timeout_seconds,
     )

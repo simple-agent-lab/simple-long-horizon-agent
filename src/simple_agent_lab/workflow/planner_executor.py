@@ -93,6 +93,7 @@ def make_planner_agent(
     system_prompt: str = PLANNER_SYSTEM_PROMPT,
     tools: Sequence[AgentTool] = (),
     request_extra: Mapping[str, Any] | None = None,
+    timeout_seconds: float | None = None,
 ) -> Agent:
     """Build a planner `Agent` (no tools by default — it only plans)."""
     return make_llm_agent(
@@ -103,6 +104,7 @@ def make_planner_agent(
         system_prompt=system_prompt,
         target="user",
         request_extra=request_extra,
+        timeout_seconds=timeout_seconds,
     )
 
 
@@ -114,6 +116,7 @@ def make_executor_agent(
     system_prompt: str = EXECUTOR_SYSTEM_PROMPT,
     tools: Sequence[AgentTool] = (),
     request_extra: Mapping[str, Any] | None = None,
+    timeout_seconds: float | None = None,
 ) -> Agent:
     """Build an executor `Agent`. Pass `tools=` (bash, read, …) so it can act."""
     return make_llm_agent(
@@ -124,4 +127,5 @@ def make_executor_agent(
         system_prompt=system_prompt,
         target="user",
         request_extra=request_extra,
+        timeout_seconds=timeout_seconds,
     )
