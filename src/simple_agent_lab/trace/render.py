@@ -72,9 +72,11 @@ def print_trace(state: State, *, raw: bool = False) -> None:
                 f"tool_calls={event.tool_call_count}"
             )
         elif isinstance(event, ContextCompressionEvent):
+            strategy = f"strategy={event.strategy} " if event.strategy else ""
             print(
                 f"{event.index:02d} {t:<10} {kind:<21} "
                 f"agent={event.agent} "
+                f"{strategy}"
                 f"compressed={event.compressed_message_indices} "
                 f"summary_idx={event.summary_message_index} "
                 f"tokens={event.before_tokens}->{event.after_tokens}"

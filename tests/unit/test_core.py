@@ -422,6 +422,7 @@ class CoreTest(unittest.TestCase):
             "AgentStartEvent",
             "AgentTool",
             "AssistantMessage",
+            "CompactControl",
             "CompressionDecision",
             "CompressionStrategy",
             "ContentBlock",
@@ -478,10 +479,12 @@ class CoreTest(unittest.TestCase):
             "estimate_message_tokens",
             "event_record",
             "is_tool_result_message",
+            "make_compact_control",
             "make_edit_tool",
             "make_llm_agent",
             "make_message",
             "make_read_tool",
+            "make_recall_tool",
             "message_text",
             "model_turns_from_events",
             "openai_training_record",
@@ -608,7 +611,11 @@ class CoreTest(unittest.TestCase):
 
         summaries = [message for message in state.messages if message.kind == "summary"]
         self.assertEqual(len(summaries), 1)
-        self.assertEqual(message_text(summaries[0]), "compressed old context")
+        summary_text = message_text(summaries[0])
+        self.assertTrue(summary_text.startswith("compressed old context"))
+        # Every summary cites the transcript indices it folded so a recall
+        # tool can fetch the originals back.
+        self.assertIn("[Compressed from transcript messages 1.", summary_text)
         compression = next(
             event
             for event in state.events
@@ -620,10 +627,11 @@ class CoreTest(unittest.TestCase):
             compression.active_context_indices + [len(state.messages) - 1],
         )
         self.assertIn("old", captured["compressor_prompt"])
-        self.assertEqual(
-            captured["writer_visible_texts"],
-            ["compress context", "compressed old context", "recent note"],
-        )
+        writer_texts = captured["writer_visible_texts"]
+        self.assertEqual(len(writer_texts), 3)
+        self.assertEqual(writer_texts[0], "compress context")
+        self.assertTrue(writer_texts[1].startswith("compressed old context"))
+        self.assertEqual(writer_texts[2], "recent note")
         next_view = build_context_view("writer", state.active_context_messages())
         self.assertNotIn(
             "old " + ("x" * 116),

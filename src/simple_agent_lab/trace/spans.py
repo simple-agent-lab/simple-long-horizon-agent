@@ -238,6 +238,7 @@ def spans_from_events(
                     end=event.elapsed,
                     attributes={
                         "agent": event.agent,
+                        "strategy": event.strategy,
                         "before_tokens": event.before_tokens,
                         "after_tokens": event.after_tokens,
                         "summary_message_index": event.summary_message_index,

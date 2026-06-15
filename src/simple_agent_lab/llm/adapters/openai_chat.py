@@ -59,7 +59,6 @@ takes precedence when both are set.
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Sequence
 from typing import Any, Iterator
 
@@ -73,6 +72,7 @@ from ...messages import (
     text_of,
 )
 from . import TOOL_RESULT_VISUAL_CAPTION, capture_request, sdk_dump
+from ..env import resolve_api_key
 from ..stream import register_adapter
 from ..types import (
     RAW_ARGUMENTS_KEY,
@@ -198,17 +198,9 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
 
 
 def _api_key(req: LLMRequest) -> str | None:
-    env = req.provider.api_key_env
-    if not env:
-        # Local/compat endpoints (Ollama) don't require a key. The SDK still
-        # demands a non-empty value, so pass a placeholder.
-        return "not-needed"
-    api_key = os.environ.get(env)
-    if not api_key:
-        raise RuntimeError(
-            f"Provider {req.provider.id!r} requires env var {env!r}; not set."
-        )
-    return api_key
+    # OpenAI SDKs reject an empty key; a key-free local endpoint (Ollama) gets a
+    # placeholder. Shared resolver lives in `llm.env`.
+    return resolve_api_key(req.provider, placeholder="not-needed")
 
 
 DEFAULT_REASONING_FIELD = "reasoning_content"

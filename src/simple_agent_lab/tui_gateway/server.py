@@ -29,6 +29,12 @@ from typing import Any
 from ..agents.starter import make_bash_agent
 from ..core import Agent, run
 from ..llm import Provider
+from ..llm.env import (
+    FAKE_PROVIDER,
+    OPENAI_AUTH_ENV,
+    OPENAI_BASE_URL_ENV,
+    OPENAI_MODEL_ENV,
+)
 from ..messages import (
     AssistantMessage,
     TokenUsage,
@@ -59,12 +65,9 @@ ERR_SESSION_BUSY = 4009
 
 DEFAULT_MAX_TURNS = 12
 
-# Env vars for a real OpenAI-compatible chat endpoint (same contract as
-# scripts/run_bash_agent_demo.py). Absent → the gateway falls back to the
-# deterministic fake provider so it runs with zero secrets.
-OPENAI_MODEL_ENV = "OPENAI_MODEL"
-OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
-OPENAI_AUTH_ENV = "OPENAI_AUTH_TOKEN"
+# The OpenAI env-var names come from `simple_agent_lab.llm.env` (single source of
+# truth). Absent → the gateway falls back to the deterministic fake provider so
+# it runs with zero secrets.
 
 
 def _usage_dict(usage: TokenUsage | None) -> dict[str, int] | None:
@@ -124,7 +127,7 @@ def _build_provider(kind: str) -> Provider:
             base_url=(os.environ.get(OPENAI_BASE_URL_ENV) or "").strip() or None,
             api_key_env=OPENAI_AUTH_ENV,
         )
-    return Provider(id="fake", api="fake", model="fake-model")
+    return FAKE_PROVIDER
 
 
 class Session:

@@ -73,11 +73,20 @@ class CompressionDecision:
     rather than collapsing a whole exchange into a summary marker. The
     target is named by its `state.messages` index — append-only and unique
     across rounds, unlike a `tool_call_id`.
+
+    `label` names the strategy (mechanism) that produced this decision, e.g.
+    ``"tool-compact"`` / ``"summarize"`` / ``"agent-compact"``. The runtime
+    copies it onto `ContextCompressionEvent.strategy` so a fold is attributable
+    after the fact — which `TieredStrategy` stage actually fired, or which
+    policy a run used. A composite strategy (`TieredStrategy`) returns the
+    firing stage's decision unchanged, so the stage's label rides through for
+    free. Empty is allowed (an unlabeled custom strategy).
     """
 
     compress_indices: tuple[int, ...]
     replacement: Message
     rewrite: bool = False
+    label: str = ""
 
 
 class CompressionStrategy(Protocol):

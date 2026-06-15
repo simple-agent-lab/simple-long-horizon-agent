@@ -22,15 +22,9 @@ command the agent should run.
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
-
-OPENAI_MODEL_ENV = "OPENAI_MODEL"
-OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
-OPENAI_AUTH_ENV = "OPENAI_AUTH_TOKEN"
-OPENAI_REQUIRED_ENVS = (OPENAI_MODEL_ENV, OPENAI_AUTH_ENV)
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -53,6 +47,7 @@ from simple_agent_lab.agents.starter import (  # noqa: E402
     make_bash_agent,
 )
 from simple_agent_lab.llm import Provider  # noqa: E402
+from simple_agent_lab.llm.env import FAKE_PROVIDER, provider_from_env  # noqa: E402
 
 
 DEFAULT_BASH_DEMO_COMMAND = (
@@ -61,7 +56,7 @@ DEFAULT_BASH_DEMO_COMMAND = (
 
 
 def build_fake_provider() -> Provider:
-    return Provider(id="fake", api="fake", model="fake-model")
+    return FAKE_PROVIDER
 
 
 def bash_task_for_command(command: str) -> str:
@@ -69,32 +64,9 @@ def bash_task_for_command(command: str) -> str:
 
 
 def build_openai_provider() -> Provider:
-    env_values = {
-        OPENAI_MODEL_ENV: (os.environ.get(OPENAI_MODEL_ENV) or "").strip(),
-        OPENAI_BASE_URL_ENV: (os.environ.get(OPENAI_BASE_URL_ENV) or "").strip(),
-        OPENAI_AUTH_ENV: (os.environ.get(OPENAI_AUTH_ENV) or "").strip(),
-    }
-    model = env_values[OPENAI_MODEL_ENV]
-    base_url = env_values[OPENAI_BASE_URL_ENV] or None
-    auth_token = env_values[OPENAI_AUTH_ENV]
-
-    missing = [name for name in OPENAI_REQUIRED_ENVS if not env_values[name]]
-    if missing:
-        raise SystemExit(
-            "Missing required env vars for --provider openai: " + ", ".join(missing)
-        )
-
-    # Re-export the stripped token so the adapter (which reads os.environ
-    # directly) gets a clean value even if the user's export had stray spaces.
-    os.environ[OPENAI_AUTH_ENV] = auth_token
-
-    return Provider(
-        id="openai-chat",
-        api="openai-chat",
-        model=model,
-        base_url=base_url,
-        api_key_env=OPENAI_AUTH_ENV,
-    )
+    # Single source of truth in `simple_agent_lab.llm.env`; `reexport_auth`
+    # strips the token back into os.environ for the adapter to read.
+    return provider_from_env(label="--provider openai", reexport_auth=True)
 
 
 def print_live_event(event: Event) -> None:
