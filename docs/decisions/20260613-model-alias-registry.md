@@ -3,10 +3,18 @@ title: "Model-Alias Registry (strong / fast) over provider_from_env"
 status: Accepted
 date: 2026-06-13
 slug: model-alias-registry
-note: builds on consolidate-provider-env
+note: env-alias scheme superseded by model-config-file; registry type stands
 ---
 
 # Model-Alias Registry (strong / fast) over provider_from_env
+
+> **Amendment (2026-06-15, model-config-file):** the `<ALIAS>_*` env scheme and
+> `ModelRegistry.from_env` described below were removed before this branch merged.
+> The `ModelRegistry` type, its strict `get`, the `strong`/`fast` default roles,
+> and the programmatic `ModelRegistry({...})` constructor all stand. Multi-model
+> is now configured by a JSON file (`from_file`); single-model resolves every
+> default role to the one `OPENAI_*` provider via `load`. Read the env-scheme
+> parts below as the original rationale, not the current mechanism.
 
 ## Context
 
