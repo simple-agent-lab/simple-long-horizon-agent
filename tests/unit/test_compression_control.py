@@ -168,9 +168,7 @@ class RecallToolTest(unittest.TestCase):
         state.send("task", "user", "worker", "t")
         for _ in range(5):
             state.send("message", "user", "worker", "z" * 500)  # indices 1-5
-        tool = make_recall_tool(
-            state, max_chars_per_message=200, max_total_chars=400
-        )
+        tool = make_recall_tool(state, max_chars_per_message=200, max_total_chars=400)
         result = tool.execute("call", {"indices": [1, 2, 3, 4, 5]}, _no_abort, None)
         text = tool_result_text(result)
         # First message is always returned; the rest is summarized as truncated.
@@ -183,9 +181,7 @@ class RecallToolTest(unittest.TestCase):
         state = State("t")
         state.send("task", "user", "worker", "t")
         state.send("message", "user", "worker", "z" * 500)  # index 1
-        tool = make_recall_tool(
-            state, max_chars_per_message=400, max_total_chars=400
-        )
+        tool = make_recall_tool(state, max_chars_per_message=400, max_total_chars=400)
         result = tool.execute("call", {"indices": [1]}, _no_abort, None)
         self.assertFalse(result.is_error)
         self.assertEqual(result.details["indices"], [1])
@@ -199,9 +195,9 @@ class RecallToolTest(unittest.TestCase):
 
     def test_deduplicates_indices_preserving_order(self) -> None:
         state = State("t")
-        state.send("task", "user", "worker", "t")          # 0
-        state.send("message", "user", "worker", "alpha")   # 1
-        state.send("message", "user", "worker", "beta")    # 2
+        state.send("task", "user", "worker", "t")  # 0
+        state.send("message", "user", "worker", "alpha")  # 1
+        state.send("message", "user", "worker", "beta")  # 2
         tool = make_recall_tool(state)
         result = tool.execute("call", {"indices": [2, 1, 2, 1]}, _no_abort, None)
         self.assertFalse(result.is_error)
@@ -355,7 +351,10 @@ class CompactControlTest(unittest.TestCase):
         # The applied fold splices a summary at a higher transcript index (4)
         # than the request (3); the request must now be treated as consumed.
         summary = make_message(
-            "system", "running summary", sender="runtime", target="worker",
+            "system",
+            "running summary",
+            sender="runtime",
+            target="worker",
             kind="summary",
         )
         applied = [active[0], (4, summary), request]
