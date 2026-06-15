@@ -47,12 +47,18 @@ from .env import (
     request_extra_from_env,
     resolve_api_key,
 )
+from .config import (
+    MODEL_CONFIG_ENV,
+    MODEL_CONFIG_JSON_ENV,
+    load_model_config,
+    load_model_config_text,
+    provider_from_spec,
+)
 from .registry import (
     DEFAULT_MODEL_ALIASES,
     FAST_ALIAS,
     STRONG_ALIAS,
     ModelRegistry,
-    env_names_for,
 )
 from .bridge import (
     llm_response_to_assistant_message,
@@ -116,7 +122,11 @@ __all__ = [
     "DEFAULT_MODEL_ALIASES",
     "FAST_ALIAS",
     "STRONG_ALIAS",
-    "env_names_for",
+    "MODEL_CONFIG_ENV",
+    "MODEL_CONFIG_JSON_ENV",
+    "load_model_config",
+    "load_model_config_text",
+    "provider_from_spec",
     "load_dotenv",
     "provider_from_env",
     "reasoning_from_env",

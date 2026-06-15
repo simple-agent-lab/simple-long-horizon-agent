@@ -1,0 +1,23 @@
+{
+  "_comment": "Copy to models.json and edit; set MODEL_CONFIG=models.json to use it. Keys starting with '_' are ignored (JSON has no comments). 'defaults' is the shared base; each alias merges over it. Prefer 'auth_token_env' (names the env var holding the token) over an inline 'auth_token' so no secret lives in the file.",
+  "_api_kind_choices": {
+    "openai-chat": "OpenAI Chat Completions and OpenAI-compatible endpoints such as Ollama, vLLM, and OpenRouter.",
+    "openai-responses": "OpenAI Responses API.",
+    "anthropic-messages": "Anthropic Messages API."
+  },
+  "_cloud_sandbox": "If creating models.json is awkward, set MODEL_CONFIG_JSON to this same JSON string in the environment. MODEL_CONFIG_JSON takes priority over MODEL_CONFIG.",
+  "defaults": {
+    "base_url": "https://your-gateway.example.com/v1",
+    "api_kind": "openai-chat",
+    "auth_token_env": "OPENAI_AUTH_TOKEN",
+    "reasoning_effort": "medium"
+  },
+  "aliases": {
+    "strong": {
+      "model": "big-model-id"
+    },
+    "fast": {
+      "model": "small-cheap-model-id"
+    }
+  }
+}
