@@ -898,6 +898,39 @@ class ReviewFixesTest(unittest.TestCase):
         self.assertLessEqual(len(long_a), 200)
         self.assertNotEqual(long_a, long_b)  # distinct overflowing names stay distinct
 
+    def test_container_name_is_namespaced_by_run_root(self) -> None:
+        instance = {"instance_id": "astropy__astropy-13398"}
+        run_id = "003af6184cce-9119f5eb01dc"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            left_root = Path(tmp) / "self_evolving" / "swebench_runs"
+            right_root = Path(tmp) / "hyperagents" / "swebench_runs"
+            left_backend = FakeBackend()
+            right_backend = FakeBackend()
+
+            run_suite_instance(
+                suite=_DemoSuite(),
+                instance=instance,
+                backend=left_backend,
+                store=LocalDirStore(left_root),
+                run_root=left_root,
+                run_id=run_id,
+            )
+            run_suite_instance(
+                suite=_DemoSuite(),
+                instance=instance,
+                backend=right_backend,
+                store=LocalDirStore(right_root),
+                run_root=right_root,
+                run_id=run_id,
+            )
+
+        left_name = left_backend.runs[0].run_name
+        right_name = right_backend.runs[0].run_name
+        self.assertNotEqual(left_name, right_name)
+        self.assertTrue(left_name.startswith("demo."))
+        self.assertTrue(left_name.endswith(f".{run_id}"))
+
     def test_docker_backends_import_without_docker_and_error_clearly(self) -> None:
         """The optional `docker` dep is import-guarded: the module loads without it,
         and using a docker backend gives an actionable install hint, not ImportError."""
