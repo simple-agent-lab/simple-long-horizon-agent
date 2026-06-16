@@ -44,8 +44,14 @@ from collections.abc import Callable, Mapping, MutableMapping
 from pathlib import Path
 from typing import Any, cast
 
-from .env import API_KIND_CHOICES, DEFAULT_RESPONSES_MAX_OUTPUT_TOKENS
-from .provider import REASONING_EFFORTS, ApiKind, Provider, ReasoningEffort
+from .env import API_KIND_CHOICES
+from .provider import (
+    REASONING_EFFORTS,
+    ApiKind,
+    Provider,
+    ReasoningEffort,
+    api_kind_defaults,
+)
 
 # Env vars `ModelRegistry.load` reads to choose model-config mode without the
 # call site branching. `MODEL_CONFIG_JSON` exists for cloud sandboxes where
@@ -237,13 +243,11 @@ def provider_from_spec(
     effort = spec.get("reasoning_effort")
     reasoning = cast(ReasoningEffort, effort) if effort else None
 
-    # Mirror the env path: the Responses API rejects temperature and caps output
-    # tokens, so default those two for that kind unless the file says otherwise.
-    is_responses = api_kind == "openai-responses"
-    temperature = spec.get("temperature", None if is_responses else 1.0)
-    max_tokens = spec.get(
-        "max_tokens", DEFAULT_RESPONSES_MAX_OUTPUT_TOKENS if is_responses else None
-    )
+    # Per-protocol defaults (Responses rejects temperature, caps output tokens)
+    # live with the `Provider` definition; the file may override either.
+    defaults = api_kind_defaults(api_kind)
+    temperature = spec.get("temperature", defaults.default_temperature)
+    max_tokens = spec.get("max_tokens", defaults.default_max_tokens)
 
     return Provider(
         id=alias,

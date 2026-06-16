@@ -53,18 +53,22 @@ from ...messages import (
     encode_image_data_url,
     text_of,
 )
-from . import TOOL_RESULT_VISUAL_CAPTION, capture_request, sdk_dump
+from ._spine import (
+    TOOL_RESULT_VISUAL_CAPTION,
+    emit_response,
+    openai_usage,
+    parse_tool_arguments,
+    resolve_effort,
+    resolve_temperature,
+)
 from ..env import resolve_api_key
 from ..stream import register_adapter
 from ..types import (
-    RAW_ARGUMENTS_KEY,
     LLMMessage,
     LLMRequest,
-    LLMResponse,
     LLMTool,
     StopReason,
     StreamEvent,
-    TokenUsage,
 )
 
 
@@ -94,11 +98,7 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         kwargs["instructions"] = req.system_prompt
     if tools:
         kwargs["tools"] = tools
-    temperature = (
-        req.temperature
-        if req.temperature is not None
-        else req.provider.default_temperature
-    )
+    temperature = resolve_temperature(req)
     if temperature is not None:
         kwargs["temperature"] = temperature
     max_tokens = req.max_tokens or req.provider.default_max_tokens
@@ -108,7 +108,7 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         kwargs["timeout"] = req.timeout_seconds
     # The Responses API nests effort under ``reasoning={"effort": ...}``. A raw
     # extra["reasoning"] (below) overrides the normalized knob.
-    effort = req.reasoning or req.provider.default_reasoning
+    effort = resolve_effort(req)
     if effort:
         kwargs["reasoning"] = {"effort": effort}
     for key in (
@@ -146,10 +146,7 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
                         blocks.append(TextBlock(text=text))
         elif itype == "function_call":
             args_str = getattr(item, "arguments", "") or ""
-            try:
-                arguments = json.loads(args_str) if args_str else {}
-            except json.JSONDecodeError:
-                arguments = {RAW_ARGUMENTS_KEY: args_str}
+            arguments = parse_tool_arguments(args_str)
             blocks.append(
                 ToolCallBlock(
                     id=getattr(item, "call_id", None) or getattr(item, "id", ""),
@@ -160,28 +157,20 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
 
     tool_calls = [block for block in blocks if isinstance(block, ToolCallBlock)]
     stop_reason = _map_responses_stop(sdk_response, tool_calls)
-    usage = _responses_usage(getattr(sdk_response, "usage", None))
+    usage = openai_usage(
+        getattr(sdk_response, "usage", None),
+        input_field="input_tokens",
+        output_field="output_tokens",
+        details_field="input_tokens_details",
+    )
 
-    for block in blocks:
-        if isinstance(block, ThinkingBlock) and block.text:
-            yield StreamEvent(kind="thinking_delta", payload={"delta": block.text})
-        elif isinstance(block, TextBlock) and block.text:
-            yield StreamEvent(kind="text_delta", payload={"delta": block.text})
-        elif isinstance(block, ToolCallBlock):
-            yield StreamEvent(kind="tool_call_start", payload={"tool_call": block})
-            yield StreamEvent(kind="tool_call_complete", payload={"tool_call": block})
-    yield StreamEvent(kind="usage_update", payload={"usage": usage})
-
-    response = LLMResponse(
-        content=tuple(blocks),
+    yield from emit_response(
+        blocks,
         stop_reason=stop_reason,
         usage=usage,
-        # The served model the API resolved to (e.g. an alias -> dated
-        # snapshot); complete() only back-fills the requested model.
-        model=getattr(sdk_response, "model", "") or "",
-        raw={"request": capture_request(kwargs), "response": sdk_dump(sdk_response)},
+        sdk_response=sdk_response,
+        request_kwargs=kwargs,
     )
-    yield StreamEvent(kind="done", payload={"response": response})
 
 
 def _api_key(req: LLMRequest) -> str | None:
@@ -357,22 +346,6 @@ def _map_responses_stop(raw: Any, tool_calls: list[ToolCallBlock]) -> StopReason
     if status == "incomplete":
         return "error"
     return "end_turn"
-
-
-def _responses_usage(usage: Any) -> TokenUsage:
-    if usage is None:
-        return TokenUsage()
-    cached = 0
-    details = getattr(usage, "input_tokens_details", None)
-    if details is not None:
-        cached = int(getattr(details, "cached_tokens", 0) or 0)
-    # `input_tokens` already includes `cached_tokens` as a subset; normalize
-    # to the project's additive-cache convention so context_tokens is correct.
-    return TokenUsage.from_inclusive_input(
-        total_input=int(getattr(usage, "input_tokens", 0) or 0),
-        output=int(getattr(usage, "output_tokens", 0) or 0),
-        cached_read=cached,
-    )
 
 
 register_adapter("openai-responses", stream)
