@@ -94,8 +94,18 @@ def prepare_run_directory(*, run_root: Path, run_id: str, instance_id: str) -> R
 _MAX_CONTAINER_NAME = 200
 
 
-def container_name(suite_name: str, instance_id: str, run_id: str) -> str:
-    name = f"{_safe_part(suite_name)}.{_safe_part(instance_id)}.{_safe_part(run_id)}"
+def _run_root_namespace(run_root: Path) -> str:
+    return hashlib.sha1(str(run_root.resolve()).encode("utf-8")).hexdigest()[:8]
+
+
+def container_name(
+    suite_name: str, instance_id: str, run_id: str, *, namespace: str = ""
+) -> str:
+    parts = [_safe_part(suite_name)]
+    if namespace:
+        parts.append(_safe_part(namespace))
+    parts.extend((_safe_part(instance_id), _safe_part(run_id)))
+    name = ".".join(parts)
     if len(name) > _MAX_CONTAINER_NAME:
         digest = hashlib.sha1(name.encode("utf-8")).hexdigest()[:8]
         name = f"{name[: _MAX_CONTAINER_NAME - 9]}-{digest}"
@@ -153,6 +163,7 @@ def run_suite_instance(
     wheelhouse_mount: str | None = None,
     name: str | None = None,
     mcp_config: Mapping[str, Any] | None = None,
+    extra_artifacts: Mapping[str, bytes] | None = None,
 ) -> RunArtifacts:
     """Run one instance and return where its artifacts landed.
 
@@ -183,6 +194,7 @@ def run_suite_instance(
     )
     _stage_eval_inputs(suite, instance, bound)
     _stage_mcp_config(mcp_config, bound)
+    _stage_extra_artifacts(extra_artifacts, bound)
     binding = bound.container_binding()
 
     spec = RunSpec(
@@ -197,7 +209,13 @@ def run_suite_instance(
         install=install,
         package_extras=package_extras,
         wheelhouse_mount=wheelhouse_mount,
-        run_name=name or container_name(suite.name, instance_id, run_id),
+        run_name=name
+        or container_name(
+            suite.name,
+            instance_id,
+            run_id,
+            namespace=_run_root_namespace(run_root),
+        ),
     )
     outcome = backend.run(spec, store=bound, binding=binding)
     bound.collect_outputs()
@@ -232,6 +250,23 @@ def _stage_eval_inputs(
         EVAL_KEY,
         (json.dumps(dict(payload), ensure_ascii=False) + "\n").encode("utf-8"),
     )
+
+
+def _stage_extra_artifacts(
+    extra_artifacts: Mapping[str, bytes] | None, bound: ArtifactStore
+) -> None:
+    """Stage caller-supplied raw artifacts (e.g. an evolved agent scaffold).
+
+    Each ``key -> bytes`` pair is written verbatim through the bound store, so the
+    in-container half can read it like any other ``input/`` artifact. Used by the
+    evolution rollout to make a version's evolved files available per run without
+    teaching the generic runner about any suite.
+    """
+
+    if not extra_artifacts:
+        return
+    for key, data in extra_artifacts.items():
+        bound.put(key, data)
 
 
 def _stage_mcp_config(

@@ -62,12 +62,19 @@ def dataset_rollout(
     runs_root: Path,
     concurrency: int = 1,
     run_kwargs: Mapping[str, Any] | None = None,
+    version_artifacts: Callable[[Version], Mapping[str, bytes]] | None = None,
 ) -> Rollout:
     """Bind deployment concerns (suite/backend/store/runs_root) into a ``Rollout``.
 
     Returns a closure that takes the per-call ``(version, slice_)`` and returns
     one ``Run`` per instance, rolling only when the ``(version, slice)`` has not
     already been measured (otherwise it reuses the existing result.json).
+
+    ``version_artifacts`` is an optional, suite-agnostic hook: given the version
+    being rolled, it returns ``{artifact_key: bytes}`` staged into every run's
+    ``input/`` dir. The evolution recipe uses it to make a version's evolved
+    files (e.g. an agent scaffold) available in the container; the generic runner
+    stays free of any suite knowledge.
     """
 
     runs_root = Path(runs_root).resolve()
@@ -79,7 +86,11 @@ def dataset_rollout(
             provider, provider_env = _provider_args(version)
             extra = dict(run_kwargs or {})
             api_kind = extra.pop("api_kind", _api_kind(provider_env))
-            run_dataset(
+            if version_artifacts is not None:
+                staged = version_artifacts(version)
+                if staged:
+                    extra["extra_artifacts"] = dict(staged)
+            report = run_dataset(
                 suite=suite,
                 instances=slice_.instances,
                 backend=backend,
@@ -92,6 +103,12 @@ def dataset_rollout(
                 api_kind=api_kind,
                 **extra,
             )
+            if report.failed:
+                details = "; ".join(
+                    f"{result.instance_id}: {result.error or 'unknown error'}"
+                    for result in report.failed
+                )
+                raise RuntimeError(f"dataset rollout failed: {details}")
             run_dir.mkdir(parents=True, exist_ok=True)
             (run_dir / "version.json").write_text(
                 json.dumps(

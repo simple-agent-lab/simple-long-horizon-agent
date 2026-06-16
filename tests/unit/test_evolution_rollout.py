@@ -86,6 +86,41 @@ class RolloutTest(unittest.TestCase):
         self.assertEqual(runs[0].instance_id, "i1")
         self.assertEqual(runs[0].reward, 0.5)
 
+    def test_version_artifacts_are_staged_into_each_run_input(self) -> None:
+        staged: dict[str, bytes] = {}
+
+        def on_run(spec: RunSpec, bound) -> None:
+            staged[spec.instance_id] = bound.get("input/scaffold.json")
+            bound.put(TRACE_KEY, b'{"events": []}\n')
+            bound.put(RESULT_KEY, b'{"reward": 0.5}\n')
+
+        rollout = dataset_rollout(
+            suite=_DemoSuite(),
+            backend=FakeBackend(on_run=on_run),
+            store=LocalDirStore(self.ws / "runs"),
+            runs_root=self.ws / "runs",
+            version_artifacts=lambda v: {"input/scaffold.json": b'{"x": 1}'},
+        )
+        slice_ = Slice("demo", ({"instance_id": "i1"}, {"instance_id": "i2"}))
+        rollout(self.version, slice_)
+        self.assertEqual(staged["i1"], b'{"x": 1}')
+        self.assertEqual(staged["i2"], b'{"x": 1}')
+
+    def test_raises_dataset_errors_instead_of_hiding_missing_artifacts(self) -> None:
+        def fail_run(spec: RunSpec, bound) -> None:
+            raise RuntimeError(f"container failed for {spec.instance_id}")
+
+        rollout = dataset_rollout(
+            suite=_DemoSuite(),
+            backend=FakeBackend(on_run=fail_run),
+            store=LocalDirStore(self.ws / "runs"),
+            runs_root=self.ws / "runs",
+        )
+        slice_ = Slice("demo", ({"instance_id": "i1"},))
+
+        with self.assertRaisesRegex(RuntimeError, "container failed for i1"):
+            rollout(self.version, slice_)
+
 
 if __name__ == "__main__":
     unittest.main()
