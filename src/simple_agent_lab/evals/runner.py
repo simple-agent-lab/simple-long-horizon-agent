@@ -94,8 +94,18 @@ def prepare_run_directory(*, run_root: Path, run_id: str, instance_id: str) -> R
 _MAX_CONTAINER_NAME = 200
 
 
-def container_name(suite_name: str, instance_id: str, run_id: str) -> str:
-    name = f"{_safe_part(suite_name)}.{_safe_part(instance_id)}.{_safe_part(run_id)}"
+def _run_root_namespace(run_root: Path) -> str:
+    return hashlib.sha1(str(run_root.resolve()).encode("utf-8")).hexdigest()[:8]
+
+
+def container_name(
+    suite_name: str, instance_id: str, run_id: str, *, namespace: str = ""
+) -> str:
+    parts = [_safe_part(suite_name)]
+    if namespace:
+        parts.append(_safe_part(namespace))
+    parts.extend((_safe_part(instance_id), _safe_part(run_id)))
+    name = ".".join(parts)
     if len(name) > _MAX_CONTAINER_NAME:
         digest = hashlib.sha1(name.encode("utf-8")).hexdigest()[:8]
         name = f"{name[: _MAX_CONTAINER_NAME - 9]}-{digest}"
@@ -197,7 +207,13 @@ def run_suite_instance(
         install=install,
         package_extras=package_extras,
         wheelhouse_mount=wheelhouse_mount,
-        run_name=name or container_name(suite.name, instance_id, run_id),
+        run_name=name
+        or container_name(
+            suite.name,
+            instance_id,
+            run_id,
+            namespace=_run_root_namespace(run_root),
+        ),
     )
     outcome = backend.run(spec, store=bound, binding=binding)
     bound.collect_outputs()

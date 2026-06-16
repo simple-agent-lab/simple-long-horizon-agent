@@ -32,6 +32,7 @@ import os
 from collections.abc import Callable, Mapping, MutableMapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 from .config import (
     MODEL_CONFIG_ENV,
@@ -131,7 +132,11 @@ class ModelRegistry:
         ``OPENAI_*`` model under every role. Eager either way.
         """
         source = env if env is not None else os.environ
-        target_env = env if isinstance(env, MutableMapping) else None
+        target_env = (
+            cast("MutableMapping[str, str]", env)
+            if isinstance(env, MutableMapping)
+            else None
+        )
         config_json = source.get(MODEL_CONFIG_JSON_ENV, "")
         if config_json.strip():
             return cls.from_json_text(
