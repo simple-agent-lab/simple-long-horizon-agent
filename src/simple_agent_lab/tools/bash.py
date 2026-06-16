@@ -95,8 +95,18 @@ def make_bash_tool(
     max_output_chars: int = DEFAULT_BASH_MAX_OUTPUT_CHARS,
     max_attach_bytes: int = DEFAULT_BASH_MAX_ATTACH_BYTES,
     execution_mode: ToolExecutionMode = "parallel",
+    exec_prefix: tuple[str, ...] = (),
 ) -> AgentTool:
-    """Return an `AgentTool` that executes one local bash command."""
+    """Return an `AgentTool` that executes one local bash command.
+
+    `exec_prefix` is an argv prefix the command is launched under, so the
+    final invocation is ``[*exec_prefix, "bash", "-lc", command]`` (default
+    ``()`` keeps the plain ``bash -lc`` behavior). It lets a caller run every
+    command inside a wrapper without changing the model-visible command — e.g.
+    the ProgramBench suite passes ``("unshare", "--net", "--")`` so each agent
+    command runs in a network-isolated namespace while the agent's own model
+    calls keep the container's network.
+    """
 
     if default_timeout_seconds <= 0:
         raise ValueError("default_timeout_seconds must be > 0")
@@ -144,6 +154,7 @@ def make_bash_tool(
             cwd=root,
             timeout_seconds=timeout_seconds,
             max_output_chars=max_output_chars,
+            exec_prefix=exec_prefix,
         )
         if abort():
             return text_result(
@@ -207,8 +218,16 @@ def run_bash(
     cwd: str | Path | None = None,
     timeout_seconds: float = DEFAULT_BASH_TIMEOUT_SECONDS,
     max_output_chars: int = DEFAULT_BASH_MAX_OUTPUT_CHARS,
+    exec_prefix: tuple[str, ...] = (),
 ) -> BashExecution:
-    """Execute `command` with `bash -lc` and return a structured result."""
+    """Execute `command` with `bash -lc` and return a structured result.
+
+    `exec_prefix` is prepended to the argv, so the process launched is
+    ``[*exec_prefix, "bash", "-lc", command]``. The default ``()`` is the
+    plain shell; a wrapper such as ``("unshare", "--net", "--")`` runs the
+    command in an isolated environment. The recorded `command` stays the raw
+    model-visible string regardless of the prefix.
+    """
 
     if not command.strip():
         raise ValueError("command must not be empty")
@@ -222,7 +241,7 @@ def run_bash(
     start = time.monotonic()
     try:
         completed = subprocess.run(
-            ["bash", "-lc", command],
+            [*exec_prefix, "bash", "-lc", command],
             cwd=root,
             capture_output=True,
             timeout=timeout_seconds,

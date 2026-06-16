@@ -102,7 +102,7 @@
     <ul>
       <li>可选。仅当镜像自带 Python 早于 <b>3.11</b>（wheel 的目标版本）时才需要。</li>
       <li>一个 <b>Linux</b> 版 <code>uv</code>，挂到 <code>/tmp/uv</code>（bootstrap 优先探测这里）。</li>
-      <li>它用 Python 3.11 造出 <code>/tmp/agent-venv</code>——复用镜像里已有的 3.11，或现拉一个。</li>
+      <li>它用 Python 3.11 造出 <code>/opt/agent-venv</code>——复用镜像里已有的 3.11，或现拉一个。</li>
     </ul>
     <div class="where">必须匹配<b>容器</b>的 OS/架构，<i>不是</i>宿主的</div>
   </div>
@@ -114,7 +114,7 @@
   wheelhouse/  ──只读挂载──▶  /agent/wheelhouse ─┐
   uv (linux)   ──只读挂载──▶  /tmp/uv ───────────┤
   run 目录/    ──读写挂载──▶  /agent/run          │  bootstrap：
-                                                 ├─▶ uv venv --python 3.11 /tmp/agent-venv
+                                                 ├─▶ uv venv --python 3.11 /opt/agent-venv
                                                  ├─▶ uv pip install --no-index
                                                  │     --find-links /agent/wheelhouse simple-agent-lab
                                                  └─▶ python -m simple_agent_lab.evals.in_container …

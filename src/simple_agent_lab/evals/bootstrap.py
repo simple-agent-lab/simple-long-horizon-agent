@@ -16,7 +16,10 @@ from __future__ import annotations
 import shlex
 
 UV_CONTAINER_PATH = "/tmp/uv"
-AGENT_VENV = "/tmp/agent-venv"
+# Keep the control-plane venv OUT of /tmp: agents routinely create scratch dirs
+# under /tmp and clean up with a broad `rm -rf ... /tmp`, which would delete this
+# venv (incl. certifi's CA bundle) and crash the next in-container model call.
+AGENT_VENV = "/opt/agent-venv"
 
 _PYTHON_SETUP = f"""\
 set -eu
@@ -32,6 +35,7 @@ if [ -z "$UV_BIN" ] && command -v uv >/dev/null 2>&1; then
 fi
 _IS_MUSL=0
 if ldd /bin/sh 2>/dev/null | grep -q musl; then _IS_MUSL=1; fi
+mkdir -p "$(dirname {AGENT_VENV})" 2>/dev/null || true
 if [ -n "$UV_BIN" ]; then
   "$UV_BIN" venv --python 3.11 {AGENT_VENV} || "$UV_BIN" venv --python python3 {AGENT_VENV}
   AGENT_PYTHON={AGENT_VENV}/bin/python

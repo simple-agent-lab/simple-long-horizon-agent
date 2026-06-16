@@ -352,7 +352,7 @@ then execs the generic in-container runner. The runner reads <code>--container-m
 <div class="callout">
   <div class="h">Why this way (ADR 0017)</div>
   <p style="margin:0"><b>Runtime injection, not modified images:</b> the agent installs into an
-  isolated <code>/tmp/agent-venv</code> and never touches the image's own environment (the one the
+  isolated <code>/opt/agent-venv</code> and never touches the image's own environment (the one the
   benchmark under test depends on), so upstream bench images are used unchanged — no rebuilding
   hundreds of images per agent change. <b>Dotted module, not file copy:</b> because the half is
   installed from the wheel, the version imported in the container always matches the installed

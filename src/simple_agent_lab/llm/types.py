@@ -138,7 +138,9 @@ class LLMRequest:
     # Provider-agnostic reasoning depth; adapters translate it to each
     # endpoint's wire shape. None → fall back to provider.default_reasoning.
     reasoning: ReasoningEffort | None = None
-    timeout_seconds: float | None = 60.0
+    # Generous ceiling: one high-reasoning call can take minutes, and a
+    # too-tight timeout aborts a long run mid-flight.
+    timeout_seconds: float | None = 600.0
     extra: dict[str, Any] = field(
         default_factory=dict
     )  # provider-specific request options

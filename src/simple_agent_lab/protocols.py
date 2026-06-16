@@ -67,7 +67,8 @@ class AgentStartEvent(_BaseEvent):
 #   "done"           — the agent emitted a `kind="final"` message
 #   "max_turns"      — the turn budget ran out before a final message
 #   "tool_terminate" — a tool returned `ToolResult(terminate=True)`
-AgentEndReason: TypeAlias = Literal["done", "max_turns", "tool_terminate"]
+#   "abort"          — the caller's abort flag fired (e.g. wall-time limit)
+AgentEndReason: TypeAlias = Literal["done", "max_turns", "tool_terminate", "abort"]
 
 
 @dataclass(frozen=True, kw_only=True)

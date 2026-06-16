@@ -38,6 +38,9 @@ evals/out/swebench_pro/*
 !evals/out/onemillion/
 evals/out/onemillion/*
 !evals/out/onemillion/README.md
+!evals/out/programbench/
+evals/out/programbench/*
+!evals/out/programbench/README.md
 logs/
 .tmp/
 

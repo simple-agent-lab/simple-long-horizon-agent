@@ -560,7 +560,7 @@ artifacts = run_suite_instance(suite=MyBenchSuite(), instance=oracle_instance,
 
 <div class="callout">
   <div class="h">为什么这么设计（ADR 0017）</div>
-  <p style="margin:0"><b>运行时注入，不改镜像：</b>agent 装进独立的 <code>/tmp/agent-venv</code>，<b>从不碰</b>镜像
+  <p style="margin:0"><b>运行时注入，不改镜像：</b>agent 装进独立的 <code>/opt/agent-venv</code>，<b>从不碰</b>镜像
   自带的环境（被测项目依赖的那套），因此上游 bench 镜像原样可用——不必为每次 agent 改动重建几百个镜像。
   <b>点分模块名而非拷文件：</b>因为半边是从 wheel 安装的，容器里 import 到的版本永远和已安装 runtime 一致——
   这也正是为什么容器半边<i>只能 import 标准库 + 已安装的 wheel</i>：容器里没有别的东西。</p>

@@ -104,7 +104,7 @@
     <ul>
       <li>Optional. Needed only when the image's own Python predates <b>3.11</b> (the wheels' target).</li>
       <li>A <b>Linux</b> <code>uv</code>, mounted at <code>/tmp/uv</code> (the bootstrap probes there first).</li>
-      <li>It builds <code>/tmp/agent-venv</code> on Python 3.11 — using a 3.11 already in the image, or fetching one.</li>
+      <li>It builds <code>/opt/agent-venv</code> on Python 3.11 — using a 3.11 already in the image, or fetching one.</li>
     </ul>
     <div class="where">must match the container's OS/arch, <i>not</i> the host's</div>
   </div>
@@ -116,7 +116,7 @@
   wheelhouse/  ──bind ro──▶  /agent/wheelhouse ─┐
   uv (linux)   ──bind ro──▶  /tmp/uv ───────────┤
   run dir/     ──bind rw──▶  /agent/run          │  bootstrap:
-                                                 ├─▶ uv venv --python 3.11 /tmp/agent-venv
+                                                 ├─▶ uv venv --python 3.11 /opt/agent-venv
                                                  ├─▶ uv pip install --no-index
                                                  │     --find-links /agent/wheelhouse simple-agent-lab
                                                  └─▶ python -m simple_agent_lab.evals.in_container …

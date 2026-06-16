@@ -65,6 +65,11 @@ DEFAULT_PRO_RUN_ROOT = ROOT / "evals/out/swebench_pro"
 DEFAULT_PRO_WHEELHOUSE = ROOT / "evals/out/swebench_pro/wheelhouse/cp311-manylinux"
 DEFAULT_UV_BINARY = shutil.which("uv") or ""
 MCP_CONFIG_ENV = "MCP_CONFIG"
+# Reasoning depth knob read by the in-container provider. Without forwarding
+# these, the agent silently runs at the endpoint's default (no/low reasoning)
+# even when the operator set OPENAI_REASONING_EFFORT=high in .env.
+REASONING_EFFORT_ENV = "REASONING_EFFORT"
+OPENAI_REASONING_EFFORT_ENV = "OPENAI_REASONING_EFFORT"
 API_KIND_CHOICES = ("openai-chat", "openai-responses")
 AGENT_FLAVOR_CHOICES = ("bash", "bash_task", "bash_skills")
 DEFAULT_AGENT_FLAVOR = "bash"
@@ -77,6 +82,8 @@ OPENAI_PASSTHROUGH_ENVS = (
     OPENAI_SESSION_ID_ENV,
     OPENAI_LOG_ID_ENV,
     API_KIND_ENV,
+    REASONING_EFFORT_ENV,
+    OPENAI_REASONING_EFFORT_ENV,
 )
 PRIVATE_INSTANCE_FIELDS = {
     "patch",
