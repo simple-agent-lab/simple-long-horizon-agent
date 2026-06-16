@@ -38,7 +38,12 @@ from .protocols import (
     RunSpec,
     Suite,
 )
-from .runner import _stage_eval_inputs, container_name, prepare_run_directory
+from .runner import (
+    _run_root_namespace,
+    _stage_eval_inputs,
+    container_name,
+    prepare_run_directory,
+)
 
 # Batch manifest lives at the batch root (run_root/<run_id>), above per-instance
 # dirs, so one reload finds every handle.
@@ -140,7 +145,12 @@ def submit_dataset(
             provider_env=dict(provider_env or {}),
             install=install,
             wheelhouse_mount=wheelhouse_mount,
-            run_name=container_name(suite.name, instance_id, run_id),
+            run_name=container_name(
+                suite.name,
+                instance_id,
+                run_id,
+                namespace=_run_root_namespace(run_root),
+            ),
         )
         handle = backend.submit(spec, store=bound, binding=binding)
         # Pin the run_dir so reconcile can locate the result without re-deriving.

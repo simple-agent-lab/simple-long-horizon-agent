@@ -852,6 +852,43 @@ class SubmitReconcileTest(unittest.TestCase):
         self.assertTrue(slept)
         self.assertTrue(all(s >= 0.5 for s in slept))
 
+    def test_submit_container_name_is_namespaced_by_run_root(self) -> None:
+        from simple_agent_lab.evals import submit_dataset
+
+        instance = {"instance_id": "astropy__astropy-13398"}
+        run_id = "003af6184cce-9119f5eb01dc"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            left_root = Path(tmp) / "self_evolving" / "swebench_runs"
+            right_root = Path(tmp) / "hyperagents" / "swebench_runs"
+            left_backend = FakeBackend()
+            right_backend = FakeBackend()
+
+            submit_dataset(
+                suite=_DemoSuite(),
+                instances=[instance],
+                backend=left_backend,
+                store=LocalDirStore(left_root),
+                run_root=left_root,
+                run_id=run_id,
+                provider="fake",
+            )
+            submit_dataset(
+                suite=_DemoSuite(),
+                instances=[instance],
+                backend=right_backend,
+                store=LocalDirStore(right_root),
+                run_root=right_root,
+                run_id=run_id,
+                provider="fake",
+            )
+
+        left_name = left_backend.runs[0].run_name
+        right_name = right_backend.runs[0].run_name
+        self.assertNotEqual(left_name, right_name)
+        self.assertTrue(left_name.startswith("demo."))
+        self.assertTrue(left_name.endswith(f".{run_id}"))
+
 
 class ReviewFixesTest(unittest.TestCase):
     """Docker-path guards (no real Docker): exit-code parsing, atomic put, names."""
