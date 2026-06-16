@@ -32,7 +32,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-from .provider import REASONING_EFFORTS, ApiKind, Provider, ReasoningEffort
+from .provider import (
+    REASONING_EFFORTS,
+    ApiKind,
+    Provider,
+    ReasoningEffort,
+    api_kind_defaults,
+)
 
 # --------------------------------------------------------------------------- #
 # Canonical env-var names (declared once; everyone else imports these)
@@ -59,7 +65,6 @@ API_KIND_CHOICES: tuple[str, ...] = (
     "openai-responses",
     "anthropic-messages",
 )
-DEFAULT_RESPONSES_MAX_OUTPUT_TOKENS = 32768
 
 # The one deterministic, key-free provider — replaces a dozen copies of the
 # `Provider(id="fake", api="fake", model="fake-model")` literal.
@@ -243,11 +248,7 @@ def provider_from_env(
         model=model,
         base_url=base_url or None,
         api_key_env=auth_env,
-        default_max_tokens=(
-            DEFAULT_RESPONSES_MAX_OUTPUT_TOKENS
-            if resolved_kind == "openai-responses"
-            else None
-        ),
+        default_max_tokens=api_kind_defaults(resolved_kind).default_max_tokens,
         default_temperature=default_temperature,
         default_reasoning=reasoning,
     )

@@ -54,13 +54,12 @@ from ...messages import (
     ToolResultBlock,
     text_of,
 )
-from . import capture_request, sdk_dump
+from ._spine import emit_response, resolve_effort, resolve_temperature
 from ..env import resolve_api_key
 from ..stream import register_adapter
 from ..types import (
     LLMMessage,
     LLMRequest,
-    LLMResponse,
     LLMTool,
     StopReason,
     StreamEvent,
@@ -138,18 +137,14 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         kwargs["system"] = system
     if tools:
         kwargs["tools"] = tools
-    temperature = (
-        req.temperature
-        if req.temperature is not None
-        else req.provider.default_temperature
-    )
+    temperature = resolve_temperature(req)
     if temperature is not None:
         kwargs["temperature"] = temperature
     if req.timeout_seconds:
         kwargs["timeout"] = req.timeout_seconds
     # Translate the normalized reasoning knob to the shape this model takes.
     # A raw extra["thinking"]/extra["output_config"] (below) wins over it.
-    effort = req.reasoning or req.provider.default_reasoning
+    effort = resolve_effort(req)
     if effort:
         kwargs.update(_reasoning_kwargs(effort, req.provider.model))
     for key in (
@@ -203,26 +198,13 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
     stop_reason = _map_anthropic_stop(getattr(sdk_response, "stop_reason", None))
     usage = _anthropic_usage(getattr(sdk_response, "usage", None))
 
-    for block in blocks:
-        if isinstance(block, ThinkingBlock) and block.text:
-            yield StreamEvent(kind="thinking_delta", payload={"delta": block.text})
-        elif isinstance(block, TextBlock) and block.text:
-            yield StreamEvent(kind="text_delta", payload={"delta": block.text})
-        elif isinstance(block, ToolCallBlock):
-            yield StreamEvent(kind="tool_call_start", payload={"tool_call": block})
-            yield StreamEvent(kind="tool_call_complete", payload={"tool_call": block})
-    yield StreamEvent(kind="usage_update", payload={"usage": usage})
-
-    response = LLMResponse(
-        content=tuple(blocks),
+    yield from emit_response(
+        blocks,
         stop_reason=stop_reason,
         usage=usage,
-        # The served model the API resolved to (e.g. an alias -> dated
-        # snapshot); complete() only back-fills the requested model.
-        model=getattr(sdk_response, "model", "") or "",
-        raw={"request": capture_request(kwargs), "response": sdk_dump(sdk_response)},
+        sdk_response=sdk_response,
+        request_kwargs=kwargs,
     )
-    yield StreamEvent(kind="done", payload={"response": response})
 
 
 def _api_key(req: LLMRequest) -> str | None:
