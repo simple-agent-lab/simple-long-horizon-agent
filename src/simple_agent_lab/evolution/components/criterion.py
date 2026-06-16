@@ -60,6 +60,33 @@ def not_worse(dim: str = "reward", *, tol: float = 0.0) -> Criterion:
     return judge
 
 
+def valid_when(dim: str = "reward") -> Criterion:
+    """Open-ended admission: accept any child that produced gradable runs.
+
+    Unlike ``improve``/``not_worse`` this never rejects on score — it admits a
+    candidate (HyperAgents/DGM "valid_parent") whenever it ran and was scored,
+    so worse-but-valid versions remain selectable stepping stones. The reward
+    delta is still recorded for reporting; ``deltas['valid_parent']`` is the flag
+    the recipe writes onto the candidate record for ``archive.select_parent``.
+    """
+
+    def judge(baseline: RunScores, candidate: RunScores) -> Verdict:
+        valid = len(candidate) > 0
+        delta = (
+            _mean(candidate, dim) - _mean(baseline, dim)
+            if valid and baseline
+            else 0.0
+        )
+        word = "valid" if valid else "invalid"
+        return Verdict(
+            valid,
+            f"admission {word} (reward {delta:+.4g})",
+            {dim: delta, "valid_parent": 1.0 if valid else 0.0},
+        )
+
+    return judge
+
+
 def guarded(objective: Criterion, guards: Sequence[Criterion]) -> Criterion:
     """Optimize ``objective`` subject to every guard holding ("X subject to Y")."""
 
