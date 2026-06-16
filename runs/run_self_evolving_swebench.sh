@@ -163,12 +163,24 @@ fi
 if [ "$EXECUTE" -eq 1 ]; then
   if [ ! -d "$WHEELHOUSE" ] || [ -z "$(ls -A "$WHEELHOUSE" 2>/dev/null)" ]; then
     echo "==> Preparing wheelhouse..."
-    "${PYTHON[@]}" - <<'PY'
+    WHEELHOUSE="$WHEELHOUSE" "${PYTHON[@]}" - <<'PY'
+import os
 from pathlib import Path
 from evals.swebench.harness import prepare_wheelhouse
-prepare_wheelhouse(Path("evals/out/swebench/wheelhouse/cp311-manylinux"))
+prepare_wheelhouse(Path(os.environ["WHEELHOUSE"]))
 PY
   fi
+  # Always rebuild the project wheel so containers run the current source, not a
+  # stale cached wheel. The evolving recipe mounts this wheelhouse directly, so a
+  # stale wheel silently omits new modules (e.g. the evolving container) and the
+  # container crashes on import before producing result.json.
+  echo "==> Refreshing project wheel..."
+  WHEELHOUSE="$WHEELHOUSE" "${PYTHON[@]}" - <<'PY'
+import os
+from pathlib import Path
+from evals.swebench.harness import prepare_project_wheel
+prepare_project_wheel(Path(os.environ["WHEELHOUSE"]))
+PY
   swebench_ensure_linux_uv
 fi
 
