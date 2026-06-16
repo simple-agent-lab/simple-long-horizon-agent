@@ -34,9 +34,11 @@ from .hooks import (
     HookPoint,
 )
 from .compression import (
+    CompactControl,
     SummarizeStrategy,
     TieredStrategy,
     ToolCompactStrategy,
+    make_compact_control,
 )
 from .context_view import (
     CompressionDecision,
@@ -101,6 +103,7 @@ from .tools import (
 )
 from .tools.read import make_read_tool
 from .tools.edit import make_edit_tool
+from .tools.recall import make_recall_tool
 from .skills import (
     SkillMetadata,
     SkillRoot,
@@ -148,6 +151,7 @@ __all__ = [
     "text_of",
     "tool_results_of",
     "State",
+    "CompactControl",
     "CompressionDecision",
     "CompressionStrategy",
     "ContextPolicy",
@@ -155,6 +159,7 @@ __all__ = [
     "SummarizeStrategy",
     "TieredStrategy",
     "ToolCompactStrategy",
+    "make_compact_control",
     "assistant_message",
     "build_context_view",
     "effective_token_budget",
@@ -190,6 +195,7 @@ __all__ = [
     "tool_result_text",
     "make_read_tool",
     "make_edit_tool",
+    "make_recall_tool",
     "SkillMetadata",
     "SkillRoot",
     "discover_skills",

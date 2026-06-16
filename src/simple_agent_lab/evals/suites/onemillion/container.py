@@ -28,20 +28,19 @@ module), so it runs in any eval environment with no copied files.
 
 from __future__ import annotations
 
-import os
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from simple_agent_lab.core import Agent
 from simple_agent_lab.evals.protocols import AgentSpec
 from simple_agent_lab.llm import (
-    ApiKind,
     LLMRequest,
     Provider,
     complete_with_retry,
     llm_message,
 )
+from simple_agent_lab.llm.env import JUDGE_ENV, OPENAI_ENV, provider_from_env
 from simple_agent_lab.llm_agent import make_llm_agent
 from simple_agent_lab.messages import text_of
 
@@ -66,16 +65,9 @@ AGENT_SYSTEM_PROMPT = (
     "给出准确、详细、结构清晰的答案。"
 )
 
-# Judge (grader) provider env contract — falls back to the generator's OPENAI_*.
-JUDGE_MODEL_ENV = "JUDGE_MODEL"
-JUDGE_AUTH_ENV = "JUDGE_AUTH_TOKEN"
-JUDGE_BASE_URL_ENV = "JUDGE_BASE_URL"
-JUDGE_API_KIND_ENV = "JUDGE_API_KIND"
-OPENAI_MODEL_ENV = "OPENAI_MODEL"
-OPENAI_AUTH_ENV = "OPENAI_AUTH_TOKEN"
-OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
-API_KIND_CHOICES = ("openai-chat", "openai-responses", "anthropic-messages")
-DEFAULT_RESPONSES_MAX_OUTPUT_TOKENS = 32768
+# The judge provider's env contract (`JUDGE_*`, falling back to `OPENAI_*`) and
+# its builder live in `simple_agent_lab.llm.env`; `judge_provider_from_env` below
+# is a thin wrapper. See ADR consolidate-provider-env.
 JUDGE_TIMEOUT_S = 600.0
 
 
@@ -206,42 +198,17 @@ def evaluate(
 
 
 def judge_provider_from_env(env: Mapping[str, str] | None = None) -> Provider:
-    """Build the judge `Provider` from JUDGE_* env, falling back to OPENAI_*."""
+    """Build the judge `Provider` from JUDGE_* env, falling back to OPENAI_*.
 
-    source = env if env is not None else os.environ
-    model = (source.get(JUDGE_MODEL_ENV) or source.get(OPENAI_MODEL_ENV) or "").strip()
-    auth_env = JUDGE_AUTH_ENV if source.get(JUDGE_AUTH_ENV) else OPENAI_AUTH_ENV
-    token = (source.get(auth_env) or "").strip()
-    base_url = (
-        source.get(JUDGE_BASE_URL_ENV) or source.get(OPENAI_BASE_URL_ENV) or ""
-    ).strip() or None
-    api_kind = (source.get(JUDGE_API_KIND_ENV) or "openai-chat").strip()
-
-    if api_kind not in API_KIND_CHOICES:
-        raise SystemExit(
-            f"Unsupported {JUDGE_API_KIND_ENV} {api_kind!r}: {API_KIND_CHOICES}"
-        )
-    missing = [
-        name
-        for name, value in ((JUDGE_MODEL_ENV, model), (auth_env, token))
-        if not value
-    ]
-    if missing:
-        raise SystemExit(
-            "Missing env for the OneMillion-Bench judge: " + ", ".join(missing)
-        )
-    return Provider(
-        id=api_kind,
-        api=cast(ApiKind, api_kind),
-        model=model,
-        base_url=base_url,
-        api_key_env=auth_env,
-        default_max_tokens=(
-            DEFAULT_RESPONSES_MAX_OUTPUT_TOKENS
-            if api_kind == "openai-responses"
-            else None
-        ),
+    Thin wrapper over `simple_agent_lab.llm.env.provider_from_env`: the judge
+    reads `JUDGE_*`, falls back to `OPENAI_*`, and grades at ``temperature=0.0``.
+    """
+    return provider_from_env(
+        JUDGE_ENV,
+        fallback=OPENAI_ENV,
+        env=env,
         default_temperature=0.0,
+        label="the OneMillion-Bench judge",
     )
 
 

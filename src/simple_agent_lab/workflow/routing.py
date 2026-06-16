@@ -142,6 +142,7 @@ def make_router_agent(
     name: str = "router",
     role: str = ROUTER_ROLE,
     request_extra: Mapping[str, Any] | None = None,
+    timeout_seconds: float | None = None,
 ) -> Agent:
     """Build a router `Agent` whose system prompt lists `routes`."""
     return make_llm_agent(
@@ -151,4 +152,5 @@ def make_router_agent(
         system_prompt=_router_system_prompt(routes),
         target="user",
         request_extra=request_extra,
+        timeout_seconds=timeout_seconds,
     )

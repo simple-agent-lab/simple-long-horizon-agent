@@ -42,6 +42,10 @@ product direction, especially if future contributors may wonder why it was chose
 - [Consolidate Agent Presets behind one AgentSession + Toolsets](20260604-consolidate-agent-presets.md)
 - [A Pluggable State Initializer Makes Skills a Bare-Agent Capability](20260605-pluggable-state-init-hook.md)
 - [ProgramBench Adapter: Workspace-as-Product and Per-Command Network Isolation](20260606-programbench-reverse-engineering-adapter.md)
+- [Recoverable Compression and Agent-Controlled Compaction](20260612-recoverable-compression-and-agent-compaction.md)
+- [Consolidate Provider Construction and Env-Var Reading in llm.env](20260613-consolidate-provider-env.md)
+- [Model-Alias Registry (strong / fast) over provider_from_env](20260613-model-alias-registry.md) — env-alias scheme superseded by model-config-file; registry type stands
+- [JSON Model-Config File for the Model Registry](20260615-model-config-file.md) — replaces the env-alias scheme of model-alias-registry
 
 ## Proposed
 

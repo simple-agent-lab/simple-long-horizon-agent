@@ -36,6 +36,7 @@ from . import (
     ToolResult,
     ToolResultContent,
     ToolUpdateFn,
+    coerce_int,
     text_result,
 )
 
@@ -462,16 +463,4 @@ def _coerce_line_arg(name: str, value: Any) -> int | None:
 
     if value is None or value == "":
         return None
-    # bool is an int subclass; reject it so `True` isn't read as line 1.
-    if isinstance(value, bool):
-        raise ValueError(f"{name} must be an integer, got {value!r}")
-    # A fractional number is a malformed line index, not something to floor.
-    if isinstance(value, float) and not value.is_integer():
-        raise ValueError(f"{name} must be an integer, got {value!r}")
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        raise ValueError(f"{name} must be an integer, got {value!r}") from None
-    if number < 1:
-        raise ValueError(f"{name} must be >= 1, got {number}")
-    return number
+    return coerce_int(name, value, minimum=1)

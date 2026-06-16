@@ -1,66 +1,28 @@
 from __future__ import annotations
 
-import os
 import tempfile
 import unittest
 from pathlib import Path
 
 from simple_agent_lab.agents.starter import make_bash_agent
 from simple_agent_lab.llm import Provider
+from simple_agent_lab.llm.env import load_dotenv, provider_from_env
 
 
 ROOT = Path(__file__).resolve().parents[2]
-OPENAI_MODEL_ENV = "OPENAI_MODEL"
-OPENAI_AUTH_ENV = "OPENAI_AUTH_TOKEN"
-OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
-
-
-def load_dotenv(path: Path) -> None:
-    if not path.exists():
-        return
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[len("export ") :].strip()
-        key, separator, value = line.partition("=")
-        if not separator:
-            continue
-        key = key.strip()
-        value = value.strip().strip("'\"")
-        if key and key not in os.environ:
-            os.environ[key] = value
 
 
 load_dotenv(ROOT / ".env")
 
 
 def build_live_openai_provider() -> Provider:
-    model = (os.environ.get(OPENAI_MODEL_ENV) or "").strip()
-    auth_token = (os.environ.get(OPENAI_AUTH_ENV) or "").strip()
-    base_url = (os.environ.get(OPENAI_BASE_URL_ENV) or "").strip() or None
-
-    missing = [
-        name
-        for name, value in (
-            (OPENAI_MODEL_ENV, model),
-            (OPENAI_AUTH_ENV, auth_token),
-        )
-        if not value
-    ]
-    if missing:
-        raise unittest.SkipTest(
-            "missing env var(s) for live e2e: " + ", ".join(missing)
-        )
-
-    os.environ[OPENAI_AUTH_ENV] = auth_token
-    return Provider(
-        id="openai-chat-live-e2e",
-        api="openai-chat",
-        model=model,
-        base_url=base_url,
-        api_key_env=OPENAI_AUTH_ENV,
+    # Single source of truth: `simple_agent_lab.llm.env`. `missing_exc=SkipTest`
+    # makes credential-less CI skip rather than fail; `reexport_auth` cleans the
+    # token for the adapter, which reads os.environ directly.
+    return provider_from_env(
+        label="live e2e",
+        missing_exc=unittest.SkipTest,
+        reexport_auth=True,
     )
 
 

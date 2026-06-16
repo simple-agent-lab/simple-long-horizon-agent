@@ -44,7 +44,15 @@ from ..agents.starter import (
 )
 from ..core import Agent
 from ..hooks import HookMap
-from ..llm import REASONING_EFFORTS, ApiKind, Provider, ReasoningEffort
+from ..llm import Provider
+from ..llm.env import (
+    API_KIND_CHOICES,
+    API_KIND_ENV,
+    FAKE_PROVIDER,
+    OPENAI_ENV,
+    request_extra_from_env,
+)
+from ..llm.env import provider_from_env as _env_provider_from_env
 from ..llm_agent import make_llm_agent
 from ..skills import system_prompt_with_skills
 from ..state import State
@@ -74,19 +82,10 @@ __all__ = [
 
 TRACE_FLUSH_INTERVAL_S = 2.0
 
-# Env contract for the OpenAI-compatible provider, shared by every suite.
-OPENAI_MODEL_ENV = "OPENAI_MODEL"
-OPENAI_AUTH_ENV = "OPENAI_AUTH_TOKEN"
-OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
-OPENAI_SESSION_ID_ENV = "OPENAI_SESSION_ID"
-OPENAI_LOG_ID_ENV = "OPENAI_LOG_ID"
-# Provider-agnostic reasoning depth, set on the provider so every adapter maps
-# it to its own wire shape. The legacy OpenAI-specific name is still honored.
-REASONING_EFFORT_ENV = "REASONING_EFFORT"
-OPENAI_REASONING_EFFORT_ENV = "OPENAI_REASONING_EFFORT"
-API_KIND_ENV = "API_KIND"
-API_KIND_CHOICES = ("openai-chat", "openai-responses")
-DEFAULT_RESPONSES_MAX_OUTPUT_TOKENS = 32768
+# The OpenAI-compatible env contract (`OPENAI_MODEL`/`OPENAI_AUTH_TOKEN`/...),
+# the `.env` loader, and the provider builder now live in `simple_agent_lab.llm.env`
+# — the single source of truth (see ADR consolidate-provider-env). `API_KIND_*`
+# are re-imported above only because the argparse parser below references them.
 
 
 def memory_home_from_env(env: Mapping[str, str] | None = None) -> Path | None:
@@ -367,67 +366,23 @@ def _with_mcp_addendum(system_prompt: str) -> str:
 def provider_from_env(
     *, kind: str, api_kind: str = "openai-chat", env: Mapping[str, str] | None = None
 ) -> Provider:
-    source = env if env is not None else os.environ
-    if kind == "fake":
-        return Provider(id="fake", api="fake", model="fake-model")
-    if api_kind not in API_KIND_CHOICES:
-        raise SystemExit(f"Unsupported API_KIND {api_kind!r}: {API_KIND_CHOICES}")
-    model = source.get(OPENAI_MODEL_ENV, "").strip()
-    token = source.get(OPENAI_AUTH_ENV, "").strip()
-    missing = [
-        n for n, v in ((OPENAI_MODEL_ENV, model), (OPENAI_AUTH_ENV, token)) if not v
-    ]
-    if missing:
-        raise SystemExit("Missing env for openai provider: " + ", ".join(missing))
-    return Provider(
-        id=api_kind,
-        api=cast(ApiKind, api_kind),
-        model=model,
-        base_url=source.get(OPENAI_BASE_URL_ENV) or None,
-        api_key_env=OPENAI_AUTH_ENV,
-        default_max_tokens=(
-            DEFAULT_RESPONSES_MAX_OUTPUT_TOKENS
-            if api_kind == "openai-responses"
-            else None
-        ),
-        default_temperature=1.0,
-        default_reasoning=_reasoning_from_env(source),
-    )
+    """Build the in-container provider: ``kind="fake"`` or an OpenAI-compatible one.
 
-
-def _reasoning_from_env(source: Mapping[str, str]) -> ReasoningEffort | None:
-    """Read the normalized reasoning effort; the adapter maps it per-model.
-
-    Honors the provider-agnostic ``REASONING_EFFORT`` and the legacy
-    ``OPENAI_REASONING_EFFORT`` name. An unrecognized value is a hard error so
-    a typo fails fast rather than silently reaching the model unmapped.
+    Thin wrapper over `simple_agent_lab.llm.env.provider_from_env` that keeps the
+    framework's ``kind``/``api_kind`` calling convention. The OpenAI path reads
+    the reasoning effort from the environment and stamps ``temperature=1.0``.
+    `request_extra_from_env` is re-exported from the same module.
     """
-    effort = (
-        source.get(REASONING_EFFORT_ENV, "")
-        or source.get(OPENAI_REASONING_EFFORT_ENV, "")
-    ).strip()
-    if not effort:
-        return None
-    if effort not in REASONING_EFFORTS:
-        raise SystemExit(
-            f"Unsupported reasoning effort {effort!r}; "
-            f"expected one of {REASONING_EFFORTS}."
-        )
-    return cast(ReasoningEffort, effort)
-
-
-def request_extra_from_env(*, env: Mapping[str, str] | None = None) -> dict[str, Any]:
-    source = env if env is not None else os.environ
-    session_id = source.get(OPENAI_SESSION_ID_ENV, "").strip()
-    log_id = source.get(OPENAI_LOG_ID_ENV, "").strip()
-    if not session_id and not log_id:
-        return {}
-    return {
-        "extra_headers": {
-            "extra": json.dumps({"session_id": session_id}, separators=(",", ":")),
-            "X-TT-logid": log_id,
-        }
-    }
+    if kind == "fake":
+        return FAKE_PROVIDER
+    return _env_provider_from_env(
+        OPENAI_ENV,
+        env=env,
+        api_kind=api_kind,
+        default_temperature=1.0,
+        read_reasoning=True,
+        label="the openai provider",
+    )
 
 
 # --------------------------------------------------------------------------- #

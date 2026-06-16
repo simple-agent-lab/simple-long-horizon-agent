@@ -152,6 +152,7 @@ def _apply_decision(
             active_context_indices=kept_before + [summary_index] + kept_after,
             before_tokens=before_tokens,
             after_tokens=after_tokens,
+            strategy=decision.label,
         )
     )
 

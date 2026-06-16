@@ -155,7 +155,7 @@ coder = make_llm_agent(name="coder", provider=provider,
                        tools=[make_bash_tool(cwd=workdir)])
 
 # c) Reuse an existing preset agent as a specialist/worker
-from simple_agent_lab.agents.bash import make_bash_agent
+from simple_agent_lab.agents import make_bash_agent
 shell = make_bash_agent(provider, name="shell")
 ```
 

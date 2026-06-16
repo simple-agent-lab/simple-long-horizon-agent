@@ -100,6 +100,13 @@ class State:
 
     @property
     def messages(self) -> list[Message]:
+        # A fresh list each call, so a concurrent reader — e.g. the `recall`
+        # tool running in the parallel tool pool — gets a length-stable
+        # snapshot to index into. A shallow copy is both enough and correct
+        # here: `Message`s are frozen and are never mutated after they are
+        # recorded, and `list()` is a single GIL-atomic copy. A deepcopy would
+        # clone immutable data for no safety gain and, being non-atomic Python,
+        # would widen rather than close the interleaving window.
         return list(self.snapshot.messages)
 
     def active_context_items(self) -> list[tuple[int, Message]]:

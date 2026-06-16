@@ -13,6 +13,9 @@ env/
 
 # Local secrets
 .env
+# Live model-config file (may hold an inline auth_token); commit models.example.json only.
+models.json
+*.local.json
 
 # Tooling caches
 .pytest_cache/
@@ -58,6 +61,11 @@ docs/superpowers/
 # into the wheel under simple_agent_lab.evals.suites.onemillion). Never pushed:
 # it has its own git repo, license, dataset, and a large tech_report.pdf.
 /OneMillion-Bench/
+
+# Downloaded benchmark datasets (HuggingFace, etc.), any derived test sets, and
+# the local-only build scripts that generate them — large, licensed upstream
+# content, never committed (e.g. datasets/build_onemillion_testset.py).
+datasets/
 
 # Local-only testing notes for the OneMillion-Bench suite (kept off the repo).
 evals/onemillion/TESTING.md

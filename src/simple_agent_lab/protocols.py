@@ -139,6 +139,12 @@ class ContextCompressionEvent(_BaseEvent):
     is the single rewritten index and `summary_message_index` is its in-place
     replacement (which keeps the target's `kind`, e.g. `"tool_result"`, rather
     than `"summary"`).
+
+    `strategy` names the mechanism that produced the fold (the firing strategy's
+    `CompressionDecision.label`, e.g. ``"tool-compact"`` / ``"summarize"`` /
+    ``"agent-compact"``), so a fold is attributable without sniffing the summary
+    text — including which `TieredStrategy` stage fired. Empty when the strategy
+    set no label.
     """
 
     kind: Literal[EventKind.CONTEXT_COMPRESSION] = field(
@@ -150,6 +156,7 @@ class ContextCompressionEvent(_BaseEvent):
     active_context_indices: list[int]
     before_tokens: int
     after_tokens: int
+    strategy: str = ""
 
 
 @dataclass(frozen=True, kw_only=True)
