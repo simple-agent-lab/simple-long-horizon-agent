@@ -49,6 +49,16 @@ docker run --rm hub.byted.org/boyuan/gdpval-agent-base:v20260604.5 sh -lc \
   'node --version && npm --version && which excel-mcp-server word_mcp_server ppt_mcp_server pdf-reader-mcp mcp-server-filesystem'
 ```
 
+To add compatibility for platforms that run containers as the `tiger` user and
+expect `/opt/tiger/arnold`, build the tiger overlay:
+
+```bash
+docker build \
+  -f docker/gdpval-agent-base/Dockerfile.tiger-overlay \
+  -t hub.byted.org/xiaoheagent/gdpval-agent-base:v20260604.9 \
+  docker/gdpval-agent-base
+```
+
 Use it with the GDPVal runner:
 
 ```bash

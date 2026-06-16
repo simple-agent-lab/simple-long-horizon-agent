@@ -23,6 +23,7 @@
 #   DETACH=0 LIMIT=10 bash runs/run_gdpval_full_azure_judge.sh
 #   RUN_ID=my-gdpval-run bash runs/run_gdpval_full_azure_judge.sh
 #   TASK_IDS="task-id-1 task-id-2" LIMIT=2 bash runs/run_gdpval_full_azure_judge.sh
+#   TASK_IDS_FILE=evals/gdpval/task_ids/gdpval_181.txt bash runs/run_gdpval_full_azure_judge.sh
 #   INPUT=/path/to/gdpval.jsonl bash runs/run_gdpval_full_azure_judge.sh
 #   ENABLE_WEB_TOOLS=1 SERPER_API_KEY=... LIMIT=10 bash runs/run_gdpval_full_azure_judge.sh
 #   DRY_RUN=1 LIMIT=10 bash runs/run_gdpval_full_azure_judge.sh
@@ -149,6 +150,10 @@ if [ -n "${TASK_IDS:-}" ]; then
   ARGS+=(--task-ids "${TASK_ID_ARGS[@]}")
 fi
 
+if [ -n "${TASK_IDS_FILE:-}" ]; then
+  ARGS+=(--task-ids-file "$TASK_IDS_FILE")
+fi
+
 if [ -n "${REFERENCE_ROOT:-}" ]; then
   ARGS+=(--reference-root "$REFERENCE_ROOT")
 fi
@@ -203,6 +208,7 @@ echo "judge api:    openai-responses"
 echo "judge mode:   $JUDGE_MODE"
 echo "judge tools:  $JUDGE_TOOL_MODE"
 echo "web tools:    $ENABLE_WEB_TOOLS"
+echo "task ids file: ${TASK_IDS_FILE:-<none>}"
 echo "image:        $IMAGE"
 echo "turns:        solver=$MAX_TURNS judge=$JUDGE_MAX_TURNS"
 echo "attempts:     solver=$MAX_ATTEMPTS judge=$JUDGE_MAX_ATTEMPTS semantic=$JUDGE_SEMANTIC_MAX_ATTEMPTS gsb_dirs=$GDPVAL_GSB_DIRECTION_ATTEMPTS"

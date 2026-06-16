@@ -36,6 +36,50 @@ class RunGdpvalJudgeRetryTest(unittest.TestCase):
 
         self.assertFalse(args.enable_web_tools)
 
+    def test_task_ids_file_combines_with_cli_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "task_ids.txt"
+            path.write_text(
+                "\n".join(
+                    [
+                        "# comment",
+                        "from-file",
+                        "inline",
+                        "comma-a, comma-b",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            args = run_gdpval._build_parser().parse_args(
+                [
+                    "--task-ids",
+                    "inline",
+                    "cli-only",
+                    "--task-ids-file",
+                    str(path),
+                ]
+            )
+
+            self.assertEqual(
+                run_gdpval._task_ids_from_args(args),
+                ["inline", "cli-only", "from-file", "comma-a", "comma-b"],
+            )
+
+    def test_existing_judge_filters_solver_results_by_task_ids(self) -> None:
+        results = [
+            InstanceResult("b", None, None, attempts=1),
+            InstanceResult("a", None, None, attempts=1),
+        ]
+
+        selected, missing = run_gdpval_judge_existing._filter_solver_results_by_task_ids(
+            results,
+            ["a", "missing", "b"],
+        )
+
+        self.assertEqual([item.instance_id for item in selected], ["a", "b"])
+        self.assertEqual(missing, ["missing"])
+
     def test_candidate_missing_judge_status_is_semantic_success(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

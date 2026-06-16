@@ -11,7 +11,11 @@ from pathlib import Path
 from threading import Thread
 from unittest.mock import patch
 
-from evals.gdpval.load_instances import KNOWN_BAD_TASK_IDS, load_instances
+from evals.gdpval.load_instances import (
+    KNOWN_BAD_TASK_IDS,
+    load_instances,
+    read_task_ids_file,
+)
 from evals.gdpval.judge_suite import GdpvalGsbJudgeSuite, GdpvalJudgeSuite
 from evals.gdpval.suite import GdpvalSuite
 from simple_agent_lab.evals import (
@@ -210,6 +214,27 @@ class GdpvalSuiteTest(unittest.TestCase):
             rows = load_instances(path, require_deliverables=False)
 
             self.assertEqual([row["task_id"] for row in rows], ["empty", "nonempty"])
+
+    def test_read_task_ids_file_skips_comments_and_deduplicates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "task_ids.txt"
+            path.write_text(
+                "\n".join(
+                    [
+                        "# comment",
+                        "task-a",
+                        "task-b, task-c",
+                        "task-a",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                read_task_ids_file(path),
+                ["task-a", "task-b", "task-c"],
+            )
 
     def test_load_instances_skips_known_bad_tasks_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

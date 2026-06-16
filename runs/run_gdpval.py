@@ -22,6 +22,7 @@ from evals.gdpval.load_instances import (  # noqa: E402
     DEFAULT_HF_SPLIT,
     KNOWN_BAD_TASK_IDS,
     load_instances,
+    read_task_ids_file,
 )
 from evals.gdpval.judge_suite import GdpvalGsbJudgeSuite, GdpvalJudgeSuite  # noqa: E402
 from evals.gdpval.suite import GdpvalSuite  # noqa: E402
@@ -72,6 +73,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Optional GDPVal JSONL, JSON, or Parquet file. Defaults to Hugging Face.",
     )
     parser.add_argument("--task-ids", nargs="*", default=None)
+    parser.add_argument(
+        "--task-ids-file",
+        default=None,
+        help=(
+            "Optional text file of GDPVal task ids. Blank lines and # comments "
+            "are ignored."
+        ),
+    )
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--hf-dataset", default=DEFAULT_HF_DATASET)
     parser.add_argument("--hf-split", default=DEFAULT_HF_SPLIT)
@@ -311,10 +320,11 @@ def main() -> None:
     args = _build_parser().parse_args()
     if args.provider == "openai":
         _load_dotenv(Path(args.dotenv))
+    task_ids = _task_ids_from_args(args)
 
     instances = load_instances(
         args.input,
-        task_ids=args.task_ids,
+        task_ids=task_ids,
         limit=args.limit,
         require_deliverables=not args.include_empty_deliverables,
         hf_dataset=args.hf_dataset,
@@ -353,6 +363,8 @@ def main() -> None:
     print(f"    known-bad filter:   {not args.include_known_bad_tasks}")
     if not args.include_known_bad_tasks:
         print(f"    known-bad skipped:  {len(KNOWN_BAD_TASK_IDS)}")
+    if args.task_ids_file:
+        print(f"    task ids file: {args.task_ids_file}")
     print(f"    selected:    {len(instances)}")
     print(f"    run-id:      {args.run_id}")
     print(f"    backend:     {args.backend}")
@@ -418,6 +430,25 @@ def _load_dotenv(path: Path) -> None:
             continue
         key, value = text.split("=", 1)
         os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+def _task_ids_from_args(args: argparse.Namespace) -> list[str] | None:
+    ids: list[str] = []
+    seen: set[str] = set()
+    for value in list(args.task_ids or []) + _task_ids_from_file_arg(args):
+        task_id = str(value).strip()
+        if not task_id or task_id in seen:
+            continue
+        seen.add(task_id)
+        ids.append(task_id)
+    return ids or None
+
+
+def _task_ids_from_file_arg(args: argparse.Namespace) -> list[str]:
+    task_ids_file = getattr(args, "task_ids_file", None)
+    if not task_ids_file:
+        return []
+    return read_task_ids_file(task_ids_file)
 
 
 def _provider_env(

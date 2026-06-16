@@ -33,6 +33,10 @@ and skips known rows whose gold deliverables are unreadable:
 uv run --with datasets python runs/run_gdpval.py --limit 10
 ```
 
+Use `--task-ids-file evals/gdpval/task_ids/gdpval_181.txt` to select the saved
+181-id GDPVal task list for repeatable evaluations. The normal known-bad filter
+still applies unless `--include-known-bad-tasks` is also passed.
+
 By default the solver may use `WebSearch` and `WebFetch` when external public
 information is needed. Set `SERPER_API_KEY` to enable Serper search. Jina fetch
 works through `https://r.jina.ai/` by default and can use `JINA_API_KEY` or

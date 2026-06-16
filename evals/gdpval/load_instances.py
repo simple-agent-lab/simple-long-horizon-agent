@@ -64,6 +64,29 @@ def load_instances(
     return rows
 
 
+def read_task_ids_file(path: str | Path) -> list[str]:
+    """Read task ids from a plain text file.
+
+    The common format is one task id per line. Blank lines and ``#`` comments
+    are ignored; whitespace- or comma-separated ids are accepted for convenience.
+    Duplicate ids are removed while preserving the first occurrence.
+    """
+
+    ids: list[str] = []
+    seen: set[str] = set()
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        text = line.split("#", 1)[0].replace(",", " ").strip()
+        if not text:
+            continue
+        for item in text.split():
+            task_id = item.strip()
+            if not task_id or task_id in seen:
+                continue
+            seen.add(task_id)
+            ids.append(task_id)
+    return ids
+
+
 def _read_rows(path: Path) -> Iterable[Mapping[str, Any]]:
     suffix = path.suffix.lower()
     if suffix == ".jsonl":

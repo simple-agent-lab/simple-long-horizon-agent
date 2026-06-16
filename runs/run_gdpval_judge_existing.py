@@ -47,6 +47,15 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--concurrency", type=int, default=10)
     parser.add_argument("--prepare-concurrency", type=int, default=None)
     parser.add_argument("--prepare-timeout-seconds", type=float, default=300.0)
+    parser.add_argument("--task-ids", nargs="*", default=None)
+    parser.add_argument(
+        "--task-ids-file",
+        default=None,
+        help=(
+            "Optional text file of GDPVal task ids. When set, only matching "
+            "solver artifacts are judged, in file order."
+        ),
+    )
     parser.add_argument("--judge-max-turns", type=int, default=50)
     parser.add_argument("--judge-semantic-max-attempts", type=int, default=2)
     parser.add_argument(
@@ -77,6 +86,24 @@ def main() -> None:
         raise SystemExit(f"solver output dir not found: {solver_dir}")
 
     solver_results = _load_solver_results(solver_dir)
+    requested_task_ids = run_gdpval._task_ids_from_args(args)
+    if requested_task_ids:
+        solver_results, missing_task_ids = _filter_solver_results_by_task_ids(
+            solver_results,
+            requested_task_ids,
+        )
+        print(
+            f"==> task ids selected from file/cli: {len(solver_results)}",
+            flush=True,
+        )
+        if missing_task_ids:
+            print(
+                "==> task ids without solver artifacts: "
+                f"{len(missing_task_ids)}",
+                flush=True,
+            )
+        if not solver_results:
+            raise SystemExit("No solver artifacts matched the requested task ids.")
     task_ids = [result.instance_id for result in solver_results]
     print(f"==> discovered solver artifacts: {len(solver_results)}", flush=True)
 
@@ -194,6 +221,22 @@ def _load_solver_results(solver_dir: Path) -> list[InstanceResult]:
     return results
 
 
+def _filter_solver_results_by_task_ids(
+    solver_results: list[InstanceResult],
+    task_ids: list[str],
+) -> tuple[list[InstanceResult], list[str]]:
+    by_id = {str(result.instance_id): result for result in solver_results}
+    selected: list[InstanceResult] = []
+    missing: list[str] = []
+    for task_id in task_ids:
+        result = by_id.get(str(task_id))
+        if result is None:
+            missing.append(str(task_id))
+            continue
+        selected.append(result)
+    return selected, missing
+
+
 def _build_judge_instances(
     *,
     suite: GdpvalGsbJudgeSuite,
@@ -307,6 +350,7 @@ def _runner_args(args: argparse.Namespace, *, run_root: Path, task_ids: list[str
         max_attempts=1,
         input=None,
         task_ids=task_ids,
+        task_ids_file=None,
         limit=None,
         hf_dataset=args.hf_dataset,
         hf_split=args.hf_split,
