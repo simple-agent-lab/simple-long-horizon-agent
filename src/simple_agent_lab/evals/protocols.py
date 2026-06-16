@@ -43,6 +43,10 @@ EVAL_KEY = (
     "input/eval.json"  # host puts (gold scoring inputs), container `evaluate` gets
 )
 MCP_KEY = "input/mcp.json"  # host puts optional MCP server config, container gets
+SCAFFOLD_KEY = (
+    "input/scaffold.json"  # host puts {path: text} evolvable agent code, container gets
+)
+AGENT_PACKAGE_KEY = "input/agent_package.json"  # host puts {path: text}; container gets the evolvable agent program
 RESULT_KEY = "out/result.json"  # container puts (raw extract_result), host gets
 TRACE_KEY = "out/trajectory.jsonl"  # container re-puts on a cadence = live trace
 
