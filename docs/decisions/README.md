@@ -41,12 +41,15 @@ product direction, especially if future contributors may wonder why it was chose
 - [Add Agent Skills (read-based, on by default)](20260602-add-agent-skills.md)
 - [Consolidate Agent Presets behind one AgentSession + Toolsets](20260604-consolidate-agent-presets.md)
 - [A Pluggable State Initializer Makes Skills a Bare-Agent Capability](20260605-pluggable-state-init-hook.md)
+- [Recipes Are The Self-Evolving Surface; Infra Stays Benchmark-Agnostic](20260617-recipes-as-the-self-evolving-surface.md) — builds on `faithful-hyperagents-recipe` and `retarget-recipe-to-dgm`
 
 ## Proposed
 
 - [Generic Containerized Eval Framework](20260531-generic-containerized-eval-framework.md) — supersedes `keep-benchmark-suites-as-eval-adapters` for containerized suites
 - [Oracle Run Mode for Suite Self-Check](20260601-oracle-run-mode-for-suite-self-check.md) — builds on `generic-containerized-eval-framework`
 - [Scorer Seam and Per-Suite Scoring Topology](20260601-scorer-seam-and-scoring-topology.md) — amends `generic-containerized-eval-framework`, builds on `oracle-run-mode-for-suite-self-check`, amended by `collapse-scorer-seam-into-run-primitive`
+- [Faithful HyperAgents Recipe Evolves The Agent Version, Not The Kernel](20260616-faithful-hyperagents-recipe.md) — amended by `retarget-recipe-to-dgm` (reference method changed to DGM)
+- [Retarget The Self-Evolving Recipe To DGM, Not HyperAgents](20260617-retarget-recipe-to-dgm.md) — amends `faithful-hyperagents-recipe`
 
 ## Withdrawn
 
