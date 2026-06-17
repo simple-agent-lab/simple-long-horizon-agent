@@ -1,28 +1,30 @@
 #!/usr/bin/env bash
-# Run the real model + Docker SWE-bench self-evolving workflow.
+# Run the faithful DGM self-evolving SWE-bench recipe (recipes/dgm/evolve.py).
 #
 # Usage:
-#   bash runs/run_self_evolving_swebench.sh --run-id real-smoke --train-dataset train.jsonl --test-dataset test.jsonl
-#   bash runs/run_self_evolving_swebench.sh --run-id real-smoke --train-dataset train.jsonl --test-dataset test.jsonl --execute
+#   bash runs/run_dgm_swebench.sh --run-id dgm-smoke --train-dataset train.jsonl --test-dataset test.jsonl
+#   bash runs/run_dgm_swebench.sh --run-id dgm-real --train-dataset train.jsonl --test-dataset test.jsonl --execute
 #
-# This runner wires the evolution kernel, SAL meta-strategy, SWE-bench Docker
-# rollout, train-only promotion, and held-out reporting. Without --execute it
-# prints the plan and validates dataset inputs without starting Docker.
+# Thin wrapper over the DGM recipe: it prepares Docker + the container wheelhouse,
+# then runs the real self-evolving loop (meta-strategy proposal, archive parent
+# selection, parallel train rollout, criterion, promotion, held-out scoring).
+# Without --execute it prints the plan and validates inputs without Docker.
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source runs/_python.sh
 source runs/_swebench_uv.sh
+source runs/_docker.sh
 
-# SWE-bench self-evolution needs the `docker`/`datasets`/`swebench` SDKs, which
-# live in the project's `swebench` optional extra. Pin every `uv run` here to
-# that extra so a clean (or auto-synced) venv always has them.
+# The DGM recipe needs the `docker`/`datasets`/`swebench` SDKs from the project's
+# `swebench` optional extra. Pin every `uv run` here to that extra so a clean (or
+# auto-synced) venv always has them.
 if command -v uv >/dev/null 2>&1; then
   PYTHON=(uv run --extra swebench python)
 fi
 
 RUN_ID=""
-OUTPUT_ROOT="evals/out/self_evolving/swebench"
+OUTPUT_ROOT="evals/out/dgm_swebench"
 DATASET_NAME="princeton-nlp/SWE-bench_Verified"
 TRAIN_DATASET=""
 TEST_DATASET=""
@@ -32,7 +34,7 @@ BRANCHES=3
 META_CONCURRENCY=0
 PARENT_SELECTION="score_child_prop"
 PARALLEL="auto"
-MODEL_NAME="${OPENAI_MODEL:-hyperagents-swebench}"
+MODEL_NAME="${OPENAI_MODEL:-dgm-swebench}"
 API_KIND="openai-chat"
 MAX_TURNS=75
 DOTENV=".env"
@@ -42,12 +44,12 @@ RESET=0
 MONITOR=0
 
 usage() {
-  sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
   cat <<'EOF'
 
 Options:
   --run-id ID                         Required reproducible run id.
-  --output-root PATH                  Default: evals/out/self_evolving/swebench.
+  --output-root PATH                  Default: evals/out/dgm_swebench.
   --dataset-name NAME                 Default: princeton-nlp/SWE-bench_Verified.
   --train-dataset PATH                Train/evolution SWE-bench JSONL file.
   --test-dataset PATH                 Held-out official-scoring SWE-bench JSONL file.
@@ -146,21 +148,14 @@ case "$API_KIND" in
   *) echo "ERROR: --api-kind must be openai-chat or openai-responses." >&2; exit 2 ;;
 esac
 
-if [ -z "${DOCKER_HOST:-}" ]; then
-  ACTIVE_DOCKER_HOST="$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)"
-  if [ -n "$ACTIVE_DOCKER_HOST" ] && [ "$ACTIVE_DOCKER_HOST" != "<no value>" ]; then
-    export DOCKER_HOST="$ACTIVE_DOCKER_HOST"
-  else
-    for SOCK in "$HOME/.docker/run/docker.sock" "$HOME/.colima/default/docker.sock"; do
-      if [ -S "$SOCK" ]; then
-        export DOCKER_HOST="unix://$SOCK"
-        break
-      fi
-    done
-  fi
-fi
+docker_resolve_host
 
 if [ "$EXECUTE" -eq 1 ]; then
+  if ! docker_ensure_running; then
+    echo "ERROR: Docker daemon is not reachable and could not be started automatically." >&2
+    echo "Start Docker Desktop or Colima manually, then re-run (or set SAL_DOCKER_AUTOSTART=0 to skip auto-start)." >&2
+    exit 1
+  fi
   if [ ! -d "$WHEELHOUSE" ] || [ -z "$(ls -A "$WHEELHOUSE" 2>/dev/null)" ]; then
     echo "==> Preparing wheelhouse..."
     WHEELHOUSE="$WHEELHOUSE" "${PYTHON[@]}" - <<'PY'
@@ -185,7 +180,7 @@ PY
 fi
 
 ARGS=(
-  scripts/run_self_evolving_swebench.py
+  recipes/dgm/evolve.py
   --run-id "$RUN_ID"
   --output-root "$OUTPUT_ROOT"
   --dataset-name "$DATASET_NAME"

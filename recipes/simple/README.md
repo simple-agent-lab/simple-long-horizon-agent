@@ -25,16 +25,21 @@ uv run --extra swebench python recipes/simple/evolve.py \
   --test-dataset evals/out/dgm_swebench/splits/headroom-test-20.jsonl
 ```
 
-Real run (model + Docker):
+Real run (model + Docker) — the `runs/` wrapper prepares Docker and the
+wheelhouse for you, then calls the recipe with `--execute`:
 
 ```bash
-uv run --extra swebench python recipes/simple/evolve.py \
+bash runs/run_self_evolving_simple.sh \
   --run-id simple-real \
   --train-dataset evals/out/dgm_swebench/splits/headroom-train-20.jsonl \
   --test-dataset evals/out/dgm_swebench/splits/headroom-test-20.jsonl \
   --rounds 4 \
   --execute
 ```
+
+Or call the recipe directly with
+`uv run --extra swebench python recipes/simple/evolve.py ...` once the wheelhouse
+exists.
 
 ## Flags
 
