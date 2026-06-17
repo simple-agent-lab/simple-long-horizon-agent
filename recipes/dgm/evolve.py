@@ -341,7 +341,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--model-name", default=os.environ.get("OPENAI_MODEL", DEFAULT_MODEL)
     )
-    parser.add_argument("--api-kind", default="openai-chat")
+    parser.add_argument(
+        "--api-kind",
+        choices=["openai-chat", "openai-responses"],
+        default="openai-chat",
+    )
     parser.add_argument("--dotenv", default=".env")
     parser.add_argument("--wheelhouse", default="")
     parser.add_argument("--uv-binary", default="")

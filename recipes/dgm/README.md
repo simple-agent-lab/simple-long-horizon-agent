@@ -16,8 +16,9 @@ This recipe is the **faithfulness showcase** — the counterpart to the
   promotion, held-out scoring).
 - `baseline.py` — measure the seed agent per-instance, then build a balanced
   "headroom" train/test split (pure selection/splitting logic is unit-tested).
-- `report.py` — summarize a run's `generation_metrics.jsonl` and `decisions.jsonl`
-  (best generation, selector distribution, test-leakage monitor).
+- `report.py` — summarize a run from its `decisions.jsonl` (accepted/rejected
+  decisions, current version, selector distribution, test-leakage monitor); it
+  also reads `generation_metrics.jsonl` when present.
 
 ## Prerequisites
 

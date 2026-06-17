@@ -67,6 +67,35 @@ class DgmRecipeSmokeTest(unittest.TestCase):
         self.assertEqual(self.mod._score({}), 0.0)
         self.assertEqual(self.mod._score({"scores": "bad"}), 0.0)
 
+    def test_resolve_schedule_rounds_wins_over_generations(self):
+        ns = self.mod.build_parser().parse_args(
+            [
+                "--run-id",
+                "x",
+                "--train-dataset",
+                "t",
+                "--test-dataset",
+                "e",
+                "--rounds",
+                "6",
+                "--generations",
+                "9",
+                "--branches",
+                "2",
+            ]
+        )
+        rounds, branches, meta = self.mod.resolve_schedule(ns)
+        self.assertEqual((rounds, branches, meta), (6, 2, 2))
+
+    def test_resolve_schedule_falls_back_to_generations_then_default(self):
+        base = ["--run-id", "x", "--train-dataset", "t", "--test-dataset", "e"]
+        ns_gen = self.mod.build_parser().parse_args(base + ["--generations", "7"])
+        self.assertEqual(self.mod.resolve_schedule(ns_gen)[0], 7)
+        ns_def = self.mod.build_parser().parse_args(base)
+        rounds, branches, meta = self.mod.resolve_schedule(ns_def)
+        self.assertEqual(rounds, 4)
+        self.assertEqual(meta, branches)
+
     def test_heldout_run_id_uses_version_and_slice(self):
         from simple_agent_lab.evolution.types import Version
 
