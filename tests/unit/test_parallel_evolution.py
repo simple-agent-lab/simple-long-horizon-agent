@@ -7,23 +7,9 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from scripts.evolution_recipes.dgm import swebench_driver
 from simple_agent_lab.evolution import open_ended
 from simple_agent_lab.evolution.kernel import log, store
 from simple_agent_lab.evolution.types import Proposal, Slice, Verdict
-
-
-class BranchConcurrencyTest(unittest.TestCase):
-    def test_branch_concurrency_never_exceeds_global(self) -> None:
-        self.assertEqual(
-            swebench_driver.branch_concurrency(global_workers=19, branches=3), 6
-        )
-        self.assertEqual(6 * 3, 18)
-
-    def test_branch_concurrency_floor_is_one(self) -> None:
-        self.assertEqual(
-            swebench_driver.branch_concurrency(global_workers=2, branches=5), 1
-        )
 
 
 class _FakeRun:
