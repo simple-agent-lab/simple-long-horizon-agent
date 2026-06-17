@@ -1,0 +1,146 @@
+"""Model-driven whole-program meta-strategy (the Plan-2 LLM-strategy seam).
+
+Benchmark-agnostic: a model rewrites full files under a path prefix (AST-validated
+for ``.py``), returning a Proposal. The prompt and prefix are injected, so this
+component carries no benchmark specifics. Recipes supply the domain prompt.
+"""
+
+from __future__ import annotations
+
+import ast
+import json
+import re
+from collections.abc import Callable, Mapping, Sequence
+from pathlib import PurePosixPath
+from typing import Any
+
+from simple_agent_lab.evolution import Proposal, archive
+from simple_agent_lab.evolution.types import Context, Run, Version
+from simple_agent_lab.llm import LLMRequest, Provider, complete, llm_message
+
+DEFAULT_SYSTEM_PROMPT = """You are a meta-agent evolving a program.
+
+The program is a set of files under a fixed path prefix. You may edit any file
+under that prefix, add new files under it, or remove one (set its value to null).
+Provide FULL new file content, never a diff.
+
+Return ONLY JSON: {"note": "...", "evidence": ["..."],
+"edits": {"<prefix>/<path>": "FULL content" | null}}
+
+Make one focused change likely to improve the measured objective.
+"""
+
+
+def model_program_strategy(
+    *,
+    provider: Provider,
+    prefix: str = "agent/",
+    system_prompt: str = DEFAULT_SYSTEM_PROMPT,
+    parent_selection: str = "best",
+    build_prompt: Callable[[Version, Sequence[Run]], str] | None = None,
+    complete_fn: Callable[[LLMRequest], Any] = complete,
+    max_tokens: int = 4000,
+    kind: str = "code",
+) -> Callable[[Context], Proposal]:
+    """Return a ``(Context) -> Proposal`` strategy that rewrites files under prefix."""
+
+    prompt_builder = build_prompt or (lambda v, f: _default_prompt(v, f, prefix))
+
+    def strategy(ctx: Context) -> Proposal:
+        parent = _select_parent(ctx, parent_selection=parent_selection)
+        base = ctx.version(parent)
+        response = complete_fn(
+            LLMRequest(
+                provider=provider,
+                messages=[llm_message("user", prompt_builder(base, ctx.failures))],
+                system_prompt=system_prompt,
+                max_tokens=max_tokens,
+            )
+        )
+        payload = parse_model_json(response.text)
+        edits, rejected = safe_prefix_edits(payload.get("edits", {}), prefix=prefix)
+        evidence = tuple(str(x) for x in payload.get("evidence", ()))
+        evidence += tuple(f"discarded-disallowed-path:{p}" for p in rejected)
+        return Proposal(
+            base=parent,
+            edits=edits,
+            note=str(payload.get("note", "model program edit")),
+            evidence=evidence,
+            kind=kind,
+        )
+
+    return strategy
+
+
+def parse_model_json(text: str) -> dict[str, Any]:
+    """Parse plain or fenced JSON from the model."""
+
+    stripped = text.strip()
+    match = re.search(r"```(?:json)?\s*(.*?)```", stripped, re.DOTALL)
+    if match:
+        stripped = match.group(1).strip()
+    data = json.loads(stripped)
+    if not isinstance(data, dict):
+        raise ValueError("model response must be a JSON object")
+    return data
+
+
+def safe_prefix_edits(
+    raw_edits: Any, *, prefix: str
+) -> tuple[dict[str, str | None], tuple[str, ...]]:
+    """Keep edits under ``prefix`` (str content or None tombstone); reject the rest."""
+
+    if not isinstance(raw_edits, Mapping):
+        return {}, ()
+    edits: dict[str, str | None] = {}
+    rejected: list[str] = []
+    for raw_path, content in raw_edits.items():
+        path = str(raw_path)
+        if not _prefix_path_ok(path, prefix):
+            rejected.append(path)
+        elif content is None:
+            edits[path] = None
+        elif isinstance(content, str) and _python_ok(path, content):
+            edits[path] = content
+        else:
+            rejected.append(path)
+    return edits, tuple(rejected)
+
+
+def _prefix_path_ok(path: str, prefix: str) -> bool:
+    if path.startswith("/") or not path.startswith(prefix):
+        return False
+    return ".." not in PurePosixPath(path).parts
+
+
+def _python_ok(path: str, content: str) -> bool:
+    if not path.endswith(".py"):
+        return True
+    try:
+        ast.parse(content)
+    except SyntaxError:
+        return False
+    return True
+
+
+def _select_parent(ctx: Context, *, parent_selection: str) -> str:
+    nodes = archive.nodes(ctx.workspace)
+    if not nodes:
+        return ctx.current.hash
+    try:
+        return archive.select_parent(nodes, method=parent_selection)
+    except ValueError:
+        return ctx.current.hash
+
+
+def _default_prompt(version: Version, failures: Sequence[Run], prefix: str) -> str:
+    files = [n for n in version.files() if n.startswith(prefix)]
+    program = "\n\n".join(f"### {n}\n{version.read(n)}" for n in files) or "- (empty)"
+    fail = (
+        "\n".join(f"- {r.instance_id}: reward={r.reward}" for r in failures) or "- none"
+    )
+    return (
+        f"Current program (version {version.hash}, prefix {prefix!r}):\n{program}\n\n"
+        f"Failing runs:\n{fail}\n\n"
+        "Propose one focused edit. Return full file contents as JSON."
+    )
