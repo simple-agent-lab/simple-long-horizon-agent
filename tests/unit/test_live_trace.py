@@ -5,12 +5,15 @@ import time
 import unittest
 from pathlib import Path
 
+from simple_agent_lab.messages import ImageBlock, TextBlock
 from simple_agent_lab.protocols import AgentEndEvent, AgentStartEvent
 from simple_agent_lab.state import State
 from simple_agent_lab.trace import (
     LiveTraceSession,
+    RunTrace,
     TraceMeta,
     read_jsonl,
+    trace_record,
     write_canonical_trace,
     write_jsonl_atomic,
 )
@@ -76,6 +79,93 @@ class LiveTraceTest(unittest.TestCase):
             self.assertEqual(len(records), 1)
             self.assertEqual(records[0]["trace_id"], "test.live.exit")
             self.assertFalse(path.with_name(f"{path.name}.part").exists())
+
+    def test_trace_record_redacts_base64_images_before_persisting(self) -> None:
+        png_b64 = "iVBOR" + ("A" * 2048)
+        trace = RunTrace(
+            trace_id="test.redact.images",
+            producer="test:trace",
+            task="demo",
+            events=[
+                {
+                    "kind": "model_request",
+                    "llm_payload": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "input_image",
+                                    "image_url": f"data:image/png;base64,{png_b64}",
+                                }
+                            ],
+                        }
+                    ],
+                },
+                {
+                    "kind": "message",
+                    "message": {
+                        "role": "user",
+                        "content": [
+                            {
+                                "kind": "tool_result",
+                                "tool_call_id": "call_1",
+                                "tool_name": "pdf_read_pdf",
+                                "content": [
+                                    {
+                                        "type": "image",
+                                        "mimeType": "image/png",
+                                        "data": png_b64,
+                                    },
+                                    {"kind": "text", "text": f"raw={png_b64}"},
+                                ],
+                            }
+                        ],
+                    },
+                },
+            ],
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "kind": "tool_result",
+                            "tool_call_id": "call_1",
+                            "tool_name": "pdf_read_pdf",
+                            "content": [
+                                ImageBlock(data=png_b64, mime_type="image/png"),
+                                TextBlock(text=f"raw={png_b64}"),
+                            ],
+                        }
+                    ],
+                },
+                {
+                    "role": "assistant",
+                    "sidecar": {
+                        "raw": {
+                            "request": {
+                                "input": [
+                                    {
+                                        "type": "input_image",
+                                        "image_url": f"data:image/png;base64,{png_b64}",
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                },
+            ],
+        )
+
+        record = trace_record(trace)
+        serialized = str(record)
+
+        self.assertNotIn(png_b64, serialized)
+        self.assertNotIn("iVBOR", serialized)
+        self.assertIn("[trace image base64 omitted:", serialized)
+        self.assertIn("[trace image data URL omitted:", serialized)
+        image_block = record["messages"][0]["content"][0]["content"][0]
+        self.assertEqual(image_block["kind"], "image")
+        self.assertTrue(image_block["data_redacted"])
 
 
 if __name__ == "__main__":
