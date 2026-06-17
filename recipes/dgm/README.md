@@ -16,9 +16,12 @@ This recipe is the **faithfulness showcase** — the counterpart to the
   promotion, held-out scoring).
 - `baseline.py` — measure the seed agent per-instance, then build a balanced
   "headroom" train/test split (pure selection/splitting logic is unit-tested).
-- `report.py` — summarize a run from its `decisions.jsonl` (accepted/rejected
-  decisions, current version, selector distribution, test-leakage monitor); it
-  also reads `generation_metrics.jsonl` when present.
+- `report.py` — summarize a run. The held-out scoring step writes one
+  `generation_metrics.jsonl` row (aggregated from `official/eval_results.jsonl`)
+  capturing the best version's official resolved rate, selector, and held-out
+  test score; `report.py` headlines that row alongside the `decisions.jsonl`
+  monitor (accepted/rejected decisions, current version, selector distribution,
+  test-leakage monitor).
 
 ## Prerequisites
 

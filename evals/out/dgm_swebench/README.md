@@ -22,7 +22,8 @@ evals/out/dgm_swebench/
     │   ├── <run-id>_predictions.jsonl
     │   ├── eval_results.jsonl
     │   └── harness/               # Official SWE-bench reports
-    └── generation_metrics.jsonl    # One summary record per generation
+    └── generation_metrics.jsonl    # Held-out summary row written after official
+                                    # scoring (one row for the best held-out eval)
 ```
 
 `generation_metrics.jsonl` is the recipe-level summary. Official performance

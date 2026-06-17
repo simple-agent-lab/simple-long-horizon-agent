@@ -33,6 +33,7 @@ from simple_agent_lab.evolution.components.strategy import (  # noqa: E402
 from simple_agent_lab.evolution.kernel import store as evo_store  # noqa: E402
 from simple_agent_lab.evolution.types import Slice, Version  # noqa: E402
 from simple_agent_lab.llm import Provider  # noqa: E402
+from simple_agent_lab.trace.jsonl import read_jsonl  # noqa: E402
 
 DEFAULT_OUTPUT_ROOT = Path("evals/out/dgm_swebench")
 DEFAULT_MODEL = er.DEFAULT_MODEL_NAME
@@ -255,6 +256,47 @@ def run_heldout_scoring(
     print("\nofficial scoring:")
     print(" ".join(official))
     subprocess.run(official, cwd=ROOT, check=True)
+    record_heldout_generation(layout, version, parent_selection=args.parent_selection)
+
+
+def record_heldout_generation(
+    layout: er.PerformanceLayout,
+    version: Version,
+    *,
+    parent_selection: str,
+) -> dict[str, Any]:
+    """Write one ``generation_metrics`` row from the held-out official eval results.
+
+    This is the wiring that makes ``report.summarize`` real: the official
+    scoring step writes per-instance rows to ``official/eval_results.jsonl``;
+    here we aggregate them into a single recipe-level summary row capturing the
+    best version's held-out official resolved rate. Docker-free and unit-testable.
+    """
+
+    if not layout.eval_results.is_file():
+        return {}
+    rows = read_jsonl(layout.eval_results)
+    if not rows:
+        return {}
+    runs = [
+        {
+            "reward": float(row.get("score", 0.0) or 0.0),
+            "patch_chars": int((row.get("metrics") or {}).get("patch_chars", 0) or 0),
+            "tokens": 0,
+        }
+        for row in rows
+    ]
+    record = er.generation_metric_record(
+        generation=0,
+        version_hash=version.hash,
+        parent_hash=version.parent or "",
+        parent_selection=parent_selection,
+        decision_outcome="heldout",
+        runs=runs,
+    )
+    record["test_resolved_rate"] = record["resolved_rate"]
+    er.write_generation_metrics(layout.generation_metrics, [record])
+    return record
 
 
 def heldout_slice(version: Version, test_records: Sequence[Mapping[str, Any]]) -> Slice:
