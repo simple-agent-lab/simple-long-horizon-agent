@@ -97,6 +97,8 @@ def step(
             raise ValueError(f"proposal.base {proposal.base!r} is not a known version")
     else:
         base = current
+    if base.hash != current.hash:
+        base_runs = components.rollout(base, slice_)
     candidate = store.stage(
         workspace,
         base=base,
@@ -117,7 +119,7 @@ def step(
 
     decision = log.append(
         workspace,
-        baseline={"hash": current.hash, "scores": means(base_scores)},
+        baseline={"hash": base.hash, "scores": means(base_scores)},
         candidate={
             "hash": candidate.hash,
             "parent": candidate.parent,

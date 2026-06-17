@@ -14,6 +14,10 @@ This recipe is the **faithfulness showcase** — the counterpart to the
 
 - `evolve.py` — the recipe (proposal, archive admission, train rollout, criterion,
   promotion, held-out scoring).
+- `archive.py` / `open_ended.py` — DGM-local archive reconstruction, parent
+  selection, and parallel branch admission.
+- `repo_edits.py` — optional DGM helper for turning full repository tree changes
+  into version proposals.
 - `baseline.py` — measure the seed agent per-instance, then build a balanced
   "headroom" train/test split (pure selection/splitting logic is unit-tested).
 - `report.py` — summarize a run. The held-out scoring step writes one

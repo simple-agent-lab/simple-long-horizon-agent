@@ -13,6 +13,12 @@ class RegistryTest(unittest.TestCase):
         cand = {"i1": {"reward": 1.0}}
         self.assertTrue(crit(base, cand).accepted)
 
+    def test_promote_not_worse_resolves_by_name(self) -> None:
+        crit = registry.build("criterion", Use("promote_not_worse", dim="reward"))
+        base = {"i1": {"reward": 1.0}}
+        cand = {"i1": {"reward": 1.0}}
+        self.assertTrue(crit(base, cand).accepted)
+
     def test_register_and_build_custom(self) -> None:
         registry.REWARDS["myreward"] = lambda: lambda run: 1.0
         fn = registry.build("reward", Use("myreward"))

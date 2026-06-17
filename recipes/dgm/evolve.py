@@ -24,14 +24,15 @@ sys.path.insert(0, str(ROOT))  # for `recipes._shared`
 sys.path.insert(0, str(ROOT / "src"))
 
 from recipes import _shared  # noqa: E402
-from simple_agent_lab.evals.suites.swebench import evolving_rollout as er  # noqa: E402
-from simple_agent_lab.evolution import Experiment, archive, open_ended  # noqa: E402
+from recipes.dgm import archive, open_ended  # noqa: E402
+from evals.swebench import evolution_adapter as er  # noqa: E402
+from simple_agent_lab.evolution import Experiment  # noqa: E402
 from simple_agent_lab.evolution.components.criterion import valid_when  # noqa: E402
 from simple_agent_lab.evolution.components.strategy import (  # noqa: E402
     model_program_strategy,
 )
 from simple_agent_lab.evolution.kernel import store as evo_store  # noqa: E402
-from simple_agent_lab.evolution.types import Slice, Version  # noqa: E402
+from simple_agent_lab.evolution.types import RunScores, Slice, Verdict, Version  # noqa: E402
 from simple_agent_lab.llm import Provider  # noqa: E402
 from simple_agent_lab.trace.jsonl import read_jsonl  # noqa: E402
 
@@ -114,7 +115,7 @@ def run_workflow(args: argparse.Namespace) -> None:
         workspace,
         rollout=graded_rollout,
         reward=er.swebench_reward,
-        criterion=valid_when("reward"),
+        criterion=dgm_admission_criterion("reward"),
         slice_id="swebench-train",
         instances=train_records,
         seed=er.seed_files(
@@ -128,12 +129,13 @@ def run_workflow(args: argparse.Namespace) -> None:
         prefix="agent/",
         system_prompt=SYSTEM_PROMPT,
         parent_selection=args.parent_selection,
+        parent_selector=select_archive_parent,
     )
     components = SimpleNamespace(
         rollout=graded_rollout,
         reward=er.swebench_reward,
         strategy=strategy,
-        criterion=valid_when("reward"),
+        criterion=dgm_admission_criterion("reward"),
     )
 
     def announce(decision: Any) -> None:
@@ -174,6 +176,36 @@ def resolve_schedule(args: argparse.Namespace) -> tuple[int, int, int]:
     branches = max(1, int(args.branches))
     meta_workers = int(args.meta_concurrency) or branches
     return max(1, int(rounds)), branches, max(1, meta_workers)
+
+
+def select_archive_parent(ctx: Any, method: str) -> str:
+    nodes = archive.nodes(ctx.workspace)
+    if not nodes:
+        return ctx.current.hash
+    try:
+        return archive.select_parent(nodes, method=method)
+    except ValueError:
+        return ctx.current.hash
+
+
+def dgm_admission_criterion(dim: str = "reward"):
+    """Admit worse-but-valid children, but reject evolved-agent fallback runs."""
+
+    base_criterion = valid_when(dim)
+
+    def judge(baseline: RunScores, candidate: RunScores) -> Verdict:
+        verdict = base_criterion(baseline, candidate)
+        if any(float(scores.get(dim, 0.0)) < 0.0 for scores in candidate.values()):
+            deltas = dict(verdict.deltas)
+            deltas["valid_parent"] = 0.0
+            return Verdict(
+                False,
+                f"admission invalid (negative {dim}; likely evolved-agent fallback)",
+                deltas,
+            )
+        return verdict
+
+    return judge
 
 
 def pick_best_node(

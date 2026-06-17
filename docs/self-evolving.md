@@ -35,7 +35,7 @@ The substrate is the engine; a recipe is the experiment you run on it.
 | **Fair A/B**: baseline and candidate run the *same* frozen `Slice` (`kernel/loop.py` `_check_pair`) | **reward**: `Run -> float | {dim: float}` — turn a run into a score |
 | Append-only **decision log** (`kernel/log.py`) | **strategy**: `Context -> Proposal | None` — the change to try |
 | **Promotion** is evidence-driven and log-then-promote | **criterion**: `(baseline, candidate) -> Verdict` — how to judge |
-| A derived **archive** of selectable versions (`archive.py`) | the **slice** (instances) and the **seed** version |
+| Proposal bases compare against the exact version they branch from | the **slice** (instances), **seed** version, and any recipe-specific archive |
 
 ## The loop
 
@@ -73,10 +73,11 @@ owns this sequence:
 **Sequential** — `Experiment.run(strategy, n=...)` calls `step` n times,
 auto-promoting whenever the criterion accepts. This is the simple recipe.
 
-**Parallel, open-ended** — `open_ended.run_evolution(...)` runs several branches
-per round, admits every *valid* child into the archive (worse-but-valid versions
-stay as stepping stones), promotes the best valid child of the round, and lets
-the strategy pick a parent from the whole archive. This is the DGM recipe.
+**Parallel, open-ended** — `recipes.dgm.open_ended.run_evolution(...)` runs
+several branches per round, admits every *valid* child into the archive
+(worse-but-valid versions stay as stepping stones), promotes the best valid
+child of the round, and lets the strategy pick a parent from the whole archive.
+This is the DGM recipe; the archive machinery is intentionally recipe-local.
 
 Both share the exact same kernel guarantees; open-ended only changes *which*
 parents are explored and *how many* candidates run at once.
@@ -92,23 +93,27 @@ parents are explored and *how many* candidates run at once.
   maps a path to full file content (or `None` to retire it); `base` is the
   parent hash to branch from (`""` = current).
 - Criterion combinators (`evolution/components/criterion.py`): `improve(dim)`
-  (accept on strict gain), `not_worse(dim, tol=)` (a guard), `valid_when(dim)`
-  (open-ended admission — accept any child that produced gradable runs), and
+  (accept on strict gain), `promote_not_worse(dim, tol=)` (simple recipe
+  promotion), `not_worse(dim, tol=)` (a guard), `valid_when(dim)` (open-ended
+  admission — accept any child that produced gradable runs), and
   `guarded(objective, guards)` ("optimize X subject to Y").
-- `model_program_strategy(*, provider, prefix="agent/", system_prompt, parent_selection="best")`
+- `model_program_strategy(*, provider, prefix="agent/", system_prompt, parent_selection="current", parent_selector=None)`
   (`evolution/components/strategy.py`) — the model-driven meta-strategy: an LLM
   rewrites whole files under a path prefix (Python is AST-validated), returning a
-  `Proposal`. Benchmark-agnostic; the recipe injects the domain prompt.
-- `archive.nodes(workspace)` and `archive.select_parent(nodes, method=)` — the
-  DGM/HyperAgents parent-selection policies (`latest`, `best`, `score_prop`,
-  `score_child_prop`, `random`) derived from the decision log.
+  `Proposal`. Benchmark-agnostic; the recipe injects the domain prompt. Any
+  non-current parent-selection policy must be supplied by the recipe through
+  `parent_selector`.
+- `recipes.dgm.archive.nodes(workspace)` and
+  `recipes.dgm.archive.select_parent(nodes, method=)` — the DGM parent-selection
+  policies (`latest`, `best`, `score_prop`, `score_child_prop`, `random`)
+  derived from the decision log.
 
 ## The two recipes
 
 | Recipe | What it shows | Loop | Knobs |
 | --- | --- | --- | --- |
-| [`recipes/simple/`](../recipes/simple/README.md) | How little code starts a real self-evolving run | `Experiment.run` (sequential) | minimal — rounds, max-turns |
-| [`recipes/dgm/`](../recipes/dgm/README.md) | A faithful Darwin Gödel Machine reproduction | `open_ended.run_evolution` (parallel) | all of them — branches, parent selection, meta-concurrency, parallelism |
+| [`recipes/simple/`](../recipes/simple/README.md) | How little code starts a real self-evolving run | `Experiment.run` (sequential) | minimal — rounds, max-turns, promotion tolerance |
+| [`recipes/dgm/`](../recipes/dgm/README.md) | A faithful Darwin Gödel Machine reproduction | `recipes.dgm.open_ended.run_evolution` (parallel) | all of them — branches, parent selection, meta-concurrency, parallelism |
 
 Both evolve the **whole agent program** under `agent/`: the model rewrites the
 agent's own Python, each candidate is graded on a train slice in a SWE-bench
@@ -138,15 +143,17 @@ strategy = model_program_strategy(provider=provider, prefix="agent/")
 decisions = exp.run(strategy, n=4)   # sequential
 ```
 
-To go open-ended (archive + parallel branches), pass the same components to
-`open_ended.run_evolution(workspace, components, slice_, rounds=..., branches=...)`
+To go open-ended (archive + parallel branches), treat that as a recipe policy:
+copy or import the DGM recipe helpers under `recipes/dgm/` and pass the same
+components to
+`recipes.dgm.open_ended.run_evolution(workspace, components, slice_, rounds=..., branches=...)`
 with `criterion=valid_when("reward")` so worse-but-valid children stay as
 stepping stones. See `recipes/dgm/evolve.py` for the fully wired version.
 
 The only benchmark-specific piece is the rollout (and its reward). For
 SWE-bench, that glue already exists in the adapter
-`src/simple_agent_lab/evals/suites/swebench/evolving_rollout.py`; a new benchmark
-adds its own adapter and recipe and never touches the substrate.
+`evals/swebench/evolution_adapter.py`; a new benchmark adds its own adapter and
+recipe and never touches the substrate.
 
 ## Where things live
 
@@ -154,11 +161,13 @@ adds its own adapter and recipe and never touches the substrate.
 src/simple_agent_lab/evolution/    # substrate (benchmark-agnostic)
   kernel/        store, log, loop   # versions, decision log, the loop + guarantees
   components/    reward, criterion, rollout, strategy
-  archive.py, open_ended.py         # archive + parallel open-ended loop
-src/simple_agent_lab/evals/suites/swebench/evolving_rollout.py   # SWE-bench adapter
+evals/swebench/evolution_adapter.py # host-side SWE-bench evolution adapter
 recipes/                            # runnable recipes + ops scripts
+  simple/evolve.py
+  dgm/archive.py, open_ended.py, repo_edits.py
 ```
 
-The boundary is enforced: the substrate never imports a benchmark, the SWE-bench
-adapter never imports Docker (`scripts/arch_lint.py`), and Docker/host probing
-lives only in the recipe layer (`recipes/_shared.py`).
+The boundary is enforced: the substrate never imports a benchmark or the
+top-level host `evals/` tree, the SWE-bench adapter never imports Docker
+(`scripts/arch_lint.py`), and Docker/host probing lives only in the recipe layer
+(`recipes/_shared.py`).

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from simple_agent_lab.evolution import archive
+from recipes.dgm import archive
 from simple_agent_lab.evolution.kernel import log
 from simple_agent_lab.evolution.types import Slice, Verdict
 

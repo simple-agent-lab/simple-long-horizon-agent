@@ -65,6 +65,82 @@ class StrategyComponentTest(unittest.TestCase):
                 any("discarded-disallowed-path" in e for e in proposal.evidence)
             )
 
+    def test_current_parent_selection_does_not_read_archive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "ws"
+            exp = Experiment(
+                ws, rollout=lambda v, s: [], seed={"agent/agent_program.py": "X = 0\n"}
+            )
+
+            def fail_if_selector_is_used(_ctx, _method):
+                raise AssertionError("current parent selection should not use selector")
+
+            strat = model_program_strategy(
+                provider=object(),
+                prefix="agent/",
+                parent_selection="current",
+                parent_selector=fail_if_selector_is_used,
+                build_prompt=lambda _version, _failures: "prompt",
+                complete_fn=fake_complete,
+            )
+            ctx = Context(
+                runs=(),
+                current=exp.current(),
+                workspace=ws,
+                decisions=(),
+                reward=lambda r: 0.0,
+            )
+            proposal = strat(ctx)
+
+            self.assertEqual(proposal.base, exp.current().hash)
+
+    def test_non_current_parent_selection_uses_recipe_selector(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "ws"
+            exp = Experiment(
+                ws, rollout=lambda v, s: [], seed={"agent/agent_program.py": "X = 0\n"}
+            )
+            strat = model_program_strategy(
+                provider=object(),
+                prefix="agent/",
+                parent_selection="best",
+                parent_selector=lambda _ctx, method: f"selected-{method}",
+                build_prompt=lambda _version, _failures: "prompt",
+                complete_fn=fake_complete,
+            )
+            ctx = Context(
+                runs=(),
+                current=exp.current(),
+                workspace=ws,
+                decisions=(),
+                reward=lambda r: 0.0,
+            )
+            proposal = strat(ctx)
+            self.assertEqual(proposal.base, "selected-best")
+
+    def test_non_current_parent_selection_requires_recipe_selector(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "ws"
+            exp = Experiment(
+                ws, rollout=lambda v, s: [], seed={"agent/agent_program.py": "X = 0\n"}
+            )
+            strat = model_program_strategy(
+                provider=object(),
+                prefix="agent/",
+                parent_selection="best",
+                build_prompt=lambda _version, _failures: "prompt",
+                complete_fn=fake_complete,
+            )
+            ctx = Context(
+                runs=(),
+                current=exp.current(),
+                workspace=ws,
+                decisions=(),
+                reward=lambda r: 0.0,
+            )
+            with self.assertRaisesRegex(ValueError, "parent_selector"):
+                strat(ctx)
+
 
 if __name__ == "__main__":
     unittest.main()

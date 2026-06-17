@@ -3,11 +3,12 @@
 The framework is good enough that one short script starts a real self-evolving
 run. A model rewrites the whole agent program under `agent/`, the evolution
 kernel compares each candidate on a train slice in a SWE-bench Docker sandbox,
-and the best valid agent is scored on a held-out test slice.
+and the final promoted agent is scored on a held-out test slice.
 
 This recipe is the **ergonomics showcase**: it runs the evolution kernel
-sequentially via `Experiment.run`, with `best` parent selection and a single
-container at a time. Read `evolve.py` top-to-bottom — it is the whole story.
+sequentially via `Experiment.run`, with `current` parent selection,
+not-worse promotion, and a single container at a time. Read `evolve.py`
+top-to-bottom — it is the whole story.
 
 ## Prerequisites
 
@@ -50,8 +51,10 @@ exists.
 | `--test-dataset` | required | Held-out JSONL slice the best agent is scored on. |
 | `--rounds` | `4` | Number of sequential evolution generations. |
 | `--max-turns` | `75` | Per-instance agent turn budget. |
+| `--promotion-tolerance` | `0.0` | Promote when train reward is not worse than baseline by more than this tolerance. |
 | `--output-root` | `evals/out/self_evolving/simple` | Where run artifacts land. |
 | `--wheelhouse` | `evals/out/swebench/wheelhouse/cp311-manylinux` | Container wheelhouse. |
+| `--uv-binary` | `""` | Linux `uv` binary copied into containers so the agent wheel installs in Python 3.11. The wrapper fills this automatically. |
 | `--dotenv` | `.env` | Provider env file. |
 | `--execute` | off | Run the real model + Docker (otherwise dry plan). |
 
@@ -62,6 +65,7 @@ The model name comes from `OPENAI_MODEL` in your environment (default
 
 Under `evals/out/self_evolving/simple/<run-id>/` you'll find the evolution
 workspace (version store, pointers, `decisions.jsonl`) and the SWE-bench run
-artifacts. The script prints the final generation count and the current agent
-hash; for a richer summary, point the DGM recipe's
+artifacts for both the train comparisons and held-out scoring. The script
+prints the final generation count and the current agent hash; for a richer
+summary, point the DGM recipe's
 [`report.py`](../dgm/report.py) at the run root.

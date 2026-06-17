@@ -27,7 +27,7 @@ from .container import (
     apply_oracle,
     build_task,
     evaluate,
-    extract_result,
+    extract_result as _base_extract_result,
     prepare,
 )
 
@@ -43,6 +43,18 @@ __all__ = [
 ]
 
 _PACKAGE_CACHE: list[Callable[..., Any] | None] = []
+_PACKAGE_STATUS: dict[str, Any] = {
+    "loaded": False,
+    "used_fallback": True,
+    "error": "agent package has not been loaded",
+}
+
+
+def _set_package_status(*, loaded: bool, used_fallback: bool, error: str = "") -> None:
+    _PACKAGE_STATUS.clear()
+    _PACKAGE_STATUS.update(
+        {"loaded": loaded, "used_fallback": used_fallback, "error": error}
+    )
 
 
 def _staged_agent_builder() -> Callable[..., Any] | None:
@@ -78,11 +90,36 @@ def build_agent(
     builder = _staged_agent_builder()
     if builder is not None:
         try:
-            return builder(
+            agent = builder(
                 provider=provider, cwd=cwd, base_system_prompt=AGENT_SYSTEM_PROMPT
             )
-        except Exception:
-            pass
+            _set_package_status(loaded=True, used_fallback=False)
+            return agent
+        except Exception as exc:
+            _set_package_status(
+                loaded=True,
+                used_fallback=True,
+                error=f"{type(exc).__name__}: {exc}",
+            )
+    else:
+        _set_package_status(
+            loaded=False,
+            used_fallback=True,
+            error="no valid staged agent package",
+        )
     return _base_build_agent(
         spec=agent_spec(), provider=provider, cwd=cwd, request_extra=request_extra
     )
+
+
+def extract_result(
+    workspace: Path,
+    instance: Mapping[str, Any],
+    *,
+    context: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Collect the SWE-bench result and record whether evolved code actually ran."""
+
+    result = dict(_base_extract_result(workspace, instance, context=context))
+    result["agent_package"] = dict(_PACKAGE_STATUS)
+    return result

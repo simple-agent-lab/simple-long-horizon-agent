@@ -22,6 +22,7 @@ STRATEGIES: dict[str, Callable[..., Any]] = {}
 CRITERIA: dict[str, Callable[..., Any]] = {
     "improve": _criterion.improve,
     "not_worse": _criterion.not_worse,
+    "promote_not_worse": _criterion.promote_not_worse,
 }
 
 _TABLES = {

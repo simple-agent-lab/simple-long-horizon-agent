@@ -1,3 +1,4 @@
+import unittest
 from pathlib import Path
 
 from simple_agent_lab.evals.suites.swebench import evolving
@@ -38,3 +39,55 @@ def test_build_agent_uses_staged_package(monkeypatch, tmp_path: Path):
 
     agent = evolving.build_agent(provider=FakeProvider(), cwd=tmp_path)
     assert agent[0] == "PKG_AGENT"
+
+
+class EvolvingContainerMetadataTest(unittest.TestCase):
+    def test_extract_result_includes_agent_package_status(self):
+        old_extract = getattr(evolving, "_base_extract_result", None)
+        old_status = dict(getattr(evolving, "_PACKAGE_STATUS", {}))
+        try:
+            evolving._PACKAGE_STATUS.clear()
+            evolving._PACKAGE_STATUS.update(
+                {"loaded": False, "used_fallback": True, "error": "invalid package"}
+            )
+            evolving._base_extract_result = lambda *args, **kwargs: {
+                "model_patch": "diff --git a/x.py b/x.py\n"
+            }
+
+            result = evolving.extract_result(Path("."), {}, context={})
+
+            self.assertTrue(result["agent_package"]["used_fallback"])
+            self.assertFalse(result["agent_package"]["loaded"])
+            self.assertEqual(result["agent_package"]["error"], "invalid package")
+        finally:
+            if old_extract is not None:
+                evolving._base_extract_result = old_extract
+            evolving._PACKAGE_STATUS.clear()
+            evolving._PACKAGE_STATUS.update(old_status)
+
+    def test_build_agent_records_builder_exception_as_fallback(self):
+        old_builder = evolving._staged_agent_builder
+        old_base = evolving._base_build_agent
+        old_status = dict(evolving._PACKAGE_STATUS)
+        try:
+            def broken_builder(*, provider, cwd, base_system_prompt):
+                raise RuntimeError("agent package boom")
+
+            evolving._staged_agent_builder = lambda: broken_builder
+            evolving._base_build_agent = lambda **kwargs: "BASE_AGENT"
+            evolving._PACKAGE_STATUS.clear()
+
+            class FakeProvider:
+                pass
+
+            agent = evolving.build_agent(provider=FakeProvider(), cwd=Path("."))
+
+            self.assertEqual(agent, "BASE_AGENT")
+            self.assertTrue(evolving._PACKAGE_STATUS["loaded"])
+            self.assertTrue(evolving._PACKAGE_STATUS["used_fallback"])
+            self.assertIn("agent package boom", evolving._PACKAGE_STATUS["error"])
+        finally:
+            evolving._staged_agent_builder = old_builder
+            evolving._base_build_agent = old_base
+            evolving._PACKAGE_STATUS.clear()
+            evolving._PACKAGE_STATUS.update(old_status)

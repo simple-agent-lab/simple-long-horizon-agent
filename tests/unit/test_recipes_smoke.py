@@ -23,6 +23,21 @@ class SimpleRecipeSmokeTest(unittest.TestCase):
         )
         self.assertFalse(args.execute)
         self.assertEqual(args.rounds, 4)
+        self.assertEqual(args.promotion_tolerance, 0.0)
+        self.assertEqual(args.uv_binary, "")
+
+    def test_simple_heldout_run_id_uses_version_and_slice(self):
+        mod = _load(ROOT / "recipes" / "simple" / "evolve.py")
+        from simple_agent_lab.evolution.types import Version
+
+        with tempfile.TemporaryDirectory() as tmp:
+            vd = Path(tmp) / "simplev"
+            (vd / "agent").mkdir(parents=True)
+            (vd / "agent" / "agent_program.py").write_text(
+                "def build_agent(): ...\n", encoding="utf-8"
+            )
+            rid = mod.heldout_run_id(Version(vd), ({"instance_id": "test-1"},))
+        self.assertTrue(rid.startswith("simplev-"))
 
 
 class DgmRecipeSmokeTest(unittest.TestCase):
@@ -49,7 +64,7 @@ class DgmRecipeSmokeTest(unittest.TestCase):
         self.assertFalse(ns.execute)
 
     def test_pick_best_node_selects_highest_valid(self):
-        from simple_agent_lab.evolution import archive
+        from recipes.dgm import archive
 
         nodes = (
             archive.ArchiveNode(hash="a", scores={"reward": 0.5}),
@@ -68,6 +83,18 @@ class DgmRecipeSmokeTest(unittest.TestCase):
         self.assertEqual(self.mod._score({"scores": {"reward": 0.5}}), 0.5)
         self.assertEqual(self.mod._score({}), 0.0)
         self.assertEqual(self.mod._score({"scores": "bad"}), 0.0)
+
+    def test_dgm_admission_rejects_agent_package_fallback_reward(self):
+        criterion = self.mod.dgm_admission_criterion("reward")
+        verdict = criterion({"i1": {"reward": 1.0}}, {"i1": {"reward": -1.0}})
+        self.assertFalse(verdict.accepted)
+        self.assertEqual(verdict.deltas["valid_parent"], 0.0)
+
+    def test_dgm_admission_accepts_worse_but_valid_zero_reward(self):
+        criterion = self.mod.dgm_admission_criterion("reward")
+        verdict = criterion({"i1": {"reward": 1.0}}, {"i1": {"reward": 0.0}})
+        self.assertTrue(verdict.accepted)
+        self.assertEqual(verdict.deltas["valid_parent"], 1.0)
 
     def test_resolve_schedule_rounds_wins_over_generations(self):
         ns = self.mod.build_parser().parse_args(
@@ -114,7 +141,7 @@ class DgmRecipeSmokeTest(unittest.TestCase):
 class RecordHeldoutGenerationTest(unittest.TestCase):
     def setUp(self):
         self.mod = _load(ROOT / "recipes" / "dgm" / "evolve.py")
-        from simple_agent_lab.evals.suites.swebench import evolving_rollout as er
+        from evals.swebench import evolution_adapter as er
 
         self.er = er
 

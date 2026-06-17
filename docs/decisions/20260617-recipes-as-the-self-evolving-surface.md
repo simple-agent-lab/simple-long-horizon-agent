@@ -31,24 +31,27 @@ Adopt a **three-tier** structure with an enforced import boundary.
    kernel (`store`, `log`, `loop`, `experiment`, `types`) owns the guarantees:
    immutable content-addressed versions, fair same-slice A/B, append-only
    decision log, log-then-promote. Swappable components live in `components/`
-   (`reward`, `criterion`, `rollout`, `strategy`), alongside `archive.py` and the
-   parallel `open_ended.py` loop. Generic patterns belong here: the model-driven
-   whole-program meta-strategy (`components/strategy.py`) and the open-ended
-   archive-admission loop are benchmark-agnostic and live in the substrate. The
-   substrate imports **no benchmark**.
+   (`reward`, `criterion`, `rollout`, `strategy`). Generic patterns belong here:
+   the model-driven whole-program meta-strategy (`components/strategy.py`) can
+   rewrite any prefixed program and defaults to the current parent. Non-current
+   parent selection is supplied by a recipe callback. The substrate imports
+   **no benchmark** and no host-side `evals/` modules.
 
-2. **Adapter — `src/simple_agent_lab/evals/suites/swebench/evolving_rollout.py`.**
-   All SWE-bench-specific glue (rollout construction, dataset/command helpers,
-   grading reuse, performance layout, seed package) lives in the eval suite, next
-   to the benchmark it serves. It is **Docker-import-free**: `scripts/arch_lint.py`
-   restricts `import docker` to `evals.backends`.
+2. **Adapter — `evals/swebench/evolution_adapter.py`.** All host-side SWE-bench
+   evolution glue (rollout construction, dataset/command helpers, grading reuse,
+   performance layout, seed package) lives beside the benchmark scripts it
+   serves, outside the shipped package. It is **Docker-import-free**:
+   `scripts/arch_lint.py` restricts `import docker` to `evals.backends` and
+   rejects package imports from the top-level `evals/` tree.
 
 3. **Recipes — `recipes/` (the user surface).** Thin, runnable examples compose
    the tiers: `simple/` (sequential `Experiment.run`, minimal code) and `dgm/`
    (parallel open-ended loop, all knobs) plus small recipe-local ops scripts
-   (`dgm/baseline.py`, `dgm/report.py`). The recipe layer is the **only** place
-   allowed to touch Docker and host env, via `recipes/_shared.py`; it is not
-   arch-linted.
+   (`dgm/baseline.py`, `dgm/report.py`). DGM's archive reconstruction,
+   parent-selection policies, open-ended admission loop, and repo-tree edit
+   helpers live under `recipes/dgm/` because DGM is a demonstration method, not a
+   first-class framework API. The recipe layer is the **only** place allowed to
+   touch Docker and host env, via `recipes/_shared.py`; it is not arch-linted.
 
 A new benchmark adds an adapter plus a recipe and never edits the substrate.
 The legacy evolution-recipes tree under `scripts/` and the old top-level runners
@@ -59,8 +62,9 @@ are removed; `runs/` wrappers point at the recipes.
 - **Easier:** finding the framework (one `evolution/` package), reading a recipe
   end-to-end, and adding a benchmark (adapter + recipe, substrate untouched).
 - **Enforced:** the docker boundary and module zoning are checked by
-  `arch_lint.py`, so the benchmark-agnostic claim cannot silently rot. Docker
-  probing is structurally confined to `recipes/_shared.py`.
+  `arch_lint.py`, so the benchmark-agnostic claim cannot silently rot. Package
+  code cannot import host-side `evals/`, and Docker probing is structurally
+  confined to `recipes/_shared.py`.
 - **Harder / out of scope:** one-off operational tooling (dataset splitting,
   bespoke reports) is intentionally kept as small recipe-local scripts rather
   than promoted into the package; throwaway tools (e.g. the old

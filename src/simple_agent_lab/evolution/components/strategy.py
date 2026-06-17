@@ -14,7 +14,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import PurePosixPath
 from typing import Any
 
-from simple_agent_lab.evolution import Proposal, archive
+from simple_agent_lab.evolution import Proposal
 from simple_agent_lab.evolution.types import Context, Run, Version
 from simple_agent_lab.llm import LLMRequest, Provider, complete, llm_message
 
@@ -36,7 +36,8 @@ def model_program_strategy(
     provider: Provider,
     prefix: str = "agent/",
     system_prompt: str = DEFAULT_SYSTEM_PROMPT,
-    parent_selection: str = "best",
+    parent_selection: str = "current",
+    parent_selector: Callable[[Context, str], str] | None = None,
     build_prompt: Callable[[Version, Sequence[Run]], str] | None = None,
     complete_fn: Callable[[LLMRequest], Any] = complete,
     max_tokens: int = 4000,
@@ -47,7 +48,9 @@ def model_program_strategy(
     prompt_builder = build_prompt or (lambda v, f: _default_prompt(v, f, prefix))
 
     def strategy(ctx: Context) -> Proposal:
-        parent = _select_parent(ctx, parent_selection=parent_selection)
+        parent = _select_parent(
+            ctx, parent_selection=parent_selection, parent_selector=parent_selector
+        )
         base = ctx.version(parent)
         response = complete_fn(
             LLMRequest(
@@ -123,14 +126,19 @@ def _python_ok(path: str, content: str) -> bool:
     return True
 
 
-def _select_parent(ctx: Context, *, parent_selection: str) -> str:
-    nodes = archive.nodes(ctx.workspace)
-    if not nodes:
+def _select_parent(
+    ctx: Context,
+    *,
+    parent_selection: str,
+    parent_selector: Callable[[Context, str], str] | None = None,
+) -> str:
+    if parent_selection == "current":
         return ctx.current.hash
-    try:
-        return archive.select_parent(nodes, method=parent_selection)
-    except ValueError:
-        return ctx.current.hash
+    if parent_selector is None:
+        raise ValueError(
+            "non-current parent selection requires a recipe-provided parent_selector"
+        )
+    return parent_selector(ctx, parent_selection) or ctx.current.hash
 
 
 def _default_prompt(version: Version, failures: Sequence[Run], prefix: str) -> str:

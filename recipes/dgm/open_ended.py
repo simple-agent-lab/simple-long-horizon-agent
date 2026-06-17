@@ -1,4 +1,4 @@
-"""Open-ended DGM driver: admit valid children; select via archive."""
+"""Open-ended DGM driver: admit valid children from parallel branches."""
 
 from __future__ import annotations
 
@@ -47,13 +47,14 @@ def run_round(
     tail_lock = tail_lock or threading.Lock()
 
     current = store.current(workspace)
-    base_runs = components.rollout(current, slice_)
-    base_scores = score(base_runs, components.reward)
+    current_runs = components.rollout(current, slice_)
+    runs_by_hash = {current.hash: current_runs}
+    scores_by_hash = {current.hash: score(current_runs, components.reward)}
 
     def propose(_i):
         return components.strategy(
             Context(
-                runs=tuple(base_runs),
+                runs=tuple(current_runs),
                 current=current,
                 workspace=workspace,
                 decisions=tuple(log.read(workspace)),
@@ -83,11 +84,11 @@ def run_round(
                     note=proposal.note,
                 ),
             )
-            staged.append((proposal, cand))
+            staged.append((proposal, base, cand))
 
     def roll(item):
-        proposal, cand = item
-        return proposal, cand, components.rollout(cand, slice_)
+        proposal, base, cand = item
+        return proposal, base, cand, components.rollout(cand, slice_)
 
     with ThreadPoolExecutor(max_workers=branches) as pool:
         rolled = list(pool.map(roll, staged))
@@ -95,13 +96,19 @@ def run_round(
     decisions = []
     best_valid: tuple[float, Version] | None = None
     with tail_lock:
-        for proposal, cand, cand_runs in rolled:
+        for proposal, base, cand, cand_runs in rolled:
+            if base.hash not in runs_by_hash:
+                base_runs = components.rollout(base, slice_)
+                runs_by_hash[base.hash] = base_runs
+                scores_by_hash[base.hash] = score(base_runs, components.reward)
+            base_runs = runs_by_hash[base.hash]
+            base_scores = scores_by_hash[base.hash]
             cand_scores = score(cand_runs, components.reward)
             verdict = components.criterion(base_scores, cand_scores)
             valid = bool(verdict.deltas.get("valid_parent", 1.0))
             decision = log.append(
                 workspace,
-                baseline={"hash": current.hash, "scores": means(base_scores)},
+                baseline={"hash": base.hash, "scores": means(base_scores)},
                 candidate={
                     "hash": cand.hash,
                     "parent": cand.parent,

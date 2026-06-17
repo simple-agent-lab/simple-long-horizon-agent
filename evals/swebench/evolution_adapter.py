@@ -1,6 +1,8 @@
-"""SWE-bench evolution adapter: bridge the evolution substrate to the SWE-bench
-suite. Docker-free by design (arch_lint restricts ``import docker`` to
-``evals.backends``); docker-probing helpers live in the recipe layer.
+"""Host-side SWE-bench evolution adapter.
+
+This bridges the generic evolution substrate to the SWE-bench suite. Docker-free
+by design (arch_lint restricts ``import docker`` to ``evals.backends``);
+docker-probing helpers live in the recipe layer.
 """
 
 from __future__ import annotations
@@ -296,6 +298,9 @@ def version_package_artifacts(version: Version) -> dict[str, bytes]:
 
 
 def reward_from_result(result: Mapping[str, Any]) -> float:
+    agent_package = result.get("agent_package", {})
+    if isinstance(agent_package, Mapping) and agent_package.get("used_fallback"):
+        return -1.0
     if "resolved" in result:
         return 1.0 if bool(result.get("resolved")) else 0.0
     if "score" in result:

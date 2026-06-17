@@ -78,9 +78,10 @@ RESTRICTED_EXTERNAL = {
     "swebench": "evals",
 }
 
-# Top-level packages the shipped library must never import. Tests, examples, and
-# scripts are scaffolding that may depend on the library, never the reverse.
-FORBIDDEN_EXTERNAL = ("tests", "examples", "scripts", "studio")
+# Top-level packages the shipped library must never import. Tests, examples,
+# host-side eval scripts, and other scaffolding may depend on the library, never
+# the reverse.
+FORBIDDEN_EXTERNAL = ("tests", "examples", "scripts", "studio", "evals")
 
 
 @dataclass(frozen=True)
@@ -212,8 +213,8 @@ def lint_file(path: Path) -> list[Violation]:
                             path,
                             line,
                             f"the library must not import '{name}'; tests, "
-                            f"examples, and scripts depend on the library, not "
-                            f"the reverse",
+                            f"examples, host eval scripts, and tooling depend "
+                            f"on the library, not the reverse",
                         )
                     )
                     continue

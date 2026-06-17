@@ -11,7 +11,6 @@ Components are swappable (rollout / reward / strategy / criterion); the kernel
 docs/design/20260612-evolution-infra-redesign.md
 """
 
-from simple_agent_lab.evolution import archive, open_ended
 from simple_agent_lab.evolution.config import Config, Use
 from simple_agent_lab.evolution.experiment import Experiment
 from simple_agent_lab.evolution.types import (
@@ -25,8 +24,6 @@ from simple_agent_lab.evolution.types import (
 )
 
 __all__ = [
-    "archive",
-    "open_ended",
     "Experiment",
     "Config",
     "Use",

@@ -6,7 +6,7 @@
 #   bash runs/run_self_evolving_simple.sh --run-id simple-real --train-dataset train.jsonl --test-dataset test.jsonl --execute
 #
 # The ergonomics showcase: a short recipe that runs the evolution kernel
-# sequentially (Experiment.run, best parent selection, one container at a time).
+# sequentially (Experiment.run, current parent selection, one container at a time).
 # This wrapper just prepares Docker + the container wheelhouse, then runs it.
 # Without --execute it prints the plan and validates inputs without Docker.
 
@@ -128,6 +128,7 @@ ARGS=(
   --max-turns "$MAX_TURNS"
   --dotenv "$DOTENV"
   --wheelhouse "$WHEELHOUSE"
+  --uv-binary "${SWEBENCH_UV_BIN:-}"
 )
 
 if [ "$EXECUTE" -eq 1 ]; then ARGS+=(--execute); fi

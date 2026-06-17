@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from simple_agent_lab.evals.protocols import AGENT_PACKAGE_KEY
-from simple_agent_lab.evals.suites.swebench import evolving_rollout as er
+from evals.swebench import evolution_adapter as er
 from simple_agent_lab.evolution.kernel import store
 from simple_agent_lab.evolution.types import Manifest, Run, Version
 
@@ -16,6 +16,14 @@ class EvolvingRolloutTest(unittest.TestCase):
         self.assertEqual(er.reward_from_result({"score": 0.5}), 0.5)
         self.assertEqual(er.reward_from_result({"reward": 0.5}), 0.5)
         self.assertEqual(er.reward_from_result({}), 0.0)
+
+    def test_reward_from_result_penalizes_agent_package_fallback(self):
+        self.assertEqual(
+            er.reward_from_result(
+                {"resolved": True, "agent_package": {"used_fallback": True}}
+            ),
+            -1.0,
+        )
 
     def test_performance_layout_paths(self):
         layout = er.PerformanceLayout(Path("/tmp/out"), "run1")

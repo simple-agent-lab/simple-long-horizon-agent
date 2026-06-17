@@ -107,6 +107,35 @@ class LoopTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             loop.step(self.ws, self._components(strategy), self.slice)
 
+    def test_proposal_base_is_comparison_baseline(self) -> None:
+        archived_parent = store.stage(
+            self.ws, base=store.current(self.ws), edits={"prompt.md": "medium"}
+        )
+
+        def strategy(ctx: Context) -> Proposal:
+            return Proposal(
+                edits={"prompt.md": "strong"},
+                base=archived_parent.hash,
+                note="branch from archived parent",
+                kind="prompt",
+            )
+
+        components = Components(
+            rollout=stub_rollout(
+                {"weak": 0.3, "medium": 0.5, "strong": 0.7}, self.ws / "runs"
+            ),
+            reward=result_key,
+            strategy=strategy,
+            criterion=improve("reward"),
+        )
+
+        decision = loop.step(self.ws, components, self.slice)
+
+        self.assertTrue(decision.accepted)
+        self.assertEqual(decision.baseline["hash"], archived_parent.hash)
+        self.assertAlmostEqual(decision.baseline["scores"]["reward"], 0.5)
+        self.assertAlmostEqual(decision.deltas["reward"], 0.2)
+
     def test_empty_rollout_raises(self) -> None:
         components = Components(
             rollout=lambda version, slice_: [],

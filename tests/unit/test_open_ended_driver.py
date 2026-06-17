@@ -4,10 +4,10 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from simple_agent_lab.evolution import archive, open_ended
+from recipes.dgm import archive, open_ended
 from simple_agent_lab.evolution.components.criterion import valid_when
 from simple_agent_lab.evolution.kernel import log, store
-from simple_agent_lab.evolution.types import Manifest, Run, Slice
+from simple_agent_lab.evolution.types import Manifest, Proposal, Run, Slice, Verdict
 
 
 def _seed(ws: Path) -> None:
@@ -73,6 +73,59 @@ class OpenEndedDriverTest(unittest.TestCase):
         chosen = archive.select_parent(valid, method="random", rng=random.Random(0))
         self.assertIsInstance(chosen, str)
         self.assertTrue(chosen)
+
+    def test_branch_baseline_is_the_proposal_base(self):
+        _seed(self.ws)
+        root = store.current(self.ws)
+        parent = store.stage(
+            self.ws,
+            base=root,
+            edits={"agent/agent_program.py": "x=9\n"},
+            manifest=Manifest(parent=root.hash, producer="fixture"),
+        )
+
+        def rollout(version, _slice):
+            reward = {root.hash: 0.1, parent.hash: 0.6}.get(version.hash, 0.8)
+            run_dir = self.ws / "runs" / version.hash / "i1"
+            (run_dir / "out").mkdir(parents=True, exist_ok=True)
+            (run_dir / "out" / "result.json").write_text(
+                '{"reward": %s}' % reward, encoding="utf-8"
+            )
+            return [Run(run_dir)]
+
+        def strategy(_ctx):
+            return Proposal(
+                base=parent.hash,
+                edits={"agent/agent_program.py": "x=10\n"},
+                note="branch",
+            )
+
+        def reward(run):
+            return run.reward if run.reward is not None else 0.0
+
+        def criterion(baseline, candidate):
+            base_mean = next(iter(baseline.values()))["reward"]
+            cand_mean = next(iter(candidate.values()))["reward"]
+            return Verdict(
+                True,
+                "accepted",
+                {"reward": cand_mean - base_mean, "valid_parent": 1.0},
+            )
+
+        decisions = open_ended.run_round(
+            self.ws,
+            SimpleNamespace(
+                rollout=rollout,
+                reward=reward,
+                strategy=strategy,
+                criterion=criterion,
+            ),
+            Slice("s", ({"instance_id": "i1"},)),
+            branches=1,
+        )
+
+        self.assertEqual(decisions[0].baseline["hash"], parent.hash)
+        self.assertEqual(decisions[0].baseline["scores"]["reward"], 0.6)
 
 
 if __name__ == "__main__":

@@ -27,7 +27,7 @@ sys.path.insert(0, str(ROOT))  # for `recipes._shared`
 sys.path.insert(0, str(ROOT / "src"))
 
 from recipes import _shared  # noqa: E402
-from simple_agent_lab.evals.suites.swebench import evolving_rollout as er  # noqa: E402
+from evals.swebench import evolution_adapter as er  # noqa: E402
 
 DEFAULT_OUTPUT_ROOT = Path("evals/out/dgm_swebench")
 

@@ -1,4 +1,4 @@
-"""Helpers for evolving code repositories as version artifacts."""
+"""DGM recipe helpers for turning repository tree changes into proposals."""
 
 from __future__ import annotations
 

@@ -60,6 +60,33 @@ def not_worse(dim: str = "reward", *, tol: float = 0.0) -> Criterion:
     return judge
 
 
+def promote_not_worse(dim: str = "reward", *, tol: float = 0.0) -> Criterion:
+    """Promote when ``dim`` does not regress beyond ``tol``.
+
+    This is the simple-recipe policy: ties are acceptable, gains are noted, and
+    regressions are rejected. It differs from ``not_worse`` only in intent and
+    reason wording; it is an objective policy rather than a guard combinator.
+    """
+
+    def judge(baseline: RunScores, candidate: RunScores) -> Verdict:
+        b, c = _mean(baseline, dim), _mean(candidate, dim)
+        delta = c - b
+        accepted = c >= b - tol
+        if delta > 0:
+            word = "improved"
+        elif accepted:
+            word = "not worse"
+        else:
+            word = "regressed"
+        return Verdict(
+            accepted,
+            f"{dim} {word} {b:.4g}->{c:.4g} (delta {delta:+.4g}, tol {tol})",
+            {dim: delta},
+        )
+
+    return judge
+
+
 def valid_when(dim: str = "reward") -> Criterion:
     """Open-ended admission: accept any child that produced gradable runs.
 

@@ -1,8 +1,8 @@
-"""Archive views and parent selection for open-ended evolution recipes.
+"""DGM recipe archive views and parent selection.
 
 The kernel records comparisons; this module derives a lightweight archive from
-that record so recipes can branch from useful stepping stones instead of only
-the current pointer.
+that record so the DGM demo can branch from useful stepping stones instead of
+only the current pointer.
 """
 
 from __future__ import annotations

@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from simple_agent_lab.evolution import open_ended
+from recipes.dgm import open_ended
 from simple_agent_lab.evolution.kernel import log, store
 from simple_agent_lab.evolution.types import Proposal, Slice, Verdict
 
