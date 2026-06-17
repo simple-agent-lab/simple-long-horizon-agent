@@ -50,7 +50,17 @@ from simple_agent_lab.evals.suites.gdpval.prompts import (
     gdpval_system_prompt,
 )
 from simple_agent_lab.evals.suites.gdpval.tools import make_gdpval_tools
+from simple_agent_lab import Agent, assistant_message
+from simple_agent_lab.compression import maybe_compress_context
 from simple_agent_lab.llm.provider import Provider
+from simple_agent_lab.messages import (
+    ImageBlock,
+    TextBlock,
+    ToolCallBlock,
+    ToolResultBlock,
+    tool_results_message,
+    tool_results_of,
+)
 from simple_agent_lab.state import State
 from simple_agent_lab.tools import AgentTool, text_result, tool_result_text
 
@@ -531,7 +541,7 @@ class GdpvalSuiteTest(unittest.TestCase):
             self.assertGreater(result["workspace_archive_bytes"], 0)
             self.assertTrue(Path(result["workspace_archive_path"]).is_file())
 
-    def test_gdpval_agents_do_not_install_custom_context_policy(self) -> None:
+    def test_gdpval_judges_install_image_once_context_policy(self) -> None:
         provider = Provider(id="fake", api="fake", model="fake-model")
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -550,7 +560,8 @@ class GdpvalSuiteTest(unittest.TestCase):
                 context=judge_context,
             ) as judge:
                 rubric_tool_names = [tool.name for tool in judge.tools]
-                self.assertIsNone(judge.context_policy)
+                self.assertIsNotNone(judge.context_policy)
+                self.assertIsNotNone(judge.context_policy.strategy)
             with judge_gsb_container.agent_context(
                 provider=provider,
                 cwd=root / "gsb_judge",
@@ -558,7 +569,8 @@ class GdpvalSuiteTest(unittest.TestCase):
                 context=gsb_context,
             ) as gsb_judge:
                 gsb_tool_names = [tool.name for tool in gsb_judge.tools]
-                self.assertIsNone(gsb_judge.context_policy)
+                self.assertIsNotNone(gsb_judge.context_policy)
+                self.assertIsNotNone(gsb_judge.context_policy.strategy)
 
         self.assertIsNone(solver.context_policy)
         self.assertEqual(
@@ -579,6 +591,104 @@ class GdpvalSuiteTest(unittest.TestCase):
         self.assertNotIn("execute_bash", rubric_tool_names)
         self.assertNotIn("read_file", rubric_tool_names)
         self.assertIn("excel_profile_sheet", rubric_tool_names)
+
+    def test_gdpval_judge_image_context_policy_keeps_image_for_one_turn(
+        self,
+    ) -> None:
+        def idle(visible):
+            del visible
+            return assistant_message("done", sender="judge", target="user")
+
+        state = State("judge")
+        state.send("task", "user", "judge", state.task)
+        state.record(
+            assistant_message(
+                [TextBlock("read pdf"), ToolCallBlock("c0", "pdf_read_pdf", {})],
+                sender="judge",
+                target="user",
+                kind="step",
+            )
+        )
+        state.record(
+            tool_results_message(
+                [
+                    ToolResultBlock(
+                        tool_call_id="c0",
+                        tool_name="pdf_read_pdf",
+                        content=(
+                            TextBlock("page text"),
+                            ImageBlock(data="QUJD", mime_type="image/png"),
+                        ),
+                    )
+                ],
+                target="judge",
+            )
+        )
+
+        policy = judge_mcp.gdpval_judge_context_policy()
+        assert policy.strategy is not None
+        self.assertIsNone(policy.strategy(state.active_context_items(), "judge"))
+
+        state.record(
+            assistant_message(
+                "I inspected the image.",
+                sender="judge",
+                target="user",
+                kind="step",
+            )
+        )
+        events = maybe_compress_context(Agent("judge", idle), state, policy)
+        self.assertEqual(events[1].strategy, "gdpval-judge-image-once")
+
+        active_result_messages = [
+            message
+            for message in state.active_context_messages()
+            if message.kind == "tool_result"
+        ]
+        self.assertEqual(len(active_result_messages), 1)
+        active_results = tool_results_of(active_result_messages[0].content)
+        self.assertFalse(
+            any(
+                isinstance(block, ImageBlock)
+                for result in active_results
+                for block in result.content
+            )
+        )
+        self.assertIn(
+            "Image omitted after one GDPVal judge model turn",
+            active_results[0].content[1].text,
+        )
+
+        original_results = tool_results_of(state.messages[2].content)
+        self.assertTrue(
+            any(
+                isinstance(block, ImageBlock)
+                for result in original_results
+                for block in result.content
+            )
+        )
+
+        state.record(
+            assistant_message(
+                [TextBlock("read again"), ToolCallBlock("c1", "pdf_read_pdf", {})],
+                sender="judge",
+                target="user",
+                kind="step",
+            )
+        )
+        state.record(
+            tool_results_message(
+                [
+                    ToolResultBlock(
+                        tool_call_id="c1",
+                        tool_name="pdf_read_pdf",
+                        content=(ImageBlock(data="REVG", mime_type="image/png"),),
+                    )
+                ],
+                target="judge",
+            )
+        )
+        self.assertIsNone(policy.strategy(state.active_context_items(), "judge"))
 
     def test_judge_suite_threads_tool_mode_into_instance(self) -> None:
         suite = GdpvalGsbJudgeSuite(judge_tool_mode="local")

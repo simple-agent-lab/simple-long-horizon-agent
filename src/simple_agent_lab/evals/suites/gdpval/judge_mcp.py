@@ -12,9 +12,18 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Literal, cast
 
+from simple_agent_lab.context_view import CompressionDecision, ContextPolicy
 from simple_agent_lab.llm.provider import Provider
 from simple_agent_lab.llm_agent import make_llm_agent
-from simple_agent_lab.messages import ImageBlock, TextBlock
+from simple_agent_lab.messages import (
+    AssistantMessage,
+    ImageBlock,
+    Message,
+    TextBlock,
+    ToolResultBlock,
+    tool_results_message,
+    tool_results_of,
+)
 from simple_agent_lab.tools import AgentTool
 from simple_agent_lab.tools import ToolResult
 from simple_agent_lab.tools import tool_result_text
@@ -106,6 +115,7 @@ _MAX_NOTEBOOK_FILE_CHARS = 120_000
 _MAX_NOTEBOOK_CELL_SOURCE_CHARS = 8_000
 _MAX_NOTEBOOK_CELL_OUTPUT_CHARS = 2_000
 _DETERMINISTIC_TABULAR_COMPACT_PREFIX = "[Deterministic tabular tool output compacted:"
+_JUDGE_IMAGE_ONCE_STRATEGY_LABEL = "gdpval-judge-image-once"
 _LONG_BASE64_RE = re.compile(
     r"(?<![A-Za-z0-9+/])([A-Za-z0-9+/]{4096,}={0,2})(?![A-Za-z0-9+/])"
 )
@@ -141,6 +151,103 @@ def normalize_judge_tool_mode(value: Any) -> JudgeToolMode:
             f"unknown GDPVal judge tool mode {value!r}; expected {choices}"
         )
     return cast(JudgeToolMode, text)
+
+
+def gdpval_judge_context_policy() -> ContextPolicy:
+    """Return the GDPVal judge-only context policy.
+
+    MCP PDF tools can return images. GDPVal judge should show those images to
+    the model on the immediate next turn, but avoid carrying the same image
+    through every later turn unless the judge explicitly asks to read it again.
+    """
+
+    return ContextPolicy(strategy=_DropSeenJudgeImages())
+
+
+class _DropSeenJudgeImages:
+    """Rewrite image-bearing judge tool results after one model turn."""
+
+    def __call__(
+        self,
+        active: list[tuple[int, Message]],
+        agent_name: str,
+    ) -> CompressionDecision | None:
+        latest_assistant_index = max(
+            (
+                index
+                for index, message in active
+                if isinstance(message, AssistantMessage)
+            ),
+            default=-1,
+        )
+        if latest_assistant_index < 0:
+            return None
+
+        for index, message in active:
+            if index >= latest_assistant_index:
+                continue
+            if not _message_has_tool_result_image(message):
+                continue
+            replacement = _drop_tool_result_images(message, target=agent_name)
+            if replacement is None:
+                continue
+            return CompressionDecision(
+                compress_indices=(index,),
+                replacement=replacement,
+                rewrite=True,
+                label=_JUDGE_IMAGE_ONCE_STRATEGY_LABEL,
+            )
+        return None
+
+
+def _message_has_tool_result_image(message: Message) -> bool:
+    return any(
+        isinstance(inner, ImageBlock)
+        for result in tool_results_of(message.content)
+        for inner in result.content
+    )
+
+
+def _drop_tool_result_images(message: Message, *, target: str) -> Message | None:
+    results = tool_results_of(message.content)
+    if not results:
+        return None
+    rewritten: list[ToolResultBlock] = []
+    changed = False
+    for result in results:
+        content = []
+        for block in result.content:
+            if isinstance(block, ImageBlock):
+                changed = True
+                content.append(TextBlock(_image_omitted_after_one_turn(block)))
+            else:
+                content.append(block)
+        rewritten.append(
+            ToolResultBlock(
+                tool_call_id=result.tool_call_id,
+                tool_name=result.tool_name,
+                content=tuple(content),
+                is_error=result.is_error,
+            )
+        )
+    if not changed:
+        return None
+    return tool_results_message(
+        rewritten,
+        target=target,
+        sender=message.sender,
+        kind=message.kind,
+        sidecar=message.sidecar,
+    )
+
+
+def _image_omitted_after_one_turn(block: ImageBlock) -> str:
+    return (
+        "[Image omitted after one GDPVal judge model turn: "
+        f"{block.mime_type}, {len(block.data)} base64 chars. "
+        "Call the file-reading tool again with images enabled if visual details "
+        "are still needed.]"
+    )
 
 
 def is_gdpval_judge_read_only_mcp_tool_name(
@@ -329,6 +436,7 @@ def gdpval_judge_agent_context(
             tools=tools,
             system_prompt=system_prompt,
             target="user",
+            context_policy=gdpval_judge_context_policy(),
             request_extra=request_extra,
             timeout_seconds=timeout_seconds,
         )
