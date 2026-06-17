@@ -102,6 +102,17 @@ a suite is one host-side `Suite` plus a container half of two functions, run
 through `run_suite_instance` over swappable `ContainerBackend` (in-process /
 local Docker / remote) and `ArtifactStore` (local dir / host HTTP / S3) seams.
 
+## Self-Evolving Agents
+
+The repo includes a small, legible substrate for agents that improve themselves:
+a strategy proposes a change, it is run on a frozen task set and judged against
+the unchanged agent on the *same* tasks, and every comparison is logged before a
+version is promoted. The benchmark-agnostic substrate lives in
+`src/simple_agent_lab/evolution/`; runnable examples live in
+[recipes](recipes/README.md) (`simple/` = the minimal real loop, `dgm/` = a
+faithful Darwin Gödel Machine reproduction). See
+[docs/self-evolving.md](docs/self-evolving.md) for the concept guide.
+
 ## Non-Goals
 
 - This is not intended to be a production agent platform at the start.
@@ -117,6 +128,7 @@ local Docker / remote) and `ArtifactStore` (local dir / host HTTP / S3) seams.
 - [docs/glossary.md](docs/glossary.md): shared vocabulary.
 - [src/simple_agent_lab](src/simple_agent_lab/core.py): the installable package - `core.py` (canonical tiny run loop), `context_view.py` (model-visible context projection), `compression/` (context-compression strategies run before each model request), `messages.py` (shared message protocol), `tools/` (shared tool values plus concrete tools like bash and the sub-agent `task` tool), `trace/` (the three-layer trace: span/training transforms over the event log, record schema, JSONL IO, console rendering, OpenAI Chat JSONL export, and the live-trace edge), `llm/` (shared LLM access layer and message bridge), `mcp/` (optional Model Context Protocol integration: wrap an MCP server's tools — including multimodal results — as `AgentTool`s, behind the `mcp` extra), `memory/` (optional filesystem-backed memory via ordinary lifecycle hooks), `agents/` (the general agent starter: one `AgentSession` runner plus `Toolset`s and a single composable `agent_session()` front door — turn on bash/read/explorer/skills/MCP as needed), and `evals/` (the generic containerized eval framework - two seams `ContainerBackend` x `ArtifactStore`, the `run_suite_instance` entry point, and in-wheel suite container halves under `src/simple_agent_lab/evals/suites/`; see [ADR generic-containerized-eval-framework](docs/decisions/20260531-generic-containerized-eval-framework.md)).
 - [evals](evals/README.md): suite adapters (host halves) and the "add a suite" guide; the framework itself ships in the package above.
+- [recipes](recipes/README.md): runnable self-evolving recipes built on the `evolution/` substrate - `simple/` (the minimal real loop) and `dgm/` (a faithful Darwin Gödel Machine reproduction). See [docs/self-evolving.md](docs/self-evolving.md).
 - [examples/bench_suite](examples/bench_suite/README.md): agent-as-judge worked example - candidate + judge runs composed over the shared artifact store, runnable with no Docker.
 - [tests](tests/README.md): future test strategy.
 - [runs](runs/README.md): small reproducible commands for examples and future experiments.

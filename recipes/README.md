@@ -36,7 +36,7 @@ Docker (that boundary is enforced by `scripts/arch_lint.py`); anything that has
 to touch Docker or the host environment lives here in `recipes/`.
 
 For the concepts behind self-evolution (substrate vs. recipe, the archive, parent
-selection, criteria), see the self-evolving concept guide under `docs/`.
+selection, criteria), see [docs/self-evolving.md](../docs/self-evolving.md).
 
 ## Common prerequisites
 

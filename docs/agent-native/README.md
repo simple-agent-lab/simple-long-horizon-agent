@@ -72,6 +72,10 @@ The current source-of-truth layers are:
   `render.py` (console `print_trace`), `openai_export.py` (OpenAI Chat
   fine-tuning JSONL export), and `live.py` (the incremental live-trace
   session/writer edge).
+- `src/simple_agent_lab/evolution/`: benchmark-agnostic self-evolution
+  substrate — immutable versions, fair A/B, decision log, promotion (kernel)
+  plus swappable components (reward/criterion/rollout/strategy), the derived
+  archive, and a parallel open-ended loop. Recipes live in `recipes/`.
 - `evals/swebench/`: optional benchmark adapter, outside the core runtime.
 
 ## Core Mental Model
@@ -136,6 +140,7 @@ Stop and collect more evidence before changing behavior when:
 | Scoring: how a suite scores / parity | ADR collapse-scorer-seam-into-run-primitive (amends ADR scorer-seam-and-scoring-topology), `src/simple_agent_lab/evals/in_container.py` (`evaluate` hook), `evals/swebench/evaluate_predictions.py` (`reuse_eval_row`, parity) | No scorer seam: in-env scoring is the `evaluate` hook (gated on `eval_inputs`); scoring elsewhere is a follow-up run; official harness is a standalone CLI; `result.json` decoupling; official-parity gate. |
 | Integrating a new Docker eval suite (step-by-step) | `docs/agent-native/integrating-a-docker-eval-suite.md`, ADR generic-containerized-eval-framework, ADR collapse-scorer-seam-into-run-primitive, `evals/swebench/suite.py`, `src/simple_agent_lab/evals/suites/swebench/container.py` | Two halves + registration; the developer/agent how-to with a checklist. |
 | Multi-machine eval deployment / workers / k8s | `docs/agent-native/multi-machine-deployment.md`, ADR generic-containerized-eval-framework | Worker setup, image distribution, online/offline, store-by-topology; runtime injection. |
+| Self-evolving agents (substrate or recipes) | `docs/self-evolving.md`, ADR recipes-as-the-self-evolving-surface, ADR faithful-hyperagents-recipe, ADR retarget-recipe-to-dgm, `src/simple_agent_lab/evolution/`, `recipes/README.md` | Substrate-vs-recipe boundary, the loop + guarantees, the two recipes, and how to write your own. Benchmark glue is the SWE-bench adapter; Docker probing is recipe-local. |
 | External architecture borrowing | `docs/reference-architectures/README.md` (local notes workspace, gitignored) plus your own reference note | Capture rationale locally; record durable commitments in an ADR. |
 | Agent-native doc maintenance | This loading map, `docs/agent-native/operating-rules.md` | Canonical routing and stop conditions. |
 
