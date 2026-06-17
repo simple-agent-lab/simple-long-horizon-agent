@@ -10,6 +10,8 @@ The style follows nanochat's `runs/` convention: a script should be readable, co
 bash runs/run_ci.sh
 bash runs/run_docs_lint.sh
 bash runs/run_bash_agent_demo.sh
+bash runs/run_self_evolving_simple.sh --run-id simple-smoke --train-dataset train.jsonl --test-dataset test.jsonl
+bash runs/run_dgm_swebench.sh --run-id dgm-swebench-smoke --train-dataset train.jsonl --test-dataset test.jsonl
 bash runs/run_swebench_verified.sh
 bash runs/run_swebench_multilingual.sh
 bash runs/run_swebench_pro.sh
@@ -39,6 +41,31 @@ This runs a deterministic mini-SWE-style bash-use agent demo:
 ```bash
 bash runs/run_bash_agent_demo.sh
 ```
+
+### Self-Evolving SWE-bench (simple recipe)
+
+This runs the simple self-evolving recipe (`recipes/simple/evolve.py`): a model
+rewrites the whole agent program under `agent/`, the evolution kernel compares
+each candidate on a train slice in a SWE-bench Docker sandbox, and the best valid
+agent is scored on a held-out test slice. It is a dry plan by default:
+
+```bash
+bash runs/run_self_evolving_simple.sh \
+  --run-id simple-macbook-smoke \
+  --train-dataset evals/out/dgm_swebench/splits/macbook-train.jsonl \
+  --test-dataset evals/out/dgm_swebench/splits/macbook-test.jsonl
+
+bash runs/run_self_evolving_simple.sh \
+  --run-id simple-macbook-smoke \
+  --train-dataset evals/out/dgm_swebench/splits/macbook-train.jsonl \
+  --test-dataset evals/out/dgm_swebench/splits/macbook-test.jsonl \
+  --execute
+```
+
+The second command starts real model + Docker work and expects `.env` or the
+shell environment to provide `OPENAI_AUTH_TOKEN` and, when needed,
+`OPENAI_BASE_URL`. For the faithful DGM variant with all knobs exposed, see the
+DGM recipe below. Both recipes are documented under `recipes/`.
 
 To verify SWE-bench adapter tests specifically (already included in `run_ci.sh`):
 
@@ -93,3 +120,24 @@ bash runs/eval_swebench.sh --pro --predictions evals/out/swebench_pro/swebench_p
 
 See `evals/swebench/README.md` for detailed Docker setup, macOS arm64
 workarounds, and troubleshooting.
+
+## DGM SWE-bench Recipe
+
+This runs the faithful DGM self-evolving recipe over SWE-bench, with artifacts
+under `evals/out/dgm_swebench/` (see `recipes/dgm/README.md` for the full
+quick-start and knob reference):
+
+```bash
+bash runs/run_dgm_swebench.sh \
+  --run-id dgm-real-smoke \
+  --train-dataset evals/out/dgm_swebench/splits/macbook-train.jsonl \
+  --test-dataset evals/out/dgm_swebench/splits/macbook-test.jsonl \
+  --rounds 2 \
+  --parent-selection score_child_prop
+```
+
+By default it prints a dry plan. Add `--execute` to run real model + Docker
+evolution. Use `--monitor` with the same run id and dataset paths to print the
+current report. Use the train dataset for evolution and the test dataset for
+held-out official scoring; this avoids reporting on the same instances used for
+selection. To build a balanced train/test split, see `recipes/dgm/baseline.py`.
