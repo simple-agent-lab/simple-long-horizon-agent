@@ -35,6 +35,9 @@ evals/out/swebench_pro/*
 !evals/out/onemillion/
 evals/out/onemillion/*
 !evals/out/onemillion/README.md
+!evals/out/dgm_swebench/
+evals/out/dgm_swebench/*
+!evals/out/dgm_swebench/README.md
 logs/
 .tmp/
 
@@ -74,3 +77,6 @@ node_modules/
 .idea/
 .vscode/
 *.swp
+
+# accidental CLI-flag files (from misquoted shell invocations)
+/--*
