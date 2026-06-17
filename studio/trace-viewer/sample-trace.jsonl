@@ -84,6 +84,7 @@
       "message": {
         "content": [
           {
+            "encrypted_content": null,
             "kind": "thinking",
             "redacted": false,
             "signature": null,
@@ -752,6 +753,7 @@
     {
       "content": [
         {
+          "encrypted_content": null,
           "kind": "thinking",
           "redacted": false,
           "signature": null,
@@ -1188,6 +1190,7 @@
       "output_message": {
         "content": [
           {
+            "encrypted_content": null,
             "kind": "thinking",
             "redacted": false,
             "signature": null,

@@ -119,6 +119,11 @@ Reference: `evals/swebench/suite.py` (host half) +
 `FakeBackend` runs the whole flow without Docker for tests. Still follow the
 output-directory checklist in [`out/README.md`](out/README.md).
 
+The GDPVal adapter follows the same Suite shape in solver-only form. Its host
+half is `evals/gdpval/suite.py`; its container half is
+`simple_agent_lab.evals.suites.gdpval.container`; generated solver artifacts
+land under `evals/out/gdpval/`.
+
 ### Local development → deployment (swap the backend)
 
 A run has two orthogonal axes; you pick one value on each and change nothing

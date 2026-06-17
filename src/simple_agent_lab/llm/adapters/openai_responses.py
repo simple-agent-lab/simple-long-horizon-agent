@@ -31,6 +31,7 @@ Pass-through request options via `LLMRequest.extra`:
     extra["reasoning"]    : dict          (raw override of the normalized
                                            ``LLMRequest.reasoning`` knob,
                                            e.g. {"effort": "low"})
+    extra["include"]      : list[str]
     extra["extra_headers"]: dict          (request headers)
     extra["metadata"]     : dict
     extra["store"]        : bool
@@ -90,6 +91,11 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         "model": req.provider.model,
         "input": items,
     }
+    include = list(req.extra.get("include") or [])
+    if req.extra.get("include_reasoning_encrypted_content", True):
+        include.append("reasoning.encrypted_content")
+    if include:
+        kwargs["include"] = sorted(set(include))
     if req.system_prompt:
         kwargs["instructions"] = req.system_prompt
     if tools:
@@ -130,11 +136,14 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         itype = getattr(item, "type", None)
         if itype == "reasoning":
             reasoning_text = _reasoning_summary_text(item)
-            if reasoning_text:
+            reasoning_id = getattr(item, "id", None)
+            encrypted_content = getattr(item, "encrypted_content", None)
+            if reasoning_text or reasoning_id or encrypted_content:
                 blocks.append(
                     ThinkingBlock(
                         text=reasoning_text,
-                        signature=getattr(item, "id", None),
+                        signature=reasoning_id,
+                        encrypted_content=encrypted_content,
                         source_field="reasoning",
                     )
                 )
@@ -300,18 +309,33 @@ def _reasoning_item(message: LLMMessage) -> dict[str, Any] | None:
 
     Mirrors the inbound shape: one ``summary_text`` part per stored
     `ThinkingBlock`. The original item id (kept on `ThinkingBlock.signature`)
-    is replayed when present so the wire item matches what the model emitted.
+    and encrypted reasoning content are replayed when present so the wire item
+    matches what the model emitted.
     """
-    blocks = [block for block in message.thinking_blocks if block.text]
+    blocks = [
+        block
+        for block in message.thinking_blocks
+        if block.text or block.signature or block.encrypted_content
+    ]
     if not blocks:
         return None
     item: dict[str, Any] = {
         "type": "reasoning",
-        "summary": [{"type": "summary_text", "text": block.text} for block in blocks],
+        "summary": [
+            {"type": "summary_text", "text": block.text}
+            for block in blocks
+            if block.text
+        ],
     }
     signature = next((block.signature for block in blocks if block.signature), None)
     if signature:
         item["id"] = signature
+    encrypted_content = next(
+        (block.encrypted_content for block in blocks if block.encrypted_content),
+        None,
+    )
+    if encrypted_content:
+        item["encrypted_content"] = encrypted_content
     return item
 
 

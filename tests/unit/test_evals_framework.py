@@ -426,6 +426,63 @@ class LocalProcessBackendTest(unittest.TestCase):
             self.assertEqual(artifacts.status_code, 1)  # surfaced as a failed run
             self.assertIn("apply_oracle", artifacts.logs)
 
+    def test_agent_context_hook_wraps_the_run_lifetime(self) -> None:
+        import sys
+        import types
+        from contextlib import contextmanager
+
+        from simple_agent_lab.core import Agent
+        from simple_agent_lab.messages import assistant_message
+
+        events: list[str] = []
+        mod_name = "sal_test_agent_context_container"
+        mod = types.ModuleType(mod_name)
+        mod.build_task = lambda instance, *, workdir: "context task"  # type: ignore[attr-defined]
+
+        @contextmanager
+        def _agent_context(**kwargs):  # type: ignore[no-untyped-def]
+            events.append(f"enter:{kwargs['instance']['instance_id']}")
+
+            def _generate(visible):  # type: ignore[no-untyped-def]
+                return assistant_message(
+                    "done",
+                    sender="context_agent",
+                    target="user",
+                    kind="final",
+                )
+
+            try:
+                yield Agent(name="context_agent", generate=_generate)
+            finally:
+                events.append("exit")
+
+        def _extract(workspace, instance):  # type: ignore[no-untyped-def]
+            return {"events": list(events)}
+
+        mod.agent_context = _agent_context  # type: ignore[attr-defined]
+        mod.extract_result = _extract  # type: ignore[attr-defined]
+        sys.modules[mod_name] = mod
+        self.addCleanup(lambda: sys.modules.pop(mod_name, None))
+
+        class _ContextSuite(_DemoSuite):
+            container_module = mod_name
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            artifacts = run_suite_instance(
+                suite=_ContextSuite(),
+                instance={"instance_id": "ctx-1"},
+                backend=LocalProcessBackend(),
+                store=LocalDirStore(root),
+                run_root=root,
+                run_id="ctx",
+                provider="fake",
+                max_turns=1,
+            )
+            result = json.loads((artifacts.run_dir / RESULT_KEY).read_text())
+
+        self.assertEqual(result["events"], ["enter:ctx-1", "exit"])
+
     def test_workspace_factory_isolates_concurrent_runs(self) -> None:
         """A workspace factory gives each run its own dir, so concurrency is safe."""
         from simple_agent_lab.evals import run_dataset

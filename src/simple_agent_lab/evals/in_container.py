@@ -31,6 +31,7 @@ import json
 import os
 import time
 from collections.abc import Iterable, Mapping, Sequence
+from contextlib import nullcontext
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, cast
@@ -81,6 +82,7 @@ __all__ = [
 ]
 
 TRACE_FLUSH_INTERVAL_S = 2.0
+LLM_TIMEOUT_ENV = "SAL_LLM_TIMEOUT_SECONDS"
 
 # The OpenAI-compatible env contract (`OPENAI_MODEL`/`OPENAI_AUTH_TOKEN`/...),
 # the `.env` loader, and the provider builder now live in `simple_agent_lab.llm.env`
@@ -169,6 +171,7 @@ def build_agent(
     cwd: Path,
     request_extra: Mapping[str, Any] | None = None,
     hooks: HookMap | None = None,
+    timeout_seconds: float | None = None,
 ) -> Agent:
     """Build the agent for `spec.flavor` with the suite's prompt/role/name."""
 
@@ -207,6 +210,7 @@ def build_agent(
             target="user",
             request_extra=request_extra,
             hooks=hooks,
+            timeout_seconds=timeout_seconds,
         )
     raise SystemExit(
         f"Unsupported agent flavor {spec.flavor!r}; "
@@ -244,6 +248,7 @@ def _resolve_agent(
     request_extra: Mapping[str, Any] | None,
     instance: Mapping[str, Any],
     context: Mapping[str, Any],
+    timeout_seconds: float | None,
 ) -> Agent:
     """A container module may supply `build_agent` for full control, else `agent_spec`.
 
@@ -254,7 +259,14 @@ def _resolve_agent(
 
     custom = getattr(module, "build_agent", None)
     if callable(custom):
-        return custom(provider=provider, cwd=cwd, request_extra=request_extra)
+        kwargs: dict[str, Any] = {
+            "provider": provider,
+            "cwd": cwd,
+            "request_extra": request_extra,
+        }
+        if _call_accepts(custom, "timeout_seconds"):
+            kwargs["timeout_seconds"] = timeout_seconds
+        return custom(**kwargs)
     factory = getattr(module, "agent_spec", None)
     spec = factory() if callable(factory) else AgentSpec()
     hooks = memory_hooks_from_env(
@@ -271,6 +283,7 @@ def _resolve_agent(
         cwd=cwd,
         request_extra=request_extra,
         hooks=hooks,
+        timeout_seconds=timeout_seconds,
     )
 
 
@@ -360,6 +373,79 @@ def _with_mcp_addendum(system_prompt: str) -> str:
     return "\n\n".join(part for part in (system_prompt, MCP_ADDENDUM) if part)
 
 
+def _resolve_agent_context(
+    module: ModuleType,
+    *,
+    provider: Provider,
+    cwd: Path,
+    request_extra: Mapping[str, Any] | None,
+    instance: Mapping[str, Any],
+    context: Mapping[str, Any],
+    timeout_seconds: float | None,
+):
+    """Resolve an agent context manager, if the suite needs run-scoped resources.
+
+    Most suites return a plain Agent from ``build_agent``. Suites that need
+    resources tied to a single run, such as local MCP subprocesses, can expose
+    ``agent_context(...)`` and yield an Agent whose tools remain live only while
+    the run loop is being consumed.
+    """
+
+    custom_context = getattr(module, "agent_context", None)
+    if not callable(custom_context):
+        return nullcontext(
+            _resolve_agent(
+                module,
+                provider=provider,
+                cwd=cwd,
+                request_extra=request_extra,
+                instance=instance,
+                context=context,
+                timeout_seconds=timeout_seconds,
+            )
+        )
+
+    kwargs: dict[str, Any] = {
+        "provider": provider,
+        "cwd": cwd,
+        "request_extra": request_extra,
+    }
+    parameters = inspect.signature(custom_context).parameters
+    accepts_kwargs = any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
+    if accepts_kwargs or "instance" in parameters:
+        kwargs["instance"] = instance
+    if accepts_kwargs or "context" in parameters:
+        kwargs["context"] = context
+    if accepts_kwargs or "timeout_seconds" in parameters:
+        kwargs["timeout_seconds"] = timeout_seconds
+    return custom_context(**kwargs)
+
+
+def _call_accepts(callable_obj: Any, name: str) -> bool:
+    parameters = inspect.signature(callable_obj).parameters
+    return name in parameters or any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
+
+
+def _llm_timeout_from_env(env: Mapping[str, str] | None = None) -> float | None:
+    source = env if env is not None else os.environ
+    value = source.get(LLM_TIMEOUT_ENV, "").strip()
+    if not value:
+        return None
+    try:
+        timeout = float(value)
+    except ValueError as exc:
+        raise SystemExit(f"{LLM_TIMEOUT_ENV} must be numeric, got {value!r}") from exc
+    if timeout <= 0:
+        raise SystemExit(f"{LLM_TIMEOUT_ENV} must be > 0, got {value!r}")
+    return timeout
+
+
 # --------------------------------------------------------------------------- #
 # Provider from env (generic OpenAI-compatible + fake)
 # --------------------------------------------------------------------------- #
@@ -415,6 +501,7 @@ def run_in_container(
     """
 
     module = importlib.import_module(container_module)
+    request_timeout_seconds = _llm_timeout_from_env()
     # The import is a dynamic boundary: `module` is a ModuleType the checker
     # can't introspect. Cast to the required-surface protocol so the build_task
     # / extract_result calls below are type-checked (a typo or wrong arg is
@@ -455,42 +542,64 @@ def run_in_container(
     else:
         if provider is None:
             raise SystemExit("a Provider is required unless oracle=True")
-        mcp_servers = _load_mcp_servers(store)
-        last = 0.0
-        if mcp_servers:
-            if not isinstance(task, str):
-                raise SystemExit("MCP-enabled eval runs currently require a text task")
-            with _resolve_mcp_session(
-                module,
-                provider=provider,
-                cwd=workdir,
-                request_extra=request_extra,
-                mcp_servers=mcp_servers,
-                max_turns=max_turns,
-                instance=instance,
-                context=context,
-            ) as session:
-                state, events = session.run(task, max_turns=max_turns)
-                for _ in events:
-                    now = time.monotonic()
-                    if now - last >= flush_interval_s:
-                        store.put(TRACE_KEY, trace_bytes(in_progress=True))
-                        last = now
-        else:
-            agent = _resolve_agent(
-                module,
-                provider=provider,
-                cwd=workdir,
-                request_extra=request_extra,
-                instance=instance,
-                context=context,
-            )
-            state, events = agent.run(task, max_turns=max_turns)
+
+        def flush_events(events: Any) -> None:
+            last = 0.0
             for _ in events:
                 now = time.monotonic()
                 if now - last >= flush_interval_s:
                     store.put(TRACE_KEY, trace_bytes(in_progress=True))
                     last = now
+
+        custom_run_agent = getattr(module, "run_agent", None)
+        if callable(custom_run_agent):
+            kwargs: dict[str, Any] = {
+                "provider": provider,
+                "cwd": workdir,
+                "request_extra": request_extra,
+                "instance": instance,
+                "context": context,
+                "task": task,
+                "max_turns": max_turns,
+            }
+            if _call_accepts(custom_run_agent, "timeout_seconds"):
+                kwargs["timeout_seconds"] = request_timeout_seconds
+            state, events = custom_run_agent(**kwargs)
+            flush_events(events)
+        else:
+            # Prefer the framework's staged MCP support when present; suites
+            # that need their own lifecycle can expose run_agent above.
+            mcp_servers = _load_mcp_servers(store)
+            if mcp_servers:
+                if not isinstance(task, str):
+                    raise SystemExit(
+                        "MCP-enabled eval runs currently require a text task"
+                    )
+                with _resolve_mcp_session(
+                    module,
+                    provider=provider,
+                    cwd=workdir,
+                    request_extra=request_extra,
+                    mcp_servers=mcp_servers,
+                    max_turns=max_turns,
+                    instance=instance,
+                    context=context,
+                ) as session:
+                    state, events = session.run(task, max_turns=max_turns)
+                    flush_events(events)
+            else:
+                agent_context = _resolve_agent_context(
+                    module,
+                    provider=provider,
+                    cwd=workdir,
+                    request_extra=request_extra,
+                    instance=instance,
+                    context=context,
+                    timeout_seconds=request_timeout_seconds,
+                )
+                with agent_context as agent:
+                    state, events = agent.run(task, max_turns=max_turns)
+                    flush_events(events)
 
     extract = tasks.extract_result
     result = dict(extract(workdir, instance, **_context_kwargs(extract, context)))

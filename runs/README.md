@@ -93,3 +93,41 @@ bash runs/eval_swebench.sh --pro --predictions evals/out/swebench_pro/swebench_p
 
 See `evals/swebench/README.md` for detailed Docker setup, macOS arm64
 workarounds, and troubleshooting.
+
+## GDPVal
+
+The GDPVal runner drives a plain tool-calling solver and collects workspace
+artifacts. Add `--judge` to run the GSB follow-up judge and write
+`judge_summary.jsonl` / `judge_summary.json` beside the solver run. Pass
+`--judge-mode rubric` to use the direct rubric judge.
+
+```bash
+uv run --with datasets python runs/run_gdpval.py --limit 10
+uv run --with datasets python runs/run_gdpval.py --limit 10 --judge
+uv run --with datasets python runs/run_gdpval.py --limit 10 --judge --judge-mode rubric
+uv run --with datasets python runs/run_gdpval.py --limit 10 --disable-web-tools
+uv run python runs/run_gdpval.py path/to/gdpval.jsonl --task-ids <task-id>
+```
+
+See `evals/gdpval/README.md` for input fields and artifact layout.
+
+For Docker-backed GDPVal runs, build the local Python 3.11 base image first:
+
+```bash
+bash runs/build_gdpval_agent_base.sh
+```
+
+Then run with the Docker SDK available in the host `uv run` environment:
+
+```bash
+uv run --with docker --with datasets python runs/run_gdpval.py \
+  --backend local-docker \
+  --image gdpval-agent-base:latest \
+  --pull never \
+  --limit 10
+```
+
+The runner prepares and mounts the local wheelhouse under
+`evals/out/gdpval/wheelhouse/cp311-manylinux` so the container installs the
+current checkout instead of looking for `simple-agent-lab` in a package
+registry.

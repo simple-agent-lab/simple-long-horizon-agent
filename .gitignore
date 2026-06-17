@@ -38,6 +38,9 @@ evals/out/swebench_pro/*
 !evals/out/onemillion/
 evals/out/onemillion/*
 !evals/out/onemillion/README.md
+!evals/out/gdpval/
+evals/out/gdpval/*
+!evals/out/gdpval/README.md
 logs/
 .tmp/
 

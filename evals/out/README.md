@@ -33,18 +33,29 @@ evals/out/
 │           └── out/
 │               ├── trajectory.jsonl
 │               └── prediction.jsonl
-└── swebench_pro/                      ← SWE-bench Pro suite outputs
+├── swebench_pro/                      ← SWE-bench Pro suite outputs
+│   ├── README.md
+│   ├── instance_<id>.jsonl
+│   ├── wheelhouse/
+│   │   └── cp311-manylinux/*.whl
+│   └── <run-id>/
+│       └── <instance-id>/
+│           ├── input/
+│           │   └── instance.json
+│           └── out/
+│               ├── trajectory.jsonl
+│               └── prediction.jsonl
+└── gdpval/                            ← GDPVal solver outputs
     ├── README.md
     ├── instance_<id>.jsonl
-    ├── wheelhouse/
-    │   └── cp311-manylinux/*.whl
     └── <run-id>/
-        └── <instance-id>/
+        └── <task-id>/
             ├── input/
             │   └── instance.json
             └── out/
+                ├── result.json        ← workspace manifest and archive metadata
                 ├── trajectory.jsonl
-                └── prediction.jsonl
+                └── workspace.tar.gz
 ```
 
 Each benchmark run family gets its own subdirectory under `evals/out/`. Some
@@ -65,6 +76,7 @@ Outputs land under `swebench/<run-id>/<instance-id>/out/`.
 SWE-bench Multilingual and Pro outputs use the same layout under
 `swebench_multilingual/<run-id>/<instance-id>/out/` and
 `swebench_pro/<run-id>/<instance-id>/out/`.
+GDPVal solver outputs land under `gdpval/<run-id>/<task-id>/out/`.
 
 ## Adding a New Benchmark
 

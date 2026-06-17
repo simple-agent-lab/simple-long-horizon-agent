@@ -1,0 +1,42 @@
+# Runtime helper for the Simple Agent Lab bootstrap path.
+uv
+
+# Data analysis and scientific Python.
+numpy
+pandas
+scipy
+datasets
+pyarrow
+tabulate
+python-dateutil
+pytz
+
+# Spreadsheet and tabular document formats.
+openpyxl
+xlsxwriter
+xlrd
+pyxlsb
+odfpy
+
+# PDF, Word, PowerPoint, image, and report generation.
+pypdf
+pdfplumber
+python-docx
+python-pptx
+pillow
+reportlab
+
+# Parsing and presentation helpers often useful in generated scripts.
+lxml
+beautifulsoup4
+html5lib
+matplotlib
+seaborn
+markdown
+markdown2
+weasyprint
+pypandoc
+nbformat
+geopy
+statsmodels
+graphviz

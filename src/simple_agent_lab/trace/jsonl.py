@@ -11,6 +11,7 @@ import json
 import os
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, is_dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -23,6 +24,8 @@ def json_safe(value: Any) -> Any:
         return {str(key): json_safe(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [json_safe(item) for item in value]
+    if isinstance(value, Enum):
+        return value.value
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     return repr(value)
