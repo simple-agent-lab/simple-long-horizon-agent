@@ -1,11 +1,18 @@
-"""A minimal interactive client for the TUI gateway — a text-only stand-in
-for the eventual pi-tui front end.
+"""A minimal client for the TUI gateway — a text-only stand-in for the eventual
+pi-tui front end, and the protocol acceptance check in one place.
 
 It spawns ``python -m simple_agent_lab.tui_gateway.entry``, opens one session,
-then loops: read a line from you, ``prompt.submit`` it, and pretty-print the
-event stream (assistant text, thinking, tool runs, results) until the turn
-finishes. The same conversation/session is reused across prompts, so this
-also exercises multi-turn history.
+then either loops interactively (read a line from you, ``prompt.submit`` it, and
+pretty-print the event stream — assistant text, thinking, tool runs, results —
+until the turn finishes; the session is reused across prompts, so this also
+exercises multi-turn history) or, with ``--text``, submits a single prompt
+non-interactively and exits.
+
+``--raw`` dumps every JSON-RPC frame to stderr instead of the pretty view. That
+is the acceptance-check mode (formerly ``tui_gateway_smoke.py``): spawn the
+gateway, run the ``gateway.ready`` → ``session.create`` → ``prompt.submit`` →
+``turn.complete`` handshake, and print the frames so you can confirm the backend
+half works without Node.
 
 This is deliberately the *shape* the real TS UI will take: a GatewayClient
 that frames JSON-RPC over the child's stdio, plus an event → view mapping.
@@ -15,6 +22,7 @@ Usage::
     uv run python scripts/tui_gateway_repl.py
     uv run python scripts/tui_gateway_repl.py --provider openai
     printf 'pwd\\nls\\n' | uv run python scripts/tui_gateway_repl.py   # non-interactive
+    uv run python scripts/tui_gateway_repl.py --raw --text 'Use bash to run command: `pwd`'  # protocol smoke
 """
 
 from __future__ import annotations
@@ -42,7 +50,8 @@ RESET = "\x1b[0m"
 class GatewayClient:
     """Spawns the gateway and frames newline-delimited JSON-RPC over stdio."""
 
-    def __init__(self, provider: str) -> None:
+    def __init__(self, provider: str, *, raw: bool = False) -> None:
+        self.raw = raw
         self.proc = subprocess.Popen(
             [sys.executable, "-m", "simple_agent_lab.tui_gateway.entry"],
             cwd=ROOT,
@@ -102,7 +111,10 @@ class GatewayClient:
 
     def _write(self, obj: dict[str, Any]) -> None:
         assert self.proc.stdin
-        self.proc.stdin.write(json.dumps(obj) + "\n")
+        line = json.dumps(obj)
+        if self.raw:
+            sys.stderr.write(f"--> {line}\n")
+        self.proc.stdin.write(line + "\n")
         self.proc.stdin.flush()
 
     def _read(self) -> dict[str, Any]:
@@ -110,7 +122,10 @@ class GatewayClient:
         line = self.proc.stdout.readline()
         if not line:
             raise SystemExit("gateway closed")
-        return json.loads(line)
+        frame = json.loads(line)
+        if self.raw:
+            sys.stderr.write(f"<-- {json.dumps(frame, ensure_ascii=False)}\n")
+        return frame
 
     # How many output lines to show before collapsing (pi caps bash at ~20).
     TOOL_PREVIEW_LINES = 16
@@ -137,6 +152,8 @@ class GatewayClient:
         print(f"  {mark}{took}{n}")
 
     def _render_event(self, frame: dict[str, Any]) -> None:
+        if self.raw:
+            return  # raw mode already dumped the frame in _read; skip the view
         if frame.get("method") != "event":
             return  # a response frame straggling on the stream — not for the view
         params = frame.get("params", {})
@@ -176,12 +193,23 @@ class GatewayClient:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Interactive TUI gateway client")
+    parser = argparse.ArgumentParser(description="TUI gateway client")
     parser.add_argument("--provider", default="fake", choices=["fake", "openai"])
     parser.add_argument("--max-turns", type=int, default=6)
+    parser.add_argument(
+        "--raw",
+        action="store_true",
+        help="Dump raw JSON-RPC frames to stderr instead of the pretty view "
+        "(protocol acceptance check).",
+    )
+    parser.add_argument(
+        "--text",
+        default=None,
+        help="Submit one prompt non-interactively and exit (skips the REPL loop).",
+    )
     args = parser.parse_args()
 
-    client = GatewayClient(args.provider)
+    client = GatewayClient(args.provider, raw=args.raw)
     # Handshake.
     ready = client._read()
     assert ready.get("params", {}).get("type") == "gateway.ready"
@@ -204,40 +232,52 @@ def main() -> int:
         client.proc.terminate()
         return 1
     session_id = info["session_id"]
-    print(
-        f"{DIM}session {session_id} · model={info['info']['model']} · tools={info['info']['tools']}{RESET}"
-    )
-    print(f"{DIM}Type a prompt (blank line or Ctrl-D to quit).{RESET}\n")
+    if not args.raw:
+        print(
+            f"{DIM}session {session_id} · model={info['info']['model']} · tools={info['info']['tools']}{RESET}"
+        )
+        print(f"{DIM}Type a prompt (blank line or Ctrl-D to quit).{RESET}\n")
+
+    def submit(text: str) -> None:
+        # Fire-and-pump: the {status:"streaming"} ack and the turn's events
+        # arrive unordered on the same stream, so we must NOT block waiting
+        # for the ack separately — pump_until skips it (it has an id) and
+        # stops on the real terminal event. (The real TS client needs this
+        # same discipline.)
+        client.send_request(
+            "prompt.submit",
+            {"session_id": session_id, "text": text, "max_turns": args.max_turns},
+        )
+        client.pump_until({"turn.complete", "error"})
 
     turn = 0
-    while True:
-        try:
-            text = input(f"{GREEN}you ›{RESET} ")
-        except EOFError:
-            break
-        if not text.strip():
-            break
-        turn += 1
-        try:
-            # Fire-and-pump: the {status:"streaming"} ack and the turn's events
-            # arrive unordered on the same stream, so we must NOT block waiting
-            # for the ack separately — pump_until skips it (it has an id) and
-            # stops on the real terminal event. (The real TS client needs this
-            # same discipline.)
-            client.send_request(
-                "prompt.submit",
-                {"session_id": session_id, "text": text, "max_turns": args.max_turns},
-            )
-            client.pump_until({"turn.complete", "error"})
-        except KeyboardInterrupt:
-            client.request("session.interrupt", {"session_id": session_id})
-            print(f"{YELLOW}  [interrupted]{RESET}")
-        print()
+    if args.text is not None:
+        # One-shot: submit a single prompt and exit (the acceptance-check path).
+        submit(args.text)
+        turn = 1
+    else:
+        while True:
+            try:
+                text = input(f"{GREEN}you ›{RESET} ")
+            except EOFError:
+                break
+            if not text.strip():
+                break
+            turn += 1
+            try:
+                submit(text)
+            except KeyboardInterrupt:
+                client.request("session.interrupt", {"session_id": session_id})
+                print(f"{YELLOW}  [interrupted]{RESET}")
+            print()
 
     client.request("session.close", {"session_id": session_id})
     client.proc.stdin.close()  # type: ignore[union-attr]
     client.proc.wait(timeout=5)
-    print(f"{DIM}bye — ran {turn} turn(s) in session {session_id}{RESET}")
+    if args.raw:
+        sys.stderr.write("\n=== gateway protocol check OK ===\n")
+    else:
+        print(f"{DIM}bye — ran {turn} turn(s) in session {session_id}{RESET}")
     return 0
 
 

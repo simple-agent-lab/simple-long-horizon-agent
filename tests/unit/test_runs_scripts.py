@@ -10,6 +10,14 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 
+# The per-dataset SWE-bench launchers — thin wrappers that set SWEBENCH_*
+# constants and delegate to the shared driver runs/_swebench_run.sh.
+SWEBENCH_LAUNCHERS = (
+    "run_swebench_verified.sh",
+    "run_swebench_multilingual.sh",
+    "run_swebench_pro.sh",
+)
+
 
 def _load_run_swebench_suite_module():
     path = ROOT / "runs/run_swebench_suite.py"
@@ -41,6 +49,7 @@ class RunsScriptsTest(unittest.TestCase):
             ROOT / "runs/setup_swebench_docker.sh",
             ROOT / "runs/run_swebench_suite.sh",
             ROOT / "runs/run_swebench_gold_smoke.sh",
+            ROOT / "runs/_swebench_run.sh",
             ROOT / "runs/run_swebench_verified.sh",
             ROOT / "runs/run_swebench_multilingual.sh",
             ROOT / "runs/run_swebench_pro.sh",
@@ -59,58 +68,58 @@ class RunsScriptsTest(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_swebench_run_scripts_support_batch_flags(self) -> None:
-        scripts = [
-            ROOT / "runs/run_swebench_verified.sh",
-            ROOT / "runs/run_swebench_multilingual.sh",
-            ROOT / "runs/run_swebench_pro.sh",
-        ]
+        # The batch machinery lives once in the shared driver; each thin
+        # launcher routes into it via `source` + `swebench_main`.
+        driver = (ROOT / "runs/_swebench_run.sh").read_text(encoding="utf-8")
+        for token in (
+            "--all",
+            "--parallel",
+            "FETCH_PYTHON",
+            "--extra swebench",
+            "wait -n",
+            "--collect-predictions",
+        ):
+            self.assertIn(token, driver)
 
-        for script in scripts:
-            text = script.read_text(encoding="utf-8")
-            with self.subTest(script=script.name):
-                self.assertIn("--all", text)
-                self.assertIn("--parallel", text)
-                self.assertIn("FETCH_PYTHON", text)
-                self.assertIn("--extra swebench", text)
-                self.assertIn("wait -n", text)
-                self.assertIn("--collect-predictions", text)
+        for name in SWEBENCH_LAUNCHERS:
+            text = (ROOT / "runs" / name).read_text(encoding="utf-8")
+            with self.subTest(script=name):
+                self.assertIn("source runs/_swebench_run.sh", text)
+                self.assertIn('swebench_main "$@"', text)
 
     def test_swebench_run_scripts_load_provider_settings_from_dotenv(self) -> None:
-        scripts = [
-            ROOT / "runs/run_swebench_verified.sh",
-            ROOT / "runs/run_swebench_multilingual.sh",
-            ROOT / "runs/run_swebench_pro.sh",
-        ]
-
-        for script in scripts:
-            text = script.read_text(encoding="utf-8")
-            with self.subTest(script=script.name):
-                self.assertIn("--dotenv .env", text)
+        # `run_container` (in the shared driver) passes `--dotenv .env` for
+        # every dataset launcher.
+        driver = (ROOT / "runs/_swebench_run.sh").read_text(encoding="utf-8")
+        self.assertIn("--dotenv .env", driver)
 
     def test_swebench_run_scripts_use_flat_suite_output_layout(self) -> None:
-        expected_paths = {
-            "run_swebench_verified.sh": [
-                'INSTANCE_DIR="evals/out/swebench"',
-                'CONTAINER_RUN_ROOT="evals/out/swebench"',
-                'PREDICTION_DIR="evals/out/swebench"',
-                "instance_${instance_id}.jsonl",
-            ],
-            "run_swebench_pro.sh": [
-                'INSTANCE_DIR="evals/out/swebench_pro"',
-                'CONTAINER_RUN_ROOT="evals/out/swebench_pro"',
-                'PREDICTION_DIR="evals/out/swebench_pro"',
-                'WHEELHOUSE="evals/out/swebench_pro/wheelhouse/cp311-manylinux"',
-                "instance_${instance_id}.jsonl",
-                '--wheelhouse "$WHEELHOUSE"',
-            ],
-            "run_swebench_multilingual.sh": [
-                'INSTANCE_DIR="evals/out/swebench_multilingual"',
-                'CONTAINER_RUN_ROOT="evals/out/swebench_multilingual"',
-                'PREDICTION_DIR="evals/out/swebench_multilingual"',
-                'WHEELHOUSE="evals/out/swebench_multilingual/wheelhouse/cp311-manylinux"',
-                "instance_${instance_id}.jsonl",
-                '--wheelhouse "$WHEELHOUSE"',
-            ],
+        # Each launcher names its suite root once; the shared driver derives the
+        # flat instance/wheelhouse/run-dir layout from SWEBENCH_RUN_ROOT.
+        launcher_run_roots = {
+            "run_swebench_verified.sh": 'SWEBENCH_RUN_ROOT="evals/out/swebench"',
+            "run_swebench_pro.sh": 'SWEBENCH_RUN_ROOT="evals/out/swebench_pro"',
+            "run_swebench_multilingual.sh": (
+                'SWEBENCH_RUN_ROOT="evals/out/swebench_multilingual"'
+            ),
+        }
+        for script_name, run_root in launcher_run_roots.items():
+            text = (ROOT / "runs" / script_name).read_text(encoding="utf-8")
+            with self.subTest(script=script_name):
+                self.assertIn(run_root, text)
+                self.assertNotIn("evals/out/swebench/verified", text)
+                self.assertNotIn("evals/out/swebench/pro", text)
+                self.assertNotIn("evals/out/swebench/shared", text)
+
+        driver = (ROOT / "runs/_swebench_run.sh").read_text(encoding="utf-8")
+        for token in (
+            "${SWEBENCH_RUN_ROOT}/instance_${instance_id}.jsonl",
+            "${SWEBENCH_RUN_ROOT}/wheelhouse/cp311-manylinux",
+            "${SWEBENCH_RUN_ROOT}/${RUN_ID}/",
+        ):
+            self.assertIn(token, driver)
+
+        other_paths = {
             "setup_swebench_docker.sh": [
                 "evals/out/swebench/instance_${INSTANCE_ID}.jsonl",
                 "evals/out/swebench/wheelhouse",
@@ -124,15 +133,11 @@ class RunsScriptsTest(unittest.TestCase):
                 "evals/out/swebench_pro/swebench_pro_predictions.jsonl",
             ],
         }
-
-        for script_name, paths in expected_paths.items():
+        for script_name, paths in other_paths.items():
             text = (ROOT / "runs" / script_name).read_text(encoding="utf-8")
             with self.subTest(script=script_name):
                 for path in paths:
                     self.assertIn(path, text)
-                self.assertNotIn("evals/out/swebench/verified", text)
-                self.assertNotIn("evals/out/swebench/pro", text)
-                self.assertNotIn("evals/out/swebench/shared", text)
 
     def test_swebench_suite_entry_uses_multilingual_default_paths(self) -> None:
         module = _load_run_swebench_suite_module()
