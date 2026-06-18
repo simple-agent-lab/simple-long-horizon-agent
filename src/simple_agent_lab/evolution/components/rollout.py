@@ -22,10 +22,12 @@ from simple_agent_lab.evals.in_container import (
     OPENAI_BASE_URL_ENV,
     OPENAI_MODEL_ENV,
 )
+from simple_agent_lab.evals.instances import InstanceSet
 from simple_agent_lab.evals.protocols import ArtifactStore, ContainerBackend, Suite
-from simple_agent_lab.evolution.types import PROVIDER_NAME, Run, Slice, Version
+from simple_agent_lab.evolution.surface import AgentSurface
+from simple_agent_lab.evolution.types import PROVIDER_NAME, Run, Version
 
-Rollout = Callable[[Version, Slice], Sequence[Run]]
+Rollout = Callable[[Version, InstanceSet], Sequence[Run]]
 
 
 def _provider_args(version: Version) -> tuple[str, dict[str, str]]:
@@ -79,7 +81,7 @@ def dataset_rollout(
 
     runs_root = Path(runs_root).resolve()
 
-    def rollout(version: Version, slice_: Slice) -> Sequence[Run]:
+    def rollout(version: Version, slice_: InstanceSet) -> Sequence[Run]:
         run_id = f"{version.hash}-{slice_.sha}"
         run_dir = runs_root / run_id
         if not _already_measured(run_dir, slice_):
@@ -121,13 +123,34 @@ def dataset_rollout(
     return rollout
 
 
+def rollout_from_suite(
+    *,
+    suite: Suite,
+    surface: AgentSurface,
+    backend: ContainerBackend,
+    store: ArtifactStore,
+    runs_root: Path,
+    concurrency: int = 1,
+    run_kwargs: Mapping[str, Any] | None = None,
+) -> Rollout:
+    return dataset_rollout(
+        suite=suite,
+        backend=backend,
+        store=store,
+        runs_root=runs_root,
+        concurrency=concurrency,
+        run_kwargs=run_kwargs,
+        version_artifacts=surface.artifacts_from_version,
+    )
+
+
 def _api_kind(provider_env: Mapping[str, str]) -> str:
     """The in-container API kind, mirroring the env the provider was built with."""
 
     return provider_env.get(API_KIND_ENV, "openai-chat")
 
 
-def _already_measured(run_dir: Path, slice_: Slice) -> bool:
+def _already_measured(run_dir: Path, slice_: InstanceSet) -> bool:
     """A ``(version, slice)`` is measured only when every wanted instance wrote
     its ``out/result.json``. The harness creates each instance dir at run START,
     so dir presence alone would treat a crashed/partial run as done and skip the
