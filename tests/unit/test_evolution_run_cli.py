@@ -142,6 +142,12 @@ class EvolutionRunCliTest(unittest.TestCase):
         self.assertEqual(code, 0)
         return stream.getvalue()
 
+    def test_missing_config_exits_nonzero(self) -> None:
+        with self.assertRaises(SystemExit) as raised:
+            main([])
+
+        self.assertNotEqual(raised.exception.code, 0)
+
     def test_dry_run_prints_useful_plan(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

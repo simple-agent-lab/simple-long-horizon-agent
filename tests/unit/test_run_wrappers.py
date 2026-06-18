@@ -22,7 +22,9 @@ class RunWrapperHelpTest(unittest.TestCase):
     def test_simple_wrapper_help_documents_execution_inputs(self):
         result = _help("run_self_evolving_simple.sh")
         self.assertEqual(result.returncode, 0, result.stderr)
+        usage = result.stdout.splitlines()[0]
         self.assertIn("--config", result.stdout)
+        self.assertIn("[--config CONFIG]", usage)
         self.assertIn("--run-id", result.stdout)
         self.assertIn("--execute", result.stdout)
         self.assertIn("--reset", result.stdout)

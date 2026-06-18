@@ -10,7 +10,7 @@ The style follows nanochat's `runs/` convention: a script should be readable, co
 bash runs/run_ci.sh
 bash runs/run_docs_lint.sh
 bash runs/run_bash_agent_demo.sh
-bash runs/run_self_evolving_simple.sh --run-id simple-smoke --train-dataset train.jsonl --test-dataset test.jsonl
+bash runs/run_self_evolving_simple.sh --run-id simple-smoke
 bash runs/run_dgm_swebench.sh --run-id dgm-swebench-smoke --train-dataset train.jsonl --test-dataset test.jsonl
 bash runs/run_swebench_verified.sh
 bash runs/run_swebench_multilingual.sh
@@ -44,28 +44,36 @@ bash runs/run_bash_agent_demo.sh
 
 ### Self-Evolving SWE-bench (simple recipe)
 
-This runs the simple self-evolving recipe (`recipes/simple/evolve.py`): a model
-rewrites the whole agent program under `agent/`, the evolution kernel compares
-each candidate on a train slice in a SWE-bench Docker sandbox, and the best valid
-agent is scored on a held-out test slice. It is a dry plan by default:
+This runs the config-backed simple self-evolving recipe
+(`recipes/simple/evolve.py`). The wrapper registers the SWE-bench factories,
+uses `configs/simple_swebench.yaml` when `--config` is omitted, and delegates to
+the generic self-evolving runner. The default config points at a checked-in tiny
+JSONL example so the dry-run works in a clean checkout:
+
+```bash
+bash runs/run_self_evolving_simple.sh --run-id simple-smoke
+```
+
+For a real run, copy or create a config and edit the YAML paths and execution
+settings:
 
 ```bash
 bash runs/run_self_evolving_simple.sh \
-  --run-id simple-macbook-smoke \
-  --train-dataset evals/out/dgm_swebench/splits/macbook-train.jsonl \
-  --test-dataset evals/out/dgm_swebench/splits/macbook-test.jsonl
+  --config configs/my_simple_swebench.yaml \
+  --run-id simple-real
 
 bash runs/run_self_evolving_simple.sh \
-  --run-id simple-macbook-smoke \
-  --train-dataset evals/out/dgm_swebench/splits/macbook-train.jsonl \
-  --test-dataset evals/out/dgm_swebench/splits/macbook-test.jsonl \
+  --config configs/my_simple_swebench.yaml \
+  --run-id simple-real \
   --execute
 ```
 
-The second command starts real model + Docker work and expects `.env` or the
-shell environment to provide `OPENAI_AUTH_TOKEN` and, when needed,
-`OPENAI_BASE_URL`. For the faithful DGM variant with all knobs exposed, see the
-DGM recipe below. Both recipes are documented under `recipes/`.
+Train path, rounds, `parallel` / `max_turns`, backend options, model settings,
+and output root live in YAML now. The `--execute` command starts real model +
+Docker work and expects `.env` or the shell environment to provide
+`OPENAI_AUTH_TOKEN` and, when needed, `OPENAI_BASE_URL`. For the faithful DGM
+variant with all knobs exposed, see the DGM recipe below. Both recipes are
+documented under `recipes/`.
 
 To verify SWE-bench adapter tests specifically (already included in `run_ci.sh`):
 

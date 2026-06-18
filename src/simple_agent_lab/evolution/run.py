@@ -21,7 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run or inspect a generic self-evolving agent experiment."
     )
-    parser.add_argument("--config", required=True, help="Path to the YAML run config.")
+    parser.add_argument("--config", help="Path to the YAML run config.")
     parser.add_argument("--run-id", help="Override run.id before building.")
     parser.add_argument(
         "--execute",
@@ -42,7 +42,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if not args.config:
+        parser.error("--config is required")
     config = _apply_overrides(load_self_evolving_config(args.config), args)
     run_root = safe_run_root(config.run.output_root, config.run.id)
 
