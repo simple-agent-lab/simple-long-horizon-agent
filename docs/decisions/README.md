@@ -46,6 +46,7 @@ product direction, especially if future contributors may wonder why it was chose
 - [Consolidate Provider Construction and Env-Var Reading in llm.env](20260613-consolidate-provider-env.md)
 - [Model-Alias Registry (strong / fast) over provider_from_env](20260613-model-alias-registry.md) — env-alias scheme superseded by model-config-file; registry type stands
 - [JSON Model-Config File for the Model Registry](20260615-model-config-file.md) — replaces the env-alias scheme of model-alias-registry
+- [Goal Loop: Autonomous Continue-Until-Verifiably-Done Primitive](20260618-goal-loop.md)
 
 ## Proposed
 
