@@ -15,6 +15,7 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from simple_agent_lab.evolution import Proposal
+from simple_agent_lab.evolution.surface import AgentSurface
 from simple_agent_lab.evolution.types import Context, Run, Version
 from simple_agent_lab.llm import LLMRequest, Provider, complete, llm_message
 
@@ -34,6 +35,8 @@ Make one focused change likely to improve the measured objective.
 def model_program_strategy(
     *,
     provider: Provider,
+    surface: AgentSurface | None = None,
+    editable_components: Sequence[str] = ("everything",),
     prefix: str = "agent/",
     system_prompt: str = DEFAULT_SYSTEM_PROMPT,
     parent_selection: str = "current",
@@ -42,12 +45,16 @@ def model_program_strategy(
     complete_fn: Callable[[LLMRequest], Any] = complete,
     max_tokens: int = 4000,
     kind: str = "code",
-) -> Callable[[Context], Proposal]:
+) -> Callable[[Context], Proposal | None]:
     """Return a ``(Context) -> Proposal`` strategy that rewrites files under prefix."""
 
     prompt_builder = build_prompt or (lambda v, f: _default_prompt(v, f, prefix))
+    surface_brief = ""
+    if surface is not None:
+        surface_brief = "\n\n" + surface.prompt_brief(components=editable_components)
+    effective_system_prompt = system_prompt + surface_brief
 
-    def strategy(ctx: Context) -> Proposal:
+    def strategy(ctx: Context) -> Proposal | None:
         parent = _select_parent(
             ctx, parent_selection=parent_selection, parent_selector=parent_selector
         )
@@ -56,12 +63,21 @@ def model_program_strategy(
             LLMRequest(
                 provider=provider,
                 messages=[llm_message("user", prompt_builder(base, ctx.failures))],
-                system_prompt=system_prompt,
+                system_prompt=effective_system_prompt,
                 max_tokens=max_tokens,
             )
         )
         payload = parse_model_json(response.text)
-        edits, rejected = safe_prefix_edits(payload.get("edits", {}), prefix=prefix)
+        raw_edits = payload.get("edits", {})
+        if surface is not None:
+            validated = surface.validate_edits(
+                raw_edits,
+                components=editable_components,
+            )
+            edits = validated.edits
+            rejected = validated.rejected
+        else:
+            edits, rejected = safe_prefix_edits(raw_edits, prefix=prefix)
         evidence = tuple(str(x) for x in payload.get("evidence", ()))
         evidence += tuple(f"discarded-disallowed-path:{p}" for p in rejected)
         return Proposal(

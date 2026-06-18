@@ -61,9 +61,59 @@ class StrategyComponentTest(unittest.TestCase):
             )
             proposal = strat(ctx)
             self.assertIn("agent/agent_program.py", proposal.edits)
+            self.assertNotIn("../escape.py", proposal.edits)
             self.assertTrue(
                 any("discarded-disallowed-path" in e for e in proposal.evidence)
             )
+
+    def test_strategy_uses_surface_validation(self):
+        from simple_agent_lab.evals.protocols import AGENT_PACKAGE_KEY
+        from simple_agent_lab.evolution.surface import python_agent_surface
+
+        surface = python_agent_surface(
+            default_files={"agent_program.py": "def build_agent(**kwargs): pass\n"},
+            artifact_key=AGENT_PACKAGE_KEY,
+        )
+
+        def complete_with_prompt_capture(request):
+            self.assertIn(
+                "Editable surface: Python agent package", request.system_prompt
+            )
+            self.assertIn("prompts", request.system_prompt)
+            return FakeResponse(
+                '{"note": "n", "evidence": [], '
+                '"edits": {"agent/prompts.py": "SYSTEM_PROMPT = \\"x\\"\\n", '
+                '"agent/tool_policy.py": "MAX_RETRIES = 3\\n"}}'
+            )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "ws"
+            exp = Experiment(ws, rollout=lambda v, s: [], seed=surface.seed_files())
+            strat = model_program_strategy(
+                provider=object(),
+                surface=surface,
+                editable_components=("prompts",),
+                system_prompt="You are editing.\n",
+                complete_fn=complete_with_prompt_capture,
+            )
+            ctx = Context(
+                runs=(),
+                current=exp.current(),
+                workspace=ws,
+                decisions=(),
+                reward=lambda r: 0.0,
+            )
+
+            proposal = strat(ctx)
+
+        self.assertIn("agent/prompts.py", proposal.edits)
+        self.assertNotIn("agent/tool_policy.py", proposal.edits)
+        self.assertTrue(
+            any(
+                "discarded-disallowed-path:agent/tool_policy.py" == e
+                for e in proposal.evidence
+            )
+        )
 
     def test_current_parent_selection_does_not_read_archive(self):
         with tempfile.TemporaryDirectory() as tmp:
