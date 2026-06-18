@@ -1,8 +1,15 @@
-"""Host-side SWE-bench evolution adapter.
+"""Host-side SWE-bench / DGM compatibility and official-scoring glue.
 
-This bridges the generic evolution substrate to the SWE-bench suite. Docker-free
-by design (arch_lint restricts ``import docker`` to ``evals.backends``);
-docker-probing helpers live in the recipe layer.
+The generic v1 simple self-evolving path no longer builds its rollout here. It
+registers SWE-bench factories in ``evals/swebench/self_evolving.py`` and then
+composes ``Suite`` + ``AgentSurface`` + ``rollout_from_suite`` from the YAML
+runner.
+
+DGM remains recipe-local and still imports this module for its SWE-bench
+compatibility helpers: layouts, seed/version artifact staging, rollout wrapping,
+reward extraction, and official-scoring command builders. Keep this file
+Docker-free by design (arch_lint restricts ``import docker`` to
+``evals.backends``); Docker probing belongs in the recipe layer.
 """
 
 from __future__ import annotations
@@ -90,6 +97,8 @@ def collect_predictions_command(
     model_name: str,
     source_run_id: str | None = None,
 ) -> list[str]:
+    """Build the DGM command that collects rollout outputs into predictions JSONL."""
+
     return [
         sys.executable,
         "evals/swebench/evaluate_predictions.py",
@@ -114,6 +123,8 @@ def official_eval_command(
     instance_ids: Sequence[str] = (),
     max_workers: int = 1,
 ) -> list[str]:
+    """Build the DGM command that runs or normalizes official SWE-bench scoring."""
+
     command = [
         sys.executable,
         "evals/swebench/evaluate_predictions.py",
@@ -145,6 +156,8 @@ def generation_metric_record(
     decision_outcome: str,
     runs: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
+    """Build the compact DGM metrics row written after held-out scoring."""
+
     total = len(runs)
     resolved = sum(1 for run in runs if float(run.get("reward", 0.0)) > 0.0)
     patch_valid = sum(1 for run in runs if int(run.get("patch_chars", 0)) > 0)
@@ -176,12 +189,16 @@ def build_swebench_rollout(
     version_artifacts: Any = None,
     container_module: str | None = None,
 ):
-    """Build the evolution rollout on the mature SWE-bench Suite path.
+    """Build the DGM rollout on the mature SWE-bench Suite path.
 
     ``version_artifacts`` is forwarded to ``dataset_rollout`` so a version's
     evolved files (e.g. the agent package) are staged into each run.
     ``container_module`` overrides the suite's container half (e.g. the
     ``evolving`` module that builds the agent from the staged package).
+
+    Generic simple runs should prefer ``evals/swebench/self_evolving.py`` plus
+    the YAML runner, which composes ``AgentSurface`` and ``rollout_from_suite``.
+    This helper stays for DGM's recipe-local wiring and tests.
     """
 
     from evals.swebench.harness import DEFAULT_WHEELHOUSE_MOUNT
@@ -264,6 +281,8 @@ def _describe_incomplete(runs: Sequence[Run]) -> list[str]:
 
 
 def seed_files(*, model: str, api_kind: str, base_url: str = "") -> dict[str, str]:
+    """Return DGM's seed version files for an evolvable SWE-bench agent package."""
+
     provider: dict[str, Any] = {
         "api": api_kind,
         "model": model,
@@ -281,7 +300,7 @@ def seed_files(*, model: str, api_kind: str, base_url: str = "") -> dict[str, st
 
 
 def package_files(version: Version) -> dict[str, str]:
-    """Collect the version's evolvable agent package, or the neutral default."""
+    """Collect DGM's versioned agent package, or the neutral default."""
 
     out: dict[str, str] = {}
     for name in version.files():
@@ -291,13 +310,15 @@ def package_files(version: Version) -> dict[str, str]:
 
 
 def version_package_artifacts(version: Version) -> dict[str, bytes]:
-    """Stage the version's package under AGENT_PACKAGE_KEY for the in-container agent."""
+    """Stage DGM's versioned package for the in-container SWE-bench agent."""
 
     payload = json.dumps(package_files(version), ensure_ascii=False)
     return {AGENT_PACKAGE_KEY: payload.encode("utf-8")}
 
 
 def reward_from_result(result: Mapping[str, Any]) -> float:
+    """Extract the DGM train reward from a SWE-bench ``result.json`` mapping."""
+
     agent_package = result.get("agent_package", {})
     if isinstance(agent_package, Mapping) and agent_package.get("used_fallback"):
         return -1.0
@@ -310,6 +331,8 @@ def reward_from_result(result: Mapping[str, Any]) -> float:
 
 
 def swebench_reward(run: Run) -> float:
+    """Return DGM's scalar reward for one SWE-bench rollout run."""
+
     return reward_from_result(run.result)
 
 
@@ -339,6 +362,8 @@ def grade_reuse_runs(
     dataset_name: str,
     model_name: str,
 ) -> None:
+    """Grade completed DGM rollout runs through the official reuse helper."""
+
     from evals.swebench.evaluate_predictions import reuse_eval_row
 
     by_id = {str(instance.get("instance_id")): instance for instance in instances}
@@ -357,7 +382,7 @@ def grade_reuse_runs(
 
 
 def make_scaffold_rollout(base_rollout, *, dataset_name: str, model_name: str):
-    """Wrap the base rollout to enforce artifacts and grade with official reuse.
+    """Wrap DGM's base rollout to enforce artifacts and grade with official reuse.
 
     The evolved agent package reaches the container via ``version_artifacts``
     staging on the base rollout, so instances are passed through unchanged here.

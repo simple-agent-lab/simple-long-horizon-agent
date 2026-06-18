@@ -123,6 +123,35 @@ official scoring. The DGM recipe owns the open-ended archive policy and the
 held-out official scoring workflow. Start with `recipes/` for prerequisites and
 quick-starts.
 
+## Writing a self-evolving run
+
+The generic v1 authoring model is: name objects in YAML, implement behavior in
+Python, and register the Python factories before loading the config. Framework
+objects do not read YAML directly.
+
+For the simple path, choose these pieces:
+
+- `Suite` — the benchmark or task runner. For SWE-bench, the host-side factory is
+  registered by `evals/swebench/self_evolving.py`.
+- `AgentSurface` — the editable agent shape: default files, valid editable
+  components, and how a version is staged into each run.
+- editable components — the surface slices the strategy may change, such as
+  `agent_program`, `prompts`, `tool_policy`, `memory_policy`, or `everything`.
+- `InstanceSet` — the frozen train slice loaded from the JSONL path named in
+  config.
+- `evolution.algorithm` — currently `simple` in the generic builder. DGM's
+  open-ended archive algorithm stays recipe-local under `recipes/dgm/`.
+
+The YAML config selects names and ordinary settings (`suite.name`,
+`surface.name`, `instances.train.path`, execution options, strategy settings,
+criterion, and rounds). Python supplies the behavior behind those names:
+`AgentSurface` validation/staging, `rollout_from_suite`, suite host/container
+halves, strategy factories, reward, and criterion. SWE-bench simple runs compose
+through `evals/swebench/self_evolving.py`, `AgentSurface`, and
+`rollout_from_suite`; DGM continues to use the compatibility helpers in
+`evals/swebench/evolution_adapter.py` for its recipe-local rollout and
+official-scoring workflow.
+
 ## Write your own recipe
 
 A recipe is just the four components plus a slice. The smallest possible shape:
@@ -164,7 +193,7 @@ recipe and never touches the substrate.
 src/simple_agent_lab/evolution/    # substrate (benchmark-agnostic)
   kernel/        store, log, loop   # versions, decision log, the loop + guarantees
   components/    reward, criterion, rollout, strategy
-evals/swebench/evolution_adapter.py # host-side SWE-bench evolution adapter
+evals/swebench/evolution_adapter.py # SWE-bench/DGM compatibility + scoring glue
 recipes/                            # runnable recipes + ops scripts
   simple/evolve.py
   dgm/archive.py, open_ended.py, repo_edits.py
