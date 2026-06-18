@@ -115,6 +115,47 @@ class StrategyComponentTest(unittest.TestCase):
             )
         )
 
+    def test_strategy_surface_ignores_non_mapping_edits(self):
+        from simple_agent_lab.evals.protocols import AGENT_PACKAGE_KEY
+        from simple_agent_lab.evolution.surface import python_agent_surface
+
+        surface = python_agent_surface(
+            default_files={"agent_program.py": "def build_agent(**kwargs): pass\n"},
+            artifact_key=AGENT_PACKAGE_KEY,
+        )
+        response_texts = (
+            '{"note": "n", "evidence": [], "edits": []}',
+            '{"note": "n", "evidence": [], "edits": null}',
+        )
+
+        for response_text in response_texts:
+            with self.subTest(response_text=response_text):
+                with tempfile.TemporaryDirectory() as tmp:
+                    ws = Path(tmp) / "ws"
+                    exp = Experiment(
+                        ws, rollout=lambda v, s: [], seed=surface.seed_files()
+                    )
+                    strat = model_program_strategy(
+                        provider=object(),
+                        surface=surface,
+                        editable_components=("prompts",),
+                        complete_fn=lambda _request: FakeResponse(response_text),
+                    )
+                    ctx = Context(
+                        runs=(),
+                        current=exp.current(),
+                        workspace=ws,
+                        decisions=(),
+                        reward=lambda r: 0.0,
+                    )
+
+                    proposal = strat(ctx)
+
+                self.assertIsNotNone(proposal)
+                assert proposal is not None
+                self.assertEqual(proposal.edits, {})
+                self.assertEqual(proposal.evidence, ())
+
     def test_current_parent_selection_does_not_read_archive(self):
         with tempfile.TemporaryDirectory() as tmp:
             ws = Path(tmp) / "ws"

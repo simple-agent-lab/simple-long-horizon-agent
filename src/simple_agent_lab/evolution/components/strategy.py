@@ -70,12 +70,15 @@ def model_program_strategy(
         payload = parse_model_json(response.text)
         raw_edits = payload.get("edits", {})
         if surface is not None:
-            validated = surface.validate_edits(
-                raw_edits,
-                components=editable_components,
-            )
-            edits = validated.edits
-            rejected = validated.rejected
+            if isinstance(raw_edits, Mapping):
+                validated = surface.validate_edits(
+                    raw_edits,
+                    components=editable_components,
+                )
+                edits = validated.edits
+                rejected = validated.rejected
+            else:
+                edits, rejected = {}, ()
         else:
             edits, rejected = safe_prefix_edits(raw_edits, prefix=prefix)
         evidence = tuple(str(x) for x in payload.get("evidence", ()))
