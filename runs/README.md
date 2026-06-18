@@ -149,3 +149,7 @@ evolution. Use `--monitor` with the same run id and dataset paths to print the
 current report. Use the train dataset for evolution and the test dataset for
 held-out official scoring; this avoids reporting on the same instances used for
 selection. To build a balanced train/test split, see `recipes/dgm/baseline.py`.
+DGM writes scoped official artifacts under `official/baseline/` and
+`official/final/`, plus `test_summary.json` with the held-out delta. The simple
+wrapper writes the generic evolution workspace and suite run artifacts described
+in its YAML-backed runner docs.

@@ -10,9 +10,10 @@ benchmark glue live; the substrate itself stays generic.
 | [`dgm/`](dgm/README.md) | Faithfulness showcase — a Darwin Gödel Machine reproduction with every knob exposed | Parallel open-ended archive-admission loop | "How do I reproduce DGM and tune it?" |
 
 Both recipes evolve the **whole agent program** under `agent/`: a model rewrites
-the agent's own Python files, each candidate is graded on a train slice inside a
-SWE-bench Docker sandbox, and the best valid agent is scored on a held-out test
-slice.
+the agent's own Python files and each candidate is graded on a train slice inside
+a SWE-bench Docker sandbox. The simple recipe is the config-backed generic
+runner path for train-slice evolution and dry-runs; the DGM recipe owns the
+recipe-local held-out official scoring workflow and before/after delta.
 
 ## How the layers fit together
 
