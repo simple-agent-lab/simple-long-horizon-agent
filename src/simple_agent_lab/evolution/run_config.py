@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import os
+import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, cast, get_args
 
 import yaml
 
@@ -160,7 +161,10 @@ def load_self_evolving_config(path: str | Path) -> SelfEvolvingConfig:
 
 def build_self_evolving_run(config: SelfEvolvingConfig) -> SelfEvolvingRun:
     run_root = Path(config.run.output_root) / config.run.id
+    _validate_algorithm(config)
     provider = _provider(config)
+    if config.run.reset:
+        shutil.rmtree(run_root, ignore_errors=True)
     suite = registry.build("suite", _use(config.suite.name, **config.suite.args))
     surface = registry.build(
         "surface",
@@ -205,15 +209,16 @@ def build_self_evolving_run(config: SelfEvolvingConfig) -> SelfEvolvingRun:
         else int(config.execution.parallel),
         run_kwargs={"max_turns": config.execution.max_turns},
     )
+    strategy_args: dict[str, object] = {
+        "provider": provider,
+        "surface": surface,
+        "editable_components": config.surface.editable_components,
+        "parent_selection": config.evolution.parent_selection,
+    }
+    strategy_args.update(config.strategy.args)
     strategy = registry.build(
         "strategy",
-        _use(
-            config.strategy.name,
-            provider=provider,
-            surface=surface,
-            editable_components=config.surface.editable_components,
-            **config.strategy.args,
-        ),
+        _use(config.strategy.name, **strategy_args),
     )
     seed = {
         **surface.seed_files(),
@@ -313,7 +318,18 @@ def _use(name: str, **args: object):
     return Use(name, **args)
 
 
+def _validate_algorithm(config: SelfEvolvingConfig) -> None:
+    if config.evolution.algorithm != "simple":
+        raise ValueError(
+            "unsupported evolution algorithm "
+            f"{config.evolution.algorithm!r}; this builder supports only 'simple'"
+        )
+
+
 def _provider(config: SelfEvolvingConfig) -> Provider:
+    api_kinds = set(get_args(ApiKind))
+    if config.model.api_kind not in api_kinds:
+        raise ValueError(f"unknown model api_kind {config.model.api_kind!r}")
     base_url = (
         os.environ.get(config.model.base_url_env, "").strip()
         if config.model.base_url_env

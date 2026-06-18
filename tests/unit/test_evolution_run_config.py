@@ -71,7 +71,12 @@ class RunConfigTest(unittest.TestCase):
         )
         return path
 
-    def _register_demo_factories(self, strategy_factory) -> None:
+    def _register_demo_factories(
+        self,
+        strategy_factory,
+        *,
+        agent_program: str = "def build_agent(**kwargs): pass\n",
+    ) -> None:
         from simple_agent_lab.evals import FakeBackend, LocalDirStore
         from simple_agent_lab.evals.protocols import LaunchSpec
         from simple_agent_lab.evolution import registry
@@ -93,7 +98,7 @@ class RunConfigTest(unittest.TestCase):
         registry.SUITES["demo_suite"] = lambda **_args: DemoSuite()
         registry.SURFACES["python_agent_package"] = (
             lambda *, default, artifact_key, **_args: python_agent_surface(
-                default_files={"agent_program.py": "def build_agent(**kwargs): pass\n"},
+                default_files={"agent_program.py": agent_program},
                 artifact_key=artifact_key,
             )
         )
@@ -179,6 +184,121 @@ class RunConfigTest(unittest.TestCase):
             built = build_self_evolving_run(load_self_evolving_config(path))
 
         self.assertTrue(callable(built.strategy))
+
+    def test_build_self_evolving_run_passes_evolution_parent_selection(self) -> None:
+        from simple_agent_lab.evolution.run_config import build_self_evolving_run
+
+        captured: list[object] = []
+
+        def strategy_factory(**kwargs):
+            captured.append(kwargs["parent_selection"])
+            return lambda _ctx: None
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = self._write_demo_config(
+                root,
+                CONFIG.replace(
+                    "  rounds: 2\n",
+                    "  rounds: 2\n  parent_selection: best\n",
+                ),
+            )
+            self._register_demo_factories(strategy_factory)
+
+            build_self_evolving_run(load_self_evolving_config(path))
+
+        self.assertEqual(captured, ["best"])
+
+    def test_build_self_evolving_run_strategy_args_override_parent_selection(
+        self,
+    ) -> None:
+        from simple_agent_lab.evolution.run_config import build_self_evolving_run
+
+        captured: list[object] = []
+
+        def strategy_factory(**kwargs):
+            captured.append(kwargs["parent_selection"])
+            return lambda _ctx: None
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = self._write_demo_config(
+                root,
+                CONFIG.replace(
+                    "    system_prompt: demo\n",
+                    "    parent_selection: score_prop\n    system_prompt: demo\n",
+                ).replace(
+                    "  rounds: 2\n",
+                    "  rounds: 2\n  parent_selection: best\n",
+                ),
+            )
+            self._register_demo_factories(strategy_factory)
+
+            build_self_evolving_run(load_self_evolving_config(path))
+
+        self.assertEqual(captured, ["score_prop"])
+
+    def test_build_self_evolving_run_rejects_unwired_algorithm(self) -> None:
+        from simple_agent_lab.evolution.run_config import build_self_evolving_run
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = self._write_demo_config(
+                root,
+                CONFIG.replace("  algorithm: simple\n", "  algorithm: dgm\n"),
+            )
+            self._register_demo_factories(lambda **_args: lambda _ctx: None)
+
+            with self.assertRaisesRegex(ValueError, "dgm"):
+                build_self_evolving_run(load_self_evolving_config(path))
+
+    def test_build_self_evolving_run_rejects_unknown_api_kind(self) -> None:
+        from simple_agent_lab.evolution.run_config import build_self_evolving_run
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = self._write_demo_config(
+                root,
+                CONFIG.replace("  api_kind: openai-chat\n", "  api_kind: mystery\n"),
+            )
+            self._register_demo_factories(lambda **_args: lambda _ctx: None)
+
+            with self.assertRaisesRegex(ValueError, "mystery"):
+                build_self_evolving_run(load_self_evolving_config(path))
+
+    def test_build_self_evolving_run_reset_clears_stale_experiment_state(
+        self,
+    ) -> None:
+        from simple_agent_lab.evolution.run_config import build_self_evolving_run
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = self._write_demo_config(root)
+            self._register_demo_factories(
+                lambda **_args: lambda _ctx: None,
+                agent_program="def build_agent(**kwargs):\n    return 'old'\n",
+            )
+
+            first = build_self_evolving_run(load_self_evolving_config(path))
+            self.assertIn(
+                "'old'", first.experiment.current().read("agent/agent_program.py")
+            )
+
+            reset_path = self._write_demo_config(
+                root,
+                CONFIG.replace("  reset: false\n", "  reset: true\n"),
+            )
+            self._register_demo_factories(
+                lambda **_args: lambda _ctx: None,
+                agent_program="def build_agent(**kwargs):\n    return 'new'\n",
+            )
+
+            second = build_self_evolving_run(load_self_evolving_config(reset_path))
+
+            self.assertIn(
+                "'new'",
+                second.experiment.current().read("agent/agent_program.py"),
+            )
 
 
 if __name__ == "__main__":
