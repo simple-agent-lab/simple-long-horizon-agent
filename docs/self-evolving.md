@@ -112,13 +112,16 @@ parents are explored and *how many* candidates run at once.
 
 | Recipe | What it shows | Loop | Knobs |
 | --- | --- | --- | --- |
-| [`recipes/simple/`](../recipes/simple/README.md) | How little code starts a real self-evolving run | `Experiment.run` (sequential) | minimal — rounds, max-turns, promotion tolerance |
-| [`recipes/dgm/`](../recipes/dgm/README.md) | A faithful Darwin Gödel Machine reproduction | `recipes.dgm.open_ended.run_evolution` (parallel) | all of them — branches, parent selection, meta-concurrency, parallelism |
+| [`recipes/simple/`](../recipes/simple/README.md) | Config-backed generic `algorithm: simple` train-slice evolution | `Experiment.run` (sequential) | YAML config — train path, rounds, execution settings |
+| [`recipes/dgm/`](../recipes/dgm/README.md) | A faithful Darwin Gödel Machine reproduction with recipe-local held-out scoring | `recipes.dgm.open_ended.run_evolution` (parallel) | all of them — branches, parent selection, meta-concurrency, parallelism |
 
 Both evolve the **whole agent program** under `agent/`: the model rewrites the
 agent's own Python, each candidate is graded on a train slice in a SWE-bench
-Docker sandbox, and the best valid agent is scored on a held-out test slice.
-Start with `recipes/` for prerequisites and quick-starts.
+Docker sandbox. The simple recipe runs through the generic config-backed runner
+and supports dry-runs; it does not yet include built-in held-out before/final
+official scoring. The DGM recipe owns the open-ended archive policy and the
+held-out official scoring workflow. Start with `recipes/` for prerequisites and
+quick-starts.
 
 ## Write your own recipe
 
