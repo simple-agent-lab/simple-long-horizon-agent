@@ -185,33 +185,7 @@ class RunConfigTest(unittest.TestCase):
 
         self.assertTrue(callable(built.strategy))
 
-    def test_build_self_evolving_run_passes_evolution_parent_selection(self) -> None:
-        from simple_agent_lab.evolution.run_config import build_self_evolving_run
-
-        captured: list[object] = []
-
-        def strategy_factory(**kwargs):
-            captured.append(kwargs["parent_selection"])
-            return lambda _ctx: None
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            path = self._write_demo_config(
-                root,
-                CONFIG.replace(
-                    "  rounds: 2\n",
-                    "  rounds: 2\n  parent_selection: best\n",
-                ),
-            )
-            self._register_demo_factories(strategy_factory)
-
-            build_self_evolving_run(load_self_evolving_config(path))
-
-        self.assertEqual(captured, ["best"])
-
-    def test_build_self_evolving_run_strategy_args_override_parent_selection(
-        self,
-    ) -> None:
+    def test_build_self_evolving_run_passes_strategy_parent_selection(self) -> None:
         from simple_agent_lab.evolution.run_config import build_self_evolving_run
 
         captured: list[object] = []
@@ -226,17 +200,30 @@ class RunConfigTest(unittest.TestCase):
                 root,
                 CONFIG.replace(
                     "    system_prompt: demo\n",
-                    "    parent_selection: score_prop\n    system_prompt: demo\n",
-                ).replace(
-                    "  rounds: 2\n",
-                    "  rounds: 2\n  parent_selection: best\n",
+                    "    parent_selection: best\n    system_prompt: demo\n",
                 ),
             )
             self._register_demo_factories(strategy_factory)
 
             build_self_evolving_run(load_self_evolving_config(path))
 
-        self.assertEqual(captured, ["score_prop"])
+        self.assertEqual(captured, ["best"])
+
+    def test_load_self_evolving_config_rejects_open_ended_evolution_keys(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.yaml"
+            path.write_text(
+                CONFIG.replace(
+                    "  rounds: 2\n",
+                    "  rounds: 2\n  branches: 2\n  parent_selection: best\n",
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                ValueError, "unknown evolution config keys.*branches.*parent_selection"
+            ):
+                load_self_evolving_config(path)
 
     def test_build_self_evolving_run_rejects_unwired_algorithm(self) -> None:
         from simple_agent_lab.evolution.run_config import build_self_evolving_run

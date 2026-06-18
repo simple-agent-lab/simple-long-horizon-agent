@@ -87,9 +87,6 @@ class EvolutionRunConfig:
     algorithm: str
     rounds: int
     criterion: CriterionConfig
-    branches: int = 1
-    meta_concurrency: int = 1
-    parent_selection: str = "current"
 
 
 @dataclass(frozen=True)
@@ -213,7 +210,6 @@ def build_self_evolving_run(config: SelfEvolvingConfig) -> SelfEvolvingRun:
         "provider": provider,
         "surface": surface,
         "editable_components": config.surface.editable_components,
-        "parent_selection": config.evolution.parent_selection,
     }
     strategy_args.update(config.strategy.args)
     strategy = registry.build(
@@ -295,6 +291,12 @@ def _execution_config(raw: Mapping[str, Any]) -> ExecutionConfig:
 
 
 def _evolution_config(raw: Mapping[str, Any]) -> EvolutionRunConfig:
+    allowed = {"algorithm", "rounds", "criterion"}
+    unknown = sorted(set(raw) - allowed)
+    if unknown:
+        raise ValueError(
+            f"unknown evolution config keys for simple v1 builder: {', '.join(unknown)}"
+        )
     criterion = raw.get(
         "criterion",
         {"name": "promote_not_worse", "args": {"dim": "reward"}},
@@ -306,9 +308,6 @@ def _evolution_config(raw: Mapping[str, Any]) -> EvolutionRunConfig:
             name=str(criterion["name"]),
             args=dict(criterion.get("args", {})),
         ),
-        branches=int(raw.get("branches", 1)),
-        meta_concurrency=int(raw.get("meta_concurrency", 1)),
-        parent_selection=str(raw.get("parent_selection", "current")),
     )
 
 
