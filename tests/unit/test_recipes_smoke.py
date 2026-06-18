@@ -214,6 +214,26 @@ class DgmRecipeSmokeTest(unittest.TestCase):
             rid = self.mod.heldout_run_id(Version(vd), ({"instance_id": "test-1"},))
         self.assertTrue(rid.startswith("abc123-"))
 
+    def test_run_workflow_rejects_unsafe_run_id_before_dataset_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self.mod.build_parser().parse_args(
+                [
+                    "--run-id",
+                    "../victim",
+                    "--output-root",
+                    str(root / "out"),
+                    "--train-dataset",
+                    str(root / "missing-train.jsonl"),
+                    "--test-dataset",
+                    str(root / "missing-test.jsonl"),
+                    "--reset",
+                ]
+            )
+
+            with self.assertRaisesRegex(ValueError, "unsafe run id"):
+                self.mod.run_workflow(args)
+
 
 class RecordHeldoutGenerationTest(unittest.TestCase):
     def setUp(self):

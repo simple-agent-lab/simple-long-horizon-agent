@@ -1,71 +1,82 @@
 # Simple self-evolving recipe
 
-The framework is good enough that one short script starts a real self-evolving
-run. A model rewrites the whole agent program under `agent/`, the evolution
-kernel compares each candidate on a train slice in a SWE-bench Docker sandbox,
-and the final promoted agent is scored on a held-out test slice.
+The simple recipe is the config-backed entry point for the generic v1
+self-evolving runner. It runs the benchmark-agnostic `simple` algorithm from a
+YAML file, registers the SWE-bench factories, and delegates the actual CLI to
+`simple_agent_lab.evolution.run`.
 
-This recipe is the **ergonomics showcase**: it runs the evolution kernel
-sequentially via `Experiment.run`, with `current` parent selection,
-not-worse promotion, and a single container at a time. Read `evolve.py`
-top-to-bottom — it is the whole story.
+This recipe is intentionally smaller than the DGM recipe. The generic v1 builder
+supports only `evolution.algorithm: simple`; DGM/open-ended scheduling remains
+recipe-local under [`../dgm/`](../dgm/).
 
-## Prerequisites
+## Default config
 
-See [`../README.md`](../README.md): a `.env` with provider keys, a reachable
-Docker daemon, a wheelhouse, and train/test SWE-bench JSONL splits.
+The default config is [`../../configs/simple_swebench.yaml`](../../configs/simple_swebench.yaml).
+It uses registry names for the SWE-bench suite and Python-agent surface:
+
+- suite: `swebench`
+- surface: `python_agent_package`
+- backend: `local_docker`
+- store: `local_dir`
+- strategy: `model_program`
+- algorithm: `simple`
+
+The default train slice points at the checked-in tiny JSONL example
+[`../../configs/examples/swebench_train_tiny.jsonl`](../../configs/examples/swebench_train_tiny.jsonl)
+so a dry-run works in a clean checkout. For a real run, copy the config or pass
+your own with `--config`, then edit the `instances.train.path`, model settings,
+output root, and execution settings for your environment.
 
 ## Run it
 
-Dry plan (no model, no Docker — validates inputs and prints the run layout):
+Dry-run the default config without Docker or credentials:
 
 ```bash
-uv run --extra swebench python recipes/simple/evolve.py \
-  --run-id simple-smoke \
-  --train-dataset evals/out/dgm_swebench/splits/headroom-train-20.jsonl \
-  --test-dataset evals/out/dgm_swebench/splits/headroom-test-20.jsonl
+bash runs/run_self_evolving_simple.sh --run-id simple-smoke
 ```
 
-Real run (model + Docker) — the `runs/` wrapper prepares Docker and the
-wheelhouse for you, then calls the recipe with `--execute`:
+Use an edited config:
 
 ```bash
 bash runs/run_self_evolving_simple.sh \
+  --config configs/my_simple_swebench.yaml \
+  --run-id simple-real
+```
+
+Run the configured model + Docker loop:
+
+```bash
+bash runs/run_self_evolving_simple.sh \
+  --config configs/my_simple_swebench.yaml \
   --run-id simple-real \
-  --train-dataset evals/out/dgm_swebench/splits/headroom-train-20.jsonl \
-  --test-dataset evals/out/dgm_swebench/splits/headroom-test-20.jsonl \
-  --rounds 4 \
   --execute
 ```
 
-Or call the recipe directly with
-`uv run --extra swebench python recipes/simple/evolve.py ...` once the wheelhouse
-exists.
+The wrapper keeps the `uv run --extra swebench python` path when `uv` is
+available, then calls `recipes/simple/evolve.py "$@"`. You can call the recipe
+directly with the same flags.
 
 ## Flags
 
-| Flag | Default | Meaning |
-| --- | --- | --- |
-| `--run-id` | required | Reproducible run id (names the output subdirectory). |
-| `--train-dataset` | required | SWE-bench JSONL slice the candidates evolve against. |
-| `--test-dataset` | required | Held-out JSONL slice the best agent is scored on. |
-| `--rounds` | `4` | Number of sequential evolution generations. |
-| `--max-turns` | `75` | Per-instance agent turn budget. |
-| `--promotion-tolerance` | `0.0` | Promote when train reward is not worse than baseline by more than this tolerance. |
-| `--output-root` | `evals/out/self_evolving/simple` | Where run artifacts land. |
-| `--wheelhouse` | `evals/out/swebench/wheelhouse/cp311-manylinux` | Container wheelhouse. |
-| `--uv-binary` | `""` | Linux `uv` binary copied into containers so the agent wheel installs in Python 3.11. The wrapper fills this automatically. |
-| `--dotenv` | `.env` | Provider env file. |
-| `--execute` | off | Run the real model + Docker (otherwise dry plan). |
+| Flag | Meaning |
+| --- | --- |
+| `--config PATH` | YAML run config. Defaults to `configs/simple_swebench.yaml` when omitted. |
+| `--run-id ID` | Override `run.id` from the config; names one output child directory. |
+| `--execute` | Run the configured evolution loop instead of printing the dry-run plan. |
+| `--reset` | Clear stale state for this run before building it. |
+| `--monitor` | Print the run root external monitors should watch. |
 
-The model name comes from `OPENAI_MODEL` in your environment (default
-`evolving-swebench`).
+Other run shape settings live in the YAML. In particular, `rounds`,
+`instances.train.path`, `execution.parallel`, `execution.max_turns`, and backend
+or store options should be edited in the config file.
 
-## What you get
+## Outputs
 
-Under `evals/out/self_evolving/simple/<run-id>/` you'll find the evolution
-workspace (version store, pointers, `decisions.jsonl`) and the SWE-bench run
-artifacts for both the train comparisons and held-out scoring. The script
-prints the final generation count and the current agent hash; for a richer
-summary, point the DGM recipe's
-[`report.py`](../dgm/report.py) at the run root.
+Dry-runs print the resolved plan: run id, run root, suite, surface, editable
+components, train slice, train count, and rounds. Executed runs write the
+generic evolution workspace under `<output_root>/<run-id>/evolution` plus suite
+run artifacts under `<output_root>/<run-id>/runs`.
+
+The generic simple runner does not yet implement held-out before/after official
+scoring. Keep held-out evaluation in your own follow-up command or use the DGM
+recipe when you need its recipe-local scoring workflow.

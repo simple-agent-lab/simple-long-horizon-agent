@@ -14,6 +14,7 @@ from simple_agent_lab.evolution.run_config import (
     build_self_evolving_run,
     load_self_evolving_config,
 )
+from simple_agent_lab.evolution.run_paths import safe_run_root
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -43,7 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     config = _apply_overrides(load_self_evolving_config(args.config), args)
-    run_root = Path(config.run.output_root) / config.run.id
+    run_root = safe_run_root(config.run.output_root, config.run.id)
 
     if args.monitor:
         print(f"monitor: {run_root}")
@@ -82,9 +83,10 @@ def _apply_overrides(
 
 
 def _print_dry_run_plan(config: SelfEvolvingConfig) -> None:
+    run_root = safe_run_root(config.run.output_root, config.run.id)
     print("dry-run self-evolving plan")
     print(f"run id: {config.run.id}")
-    print(f"run root: {Path(config.run.output_root) / config.run.id}")
+    print(f"run root: {run_root}")
     print(f"suite: {config.suite.name}")
     print(f"surface: {config.surface.name}")
     print(f"editable components: {', '.join(config.surface.editable_components)}")

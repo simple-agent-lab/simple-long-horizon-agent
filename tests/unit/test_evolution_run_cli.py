@@ -170,7 +170,7 @@ class EvolutionRunCliTest(unittest.TestCase):
             )
 
         self.assertIn("run id: override-demo", output)
-        self.assertIn(f"run root: {root / 'override-demo'}", output)
+        self.assertIn(f"run root: {root.resolve() / 'override-demo'}", output)
 
     def test_reset_clears_stale_state_before_build_and_keeps_seed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -203,7 +203,7 @@ class EvolutionRunCliTest(unittest.TestCase):
             text = text.replace("name: local_dir", "name: unregistered_store")
             text = text.replace("name: model_program", "name: unregistered_strategy")
             config.write_text(text, encoding="utf-8")
-            run_root = root / "monitor-demo"
+            run_root = root.resolve() / "monitor-demo"
             stale = run_root / "stale.txt"
             stale.parent.mkdir(parents=True)
             stale.write_text("old state\n", encoding="utf-8")

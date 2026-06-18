@@ -32,6 +32,7 @@ from simple_agent_lab.evolution.components.strategy import (  # noqa: E402
     model_program_strategy,
 )
 from simple_agent_lab.evolution.kernel import store as evo_store  # noqa: E402
+from simple_agent_lab.evolution.run_paths import safe_run_root  # noqa: E402
 from simple_agent_lab.evolution.types import RunScores, Slice, Verdict, Version  # noqa: E402
 from simple_agent_lab.llm import Provider  # noqa: E402
 from simple_agent_lab.trace.jsonl import read_jsonl  # noqa: E402
@@ -53,7 +54,7 @@ def run_workflow(args: argparse.Namespace) -> None:
     if args.model_name == DEFAULT_MODEL and os.environ.get("OPENAI_MODEL"):
         args.model_name = os.environ["OPENAI_MODEL"]
     output_root = Path(args.output_root)
-    run_root = output_root / args.run_id
+    run_root = safe_run_root(output_root, args.run_id)
     workspace = run_root / "evolution"
     if args.reset and run_root.exists():
         _shared.cleanup_reset_containers(run_root)
@@ -343,7 +344,7 @@ def heldout_run_id(version: Version, test_records: Sequence[Mapping[str, Any]]) 
 
 def print_monitor(args: argparse.Namespace) -> None:
     _shared.load_dotenv(args.dotenv)
-    run_root = Path(args.output_root) / args.run_id
+    run_root = safe_run_root(args.output_root, args.run_id)
     summary = subprocess.run(
         [
             sys.executable,

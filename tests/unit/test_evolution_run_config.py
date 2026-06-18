@@ -163,7 +163,7 @@ class RunConfigTest(unittest.TestCase):
             self.assertEqual(built.editable_components, ("everything",))
             self.assertEqual(
                 built.experiment.workspace,
-                root / "demo" / "evolution",
+                root.resolve() / "demo" / "evolution",
             )
             self.assertEqual(
                 built.experiment.current().files(),
@@ -286,6 +286,37 @@ class RunConfigTest(unittest.TestCase):
                 "'new'",
                 second.experiment.current().read("agent/agent_program.py"),
             )
+
+    def test_build_self_evolving_run_rejects_unsafe_run_id_before_reset(self) -> None:
+        from simple_agent_lab.evolution.run_config import build_self_evolving_run
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            victim = root / "victim"
+            victim.mkdir()
+            keep = victim / "keep.txt"
+            keep.write_text("do not delete\n", encoding="utf-8")
+            path = self._write_demo_config(
+                root,
+                CONFIG.replace("  id: demo\n", "  id: ../victim\n").replace(
+                    "  reset: false\n", "  reset: true\n"
+                ),
+            )
+            self._register_demo_factories(lambda **_args: lambda _ctx: None)
+
+            with self.assertRaisesRegex(ValueError, "unsafe run id"):
+                build_self_evolving_run(load_self_evolving_config(path))
+
+            self.assertTrue(keep.is_file())
+
+    def test_safe_run_root_rejects_run_ids_that_are_paths(self) -> None:
+        from simple_agent_lab.evolution.run_paths import safe_run_root
+
+        with tempfile.TemporaryDirectory() as tmp:
+            for run_id in ("", ".", "..", "../x", "x/y", r"x\y", "/tmp/x"):
+                with self.subTest(run_id=run_id):
+                    with self.assertRaisesRegex(ValueError, "unsafe run id"):
+                        safe_run_root(tmp, run_id)
 
 
 if __name__ == "__main__":
