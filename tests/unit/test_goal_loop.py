@@ -6,7 +6,7 @@ import unittest
 
 from simple_agent_lab.core import Agent
 from simple_agent_lab.llm import Provider
-from simple_agent_lab.messages import AssistantMessage, TokenUsage
+from simple_agent_lab.messages import AssistantMessage, TextBlock, TokenUsage, ToolCallBlock
 from simple_agent_lab.protocols import GoalStatusEvent
 from simple_agent_lab.workflow import (
     CompletionResult,
@@ -225,6 +225,205 @@ class GoalLoopPhase2Test(unittest.TestCase):
             budgets=GoalBudgets(max_turns=4),
         )
         self.assertEqual(result.status, "budget_exhausted")  # streak never reaches 3
+
+
+class GoalLoopChecksTest(unittest.TestCase):
+    def test_model_declared_completion_via_update_goal_tool(self):
+        """Agent built with update_goal_tool(); generate closure calls it on
+        the first (and only) inner turn → model_declared_check → complete."""
+        from simple_agent_lab.workflow import (
+            model_declared_check,
+            update_goal_tool,
+        )
+
+        tool = update_goal_tool()
+        call_count = {"n": 0}
+
+        def generate(messages):
+            call_count["n"] += 1
+            # On first call emit the tool call; the loop terminates after it.
+            return AssistantMessage(
+                content=(
+                    TextBlock("checking…"),
+                    ToolCallBlock(
+                        id="call_ug1",
+                        name="update_goal",
+                        arguments={"status": "complete", "reason": "all done"},
+                    ),
+                ),
+                sender="goal_agent",
+                target="goal_agent",
+                kind="step",
+            )
+
+        agent = Agent(name="goal_agent", generate=generate, tools=(tool,))
+        result = run_goal_loop(
+            agent,
+            "do the thing",
+            check=model_declared_check,
+            budgets=GoalBudgets(max_turns=5),
+        )
+        self.assertEqual(result.status, "complete")
+
+    def test_command_verifier_only_stops_when_command_passes(self):
+        """command_verifier_check with a command that always exits 0 → complete."""
+        from simple_agent_lab.workflow import command_verifier_check
+
+        agent = _final_agent()
+        # "true" is a shell builtin that always exits 0
+        check = command_verifier_check("true")
+        result = run_goal_loop(
+            agent,
+            "run something",
+            check=check,
+            budgets=GoalBudgets(max_turns=3),
+        )
+        self.assertEqual(result.status, "complete")
+
+    def test_command_verifier_continues_when_command_fails(self):
+        """command_verifier_check with a command that always exits nonzero → budget_exhausted."""
+        from simple_agent_lab.workflow import command_verifier_check
+
+        agent = _final_agent()
+        # "false" is a shell builtin that always exits 1
+        check = command_verifier_check("false")
+        result = run_goal_loop(
+            agent,
+            "run something",
+            check=check,
+            budgets=GoalBudgets(max_turns=2),
+        )
+        self.assertEqual(result.status, "budget_exhausted")
+
+    def test_default_check_continues_when_verifier_vetoes(self):
+        """model declares done but verifier returns not-done → loop continues."""
+        from simple_agent_lab.workflow import (
+            default_check,
+            update_goal_tool,
+        )
+
+        tool = update_goal_tool()
+
+        def generate(messages):
+            # Always call update_goal with status=complete
+            return AssistantMessage(
+                content=(
+                    TextBlock("done!"),
+                    ToolCallBlock(
+                        id="call_dv1",
+                        name="update_goal",
+                        arguments={"status": "complete", "reason": "claimed done"},
+                    ),
+                ),
+                sender="goal_agent",
+                target="goal_agent",
+                kind="step",
+            )
+
+        agent = Agent(name="goal_agent", generate=generate, tools=(tool,))
+
+        # Verifier always says not done → the default_check vetoes the model's claim
+        def vetoing_verifier(s):
+            return CompletionResult(done=False, reason="not really")
+
+        result = run_goal_loop(
+            agent,
+            "do the thing",
+            check=default_check(verifier=vetoing_verifier),
+            budgets=GoalBudgets(max_turns=2),
+        )
+        # The verifier vetoes every claim → loop exhausts the budget
+        self.assertEqual(result.status, "budget_exhausted")
+
+    def test_judge_agent_check_with_stub_judge(self):
+        """stub judge agent whose final message is '{"done": true}' → complete."""
+        from simple_agent_lab.workflow import judge_agent_check
+
+        def judge_generate(messages):
+            return AssistantMessage(
+                content=(TextBlock('{"done": true, "reason": "verified"}'),),
+                sender="judge",
+                target="user",
+                kind="final",
+            )
+
+        judge = Agent(name="judge", generate=judge_generate)
+        worker = _final_agent()
+        check = judge_agent_check(judge, "some objective")
+        result = run_goal_loop(
+            worker,
+            "some objective",
+            check=check,
+            budgets=GoalBudgets(max_turns=3),
+        )
+        self.assertEqual(result.status, "complete")
+
+    def test_continuation_prompt_has_untrusted_wrapper_and_audit_text(self):
+        """The continuation prompt contains '<untrusted_objective>' and 'NOT YET PROVEN'."""
+        from simple_agent_lab.workflow.goal_loop import _continuation_prompt
+
+        prompt = _continuation_prompt("write a thing")
+        self.assertIn("<untrusted_objective>", prompt)
+        self.assertIn("NOT YET PROVEN", prompt)
+        self.assertIn("write a thing", prompt)
+
+    def test_goal_prompt_has_untrusted_wrapper(self):
+        """The first-turn prompt wraps the objective as untrusted data."""
+        from simple_agent_lab.workflow.goal_loop import _goal_prompt, UNTRUSTED_OBJECTIVE_PREAMBLE
+
+        prompt = _goal_prompt("my objective")
+        self.assertIn("<untrusted_objective>", prompt)
+        self.assertIn("my objective", prompt)
+        self.assertIn("untrusted_objective", UNTRUSTED_OBJECTIVE_PREAMBLE)
+
+    def test_judge_agent_check_parse_failure_returns_not_done(self):
+        """If the judge returns unparseable output, result is done=False."""
+        from simple_agent_lab.workflow.goal_checks import _parse_judge_json
+
+        result = _parse_judge_json("I cannot determine this")
+        self.assertFalse(result.get("done"))
+
+    def test_judge_agent_check_json_in_prose(self):
+        """_parse_judge_json extracts JSON embedded in prose."""
+        from simple_agent_lab.workflow.goal_checks import _parse_judge_json
+
+        result = _parse_judge_json('After analysis: {"done": true, "reason": "ok"} Done.')
+        self.assertTrue(result.get("done"))
+        self.assertEqual(result.get("reason"), "ok")
+
+    def test_model_declared_check_returns_blocked_on_blocked_status(self):
+        """model_declared_check correctly maps status=blocked to CompletionResult(blocked=True)."""
+        from simple_agent_lab.workflow import (
+            model_declared_check,
+            update_goal_tool,
+        )
+
+        tool = update_goal_tool()
+
+        def generate(messages):
+            return AssistantMessage(
+                content=(
+                    TextBlock("stuck"),
+                    ToolCallBlock(
+                        id="call_mb1",
+                        name="update_goal",
+                        arguments={"status": "blocked", "reason": "no network"},
+                    ),
+                ),
+                sender="goal_agent",
+                target="goal_agent",
+                kind="step",
+            )
+
+        agent = Agent(name="goal_agent", generate=generate, tools=(tool,))
+        result = run_goal_loop(
+            agent,
+            "do a thing",
+            check=model_declared_check,
+            budgets=GoalBudgets(max_turns=5),
+        )
+        # same blocker repeated >= 3 times → blocked
+        self.assertEqual(result.status, "blocked")
 
 
 if __name__ == "__main__":

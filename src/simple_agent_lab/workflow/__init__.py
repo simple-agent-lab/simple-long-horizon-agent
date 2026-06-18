@@ -80,6 +80,14 @@ from .goal_loop import (
     GoalStatus,
     run_goal_loop,
 )
+from .goal_checks import (
+    UPDATE_GOAL_TOOL_NAME,
+    command_verifier_check,
+    default_check,
+    judge_agent_check,
+    model_declared_check,
+    update_goal_tool,
+)
 
 __all__ = [
     # base
@@ -129,4 +137,11 @@ __all__ = [
     "CompletionCheck",
     "GoalResult",
     "GoalStatus",
+    # goal checks
+    "update_goal_tool",
+    "UPDATE_GOAL_TOOL_NAME",
+    "model_declared_check",
+    "command_verifier_check",
+    "judge_agent_check",
+    "default_check",
 ]
