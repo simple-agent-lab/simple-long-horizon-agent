@@ -52,6 +52,9 @@ class AgentSurface:
         *,
         components: Sequence[str],
     ) -> ValidatedEdits:
+        if not components:
+            return ValidatedEdits({}, tuple(edits))
+
         allowed = tuple(self.component(name) for name in components)
         validators = {v for component in allowed for v in component.validators}
         out: dict[str, str | None] = {}
@@ -61,6 +64,9 @@ class AgentSurface:
                 rejected.append(path)
                 continue
             if content is None:
+                if "entrypoint_exists" in validators and path == self.entrypoint_path:
+                    rejected.append(path)
+                    continue
                 out[path] = None
                 continue
             if not isinstance(content, str):
@@ -132,7 +138,7 @@ def python_agent_surface(
     artifact_key: str,
     version_root: str = "agent/",
 ) -> AgentSurface:
-    root = version_root.rstrip("/") + "/"
+    root = _version_root(version_root)
     version_files = {root + path: text for path, text in default_files.items()}
     return AgentSurface(
         id="python_agent_package",
@@ -184,6 +190,16 @@ def _path_allowed(path: str, components: Sequence[SurfaceComponent]) -> bool:
         return False
     patterns = tuple(pattern for component in components for pattern in component.paths)
     return any(fnmatch.fnmatch(path, pattern) for pattern in patterns)
+
+
+def _version_root(version_root: str) -> str:
+    root = version_root.rstrip("/")
+    path = PurePosixPath(root)
+    if not root or root == "." or path.is_absolute() or ".." in path.parts:
+        raise ValueError(
+            f"version_root must be a non-empty relative path without '..': {version_root!r}"
+        )
+    return f"{path.as_posix()}/"
 
 
 def _python_ok(content: str) -> bool:

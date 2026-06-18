@@ -70,6 +70,26 @@ class AgentSurfaceTest(unittest.TestCase):
         self.assertIn("agent/tool_policy.py", result.rejected)
         self.assertIn("../escape.py", result.rejected)
 
+    def test_validate_edits_rejects_everything_without_selected_components(
+        self,
+    ) -> None:
+        surface = python_agent_surface(
+            default_files=DEFAULT_FILES,
+            artifact_key=AGENT_PACKAGE_KEY,
+        )
+
+        result = surface.validate_edits(
+            {
+                "agent/prompts.py": "def (",
+                "../escape.py": "x = 1\n",
+            },
+            components=(),
+        )
+
+        self.assertEqual(result.edits, {})
+        self.assertIn("agent/prompts.py", result.rejected)
+        self.assertIn("../escape.py", result.rejected)
+
     def test_everything_component_allows_whole_agent_package(self) -> None:
         surface = python_agent_surface(
             default_files=DEFAULT_FILES,
@@ -82,6 +102,22 @@ class AgentSurfaceTest(unittest.TestCase):
         )
 
         self.assertEqual(result.edits["agent/tool_policy.py"], "MAX_RETRIES = 3\n")
+
+    def test_entrypoint_deletion_is_rejected_when_entrypoint_validator_runs(
+        self,
+    ) -> None:
+        surface = python_agent_surface(
+            default_files=DEFAULT_FILES,
+            artifact_key=AGENT_PACKAGE_KEY,
+        )
+
+        result = surface.validate_edits(
+            {"agent/agent_program.py": None},
+            components=("everything",),
+        )
+
+        self.assertEqual(result.edits, {})
+        self.assertIn("agent/agent_program.py", result.rejected)
 
     def test_python_validator_rejects_invalid_python(self) -> None:
         surface = python_agent_surface(
@@ -116,6 +152,16 @@ class AgentSurfaceTest(unittest.TestCase):
         self.assertIn("agent_program.py", payload)
         self.assertIn("prompts.py", payload)
         self.assertNotIn("agent/agent_program.py", payload)
+
+    def test_python_agent_surface_rejects_unsafe_version_roots(self) -> None:
+        for version_root in ("", "/tmp", "../agent"):
+            with self.subTest(version_root=version_root):
+                with self.assertRaises(ValueError):
+                    python_agent_surface(
+                        default_files=DEFAULT_FILES,
+                        artifact_key=AGENT_PACKAGE_KEY,
+                        version_root=version_root,
+                    )
 
 
 if __name__ == "__main__":
