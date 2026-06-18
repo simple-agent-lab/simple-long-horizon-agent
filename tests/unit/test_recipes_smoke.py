@@ -97,6 +97,25 @@ evaluation:
         self.assertIn("surface: python_agent_package", result.stdout)
         self.assertIn("editable components: everything", result.stdout)
 
+    def test_simple_recipe_default_config_runs_dry_run(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                "recipes/simple/evolve.py",
+                "--run-id",
+                "default-simple-smoke",
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("dry-run", result.stdout)
+        self.assertIn("run id: default-simple-smoke", result.stdout)
+
 
 class DgmRecipeSmokeTest(unittest.TestCase):
     def setUp(self):

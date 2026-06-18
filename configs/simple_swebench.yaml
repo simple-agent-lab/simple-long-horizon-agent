@@ -14,7 +14,7 @@ surface:
 instances:
   train:
     id: train
-    path: evals/out/dgm_swebench/splits/demo-train-60.jsonl
+    path: configs/examples/swebench_train_tiny.jsonl
 execution:
   backend:
     name: local_docker
