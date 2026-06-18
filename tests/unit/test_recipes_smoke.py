@@ -1,5 +1,7 @@
 import importlib.util
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,28 +18,84 @@ def _load(path):
 
 
 class SimpleRecipeSmokeTest(unittest.TestCase):
-    def test_simple_parser_builds_and_is_dry_by_default(self):
-        mod = _load(ROOT / "recipes" / "simple" / "evolve.py")
-        args = mod.build_parser().parse_args(
-            ["--train-dataset", "t.jsonl", "--test-dataset", "e.jsonl", "--run-id", "x"]
-        )
-        self.assertFalse(args.execute)
-        self.assertEqual(args.rounds, 4)
-        self.assertEqual(args.promotion_tolerance, 0.0)
-        self.assertEqual(args.uv_binary, "")
-
-    def test_simple_heldout_run_id_uses_version_and_slice(self):
-        mod = _load(ROOT / "recipes" / "simple" / "evolve.py")
-        from simple_agent_lab.evolution.types import Version
-
+    def test_simple_recipe_runs_generic_dry_run_with_registered_swebench(self):
         with tempfile.TemporaryDirectory() as tmp:
-            vd = Path(tmp) / "simplev"
-            (vd / "agent").mkdir(parents=True)
-            (vd / "agent" / "agent_program.py").write_text(
-                "def build_agent(): ...\n", encoding="utf-8"
+            root = Path(tmp)
+            train = root / "train.jsonl"
+            train.write_text('{"instance_id": "sympy__sympy-1"}\n', encoding="utf-8")
+            config = root / "simple.yaml"
+            config.write_text(
+                f"""
+run:
+  id: temp-simple
+  output_root: {root / "out"}
+  execute: false
+  reset: false
+  dotenv: .env
+suite:
+  name: swebench
+surface:
+  name: python_agent_package
+  editable_components: [everything]
+  artifact_key: input/agent_package.json
+  default: simple_agent_package
+instances:
+  train:
+    id: train
+    path: {train}
+execution:
+  backend:
+    name: local_docker
+  store:
+    name: local_dir
+  parallel: 1
+  max_turns: 3
+model:
+  api_kind: openai-chat
+  model_env: OPENAI_MODEL
+  api_key_env: OPENAI_AUTH_TOKEN
+strategy:
+  name: model_program
+  args:
+    system_prompt: demo
+evolution:
+  algorithm: simple
+  rounds: 2
+  criterion:
+    name: promote_not_worse
+    args:
+      dim: reward
+evaluation:
+  baseline_heldout: false
+  final_heldout: false
+  heldout_every_rounds: 0
+  repeats: 1
+  official_scoring: false
+""".lstrip(),
+                encoding="utf-8",
             )
-            rid = mod.heldout_run_id(Version(vd), ({"instance_id": "test-1"},))
-        self.assertTrue(rid.startswith("simplev-"))
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "recipes/simple/evolve.py",
+                    "--config",
+                    str(config),
+                    "--run-id",
+                    "override-simple",
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("dry-run", result.stdout)
+        self.assertIn("run id: override-simple", result.stdout)
+        self.assertIn("suite: swebench", result.stdout)
+        self.assertIn("surface: python_agent_package", result.stdout)
+        self.assertIn("editable components: everything", result.stdout)
 
 
 class DgmRecipeSmokeTest(unittest.TestCase):

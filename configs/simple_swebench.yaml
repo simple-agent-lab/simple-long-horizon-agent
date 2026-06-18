@@ -1,0 +1,51 @@
+run:
+  id: simple-swebench-demo
+  output_root: evals/out/self_evolving/simple
+  execute: false
+  reset: false
+  dotenv: .env
+suite:
+  name: swebench
+surface:
+  name: python_agent_package
+  editable_components: [everything]
+  artifact_key: input/agent_package.json
+  default: simple_agent_package
+instances:
+  train:
+    id: train
+    path: evals/out/dgm_swebench/splits/demo-train-60.jsonl
+execution:
+  backend:
+    name: local_docker
+  store:
+    name: local_dir
+  parallel: 1
+  max_turns: 75
+model:
+  api_kind: openai-chat
+  model_env: OPENAI_MODEL
+  api_key_env: OPENAI_AUTH_TOKEN
+  base_url_env: OPENAI_BASE_URL
+strategy:
+  name: model_program
+  args:
+    system_prompt: |
+      You are a meta-agent evolving a SWE-bench coding agent.
+
+      The agent is a Python package. Make one focused whole-program change
+      likely to raise the measured resolve rate. Return only the JSON edit
+      payload requested by the meta-strategy.
+evolution:
+  algorithm: simple
+  rounds: 4
+  criterion:
+    name: promote_not_worse
+    args:
+      dim: reward
+evaluation:
+  baseline_heldout: false
+  final_heldout: false
+  heldout_every_rounds: 0
+  repeats: 1
+  official_scoring: false

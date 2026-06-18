@@ -22,9 +22,11 @@ class RunWrapperHelpTest(unittest.TestCase):
     def test_simple_wrapper_help_documents_execution_inputs(self):
         result = _help("run_self_evolving_simple.sh")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("--train-dataset", result.stdout)
-        self.assertIn("--test-dataset", result.stdout)
+        self.assertIn("--config", result.stdout)
+        self.assertIn("--run-id", result.stdout)
         self.assertIn("--execute", result.stdout)
+        self.assertIn("--reset", result.stdout)
+        self.assertIn("--monitor", result.stdout)
 
     def test_dgm_wrapper_help_documents_knobs(self):
         result = _help("run_dgm_swebench.sh")
