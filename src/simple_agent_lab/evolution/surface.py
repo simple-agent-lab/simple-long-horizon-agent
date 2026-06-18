@@ -60,6 +60,9 @@ class AgentSurface:
         out: dict[str, str | None] = {}
         rejected: list[str] = []
         for path, content in edits.items():
+            if not _path_safe(path):
+                rejected.append(path)
+                continue
             if "path_allowed" in validators and not _path_allowed(path, allowed):
                 rejected.append(path)
                 continue
@@ -185,11 +188,17 @@ def python_agent_surface(
 
 
 def _path_allowed(path: str, components: Sequence[SurfaceComponent]) -> bool:
-    posix_path = PurePosixPath(path)
-    if posix_path.is_absolute() or ".." in posix_path.parts:
+    if not _path_safe(path):
         return False
     patterns = tuple(pattern for component in components for pattern in component.paths)
     return any(fnmatch.fnmatch(path, pattern) for pattern in patterns)
+
+
+def _path_safe(path: str) -> bool:
+    posix_path = PurePosixPath(path)
+    if posix_path.is_absolute() or ".." in posix_path.parts:
+        return False
+    return True
 
 
 def _version_root(version_root: str) -> str:

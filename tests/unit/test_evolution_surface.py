@@ -70,6 +70,38 @@ class AgentSurfaceTest(unittest.TestCase):
         self.assertIn("agent/tool_policy.py", result.rejected)
         self.assertIn("../escape.py", result.rejected)
 
+    def test_validate_edits_always_rejects_unsafe_paths(self) -> None:
+        surface = AgentSurface(
+            id="custom",
+            name="Custom surface",
+            description="A custom public surface.",
+            entrypoint="safe.py:build_agent",
+            default_files={},
+            artifact_key=AGENT_PACKAGE_KEY,
+            components=(
+                SurfaceComponent(
+                    id="custom_component",
+                    name="Custom component",
+                    description="Syntax-only validation.",
+                    paths=("safe.py",),
+                    validators=("python_syntax",),
+                ),
+            ),
+        )
+
+        result = surface.validate_edits(
+            {
+                "safe.py": "x = 1\n",
+                "../escape.py": "x = 1\n",
+                "/tmp/escape.py": "x = 1\n",
+            },
+            components=("custom_component",),
+        )
+
+        self.assertIn("safe.py", result.edits)
+        self.assertIn("../escape.py", result.rejected)
+        self.assertIn("/tmp/escape.py", result.rejected)
+
     def test_validate_edits_rejects_everything_without_selected_components(
         self,
     ) -> None:
