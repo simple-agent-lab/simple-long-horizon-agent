@@ -14,6 +14,12 @@ docs/design/20260612-evolution-infra-redesign.md
 from simple_agent_lab.evals.instances import InstanceSet
 from simple_agent_lab.evolution.config import Config, Use
 from simple_agent_lab.evolution.experiment import Experiment
+from simple_agent_lab.evolution.surface import (
+    AgentSurface,
+    SurfaceComponent,
+    ValidatedEdits,
+    python_agent_surface,
+)
 from simple_agent_lab.evolution.types import (
     Context,
     Decision,
@@ -29,6 +35,10 @@ __all__ = [
     "Config",
     "InstanceSet",
     "Use",
+    "AgentSurface",
+    "SurfaceComponent",
+    "ValidatedEdits",
+    "python_agent_surface",
     "Context",
     "Proposal",
     "Decision",
