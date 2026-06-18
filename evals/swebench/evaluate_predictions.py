@@ -296,7 +296,7 @@ def run_official_pro_harness(args: argparse.Namespace) -> None:
         "--scripts_dir",
         args.scripts_dir,
         "--num_workers",
-        str(args.max_workers),
+        str(getattr(args, "max_workers", 1)),
         "--use_local_docker",
         "--redo",
     ]

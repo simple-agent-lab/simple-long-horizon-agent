@@ -25,11 +25,13 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
         )
         self.assertEqual(
             evaluate_predictions.DEFAULT_PRO_EVAL_SCRIPT,
-            Path("/tmp/SWE-bench_Pro-os/swe_bench_pro_eval.py"),
+            evaluate_predictions.ROOT
+            / "evals/out/swebench_pro/official_harness/swe_bench_pro_eval.py",
         )
         self.assertEqual(
             evaluate_predictions.DEFAULT_PRO_SCRIPTS_DIR,
-            Path("/tmp/SWE-bench_Pro-os/run_scripts"),
+            evaluate_predictions.ROOT
+            / "evals/out/swebench_pro/official_harness/run_scripts",
         )
 
     def test_pro_mode_defaults_to_pro_output_paths(self) -> None:
