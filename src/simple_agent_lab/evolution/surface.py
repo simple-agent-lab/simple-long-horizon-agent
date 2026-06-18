@@ -37,6 +37,9 @@ class AgentSurface:
     artifact_key: str
     components: tuple[SurfaceComponent, ...]
 
+    def __post_init__(self) -> None:
+        _relative_path(self.artifact_key, field="artifact_key")
+
     def seed_files(self) -> dict[str, str]:
         return dict(self.default_files)
 
@@ -63,7 +66,7 @@ class AgentSurface:
             if not _path_safe(path):
                 rejected.append(path)
                 continue
-            if "path_allowed" in validators and not _path_allowed(path, allowed):
+            if not _path_allowed(path, allowed):
                 rejected.append(path)
                 continue
             if content is None:
@@ -142,7 +145,10 @@ def python_agent_surface(
     version_root: str = "agent/",
 ) -> AgentSurface:
     root = _version_root(version_root)
-    version_files = {root + path: text for path, text in default_files.items()}
+    version_files = {
+        root + _relative_path(path, field="default file path"): text
+        for path, text in default_files.items()
+    }
     return AgentSurface(
         id="python_agent_package",
         name="Python agent package",
@@ -195,20 +201,34 @@ def _path_allowed(path: str, components: Sequence[SurfaceComponent]) -> bool:
 
 
 def _path_safe(path: str) -> bool:
-    posix_path = PurePosixPath(path)
-    if posix_path.is_absolute() or ".." in posix_path.parts:
-        return False
-    return True
+    return _relative_path_ok(path)
 
 
 def _version_root(version_root: str) -> str:
     root = version_root.rstrip("/")
     path = PurePosixPath(root)
-    if not root or root == "." or path.is_absolute() or ".." in path.parts:
+    if not _relative_path_ok(root):
         raise ValueError(
             f"version_root must be a non-empty relative path without '..': {version_root!r}"
         )
     return f"{path.as_posix()}/"
+
+
+def _relative_path(path: str, *, field: str) -> str:
+    if not _relative_path_ok(path):
+        raise ValueError(
+            f"{field} must be a non-empty relative path without '..': {path!r}"
+        )
+    return PurePosixPath(path).as_posix()
+
+
+def _relative_path_ok(path: str) -> bool:
+    pure_path = PurePosixPath(path)
+    return (
+        bool(path)
+        and pure_path != PurePosixPath(".")
+        and not (pure_path.is_absolute() or ".." in pure_path.parts)
+    )
 
 
 def _python_ok(content: str) -> bool:
