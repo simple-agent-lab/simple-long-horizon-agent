@@ -6,7 +6,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -15,6 +15,7 @@ from simple_agent_lab.evolution import registry
 from simple_agent_lab.evolution.components.rollout import Rollout, rollout_from_suite
 from simple_agent_lab.evolution.experiment import Experiment
 from simple_agent_lab.evolution.surface import AgentSurface
+from simple_agent_lab.llm.provider import ApiKind, Provider
 
 
 @dataclass(frozen=True)
@@ -159,6 +160,7 @@ def load_self_evolving_config(path: str | Path) -> SelfEvolvingConfig:
 
 def build_self_evolving_run(config: SelfEvolvingConfig) -> SelfEvolvingRun:
     run_root = Path(config.run.output_root) / config.run.id
+    provider = _provider(config)
     suite = registry.build("suite", _use(config.suite.name, **config.suite.args))
     surface = registry.build(
         "surface",
@@ -207,6 +209,7 @@ def build_self_evolving_run(config: SelfEvolvingConfig) -> SelfEvolvingRun:
         "strategy",
         _use(
             config.strategy.name,
+            provider=provider,
             surface=surface,
             editable_components=config.surface.editable_components,
             **config.strategy.args,
@@ -256,9 +259,14 @@ def _run_config(raw: Mapping[str, Any]) -> RunConfig:
 
 
 def _surface_config(raw: Mapping[str, Any]) -> SurfaceConfig:
+    editable_components = raw.get("editable_components", ("everything",))
+    if isinstance(editable_components, str):
+        components = (editable_components,)
+    else:
+        components = tuple(str(component) for component in editable_components)
     return SurfaceConfig(
         name=str(raw["name"]),
-        editable_components=tuple(raw.get("editable_components", ("everything",))),
+        editable_components=components,
         default=str(raw["default"]),
         artifact_key=str(raw["artifact_key"]),
     )
@@ -303,6 +311,21 @@ def _use(name: str, **args: object):
     from simple_agent_lab.evolution.config import Use
 
     return Use(name, **args)
+
+
+def _provider(config: SelfEvolvingConfig) -> Provider:
+    base_url = (
+        os.environ.get(config.model.base_url_env, "").strip()
+        if config.model.base_url_env
+        else ""
+    )
+    return Provider(
+        id=config.model.api_kind,
+        api=cast(ApiKind, config.model.api_kind),
+        model=os.environ.get(config.model.model_env, ""),
+        base_url=base_url or None,
+        api_key_env=config.model.api_key_env,
+    )
 
 
 def _provider_json(config: SelfEvolvingConfig) -> str:
