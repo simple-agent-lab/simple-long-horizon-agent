@@ -8,12 +8,13 @@ directory and parse lazily, with the directory as the source of truth and
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
+
+from simple_agent_lab.evals.instances import InstanceSet
 
 # Aggregated/per-run score shapes shared by reward + criterion.
 DimScores = Mapping[str, float]  # one run: {dim: value}
@@ -129,23 +130,12 @@ class Run:
         return tuple(record.get("events", ()))
 
 
-@dataclass(frozen=True)
-class Slice:
-    """The frozen instance set used for a fair A/B comparison."""
+class Slice(InstanceSet):
+    """Compatibility name for the benchmark instance set used by evolution.
 
-    id: str
-    instances: tuple[Mapping[str, Any], ...] = ()
-
-    @property
-    def sha(self) -> str:
-        ids = sorted(
-            str(inst.get("instance_id", n)) for n, inst in enumerate(self.instances)
-        )
-        return hashlib.sha256(json.dumps(ids).encode("utf-8")).hexdigest()[:12]
-
-    @property
-    def n(self) -> int:
-        return len(self.instances)
+    New code should use ``InstanceSet``. ``Slice`` remains so existing recipes,
+    tests, and logs keep working while the API migrates.
+    """
 
 
 @dataclass(frozen=True)

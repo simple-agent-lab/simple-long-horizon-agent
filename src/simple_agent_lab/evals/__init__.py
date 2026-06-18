@@ -29,6 +29,7 @@ from .backends import (
     RemoteDockerBackend,
 )
 from .batch import reconcile_dataset, submit_dataset
+from .instances import InstanceSet, load_jsonl_instances
 from .protocols import (
     DEFAULT_MEMORY_CONTAINER_HOME,
     EVAL_KEY,
@@ -79,6 +80,7 @@ __all__ = [
     "ContainerTask",
     "DatasetReport",
     "FakeBackend",
+    "InstanceSet",
     "InstanceResult",
     "HostHttpStore",
     "LaunchSpec",
@@ -91,6 +93,7 @@ __all__ = [
     "RunOutcome",
     "RunSpec",
     "Suite",
+    "load_jsonl_instances",
     "reconcile_dataset",
     "run_dataset",
     "run_suite_instance",
