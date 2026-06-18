@@ -24,12 +24,22 @@ CRITERIA: dict[str, Callable[..., Any]] = {
     "not_worse": _criterion.not_worse,
     "promote_not_worse": _criterion.promote_not_worse,
 }
+SUITES: dict[str, Callable[..., Any]] = {}
+SURFACES: dict[str, Callable[..., Any]] = {}
+BACKENDS: dict[str, Callable[..., Any]] = {}
+STORES: dict[str, Callable[..., Any]] = {}
+ALGORITHMS: dict[str, Callable[..., Any]] = {}
 
 _TABLES = {
     "rollout": ROLLOUTS,
     "reward": REWARDS,
     "strategy": STRATEGIES,
     "criterion": CRITERIA,
+    "suite": SUITES,
+    "surface": SURFACES,
+    "backend": BACKENDS,
+    "store": STORES,
+    "algorithm": ALGORITHMS,
 }
 
 

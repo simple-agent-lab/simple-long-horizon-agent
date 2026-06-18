@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from simple_agent_lab.evals.instances import InstanceSet, load_jsonl_instances
+from simple_agent_lab.evolution import registry
+from simple_agent_lab.evolution.components.rollout import Rollout, rollout_from_suite
+from simple_agent_lab.evolution.experiment import Experiment
+from simple_agent_lab.evolution.surface import AgentSurface
 
 
 @dataclass(frozen=True)
@@ -105,6 +112,19 @@ class SelfEvolvingConfig:
     evaluation: EvaluationConfig
 
 
+@dataclass(frozen=True)
+class SelfEvolvingRun:
+    config: SelfEvolvingConfig
+    suite: object
+    surface: AgentSurface
+    editable_components: tuple[str, ...]
+    train: InstanceSet
+    heldout: InstanceSet | None
+    rollout: Rollout
+    strategy: object
+    experiment: Experiment
+
+
 def load_self_evolving_config(path: str | Path) -> SelfEvolvingConfig:
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     if not isinstance(data, dict):
@@ -134,6 +154,90 @@ def load_self_evolving_config(path: str | Path) -> SelfEvolvingConfig:
         ),
         evolution=_evolution_config(data["evolution"]),
         evaluation=EvaluationConfig(**data["evaluation"]),
+    )
+
+
+def build_self_evolving_run(config: SelfEvolvingConfig) -> SelfEvolvingRun:
+    run_root = Path(config.run.output_root) / config.run.id
+    suite = registry.build("suite", _use(config.suite.name, **config.suite.args))
+    surface = registry.build(
+        "surface",
+        _use(
+            config.surface.name,
+            default=config.surface.default,
+            artifact_key=config.surface.artifact_key,
+        ),
+    )
+    train = InstanceSet(
+        config.instances.train.id,
+        load_jsonl_instances(config.instances.train.path),
+    )
+    heldout = (
+        InstanceSet(
+            config.instances.heldout.id,
+            load_jsonl_instances(config.instances.heldout.path),
+        )
+        if config.instances.heldout
+        else None
+    )
+    backend = registry.build(
+        "backend",
+        _use(config.execution.backend.name, **config.execution.backend.args),
+    )
+    store = registry.build(
+        "store",
+        _use(
+            config.execution.store.name,
+            root=run_root / "runs",
+            **config.execution.store.args,
+        ),
+    )
+    rollout = rollout_from_suite(
+        suite=suite,
+        surface=surface,
+        backend=backend,
+        store=store,
+        runs_root=run_root / "runs",
+        concurrency=1
+        if config.execution.parallel == "auto"
+        else int(config.execution.parallel),
+        run_kwargs={"max_turns": config.execution.max_turns},
+    )
+    strategy = registry.build(
+        "strategy",
+        _use(
+            config.strategy.name,
+            surface=surface,
+            editable_components=config.surface.editable_components,
+            **config.strategy.args,
+        ),
+    )
+    seed = {
+        **surface.seed_files(),
+        "provider.json": _provider_json(config),
+    }
+    experiment = Experiment(
+        run_root / "evolution",
+        rollout=rollout,
+        reward=registry.build("reward", _use("result_key")),
+        criterion=registry.build(
+            "criterion",
+            _use(config.evolution.criterion.name, **config.evolution.criterion.args),
+        ),
+        slice_id=train.id,
+        instances=train.instances,
+        seed=seed,
+    )
+    return SelfEvolvingRun(
+        config=config,
+        suite=suite,
+        surface=surface,
+        editable_components=config.surface.editable_components,
+        train=train,
+        heldout=heldout,
+        rollout=rollout,
+        strategy=strategy,
+        experiment=experiment,
     )
 
 
@@ -193,3 +297,22 @@ def _evolution_config(raw: Mapping[str, Any]) -> EvolutionRunConfig:
         meta_concurrency=int(raw.get("meta_concurrency", 1)),
         parent_selection=str(raw.get("parent_selection", "current")),
     )
+
+
+def _use(name: str, **args: object):
+    from simple_agent_lab.evolution.config import Use
+
+    return Use(name, **args)
+
+
+def _provider_json(config: SelfEvolvingConfig) -> str:
+    import json
+
+    data = {
+        "api": config.model.api_kind,
+        "model": os.environ.get(config.model.model_env, ""),
+        "api_key_env": config.model.api_key_env,
+    }
+    if config.model.base_url_env and os.environ.get(config.model.base_url_env):
+        data["base_url"] = os.environ[config.model.base_url_env]
+    return json.dumps(data, indent=2, sort_keys=True) + "\n"
