@@ -28,6 +28,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from recipes import _shared  # noqa: E402
 from evals.swebench import evolution_adapter as er  # noqa: E402
+from simple_agent_lab.evolution.run_paths import safe_run_root  # noqa: E402
 
 DEFAULT_OUTPUT_ROOT = Path("evals/out/dgm_swebench")
 
@@ -128,6 +129,7 @@ def measure_pool(
     from simple_agent_lab.evolution.kernel import store as evo_store
     from simple_agent_lab.evolution.types import Slice
 
+    safe_run_root(output_root, run_id)
     layout = er.PerformanceLayout(output_root, run_id)
     layout.create()
     workspace = layout.run_root / "evolution"
@@ -202,6 +204,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
+    safe_run_root(args.output_root, args.run_id)
 
     _shared.load_dotenv(args.dotenv)
     pool = read_jsonl(args.pool)

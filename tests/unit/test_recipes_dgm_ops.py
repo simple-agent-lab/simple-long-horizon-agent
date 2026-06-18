@@ -72,6 +72,30 @@ class SplitChosenTest(unittest.TestCase):
             )
 
 
+class BaselineMainSafetyTest(unittest.TestCase):
+    def setUp(self):
+        self.mod = _load(ROOT / "recipes" / "dgm" / "baseline.py")
+
+    def test_rejects_unsafe_run_id_before_pool_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self.assertRaisesRegex(ValueError, "unsafe run id"):
+                self.mod.main(
+                    [
+                        "--run-id",
+                        "../victim",
+                        "--output-root",
+                        str(root / "out"),
+                        "--pool",
+                        str(root / "missing-pool.jsonl"),
+                        "--train-out",
+                        str(root / "train.jsonl"),
+                        "--test-out",
+                        str(root / "test.jsonl"),
+                    ]
+                )
+
+
 class ReportSummarizeTest(unittest.TestCase):
     def setUp(self):
         self.mod = _load(ROOT / "recipes" / "dgm" / "report.py")

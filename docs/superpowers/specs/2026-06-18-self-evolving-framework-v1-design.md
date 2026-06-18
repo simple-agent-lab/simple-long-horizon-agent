@@ -44,9 +44,10 @@ objects, not threading benchmark-specific helper functions through recipes.
 - No `EvolutionHarness` class. `Experiment` plus helper functions is enough.
 - No `Candidate` or `RunSubject` in v1. `Version` is the evolution subject;
   `RunSpec` is the backend-facing execution request.
-- No benchmark-owned agent surface module, such as `evals/swebench/surface.py`.
-  Surfaces belong to evolution/agent infrastructure and are composed with
-  suites by config or recipes.
+- No benchmark-owned agent surface module. Surfaces belong to evolution/agent
+  infrastructure (`src/simple_agent_lab/evolution/surface.py`) and are composed
+  with suites by config or recipe registration such as
+  `evals/swebench/self_evolving.py`.
 - No arbitrary Python import paths in v1 YAML. The first config format should
   use small registries with readable names.
 
