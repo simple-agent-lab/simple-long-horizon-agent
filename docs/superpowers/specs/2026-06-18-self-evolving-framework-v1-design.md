@@ -386,10 +386,7 @@ surface:
 instances:
   train:
     id: swebench-train
-    path: data/train.jsonl
-  heldout:
-    id: swebench-heldout
-    path: data/test.jsonl
+    path: configs/examples/swebench_train_tiny.jsonl
 
 execution:
   backend:
@@ -423,25 +420,18 @@ evolution:
       tol: 0.0
 
 evaluation:
-  baseline_heldout: true
-  final_heldout: true
+  baseline_heldout: false
+  final_heldout: false
   heldout_every_rounds: 0
   repeats: 1
-  official_scoring: true
+  official_scoring: false
 ```
 
-DGM changes the evolution block:
-
-```yaml
-evolution:
-  algorithm: dgm
-  rounds: 4
-  branches: 3
-  meta_concurrency: 3
-  parent_selection: score_child_prop
-  criterion:
-    name: dgm_admission
-```
+DGM is not represented by a generic YAML config in v1. The generic runner
+accepts `evolution.algorithm: simple` only; DGM/open-ended scheduling knobs
+such as `branches`, `meta_concurrency`, and `parent_selection` are rejected
+under `evolution:`. DGM remains recipe-local under `recipes/dgm/` until a real
+DGM algorithm runner and config contract are designed.
 
 ### Typed Config Values
 
@@ -550,9 +540,7 @@ construct rollout_from_suite
 construct Provider
 construct strategy
 construct Experiment
-optionally run baseline heldout
-run selected algorithm
-optionally run final heldout
+run simple algorithm or print dry-run summary
 write summary
 write resolved_config.json or resolved_config.yaml to the run directory
 ```
@@ -570,11 +558,14 @@ backend.name: local_docker
 store.name: local_dir
 strategy.name: model_program
 criterion.name: promote_not_worse
-evolution.algorithm: simple | dgm
+evolution.algorithm: simple
 ```
 
 The registry values should be explicit and grep-able. Arbitrary import strings
 are a future extension, not v1.
+
+DGM-specific scheduling and archive policy are intentionally absent from this
+generic registry in v1.
 
 ## Recipe Authoring
 
@@ -585,13 +576,13 @@ A user designing a self-evolving run chooses:
 3. `InstanceSet`: which cases for train and heldout?
 4. `surface.editable_components`: which named parts of that surface are open?
 5. `strategy`: how are edits proposed?
-6. `evolution.algorithm`: simple or DGM search policy.
+6. `evolution.algorithm`: the v1 generic runner accepts `simple` only.
 7. `criterion`: what counts as accepted or valid?
 8. `execution`: where and how runs execute.
 
-Recipes become example configs and light wrappers. Simple and DGM share object
-construction. They differ only in algorithm-specific scheduling and parent
-selection.
+The simple recipe becomes an example config and a light wrapper around the
+generic runner. DGM keeps its existing recipe-local construction, open-ended
+archive, scheduling, and official held-out scoring flow under `recipes/dgm/`.
 
 ## SWE-bench Boundary
 
@@ -623,7 +614,8 @@ SWE-bench does not own:
    adapter and into `AgentSurface`.
 7. Add `run_config.py` with typed config dataclasses and YAML loader.
 8. Add `evolution/run.py` generic runner.
-9. Convert simple and DGM recipes to use config-backed composition.
+9. Convert the simple recipe to config-backed composition while preserving DGM
+   as a recipe-local flow.
 10. Shrink `evals/swebench/evolution_adapter.py` to SWE-bench-only helpers, or
    remove it if remaining helpers belong elsewhere.
 
@@ -638,7 +630,9 @@ SWE-bench does not own:
 - Unit-test `rollout_from_suite(...)` with fake backend/store and a small demo
   suite.
 - Unit-test YAML loading and registry resolution without Docker or network.
-- Smoke-test generic runner dry mode for simple and DGM configs.
+- Smoke-test generic runner dry mode for the simple config and wrapper.
+- Smoke-test DGM through its recipe-local workflow; do not add a generic DGM
+  dry-run in v1.
 - Keep real Docker/model execution behind `--execute`.
 
 ## Open Risks
@@ -660,8 +654,10 @@ SWE-bench does not own:
 
 - A simple self-evolving SWE-bench run can be expressed as one YAML config plus
   the generic runner.
-- A DGM self-evolving SWE-bench run can reuse the same config schema and runner,
-  differing mainly in the `evolution` block.
+- The generic YAML runner rejects DGM-shaped `evolution:` keys and supports only
+  `algorithm: simple` in v1.
+- DGM remains under `recipes/dgm/` with its open-ended archive and held-out
+  official scoring until a dedicated DGM algorithm runner is designed.
 - The simple recipe no longer needs SWE-bench evolution adapter functions for
   generic rollout or surface packaging.
 - `Suite`, `AgentSurface`, `SurfaceComponent`, and `InstanceSet` are each

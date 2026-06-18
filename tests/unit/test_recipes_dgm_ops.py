@@ -95,6 +95,21 @@ class BaselineMainSafetyTest(unittest.TestCase):
                     ]
                 )
 
+    def test_measure_pool_rejects_unsafe_run_id_before_layout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self.assertRaisesRegex(ValueError, "unsafe run id"):
+                self.mod.measure_pool(
+                    [],
+                    run_id="../victim",
+                    output_root=root / "out",
+                    dataset_name="dataset",
+                    concurrency=1,
+                    api_kind="openai-chat",
+                    max_turns=1,
+                    model_name="model",
+                )
+
 
 class ReportSummarizeTest(unittest.TestCase):
     def setUp(self):
