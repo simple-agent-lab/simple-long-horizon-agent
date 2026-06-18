@@ -35,6 +35,7 @@ class EventKind(str, Enum):
     TOOL_EXECUTION_UPDATE = "tool_execution_update"
     TOOL_EXECUTION_END = "tool_execution_end"
     HOOK_FIRED = "hook_fired"
+    GOAL_STATUS = "goal_status"
 
     def __str__(self) -> str:
         return self.value
@@ -212,6 +213,34 @@ class HookFiredEvent(_BaseEvent):
     emitted: int = 0
 
 
+# The goal loop's lifecycle status. Superset of GoalResult's terminal
+# `GoalStatus`: "active" marks a turn where the loop is still continuing.
+GoalLifecycleStatus: TypeAlias = Literal[
+    "active", "complete", "blocked", "budget_exhausted", "aborted"
+]
+
+
+@dataclass(frozen=True, kw_only=True)
+class GoalStatusEvent(_BaseEvent):
+    """One goal-loop turn's outcome — an append-only, replay-able record of the
+    goal's lifecycle.
+
+    Recorded by `run_goal_loop` (not the inner ReAct loop). `StateSnapshot.apply`
+    ignores it, so it lives only in `state.events` (trace/audit/replay) and never
+    enters the model context. The objective is carried so a goal is fully
+    reconstructable from the log alone.
+    """
+
+    kind: Literal[EventKind.GOAL_STATUS] = field(
+        default=EventKind.GOAL_STATUS, init=False
+    )
+    objective: str
+    status: GoalLifecycleStatus
+    turns_used: int
+    tokens_used: int = 0
+    reason: str = ""
+
+
 Event: TypeAlias = (
     MessageEvent
     | AgentStartEvent
@@ -225,4 +254,5 @@ Event: TypeAlias = (
     | ToolExecutionUpdateEvent
     | ToolExecutionEndEvent
     | HookFiredEvent
+    | GoalStatusEvent
 )

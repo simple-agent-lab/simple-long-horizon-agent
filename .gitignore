@@ -85,3 +85,6 @@ node_modules/
 .idea/
 .vscode/
 *.swp
+
+# Riptide artifacts (cloud-synced)
+.humanlayer/tasks/

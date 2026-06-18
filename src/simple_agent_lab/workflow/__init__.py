@@ -72,6 +72,14 @@ from .routing import (
     select_route,
 )
 from .sequential import JoinFn, default_join, run_chain
+from .goal_loop import (
+    CompletionCheck,
+    CompletionResult,
+    GoalBudgets,
+    GoalResult,
+    GoalStatus,
+    run_goal_loop,
+)
 
 __all__ = [
     # base
@@ -114,4 +122,11 @@ __all__ = [
     "make_aggregator_agent",
     "AGGREGATOR_ROLE",
     "AGGREGATOR_SYSTEM_PROMPT",
+    # goal loop
+    "run_goal_loop",
+    "GoalBudgets",
+    "CompletionResult",
+    "CompletionCheck",
+    "GoalResult",
+    "GoalStatus",
 ]
