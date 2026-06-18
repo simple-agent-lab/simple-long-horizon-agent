@@ -190,6 +190,39 @@ class EvolutionRunCliTest(unittest.TestCase):
                 (run_root / "evolution" / "pointers" / "current.json").is_file()
             )
 
+    def test_monitor_with_run_id_override_is_read_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = self._write_demo_config(root)
+            text = config.read_text(encoding="utf-8")
+            text = text.replace("name: demo_suite", "name: unregistered_suite")
+            text = text.replace(
+                "name: python_agent_package", "name: unregistered_surface"
+            )
+            text = text.replace("name: fake", "name: unregistered_backend")
+            text = text.replace("name: local_dir", "name: unregistered_store")
+            text = text.replace("name: model_program", "name: unregistered_strategy")
+            config.write_text(text, encoding="utf-8")
+            run_root = root / "monitor-demo"
+            stale = run_root / "stale.txt"
+            stale.parent.mkdir(parents=True)
+            stale.write_text("old state\n", encoding="utf-8")
+
+            output = self._run_cli(
+                [
+                    "--config",
+                    str(config),
+                    "--run-id",
+                    "monitor-demo",
+                    "--monitor",
+                    "--reset",
+                ]
+            )
+
+            self.assertEqual(f"monitor: {run_root}\n", output)
+            self.assertTrue(stale.is_file())
+            self.assertFalse((run_root / "evolution").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

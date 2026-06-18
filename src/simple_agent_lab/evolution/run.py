@@ -43,12 +43,13 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     config = _apply_overrides(load_self_evolving_config(args.config), args)
-    built = build_self_evolving_run(config)
     run_root = Path(config.run.output_root) / config.run.id
 
     if args.monitor:
         print(f"monitor: {run_root}")
         return 0
+
+    built = build_self_evolving_run(config)
 
     if config.run.execute:
         decisions = built.experiment.run(
