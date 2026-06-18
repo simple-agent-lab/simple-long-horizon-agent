@@ -21,6 +21,8 @@ DEFAULT_CONFIG = ROOT / "configs" / "simple_swebench.yaml"
 def main(argv: Sequence[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     register_swebench_self_evolving_factories()
+    if not _has_option(args, "--config") and _asks_for_help(args):
+        print(f"default config: {DEFAULT_CONFIG.relative_to(ROOT)}")
     if not _has_option(args, "--config") and not _asks_for_help(args):
         args = ["--config", str(DEFAULT_CONFIG), *args]
     return run_main(args)
