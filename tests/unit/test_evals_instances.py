@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 from simple_agent_lab.evals.instances import InstanceSet, load_jsonl_instances
@@ -50,12 +51,40 @@ class InstanceSetTest(unittest.TestCase):
 
         self.assertEqual(tuple(row["instance_id"] for row in loaded), ("i1", "i2"))
 
+    def test_load_jsonl_instances_rejects_non_object_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "instances.jsonl"
+            path.write_text(
+                json.dumps(["not", "an", "object"]) + "\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "non-object JSONL row"):
+                load_jsonl_instances(path)
+
     def test_slice_remains_constructible_as_compatibility_alias(self) -> None:
         slice_ = Slice("train", ({"instance_id": "i1"},))
 
         self.assertEqual(slice_.id, "train")
         self.assertEqual(slice_.n, 1)
         self.assertEqual(len(slice_.sha), 12)
+
+    def test_slice_rejects_assigning_new_attributes(self) -> None:
+        slice_ = Slice("train")
+
+        with self.assertRaises(FrozenInstanceError):
+            setattr(slice_, "extra", "changed")
+
+    def test_top_level_exports_work(self) -> None:
+        from simple_agent_lab.evals import InstanceSet as EvalsInstanceSet
+        from simple_agent_lab.evals import load_jsonl_instances as evals_loader
+        from simple_agent_lab.evolution import InstanceSet as EvolutionInstanceSet
+        from simple_agent_lab.evolution import Slice as EvolutionSlice
+
+        self.assertIs(EvalsInstanceSet, InstanceSet)
+        self.assertIs(evals_loader, load_jsonl_instances)
+        self.assertIs(EvolutionInstanceSet, InstanceSet)
+        self.assertIs(EvolutionSlice, Slice)
 
 
 if __name__ == "__main__":

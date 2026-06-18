@@ -130,6 +130,7 @@ class Run:
         return tuple(record.get("events", ()))
 
 
+@dataclass(frozen=True)
 class Slice(InstanceSet):
     """Compatibility name for the benchmark instance set used by evolution.
 
