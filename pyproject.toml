@@ -27,6 +27,7 @@ classifiers = [
 dependencies = [
     "anthropic>=0.39.0",
     "openai>=1.50.0",
+    "PyYAML>=6.0.0",
 ]
 
 [project.optional-dependencies]
