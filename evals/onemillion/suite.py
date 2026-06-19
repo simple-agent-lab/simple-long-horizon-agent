@@ -74,3 +74,11 @@ class OneMillionWorkflowSuite(OneMillionSuite):
     """
 
     container_module = "simple_agent_lab.evals.suites.onemillion.workflow_container"
+
+
+class OneMillionDynamicWorkflowSuite(OneMillionSuite):
+    """`OneMillionSuite` whose generation runs agent-written JavaScript workflow."""
+
+    container_module = (
+        "simple_agent_lab.evals.suites.onemillion.dynamic_workflow_container"
+    )

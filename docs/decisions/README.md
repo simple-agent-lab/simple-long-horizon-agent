@@ -52,6 +52,7 @@ product direction, especially if future contributors may wonder why it was chose
 - [Generic Containerized Eval Framework](20260531-generic-containerized-eval-framework.md) — supersedes `keep-benchmark-suites-as-eval-adapters` for containerized suites
 - [Oracle Run Mode for Suite Self-Check](20260601-oracle-run-mode-for-suite-self-check.md) — builds on `generic-containerized-eval-framework`
 - [Scorer Seam and Per-Suite Scoring Topology](20260601-scorer-seam-and-scoring-topology.md) — amends `generic-containerized-eval-framework`, builds on `oracle-run-mode-for-suite-self-check`, amended by `collapse-scorer-seam-into-run-primitive`
+- [Dynamic Workflows Use Generated JavaScript Orchestration](20260620-dynamic-workflows-js-orchestration.md)
 
 ## Withdrawn
 
