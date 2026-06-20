@@ -45,12 +45,14 @@ from simple_agent_lab.workflow import (
     make_critic_agent,
     make_planner_agent,
     make_router_agent,
+    make_selector_agent,
     run_agent,
     run_chain,
     run_parallel,
     run_planner_executor,
     run_reflection,
     run_routing,
+    run_rtv,
 )
 
 # Reuse the single-turn container's task / collection seam. `extract_result` and
@@ -75,6 +77,8 @@ from .grading import (
 WORKFLOW_ENV = "OMB_WORKFLOW"
 REFLECTION_ROUNDS_ENV = "OMB_REFLECTION_ROUNDS"
 PARALLEL_WORKERS_ENV = "OMB_PARALLEL_WORKERS"
+RTV_ROLLOUTS_ENV = "OMB_RTV_ROLLOUTS"
+RTV_GROUP_ENV = "OMB_RTV_GROUP"
 # Per-request timeout for every sub-agent. The default LLM request timeout is
 # 60s, far too short for slow high-reasoning models on a long case, so the
 # workflow agents use a generous default that callers can override.
@@ -103,6 +107,7 @@ WORKFLOW_CHOICES = (
     "parallel",
     "chain",
     "routing",
+    "rtv",
 )
 
 
@@ -283,6 +288,28 @@ def make_workflow_runner(
             provider, routes, request_extra=request_extra, timeout_seconds=timeout
         )
         return lambda task: run_routing(router, routes, task, default="knowledge")
+
+    if name == "rtv":
+        # Recursive Tournament Voting: N independent rollouts, then a selector
+        # narrows them in small-group comparisons until one wins. The rollout
+        # agent carries the OMB answer prompt; diversity rides on the provider's
+        # sampling temperature (set via request_extra by the caller).
+        n = _env_int(RTV_ROLLOUTS_ENV, 4)
+        group = _env_int(RTV_GROUP_ENV, 3, minimum=2)
+        rollout = _answer_agent(
+            provider, "rollout", request_extra, timeout_seconds=timeout
+        )
+        selector = make_selector_agent(
+            provider, request_extra=request_extra, timeout_seconds=timeout
+        )
+        return lambda task: run_rtv(
+            rollout,
+            selector,
+            task,
+            rollouts=n,
+            group_size=group,
+            worker_max_turns=1,
+        )
 
     raise SystemExit(
         f"Unsupported {WORKFLOW_ENV}={name!r}; expected one of {WORKFLOW_CHOICES}."

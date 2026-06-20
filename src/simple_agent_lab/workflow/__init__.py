@@ -36,6 +36,7 @@ from .base import (
     as_text,
     final_output,
     never_abort,
+    pick_index,
     run_agent,
 )
 from .parallel import (
@@ -72,6 +73,15 @@ from .routing import (
     select_route,
 )
 from .sequential import JoinFn, default_join, run_chain
+from .tournament import (
+    SELECTOR_ROLE,
+    SELECTOR_SYSTEM_PROMPT,
+    SUMMARIZER_ROLE,
+    SUMMARIZER_SYSTEM_PROMPT,
+    make_selector_agent,
+    make_summarizer_agent,
+    run_rtv,
+)
 from .goal_loop import (
     CompletionCheck,
     CompletionResult,
@@ -97,6 +107,7 @@ __all__ = [
     "final_output",
     "as_text",
     "never_abort",
+    "pick_index",
     # sequential
     "run_chain",
     "default_join",
@@ -130,6 +141,14 @@ __all__ = [
     "make_aggregator_agent",
     "AGGREGATOR_ROLE",
     "AGGREGATOR_SYSTEM_PROMPT",
+    # tournament (RTV)
+    "run_rtv",
+    "make_selector_agent",
+    "make_summarizer_agent",
+    "SELECTOR_ROLE",
+    "SELECTOR_SYSTEM_PROMPT",
+    "SUMMARIZER_ROLE",
+    "SUMMARIZER_SYSTEM_PROMPT",
     # goal loop
     "run_goal_loop",
     "GoalBudgets",

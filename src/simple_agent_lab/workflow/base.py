@@ -16,6 +16,8 @@ the sub-agent to *see* something without it being phrased as the task.
 
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass, field
 from typing import Sequence
 
@@ -94,6 +96,40 @@ def as_text(task: ContentInput) -> str:
     if isinstance(task, str):
         return task
     return text_of(normalize_content(task))
+
+
+def pick_index(text: str, n: int, *, default: int = 0) -> int:
+    """Resolve a judge/selector's free text to a 0-based choice in ``[0, n)``.
+
+    The selection seam shared by workflows that ask an agent to *pick the best
+    of N candidates* (the tournament selector here, and future value-guided
+    picks). Candidates are presented to the model 1-based ("Candidate 1..N"),
+    so this parses a 1-based answer and returns it 0-based. Mirrors the tolerant
+    parsing of `routing.select_route` / `goal_checks._parse_judge_json`: try a
+    JSON object (`{"best": k}`) first, then the first in-range integer, and fall
+    back to `default` when nothing usable is found — never raise on bad model
+    output.
+    """
+    if n <= 0:
+        raise ValueError("pick_index requires n >= 1")
+    try:
+        obj = json.loads(text.strip())
+    except (json.JSONDecodeError, ValueError):
+        obj = None
+    if isinstance(obj, dict):
+        for key in ("best", "choice", "winner", "index", "answer"):
+            if key in obj:
+                try:
+                    k = int(obj[key])
+                except (TypeError, ValueError):
+                    continue
+                if 1 <= k <= n:
+                    return k - 1
+    for token in re.findall(r"\d+", text):
+        k = int(token)
+        if 1 <= k <= n:
+            return k - 1
+    return default
 
 
 def run_agent(
