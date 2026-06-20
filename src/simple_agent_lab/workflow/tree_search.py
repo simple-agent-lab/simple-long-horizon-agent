@@ -75,7 +75,6 @@ class _Node:
     step: StepResult | None = None
     parent: "_Node | None" = None
     children: list["_Node"] = field(default_factory=list)
-    untried: int = 0
     visits: int = 0
     total_value: float = 0.0
     value: float = 0.0
@@ -110,8 +109,12 @@ def _reflect_prompt(task: str, output: str) -> str:
     )
 
 
-def _can_expand(node: _Node, max_depth: int) -> bool:
-    return node.untried > 0 and not node.terminal and node.depth < max_depth
+def _can_expand(node: _Node, branch: int, max_depth: int) -> bool:
+    return (
+        len(node.children) < branch
+        and not node.terminal
+        and node.depth < max_depth
+    )
 
 
 def _uct(child: _Node, parent_visits: int, c: float) -> float:
@@ -120,28 +123,26 @@ def _uct(child: _Node, parent_visits: int, c: float) -> float:
     return child.mean_value + c * math.sqrt(math.log(parent_visits) / child.visits)
 
 
-def _select(root: _Node, max_depth: int, c: float) -> _Node | None:
-    """Descend from `root` by UCT to a node that can still be expanded.
+def _select_expandable(root: _Node, branch: int, max_depth: int, c: float) -> _Node | None:
+    """Find a node that can still grow a child.
 
-    Returns the first expandable node on the best-UCT path, or `None` if that
-    path dead-ends (the caller then scans for any expandable node elsewhere).
+    Descends from `root` along the best-UCT path, returning the first expandable
+    node on it. If that path dead-ends at a non-expandable leaf, scans the whole
+    tree for any remaining expandable node (a sibling branch the UCT path skipped)
+    before giving up.
     """
     node = root
-    while True:
-        if _can_expand(node, max_depth):
-            return node
-        if not node.children:
-            return None
+    while node.children and not _can_expand(node, branch, max_depth):
         node = max(node.children, key=lambda ch: _uct(ch, node.visits, c))
+    if _can_expand(node, branch, max_depth):
+        return node
 
-
-def _any_expandable(root: _Node, max_depth: int) -> _Node | None:
     stack = [root]
     while stack:
-        node = stack.pop()
-        if _can_expand(node, max_depth):
-            return node
-        stack.extend(node.children)
+        candidate = stack.pop()
+        if _can_expand(candidate, branch, max_depth):
+            return candidate
+        stack.extend(candidate.children)
     return None
 
 
@@ -186,18 +187,17 @@ def run_mcts(
         raise ValueError("run_mcts requires branch >= 1")
 
     task_text = as_text(task)
-    root = _Node(depth=0, terminal=False, untried=branch)
+    root = _Node(depth=0, terminal=False)
     steps: list[StepResult] = []
     all_nodes: list[_Node] = []
 
     expansions = 0
     while expansions < budget and not abort():
-        node = _select(root, max_depth, c_uct) or _any_expandable(root, max_depth)
+        node = _select_expandable(root, branch, max_depth, c_uct)
         if node is None:
             break
 
         child = _grow(node, worker, task_text, segment_turns, abort)
-        node.untried -= 1
         node.children.append(child)
         all_nodes.append(child)
         if child.step is not None:
@@ -249,9 +249,6 @@ def _grow(
         output=step.output,
         step=step,
         parent=node,
-        # A child inherits its parent's branching factor. `node.untried` has not
-        # been decremented yet, so untried + already-created children == branch.
-        untried=node.untried + len(node.children),
     )
 
 
