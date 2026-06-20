@@ -43,12 +43,16 @@ from simple_agent_lab.workflow import (
     StepResult,
     WorkflowResult,
     make_critic_agent,
+    make_distiller_agent,
     make_planner_agent,
     make_router_agent,
     make_selector_agent,
+    make_value_agent,
     run_agent,
     run_chain,
+    run_mcts,
     run_parallel,
+    run_pdr,
     run_planner_executor,
     run_reflection,
     run_routing,
@@ -79,6 +83,10 @@ REFLECTION_ROUNDS_ENV = "OMB_REFLECTION_ROUNDS"
 PARALLEL_WORKERS_ENV = "OMB_PARALLEL_WORKERS"
 RTV_ROLLOUTS_ENV = "OMB_RTV_ROLLOUTS"
 RTV_GROUP_ENV = "OMB_RTV_GROUP"
+PDR_ROUNDS_ENV = "OMB_PDR_ROUNDS"
+PDR_WIDTH_ENV = "OMB_PDR_WIDTH"
+MCTS_BUDGET_ENV = "OMB_MCTS_BUDGET"
+MCTS_BRANCH_ENV = "OMB_MCTS_BRANCH"
 # Per-request timeout for every sub-agent. The default LLM request timeout is
 # 60s, far too short for slow high-reasoning models on a long case, so the
 # workflow agents use a generous default that callers can override.
@@ -108,6 +116,8 @@ WORKFLOW_CHOICES = (
     "chain",
     "routing",
     "rtv",
+    "pdr",
+    "mcts",
 )
 
 
@@ -309,6 +319,59 @@ def make_workflow_runner(
             rollouts=n,
             group_size=group,
             worker_max_turns=1,
+        )
+
+    if name == "pdr":
+        # Parallel-Distill-Refine: each round runs `width` attempts, distills
+        # them into a findings brief, and conditions the next round on it.
+        rounds = _env_int(PDR_ROUNDS_ENV, 2)
+        width = _env_int(PDR_WIDTH_ENV, 3)
+        worker = _answer_agent(
+            provider, "attempt", request_extra, timeout_seconds=timeout
+        )
+        distiller = make_distiller_agent(
+            provider, request_extra=request_extra, timeout_seconds=timeout
+        )
+        finalizer = _answer_agent(
+            provider,
+            "finalizer",
+            request_extra,
+            timeout_seconds=timeout,
+            extra_prompt=(
+                "Using the prior findings, write the complete, accurate final "
+                "answer."
+            ),
+        )
+        return lambda task: run_pdr(
+            worker,
+            distiller,
+            task,
+            rounds=rounds,
+            width=width,
+            finalizer=finalizer,
+            worker_max_turns=1,
+            finalizer_max_turns=1,
+        )
+
+    if name == "mcts":
+        # Value-guided tree search. On single-turn Q&A every child is terminal
+        # at depth 1, so this degrades to best-of-`branch` by the value agent;
+        # the tree depth shows on multi-turn agentic suites.
+        budget = _env_int(MCTS_BUDGET_ENV, 4)
+        branch = _env_int(MCTS_BRANCH_ENV, 4)
+        worker = _answer_agent(
+            provider, "rollout", request_extra, timeout_seconds=timeout
+        )
+        value = make_value_agent(
+            provider, request_extra=request_extra, timeout_seconds=timeout
+        )
+        return lambda task: run_mcts(
+            worker,
+            value,
+            task,
+            budget=budget,
+            branch=branch,
+            segment_turns=1,
         )
 
     raise SystemExit(

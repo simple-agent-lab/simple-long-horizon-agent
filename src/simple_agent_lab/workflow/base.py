@@ -162,3 +162,61 @@ def run_agent(
         output=final_output(state, agent.name),
         state=state,
     )
+
+
+def resume_agent(
+    agent: Agent,
+    state: State,
+    followup: ContentInput,
+    *,
+    max_turns: int = 10,
+    abort: AbortFlag = never_abort,
+    role: str = "",
+) -> StepResult:
+    """Continue an existing `state` with `followup` via the core ReAct loop.
+
+    The `run_agent` counterpart for *continuation*: instead of seeding a fresh
+    `State`, it appends `followup` to `state` and drives the loop, so messages
+    and trace events keep accumulating on the same conversation. This is the
+    seam tree search uses to grow a node — fork a parent `State` (`fork_state`),
+    then `resume_agent` the fork independently.
+    """
+    state, events = agent.resume(state, followup, max_turns=max_turns, abort=abort)
+    for _ in events:
+        if abort():
+            break
+    return StepResult(
+        name=agent.name,
+        role=role or agent.role,
+        task=as_text(followup),
+        output=final_output(state, agent.name),
+        state=state,
+    )
+
+
+def fork_state(state: State) -> State:
+    """Return an independent copy of `state` that can be resumed in isolation.
+
+    `State` is event-sourced (`events` + a `snapshot` replayed from them) and
+    its `Message`/`Event` records are frozen, so a fork is just a fresh `State`
+    carrying a shallow copy of the event list with its snapshot rebuilt — no
+    deepcopy of immutable payloads. Resuming the fork appends new events to the
+    copy only, leaving the parent untouched, which is what lets tree search
+    branch one conversation into several without changing `core`.
+    """
+    forked = State(task=state.task, data=dict(state.data))
+    forked.events = list(state.events)
+    forked.rebuild_snapshot()
+    return forked
+
+
+def emitted_final(state: State, agent_name: str) -> bool:
+    """True iff `agent_name` produced a terminal `final` message in `state`.
+
+    Distinguishes a node that *finished* (the loop stopped on `final`) from one
+    truncated at `max_turns` — tree search needs that to mark terminal leaves.
+    """
+    return any(
+        message.sender == agent_name and message.kind == "final"
+        for message in state.messages
+    )
