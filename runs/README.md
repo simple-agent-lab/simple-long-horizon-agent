@@ -14,6 +14,8 @@ bash runs/run_swebench_verified.sh
 bash runs/run_swebench_multilingual.sh
 bash runs/run_swebench_pro.sh
 bash runs/eval_swebench.sh
+uv run python runs/run_tool_search_bench.py
+uv run python runs/run_tool_search_sweep.py
 ```
 
 `runs/run_ci.sh` mirrors the GitHub Actions workflow at
@@ -38,6 +40,43 @@ This runs a deterministic mini-SWE-style bash-use agent demo:
 
 ```bash
 bash runs/run_bash_agent_demo.sh
+```
+
+This runs the local experimental tool-search execution bench. It compares
+`search_tools + invoke_tool`, retrieve-then-bind top-k, and a static budgeted
+tool set with synthetic distractors:
+
+```bash
+uv run python runs/run_tool_search_bench.py --distractors 250 --top-k 8
+```
+
+For comparison tables across tool-universe sizes and seeds:
+
+```bash
+uv run python runs/run_tool_search_sweep.py --distractors 0,25,100,250 --seeds 7,8
+```
+
+Sweep outputs are written under `evals/out/tool_search/<run-id>/`:
+`summary.csv` has one row per condition, `tasks.csv` has one row per executed
+task, and `sweep.json` preserves the full nested report.
+
+To run the same synthetic tool universe with a real OpenAI-compatible model,
+configure `.env` with `OPENAI_MODEL` / `OPENAI_AUTH_TOKEN` and pass:
+
+```bash
+uv run python runs/run_tool_search_bench.py --runner llm --mode proxy --distractors 250 --top-k 8
+```
+
+For a budgeted real-model sweep:
+
+```bash
+uv run python runs/run_tool_search_sweep.py \
+  --runner llm \
+  --distractors 0,25,100 \
+  --seeds 7 \
+  --modes proxy,dynamic_topk \
+  --top-k 8 \
+  --limit-tasks 5
 ```
 
 To verify SWE-bench adapter tests specifically (already included in `run_ci.sh`):
