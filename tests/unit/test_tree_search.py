@@ -58,6 +58,9 @@ class BaseHelpersTest(unittest.TestCase):
         self.assertIsNot(forked.events, step.state.events)
         self.assertEqual(len(forked.messages), len(step.state.messages))
 
+        # The fork stays on the parent's clock (see State.fork).
+        self.assertEqual(forked._monotonic_origin, step.state._monotonic_origin)
+
         before = len(step.state.events)
         resume_agent(worker, forked, "again")
         # Growing the fork must not mutate the parent state.
@@ -110,6 +113,8 @@ class MctsTest(unittest.TestCase):
             run_mcts(worker, value, "q", budget=0)
         with self.assertRaises(ValueError):
             run_mcts(worker, value, "q", branch=0)
+        with self.assertRaises(ValueError):
+            run_mcts(worker, value, "q", max_depth=0)
 
 
 if __name__ == "__main__":

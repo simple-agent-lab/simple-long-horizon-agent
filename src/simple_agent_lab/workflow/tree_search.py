@@ -185,6 +185,8 @@ def run_mcts(
         raise ValueError("run_mcts requires budget >= 1")
     if branch < 1:
         raise ValueError("run_mcts requires branch >= 1")
+    if max_depth < 1:
+        raise ValueError("run_mcts requires max_depth >= 1")
 
     task_text = as_text(task)
     root = _Node(depth=0, terminal=False)

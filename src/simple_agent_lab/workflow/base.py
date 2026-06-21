@@ -197,17 +197,12 @@ def resume_agent(
 def fork_state(state: State) -> State:
     """Return an independent copy of `state` that can be resumed in isolation.
 
-    `State` is event-sourced (`events` + a `snapshot` replayed from them) and
-    its `Message`/`Event` records are frozen, so a fork is just a fresh `State`
-    carrying a shallow copy of the event list with its snapshot rebuilt — no
-    deepcopy of immutable payloads. Resuming the fork appends new events to the
-    copy only, leaving the parent untouched, which is what lets tree search
-    branch one conversation into several without changing `core`.
+    Thin alias for `State.fork()` — kept as a workflow-level name because tree
+    search reads as `fork_state(node.state)`. The actual copy semantics (events
+    shared by list copy, snapshot replayed, `data` deep-copied, monotonic clock
+    carried over) live on `State` so they stay correct as `State` grows fields.
     """
-    forked = State(task=state.task, data=dict(state.data))
-    forked.events = list(state.events)
-    forked.rebuild_snapshot()
-    return forked
+    return state.fork()
 
 
 def emitted_final(state: State, agent_name: str) -> bool:
