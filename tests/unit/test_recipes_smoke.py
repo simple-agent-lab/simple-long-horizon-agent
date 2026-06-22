@@ -234,6 +234,21 @@ class DgmRecipeSmokeTest(unittest.TestCase):
         self.assertEqual(ns.branches, 4)
         self.assertFalse(ns.execute)
 
+    def test_parser_defaults_to_three_branch_dgm_recipe(self):
+        ns = self.mod.build_parser().parse_args(
+            [
+                "--run-id",
+                "x",
+                "--train-dataset",
+                "t.jsonl",
+                "--test-dataset",
+                "e.jsonl",
+            ]
+        )
+
+        self.assertEqual(ns.branches, 3)
+        self.assertEqual(ns.parallel, "3")
+
     def test_pick_best_node_selects_highest_valid(self):
         from recipes.dgm.algorithm import archive
 
@@ -295,6 +310,10 @@ class DgmRecipeSmokeTest(unittest.TestCase):
         rounds, branches, meta = self.mod.resolve_schedule(ns_def)
         self.assertEqual(rounds, 4)
         self.assertEqual(meta, branches)
+
+    def test_validate_schedule_capacity_rejects_more_branches_than_workers(self):
+        with self.assertRaisesRegex(SystemExit, "--parallel.*--branches"):
+            self.mod.validate_schedule_capacity(branches=4, global_workers=3)
 
     def test_heldout_run_id_uses_version_and_slice(self):
         from simple_agent_lab.evolution.types import Version

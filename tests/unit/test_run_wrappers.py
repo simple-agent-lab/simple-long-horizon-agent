@@ -18,6 +18,17 @@ def _help(script: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _run(script: str, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", f"runs/{script}", *args],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+
 class RunWrapperHelpTest(unittest.TestCase):
     def test_simple_wrapper_help_documents_execution_inputs(self):
         result = _help("run_self_evolving_simple.sh")
@@ -41,6 +52,27 @@ class RunWrapperHelpTest(unittest.TestCase):
         self.assertIn("--execute", result.stdout)
         self.assertIn("--parent-selection", result.stdout)
         self.assertIn("--monitor", result.stdout)
+        self.assertIn("--branches N", result.stdout)
+        self.assertIn("Default: 3.", result.stdout)
+        self.assertIn("--parallel N", result.stdout)
+        self.assertIn("Global Docker worker cap. Default: 3.", result.stdout)
+        self.assertNotIn("auto", result.stdout.lower())
+
+    def test_dgm_wrapper_rejects_auto_parallel(self):
+        result = _run(
+            "run_dgm_swebench.sh",
+            "--run-id",
+            "demo",
+            "--train-dataset",
+            "train.jsonl",
+            "--test-dataset",
+            "test.jsonl",
+            "--parallel",
+            "auto",
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--parallel must be a positive integer", result.stderr)
 
 
 if __name__ == "__main__":

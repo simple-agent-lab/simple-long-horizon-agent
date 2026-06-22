@@ -122,6 +122,30 @@ class RunConfigTest(unittest.TestCase):
         self.assertEqual(config.suite.name, "swebench")
         self.assertEqual(config.surface.editable_components, ("everything",))
         self.assertEqual(config.evolution.rounds, 2)
+        self.assertEqual(config.execution.parallel, 1)
+
+    def test_load_self_evolving_config_defaults_parallel_to_one(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.yaml"
+            path.write_text(
+                CONFIG.replace("  parallel: 1\n", ""),
+                encoding="utf-8",
+            )
+
+            config = load_self_evolving_config(path)
+
+        self.assertEqual(config.execution.parallel, 1)
+
+    def test_load_self_evolving_config_rejects_auto_parallel(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.yaml"
+            path.write_text(
+                CONFIG.replace("  parallel: 1\n", "  parallel: auto\n"),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "execution.parallel"):
+                load_self_evolving_config(path)
 
     def test_load_self_evolving_config_keeps_scalar_editable_component(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

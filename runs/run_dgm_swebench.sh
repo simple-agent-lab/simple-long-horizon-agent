@@ -34,7 +34,7 @@ ROUNDS=""
 BRANCHES=3
 META_CONCURRENCY=0
 PARENT_SELECTION="score_child_prop"
-PARALLEL="auto"
+PARALLEL=3
 MODEL_NAME="${OPENAI_MODEL:-dgm-swebench}"
 API_KIND="openai-chat"
 MAX_TURNS=75
@@ -59,7 +59,7 @@ Options:
   --meta-concurrency N                Concurrent meta-agent LLM calls per round. Default: branches.
   --generations N                     Deprecated alias for --rounds (candidates = rounds x branches).
   --parent-selection METHOD           latest|best|score_prop|score_child_prop. Default: score_child_prop.
-  --parallel N|auto                   Global Docker worker cap. Default: auto (sized to the Docker VM memory/CPU).
+  --parallel N                        Global Docker worker cap. Default: 3.
   --model-name NAME                   OPENAI_MODEL value to write into provider.json.
   --api-kind KIND                     openai-chat|openai-responses. Default: openai-chat.
   --dotenv PATH                       Provider env file. Default: .env.
@@ -134,8 +134,13 @@ if [ -n "$META_CONCURRENCY" ] && ! [[ "$META_CONCURRENCY" =~ ^[0-9]+$ ]]; then
   exit 2
 fi
 
-if [ "$PARALLEL" != "auto" ] && ! [[ "$PARALLEL" =~ ^[1-9][0-9]*$ ]]; then
-  echo "ERROR: --parallel must be a positive integer or 'auto'; got '${PARALLEL}'." >&2
+if ! [[ "$PARALLEL" =~ ^[1-9][0-9]*$ ]]; then
+  echo "ERROR: --parallel must be a positive integer; got '${PARALLEL}'." >&2
+  exit 2
+fi
+
+if [ "$BRANCHES" -gt "$PARALLEL" ]; then
+  echo "ERROR: --parallel must be >= --branches because each active DGM branch needs one Docker rollout worker." >&2
   exit 2
 fi
 

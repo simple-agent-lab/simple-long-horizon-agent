@@ -1,4 +1,4 @@
-"""Recipe runtime helpers for env loading, Docker probing, and worker sizing.
+"""Recipe runtime helpers for env loading, Docker probing, and worker counts.
 
 These live in the recipe layer, not the package: they import ``docker`` directly,
 which arch_lint confines to ``evals.backends`` inside the package. Recipes are
@@ -11,12 +11,6 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
-AUTO_PARALLEL = "auto"
-PER_CONTAINER_GB = 1.5
-DOCKER_MEMORY_RESERVE_GB = 1.5
-CPU_OVERSUBSCRIBE = 3
-FALLBACK_PARALLEL = 2
 
 
 def load_dotenv(path: str | Path) -> None:
@@ -102,66 +96,31 @@ class ParallelResolution:
     detail: str
 
 
-def _docker_resources(client_factory: Any = None) -> tuple[int, float] | None:
-    """Return ``(NCPU, MemTotal_GB)`` for the Docker daemon, or None if unknown."""
-
-    try:
-        if client_factory is None:
-            import docker
-
-            client_factory = docker.from_env
-        info = client_factory().info()
-        ncpu = int(info.get("NCPU") or 0)
-        mem_gb = int(info.get("MemTotal") or 0) / (1024**3)
-    except Exception:
-        return None
-    if ncpu <= 0 or mem_gb <= 0:
-        return None
-    return ncpu, mem_gb
-
-
 def resolve_parallel_workers(
-    requested: str | int,
+    requested: str | int | None,
     num_instances: int,
     *,
     client_factory: Any = None,
 ) -> ParallelResolution:
-    """Resolve ``--parallel``, auto-sizing to the Docker VM when ``"auto"``.
+    """Resolve ``--parallel`` as an explicit positive integer.
 
-    An explicit positive integer is honored as-is. ``"auto"`` returns the largest
-    worker count that fits the VM's memory and CPU caps without exceeding the slice
-    size; when ``docker info`` is unreachable it falls back to a small safe count.
+    ``None`` means the caller omitted the setting, so the safe framework default
+    is one worker. ``client_factory`` is accepted for older tests/callers but is
+    intentionally unused: worker counts are no longer inferred from Docker.
     """
 
+    del client_factory
     instances = max(1, int(num_instances))
-    text = str(requested).strip().lower()
-    if text != AUTO_PARALLEL:
-        try:
-            explicit = int(text)
-        except ValueError:
-            raise SystemExit(
-                f"--parallel must be a positive integer or 'auto'; got {requested!r}"
-            )
-        if explicit < 1:
-            raise SystemExit(f"--parallel must be >= 1 or 'auto'; got {requested!r}")
-        return ParallelResolution(explicit, f"explicit; {instances} instances")
-
-    resources = _docker_resources(client_factory)
-    if resources is None:
-        return ParallelResolution(
-            min(instances, FALLBACK_PARALLEL),
-            "auto fallback (docker info unavailable)",
-        )
-    ncpu, mem_gb = resources
-    mem_cap = max(1, int((mem_gb - DOCKER_MEMORY_RESERVE_GB) // PER_CONTAINER_GB))
-    cpu_cap = ncpu * CPU_OVERSUBSCRIBE
-    workers = max(1, min(instances, mem_cap, cpu_cap))
-    detail = (
-        f"auto: docker VM {ncpu} cpu / {mem_gb:.1f} GB; "
-        f"mem cap {mem_cap} (@{PER_CONTAINER_GB:g} GB/container), "
-        f"cpu cap {cpu_cap}, {instances} instances"
-    )
-    return ParallelResolution(workers, detail)
+    text = "1" if requested is None else str(requested).strip()
+    try:
+        explicit = int(text)
+    except ValueError:
+        raise SystemExit(
+            f"--parallel must be a positive integer; got {requested!r}"
+        ) from None
+    if explicit < 1:
+        raise SystemExit(f"--parallel must be >= 1; got {requested!r}")
+    return ParallelResolution(explicit, f"explicit; {instances} instances")
 
 
 def branch_concurrency(*, global_workers: int, branches: int) -> int:

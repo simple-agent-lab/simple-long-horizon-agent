@@ -92,7 +92,7 @@ uv run --extra swebench python recipes/dgm/ops/baseline.py \
   --test-out evals/out/dgm_swebench/splits/demo-test-60.jsonl \
   --train-size 60 \
   --test-size 60 \
-  --parallel auto
+  --parallel 3
 ```
 
 To verify SWE-bench adapter tests specifically (already included in `run_ci.sh`):

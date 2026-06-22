@@ -48,7 +48,7 @@ uv run --extra swebench python recipes/dgm/ops/baseline.py \
   --test-out evals/out/dgm_swebench/splits/demo-test-60.jsonl \
   --train-size 60 \
   --test-size 60 \
-  --parallel auto
+  --parallel 3
 ```
 
 This writes a selected pool, per-instance seed resolve records, and disjoint
@@ -106,7 +106,7 @@ bash runs/run_dgm_swebench.sh --run-id dgm-real \
 | `--branches` | `3` | Candidate branches evaluated concurrently per round. |
 | `--meta-concurrency` | `0` (= branches) | Concurrent meta-agent LLM calls per round. |
 | `--parent-selection` | `score_child_prop` | `latest` \| `best` \| `score_prop` \| `score_child_prop`. |
-| `--parallel` | `auto` | Global Docker worker cap, or `auto` to size to the Docker VM. |
+| `--parallel` | `3` | Global Docker worker cap. Must be at least `--branches`. |
 | `--model-name` | `OPENAI_MODEL` | Provider model written into `provider.json`. |
 | `--api-kind` | `openai-chat` | `openai-chat` \| `openai-responses`. |
 | `--max-turns` | `75` | Per-instance agent turn budget. |

@@ -239,7 +239,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-root", default=str(DEFAULT_OUTPUT_ROOT))
     parser.add_argument("--dataset-name", default=er.DEFAULT_DATASET)
     parser.add_argument("--dataset-split", default="test")
-    parser.add_argument("--parallel", default=recipe_runtime.AUTO_PARALLEL)
+    parser.add_argument("--parallel", default="1")
     parser.add_argument(
         "--model-name",
         default=os.environ.get("OPENAI_MODEL", ""),

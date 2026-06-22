@@ -6,14 +6,6 @@ from pathlib import Path
 import recipes.runtime as runtime
 
 
-class _FakeDockerInfo:
-    def __init__(self, *, ncpu, mem_bytes):
-        self._info = {"NCPU": ncpu, "MemTotal": mem_bytes}
-
-    def info(self):
-        return self._info
-
-
 class BranchConcurrencyTest(unittest.TestCase):
     def test_never_exceeds_global(self):
         self.assertEqual(runtime.branch_concurrency(global_workers=19, branches=3), 6)
@@ -28,34 +20,23 @@ class ResolveParallelTest(unittest.TestCase):
         self.assertEqual(res.workers, 4)
         self.assertIn("explicit", res.detail)
 
-    def test_auto_memory_capped_small_vm(self):
-        res = runtime.resolve_parallel_workers(
-            "auto",
-            8,
-            client_factory=lambda: _FakeDockerInfo(ncpu=4, mem_bytes=8 * 1024**3),
-        )
-        self.assertEqual(res.workers, 4)
-        self.assertIn("docker VM", res.detail)
+    def test_default_is_one(self):
+        res = runtime.resolve_parallel_workers(None, 8)
+        self.assertEqual(res.workers, 1)
+        self.assertIn("explicit", res.detail)
 
-    def test_auto_instance_capped_large_vm(self):
-        res = runtime.resolve_parallel_workers(
-            "auto",
-            8,
-            client_factory=lambda: _FakeDockerInfo(ncpu=12, mem_bytes=32 * 1024**3),
-        )
-        self.assertEqual(res.workers, 8)
-
-    def test_auto_falls_back_without_docker(self):
+    def test_does_not_probe_docker(self):
         def broken():
-            raise RuntimeError("no docker")
+            raise AssertionError("docker should not be probed")
 
-        res = runtime.resolve_parallel_workers("auto", 8, client_factory=broken)
-        self.assertEqual(res.workers, runtime.FALLBACK_PARALLEL)
-        self.assertIn("fallback", res.detail)
+        res = runtime.resolve_parallel_workers("2", 8, client_factory=broken)
+        self.assertEqual(res.workers, 2)
 
     def test_rejects_invalid(self):
         with self.assertRaises(SystemExit):
             runtime.resolve_parallel_workers("zero", 8)
+        with self.assertRaises(SystemExit):
+            runtime.resolve_parallel_workers("auto", 8)
         with self.assertRaises(SystemExit):
             runtime.resolve_parallel_workers("0", 8)
 

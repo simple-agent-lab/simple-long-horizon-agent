@@ -76,6 +76,7 @@ def run_workflow(args: argparse.Namespace) -> None:
         args.parallel, len(train_records)
     )
     global_workers = resolution.workers
+    validate_schedule_capacity(branches=branches, global_workers=global_workers)
     per_branch = recipe_runtime.branch_concurrency(
         global_workers=global_workers, branches=branches
     )
@@ -199,6 +200,16 @@ def resolve_schedule(args: argparse.Namespace) -> tuple[int, int, int]:
     branches = max(1, int(args.branches))
     meta_workers = int(args.meta_concurrency) or branches
     return max(1, int(rounds)), branches, max(1, meta_workers)
+
+
+def validate_schedule_capacity(*, branches: int, global_workers: int) -> None:
+    """Keep the advertised global Docker worker cap honest."""
+
+    if int(branches) > int(global_workers):
+        raise SystemExit(
+            "--parallel must be >= --branches because each active DGM branch "
+            "needs at least one Docker rollout worker."
+        )
 
 
 def select_archive_parent(ctx: Any, method: str) -> str:
@@ -524,8 +535,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--parallel",
-        default=recipe_runtime.AUTO_PARALLEL,
-        help="Global worker cap, or 'auto' to size to the Docker VM. Default: auto.",
+        default="3",
+        help="Global Docker worker cap. Default: 3.",
     )
     parser.add_argument(
         "--model-name", default=os.environ.get("OPENAI_MODEL", DEFAULT_MODEL)

@@ -66,7 +66,7 @@ class InstancesConfig:
 class ExecutionConfig:
     backend: NamedConfig
     store: NamedConfig
-    parallel: int | str = 1
+    parallel: int = 1
     max_turns: int = 75
 
 
@@ -233,9 +233,7 @@ def build_self_evolving_run(config: SelfEvolvingConfig) -> SelfEvolvingRun:
         backend=backend,
         store=store,
         runs_root=run_root / "runs",
-        concurrency=1
-        if config.execution.parallel == "auto"
-        else int(config.execution.parallel),
+        concurrency=config.execution.parallel,
         run_kwargs={"max_turns": config.execution.max_turns},
     )
     strategy_args: dict[str, object] = {
@@ -319,9 +317,19 @@ def _execution_config(raw: Mapping[str, Any]) -> ExecutionConfig:
     return ExecutionConfig(
         backend=_named_config(raw["backend"]),
         store=_named_config(raw["store"]),
-        parallel=raw.get("parallel", 1),
+        parallel=_positive_int(raw.get("parallel", 1), "execution.parallel"),
         max_turns=int(raw.get("max_turns", 75)),
     )
+
+
+def _positive_int(value: object, field: str) -> int:
+    try:
+        parsed = int(str(value).strip())
+    except (TypeError, ValueError):
+        raise ValueError(f"{field} must be a positive integer; got {value!r}") from None
+    if parsed < 1:
+        raise ValueError(f"{field} must be >= 1; got {value!r}")
+    return parsed
 
 
 def _evolution_config(raw: Mapping[str, Any]) -> EvolutionRunConfig:
