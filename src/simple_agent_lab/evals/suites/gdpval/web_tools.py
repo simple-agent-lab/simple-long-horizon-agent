@@ -24,6 +24,8 @@ _JINA_SEARCH_DEFAULT_ENDPOINT = "https://s.jina.ai/"
 _JINA_SEARCH_DEFAULT_MAX_RESULTS = 5
 _JINA_SEARCH_MAX_RESULTS = 10
 _JINA_SEARCH_CONTENT_PREVIEW_CHARS = 2000
+_JINA_SEARCH_TIMEOUT_SECONDS = 60
+_JINA_SEARCH_MAX_ATTEMPTS = 3
 _JINA_DEFAULT_ENDPOINT = "https://r.jina.ai/"
 _WEBFETCH_ARTIFACT_ROOT = ".webfetch_cache"
 _WEBFETCH_SCHEMA_VERSION = 1
@@ -129,7 +131,7 @@ def _make_web_search_tool() -> AgentTool:
             "additionalProperties": False,
         },
         execute=execute,
-        timeout_seconds=25.0,
+        timeout_seconds=200.0,
     )
 
 
@@ -245,23 +247,49 @@ def _jina_search(
         },
         method="GET",
     )
-    try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            raw = response.read().decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as exc:
-        message = exc.read().decode("utf-8", errors="replace")
+    raw = ""
+    last_timeout_error: BaseException | None = None
+    for attempt in range(1, _JINA_SEARCH_MAX_ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(
+                request,
+                timeout=_JINA_SEARCH_TIMEOUT_SECONDS,
+            ) as response:
+                raw = response.read().decode("utf-8", errors="replace")
+            break
+        except urllib.error.HTTPError as exc:
+            message = exc.read().decode("utf-8", errors="replace")
+            return _json_result(
+                ok=False,
+                status=exc.code,
+                error=_redact_secrets(message[:2000]),
+            )
+        except (TimeoutError, socket.timeout, urllib.error.URLError) as exc:
+            last_timeout_error = exc
+            if attempt >= _JINA_SEARCH_MAX_ATTEMPTS:
+                return _json_result(
+                    ok=False,
+                    attempts=attempt,
+                    error=(
+                        "Jina Search request timed out or failed after "
+                        f"{_JINA_SEARCH_TIMEOUT_SECONDS}s "
+                        f"after {attempt} attempts: {exc}."
+                    ),
+                )
+            time.sleep(min(attempt, 3))
+        except Exception as exc:
+            return _json_result(ok=False, error=f"{type(exc).__name__}: {exc}")
+    if not raw and last_timeout_error is not None:
         return _json_result(
             ok=False,
-            status=exc.code,
-            error=_redact_secrets(message[:2000]),
+            attempts=_JINA_SEARCH_MAX_ATTEMPTS,
+            error=(
+                "Jina Search request timed out or failed after "
+                f"{_JINA_SEARCH_TIMEOUT_SECONDS}s "
+                f"after {_JINA_SEARCH_MAX_ATTEMPTS} attempts: "
+                f"{last_timeout_error}."
+            ),
         )
-    except (TimeoutError, socket.timeout, urllib.error.URLError) as exc:
-        return _json_result(
-            ok=False,
-            error=f"Jina Search request timed out or failed after 20s: {exc}.",
-        )
-    except Exception as exc:
-        return _json_result(ok=False, error=f"{type(exc).__name__}: {exc}")
 
     try:
         data = json.loads(raw)

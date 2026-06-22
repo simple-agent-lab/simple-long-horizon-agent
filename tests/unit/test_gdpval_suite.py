@@ -461,11 +461,73 @@ class GdpvalSuiteTest(unittest.TestCase):
                 [item["link"] for item in payload["organic"]],
                 ["https://example.com/a"],
             )
+            self.assertEqual(urlopen.call_args.kwargs["timeout"], 60)
             self.assertIn("https://s.jina.ai/", urlopen.call_args.args[0].full_url)
             self.assertIn("site%3Aexample.com", urlopen.call_args.args[0].full_url)
             self.assertIn(
                 "Search result content",
                 payload["organic"][0]["content_preview"],
+            )
+
+    def test_gdpval_web_search_retries_timeout(self) -> None:
+        class _Response:
+            status = 200
+            headers = {"Content-Type": "application/json"}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return json.dumps(
+                    {
+                        "code": 200,
+                        "status": 200,
+                        "data": [
+                            {
+                                "title": "Recovered",
+                                "url": "https://example.com/recovered",
+                                "description": "retry worked",
+                                "content": "Recovered after timeout.",
+                            }
+                        ],
+                    }
+                ).encode("utf-8")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tools = {
+                tool.name: tool
+                for tool in make_gdpval_tools(
+                    workdir=Path(tmp) / "workdir",
+                    reference_dir=Path(tmp) / "reference_task_id_files",
+                )
+            }
+            with patch.dict(os.environ, {"JINA_API_KEY": "secret"}, clear=True):
+                with patch(
+                    "simple_agent_lab.evals.suites.gdpval.web_tools.time.sleep"
+                ) as sleep:
+                    with patch(
+                        "simple_agent_lab.evals.suites.gdpval.web_tools.urllib.request.urlopen",
+                        side_effect=[TimeoutError("slow"), _Response()],
+                    ) as urlopen:
+                        result = tools["WebSearch"].execute(
+                            "call-1",
+                            {"query": "alpha", "max_results": 5},
+                            lambda: False,
+                            None,
+                        )
+
+            self.assertFalse(result.is_error, tool_result_text(result))
+            payload = json.loads(tool_result_text(result))
+            self.assertTrue(payload["ok"])
+            self.assertEqual(urlopen.call_count, 2)
+            self.assertEqual(urlopen.call_args.kwargs["timeout"], 60)
+            sleep.assert_called_once_with(1)
+            self.assertEqual(
+                payload["organic"][0]["link"],
+                "https://example.com/recovered",
             )
 
     def test_gdpval_web_fetch_uses_jina_and_writes_cache(self) -> None:
