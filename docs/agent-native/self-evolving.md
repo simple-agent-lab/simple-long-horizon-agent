@@ -194,9 +194,13 @@ stepping stones. See `recipes/dgm/evolve.py` for the fully wired version.
 
 The benchmark-specific piece is the suite plus whatever rollout/reward support
 the recipe chooses to add. For SWE-bench, the benchmark interface is
-`SwebenchSuite`; DGM's extra run/scoring helpers live in `recipes/dgm/swebench.py`
-because they are DGM workflow support, not universal benchmark API. A new
-benchmark adds its own suite and recipe-local support without touching the
+`SwebenchSuite`; the in-wheel
+`simple_agent_lab.evals.suites.swebench.evolving` module only teaches the
+container half how to load the generic `input/agent_package.json` artifact. DGM's
+extra run/scoring helpers live in `recipes/dgm/swebench.py` because they are DGM
+workflow support, not universal benchmark API. A new benchmark adds its own
+suite and, only if it needs evolvable in-container code, a small container hook
+that consumes the same generic agent-package artifact without touching the
 substrate.
 
 ## Where things live
@@ -205,7 +209,10 @@ substrate.
 src/simple_agent_lab/evolution/    # substrate (benchmark-agnostic)
   kernel/        store, log, loop   # versions, decision log, the loop + guarantees
   components/    reward, criterion, rollout, strategy
+  surface.py, agent_package.py      # editable surfaces + generic Python-agent package
 evals/swebench/suite.py             # SWE-bench benchmark interface
+src/simple_agent_lab/evals/suites/swebench/evolving.py
+                                    # SWE-bench container hook for staged agent packages
 recipes/                            # runnable recipes + ops scripts
   simple/evolve.py
   runtime.py

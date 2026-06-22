@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from simple_agent_lab.evals.protocols import AGENT_PACKAGE_KEY
-from simple_agent_lab.evals.suites.swebench import agent_package as agent_pkg
+from simple_agent_lab.evolution import agent_package as agent_pkg
 from simple_agent_lab.evolution.types import Run, Slice, Version
 from simple_agent_lab.trace.jsonl import read_jsonl, write_jsonl
 

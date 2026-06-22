@@ -35,6 +35,7 @@ src/simple_agent_lab/evolution/
   components/    rollout, reward, criterion, and strategy helpers
   experiment.py  small Python-facing wirer around the kernel
   surface.py     semantic editable agent surfaces
+  agent_package.py  default editable Python-agent package + loader
   config.py      YAML schema and configured-run builder
   run.py         generic configured-run CLI
 
@@ -217,7 +218,9 @@ the model writes." A surface defines:
 
 The built-in `python_agent_surface(...)` stores files under `agent/`, requires
 `agent/agent_program.py:build_agent`, and packages the selected version files
-as `input/agent_package.json` for the eval container.
+as `input/agent_package.json` for the eval container. The neutral seed program
+and import-time loader live in `evolution.agent_package`; benchmark suites only
+decide whether and how that artifact is consumed.
 
 ## Benchmark Execution
 
@@ -232,8 +235,10 @@ It reuses the eval framework:
   -> Sequence[Run]`
 
 For SWE-bench, the normal benchmark interface is `evals/swebench/suite.py`
-`SwebenchSuite`. The simple recipe registers it under the name `swebench`; DGM
-adds recipe-local helpers for archive-specific official scoring.
+`SwebenchSuite`. The simple recipe registers it under the name `swebench` and
+points the suite at the in-wheel `simple_agent_lab.evals.suites.swebench.evolving`
+container hook so the staged generic agent package can be loaded. DGM adds
+recipe-local helpers for archive-specific official scoring.
 
 ## Strategies, Rewards, and Criteria
 

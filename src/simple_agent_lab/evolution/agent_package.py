@@ -1,15 +1,13 @@
-"""Evolvable SWE-bench agent program: the package the meta-agent edits.
+"""Editable Python-agent package used by self-evolving recipes.
 
 A package is a mapping of relative path -> file text. ``default_agent_package()``
-reproduces today's bash agent, so an unedited package is behavior-neutral.
+reproduces the default bash agent, so an unedited package is behavior-neutral.
 ``load_agent_package`` materializes the files, imports ``agent_program``, and
-returns its ``build_agent`` callable (or ``None`` if the code is invalid). The
-evolving container module uses it ahead of the baked-in agent; an invalid
-package falls back, so a broken meta-agent edit can never break the harness.
+returns its ``build_agent`` callable (or ``None`` if the code is invalid).
 
-Stdlib-only at module top so it imports inside any SWE-bench image; the entry
-module may import the installed wheel (``simple_agent_lab``), which is present in
-the eval image.
+This helper is benchmark-neutral: suites decide how to stage the package into a
+run, while the package itself is just the editable Python agent program behind
+``python_agent_surface``.
 """
 
 from __future__ import annotations
@@ -26,9 +24,9 @@ _DEFAULT_AGENT_PROGRAM = '''\
 
 build_agent receives the provider, the working directory, and the suite's
 default system prompt, and returns an Agent. It may use anything in the
-installed simple_agent_lab wheel (tools, llm_agent, agents.starter). Keep the
+installed simple_agent_lab wheel (tools, agents.starter, core). Keep the
 function present and returning an Agent; the harness keeps the task framing,
-git-diff extraction, and scoring outside this file.
+artifact extraction, and scoring outside this file.
 """
 
 from __future__ import annotations
@@ -44,7 +42,7 @@ def build_agent(*, provider: Provider, cwd: Path, base_system_prompt: str) -> Ag
     return make_bash_agent(
         provider=provider,
         cwd=cwd,
-        name="swebench_agent",
+        name="evolving_agent",
         system_prompt=base_system_prompt,
     )
 '''
@@ -62,8 +60,8 @@ def load_agent_package(
     """Materialize ``files`` under ``root``, import the entry, return build_agent.
 
     Returns ``None`` (never raises) when files are missing, do not parse/import,
-    or lack a callable ``build_agent`` — the caller then falls back to the
-    baked-in agent.
+    or lack a callable ``build_agent``. The caller can then fall back to its
+    built-in default agent.
     """
 
     try:

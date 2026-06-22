@@ -18,9 +18,9 @@ from typing import Any, Callable
 from simple_agent_lab.core import Agent
 from simple_agent_lab.evals.in_container import build_agent as _base_build_agent
 from simple_agent_lab.evals.protocols import AGENT_PACKAGE_KEY
+from simple_agent_lab.evolution import agent_package
 from simple_agent_lab.llm import Provider
 
-from . import agent_package
 from .container import (
     AGENT_SYSTEM_PROMPT,
     agent_spec,

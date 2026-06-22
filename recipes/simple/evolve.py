@@ -25,8 +25,8 @@ def register_recipe_factories() -> None:
 
     from evals.swebench.suite import SwebenchSuite
     from simple_agent_lab.evals import LocalDirStore, LocalDockerBackend
-    from simple_agent_lab.evals.suites.swebench import agent_package
     from simple_agent_lab.evolution import registry
+    from simple_agent_lab.evolution import agent_package
     from simple_agent_lab.evolution.components.strategy import model_program_strategy
     from simple_agent_lab.evolution.surface import python_agent_surface
 
