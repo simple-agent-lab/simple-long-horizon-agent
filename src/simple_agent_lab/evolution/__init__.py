@@ -7,8 +7,8 @@ User surface (plain functions, the framework owns the machinery):
     exp.step(my_strategy);  exp.history();  exp.rollback()
 
 Components are swappable (rollout / reward / strategy / criterion); the kernel
-(store / log / loop) owns the guarantees. Design:
-docs/design/20260612-evolution-infra-redesign.md
+(store / log / loop) owns the guarantees. See README.md in this package for the
+framework guide.
 """
 
 from simple_agent_lab.evals.instances import InstanceSet

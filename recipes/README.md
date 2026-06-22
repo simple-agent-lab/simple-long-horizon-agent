@@ -6,7 +6,7 @@ benchmark glue live; the substrate itself stays generic.
 
 | Recipe | Role | Loop | When to read |
 | --- | --- | --- | --- |
-| [`simple/`](simple/README.md) | Ergonomics showcase — minimal user code, maximal agent freedom | Sequential `Experiment.run` | "How little does it take to start a real self-evolving run?" |
+| [`simple/`](simple/README.md) | Ergonomics showcase — minimal user code, maximal agent freedom | Sequential step loop | "How little does it take to start a real self-evolving run?" |
 | [`dgm/`](dgm/README.md) | Faithfulness showcase — a Darwin Gödel Machine reproduction with every knob exposed | Parallel open-ended archive-admission loop | "How do I reproduce DGM and tune it?" |
 
 Both recipes evolve the **whole agent program** under `agent/`: a model rewrites
@@ -44,7 +44,8 @@ host environment lives here in `recipes/`.
 
 For the concepts behind self-evolution (substrate vs. recipe, the archive,
 parent selection, criteria), see
-[docs/agent-native/self-evolving.md](../docs/agent-native/self-evolving.md).
+[src/simple_agent_lab/evolution/README.md](../src/simple_agent_lab/evolution/README.md)
+and [docs/agent-native/self-evolving.md](../docs/agent-native/self-evolving.md).
 
 ## Common prerequisites
 

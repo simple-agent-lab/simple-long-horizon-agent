@@ -5,6 +5,11 @@ the pieces fit, and how to run or write your own recipe. It is the doc to read
 when "the agent improves itself" needs to become something you can inspect,
 modify, and trust.
 
+For the comprehensive framework README with direct Python use, YAML config
+shape, output artifacts, and source layout, start with
+[`src/simple_agent_lab/evolution/README.md`](../../src/simple_agent_lab/evolution/README.md).
+This agent-native guide keeps the mental model and boundary rules close at hand.
+
 ## The one-sentence idea
 
 A **strategy** proposes a change to the agent, the change is run on a frozen set
@@ -71,7 +76,9 @@ owns this sequence:
 ## Two ways to drive the loop
 
 **Sequential** — `Experiment.run(strategy, n=...)` calls `step` n times,
-auto-promoting whenever the criterion accepts. This is the simple recipe.
+auto-promoting whenever the criterion accepts. The configured simple runner uses
+the same step loop directly so it can add heldout checkpoints before, during, or
+after training.
 
 **Parallel, open-ended** —
 `recipes.dgm.algorithm.open_ended.run_evolution(...)` runs several branches per
