@@ -33,7 +33,11 @@ fi
 _IS_MUSL=0
 if ldd /bin/sh 2>/dev/null | grep -q musl; then _IS_MUSL=1; fi
 if [ -n "$UV_BIN" ]; then
-  "$UV_BIN" venv --python 3.11 {AGENT_VENV} || "$UV_BIN" venv --python python3 {AGENT_VENV}
+  "$UV_BIN" venv --managed-python --python 3.11 {AGENT_VENV} || {{
+    echo "ERROR: uv could not provision Python 3.11 for the agent runtime." >&2
+    echo "The mounted wheelhouse targets CPython 3.11; refusing to fall back to the SWE-bench repo Python." >&2
+    exit 1
+  }}
   AGENT_PYTHON={AGENT_VENV}/bin/python
 elif [ "$_IS_MUSL" = 1 ]; then
   command -v python3 >/dev/null 2>&1 || {{ echo "ERROR: Alpine has no Python" >&2; exit 1; }}

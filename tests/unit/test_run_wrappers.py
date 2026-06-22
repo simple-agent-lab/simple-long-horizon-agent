@@ -78,6 +78,22 @@ class RunWrapperHelpTest(unittest.TestCase):
         self.assertIn("-m recipes.dgm.evolve", script)
         self.assertNotIn("recipes/dgm/evolve.py", script)
 
+    def test_dgm_monitor_uses_ops_report_path(self):
+        source = (ROOT / "recipes" / "dgm" / "evolve.py").read_text(encoding="utf-8")
+
+        self.assertIn('"ops" / "report.py"', source)
+        self.assertNotIn('"dgm" / "report.py"', source)
+
+    def test_simple_wrapper_prepares_docker_and_linux_uv_for_execute(self):
+        script = (ROOT / "runs" / "run_self_evolving_simple.sh").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("source runs/_swebench_uv.sh", script)
+        self.assertIn("source runs/_docker.sh", script)
+        self.assertIn("docker_ensure_running", script)
+        self.assertIn("swebench_ensure_linux_uv", script)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -136,6 +136,25 @@ class RunConfigTest(unittest.TestCase):
 
         self.assertEqual(config.execution.parallel, 1)
 
+    def test_load_self_evolving_config_keeps_run_kwargs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.yaml"
+            path.write_text(
+                CONFIG.replace(
+                    "  max_turns: 3\n",
+                    "  max_turns: 3\n"
+                    "  run_kwargs:\n"
+                    "    wheelhouse_mount: /agent/wheelhouse\n",
+                ),
+                encoding="utf-8",
+            )
+
+            config = load_self_evolving_config(path)
+
+        self.assertEqual(
+            config.execution.run_kwargs, {"wheelhouse_mount": "/agent/wheelhouse"}
+        )
+
     def test_load_self_evolving_config_rejects_auto_parallel(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "config.yaml"

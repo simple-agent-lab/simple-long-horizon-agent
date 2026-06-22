@@ -23,10 +23,15 @@ instances:
 execution:
   backend:
     name: local_docker
+    args:
+      wheelhouse: evals/out/swebench/wheelhouse/cp311-manylinux
+      uv_binary: evals/out/uv-linux/uv-x86_64-unknown-linux-musl/uv
   store:
     name: local_dir
   parallel: 1
   max_turns: 75
+  run_kwargs:
+    wheelhouse_mount: /agent/wheelhouse
 model:
   api_kind: openai-chat
   model_env: OPENAI_MODEL

@@ -68,6 +68,7 @@ class ExecutionConfig:
     store: NamedConfig
     parallel: int = 1
     max_turns: int = 75
+    run_kwargs: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -234,7 +235,10 @@ def build_self_evolving_run(config: SelfEvolvingConfig) -> SelfEvolvingRun:
         store=store,
         runs_root=run_root / "runs",
         concurrency=config.execution.parallel,
-        run_kwargs={"max_turns": config.execution.max_turns},
+        run_kwargs={
+            "max_turns": config.execution.max_turns,
+            **dict(config.execution.run_kwargs),
+        },
     )
     strategy_args: dict[str, object] = {
         "provider": provider,
@@ -319,6 +323,7 @@ def _execution_config(raw: Mapping[str, Any]) -> ExecutionConfig:
         store=_named_config(raw["store"]),
         parallel=_positive_int(raw.get("parallel", 1), "execution.parallel"),
         max_turns=int(raw.get("max_turns", 75)),
+        run_kwargs=dict(raw.get("run_kwargs", {})),
     )
 
 

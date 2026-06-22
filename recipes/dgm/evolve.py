@@ -555,7 +555,7 @@ def print_monitor(args: argparse.Namespace) -> None:
     summary = subprocess.run(
         [
             sys.executable,
-            str(ROOT / "recipes" / "dgm" / "report.py"),
+            str(ROOT / "recipes" / "dgm" / "ops" / "report.py"),
             str(run_root),
             "--test-dataset",
             args.test_dataset,
