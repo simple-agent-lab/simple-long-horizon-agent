@@ -72,6 +72,12 @@ class RunWrapperHelpTest(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("must be a positive integer", result.stderr)
 
+    def test_dgm_wrapper_invokes_recipe_as_module(self):
+        script = (ROOT / "runs" / "run_dgm_swebench.sh").read_text(encoding="utf-8")
+
+        self.assertIn("-m recipes.dgm.evolve", script)
+        self.assertNotIn("recipes/dgm/evolve.py", script)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -29,4 +29,4 @@ if [ "$EXECUTE" -eq 1 ]; then
   export SWEBENCH_UV_BIN
 fi
 
-"${PYTHON[@]}" recipes/dgm/evolve.py "$@"
+"${PYTHON[@]}" -m recipes.dgm.evolve "$@"

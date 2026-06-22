@@ -79,7 +79,7 @@ bash runs/run_dgm_swebench.sh \
 ```
 
 Then the real run (the wrapper ensures Docker/Linux `uv`; the recipe refreshes
-the configured wheelhouse, then runs `recipes/dgm/evolve.py --execute`):
+the configured wheelhouse, then runs `python -m recipes.dgm.evolve --execute`):
 
 ```bash
 bash runs/run_dgm_swebench.sh \
@@ -90,7 +90,7 @@ bash runs/run_dgm_swebench.sh \
 ```
 
 You can also call the recipe directly with
-`uv run --extra swebench python recipes/dgm/evolve.py ...` if you have already
+`uv run --extra swebench python -m recipes.dgm.evolve ...` if you have already
 prepared the wheelhouse.
 
 ## 3. Monitor / report
