@@ -11,7 +11,7 @@ bash runs/run_ci.sh
 bash runs/run_docs_lint.sh
 bash runs/run_bash_agent_demo.sh
 bash runs/run_self_evolving_simple.sh --run-id simple-smoke
-bash runs/run_dgm_swebench.sh --run-id dgm-swebench-smoke --train-dataset train.jsonl --test-dataset test.jsonl
+bash runs/run_dgm_swebench.sh --run-id dgm-swebench-smoke
 bash runs/run_swebench_verified.sh
 bash runs/run_swebench_multilingual.sh
 bash runs/run_swebench_pro.sh
@@ -153,21 +153,26 @@ workarounds, and troubleshooting.
 
 This runs the faithful DGM self-evolving recipe over SWE-bench, with artifacts
 under `evals/out/dgm_swebench/` (see `recipes/dgm/README.md` for the full
-quick-start and knob reference):
+quick-start and config reference). The default config is
+`configs/dgm_swebench.yaml`; copy it for real runs and edit the train/test paths,
+rounds, branch count, worker cap, model, and wheelhouse settings there:
+
+```bash
+cp configs/dgm_swebench.yaml configs/my_dgm_swebench.yaml
+```
 
 ```bash
 bash runs/run_dgm_swebench.sh \
+  --config configs/my_dgm_swebench.yaml \
   --run-id dgm-demo \
-  --train-dataset evals/out/dgm_swebench/splits/demo-train-60.jsonl \
-  --test-dataset evals/out/dgm_swebench/splits/demo-test-60.jsonl \
   --rounds 2 \
   --parent-selection score_child_prop
 ```
 
 By default it prints a dry plan. Add `--execute` to run real model + Docker
-evolution. Use `--monitor` with the same run id and dataset paths to print the
-current report. Use the train dataset for evolution and the test dataset for
-held-out official scoring; this avoids reporting on the same instances used for
+evolution. Use `--monitor` with the same run id and config to print the current
+report. Use the train dataset for evolution and the test dataset for held-out
+official scoring; this avoids reporting on the same instances used for
 selection. To build a balanced train/test split, see
 `recipes/dgm/ops/baseline.py`.
 DGM writes scoped official artifacts under `official/baseline/` and

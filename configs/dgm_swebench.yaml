@@ -1,0 +1,24 @@
+run:
+  id: dgm-swebench-demo
+  output_root: evals/out/dgm_swebench
+  execute: false
+  reset: false
+  dotenv: .env
+dataset:
+  name: princeton-nlp/SWE-bench_Verified
+  train_path: configs/examples/swebench_train_tiny.jsonl
+  test_path: configs/examples/swebench_heldout_tiny.jsonl
+execution:
+  parallel: 3
+  max_turns: 75
+  wheelhouse: evals/out/swebench/wheelhouse/cp311-manylinux
+  uv_binary: ""
+model:
+  api_kind: openai-chat
+  model_env: OPENAI_MODEL
+  default_model: dgm-swebench
+dgm:
+  rounds: 4
+  branches: 3
+  meta_concurrency: 0
+  parent_selection: score_child_prop

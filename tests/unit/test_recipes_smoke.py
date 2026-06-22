@@ -215,15 +215,84 @@ class DgmRecipeSmokeTest(unittest.TestCase):
     def setUp(self):
         self.mod = _load(ROOT / "recipes" / "dgm" / "evolve.py")
 
+    def _write_dgm_config(self, root: Path) -> Path:
+        train = root / "train.jsonl"
+        test = root / "test.jsonl"
+        train.write_text('{"instance_id": "train-1"}\n', encoding="utf-8")
+        test.write_text('{"instance_id": "test-1"}\n', encoding="utf-8")
+        config = root / "dgm.yaml"
+        config.write_text(
+            f"""
+run:
+  id: yaml-dgm
+  output_root: {root / "out"}
+  execute: false
+  reset: false
+  dotenv: .env.test
+dataset:
+  name: demo-dataset
+  train_path: {train}
+  test_path: {test}
+execution:
+  parallel: 3
+  max_turns: 11
+  wheelhouse: {root / "wheelhouse"}
+  uv_binary: ""
+model:
+  api_kind: openai-chat
+  model_env: OPENAI_MODEL
+  default_model: yaml-model
+dgm:
+  rounds: 4
+  branches: 3
+  meta_concurrency: 0
+  parent_selection: score_child_prop
+""".lstrip(),
+            encoding="utf-8",
+        )
+        return config
+
+    def test_loads_dgm_yaml_config(self):
+        from recipes.dgm.config import load_dgm_config
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write_dgm_config(Path(tmp))
+
+            config = load_dgm_config(path)
+
+        self.assertEqual(config.run.id, "yaml-dgm")
+        self.assertEqual(config.dataset.name, "demo-dataset")
+        self.assertEqual(config.execution.parallel, 3)
+        self.assertEqual(config.dgm.branches, 3)
+
+    def test_configure_args_uses_yaml_defaults_and_cli_overrides(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write_dgm_config(Path(tmp))
+            ns = self.mod.build_parser().parse_args(
+                [
+                    "--config",
+                    str(path),
+                    "--run-id",
+                    "override-dgm",
+                    "--rounds",
+                    "6",
+                    "--parallel",
+                    "4",
+                ]
+            )
+
+            configured = self.mod.configure_args(ns)
+
+        self.assertEqual(configured.run_id, "override-dgm")
+        self.assertEqual(configured.rounds, 6)
+        self.assertEqual(configured.branches, 3)
+        self.assertEqual(configured.parallel, 4)
+        self.assertEqual(configured.train_dataset.endswith("train.jsonl"), True)
+        self.assertEqual(configured.model_name, "yaml-model")
+
     def test_parser_exposes_dgm_knobs(self):
         ns = self.mod.build_parser().parse_args(
             [
-                "--run-id",
-                "x",
-                "--train-dataset",
-                "t.jsonl",
-                "--test-dataset",
-                "e.jsonl",
                 "--parent-selection",
                 "best",
                 "--branches",
@@ -235,19 +304,10 @@ class DgmRecipeSmokeTest(unittest.TestCase):
         self.assertFalse(ns.execute)
 
     def test_parser_defaults_to_three_branch_dgm_recipe(self):
-        ns = self.mod.build_parser().parse_args(
-            [
-                "--run-id",
-                "x",
-                "--train-dataset",
-                "t.jsonl",
-                "--test-dataset",
-                "e.jsonl",
-            ]
-        )
+        ns = self.mod.configure_args(self.mod.build_parser().parse_args([]))
 
         self.assertEqual(ns.branches, 3)
-        self.assertEqual(ns.parallel, "3")
+        self.assertEqual(ns.parallel, 3)
 
     def test_pick_best_node_selects_highest_valid(self):
         from recipes.dgm.algorithm import archive
@@ -283,33 +343,49 @@ class DgmRecipeSmokeTest(unittest.TestCase):
         self.assertEqual(verdict.deltas["valid_parent"], 1.0)
 
     def test_resolve_schedule_rounds_wins_over_generations(self):
-        ns = self.mod.build_parser().parse_args(
-            [
-                "--run-id",
-                "x",
-                "--train-dataset",
-                "t",
-                "--test-dataset",
-                "e",
-                "--rounds",
-                "6",
-                "--generations",
-                "9",
-                "--branches",
-                "2",
-            ]
+        ns = self.mod.configure_args(
+            self.mod.build_parser().parse_args(
+                [
+                    "--rounds",
+                    "6",
+                    "--generations",
+                    "9",
+                    "--branches",
+                    "2",
+                ]
+            )
         )
         rounds, branches, meta = self.mod.resolve_schedule(ns)
         self.assertEqual((rounds, branches, meta), (6, 2, 2))
 
     def test_resolve_schedule_falls_back_to_generations_then_default(self):
-        base = ["--run-id", "x", "--train-dataset", "t", "--test-dataset", "e"]
-        ns_gen = self.mod.build_parser().parse_args(base + ["--generations", "7"])
+        ns_gen = self.mod.configure_args(
+            self.mod.build_parser().parse_args(["--generations", "7"])
+        )
         self.assertEqual(self.mod.resolve_schedule(ns_gen)[0], 7)
-        ns_def = self.mod.build_parser().parse_args(base)
+        ns_def = self.mod.configure_args(self.mod.build_parser().parse_args([]))
         rounds, branches, meta = self.mod.resolve_schedule(ns_def)
         self.assertEqual(rounds, 4)
         self.assertEqual(meta, branches)
+
+    def test_default_config_runs_dry_run(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                "recipes/dgm/evolve.py",
+                "--run-id",
+                "default-dgm-smoke",
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("dry run only", result.stdout)
+        self.assertIn("run root:", result.stdout)
 
     def test_validate_schedule_capacity_rejects_more_branches_than_workers(self):
         with self.assertRaisesRegex(SystemExit, "--parallel.*--branches"):

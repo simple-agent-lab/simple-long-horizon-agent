@@ -46,7 +46,7 @@ evals/swebench/
 
 recipes/
   simple/        minimal config-backed self-evolving run
-  dgm/           faithful Darwin Gödel Machine recipe
+  dgm/           config-backed faithful Darwin Gödel Machine recipe
 ```
 
 The rule of thumb is simple: `evolution/` knows how to evolve a versioned
@@ -270,7 +270,9 @@ Both recipes share the same substrate guarantees.
 | `recipes/dgm/` | Faithful DGM reproduction | Parallel branches, open-ended archive admission, parent selection | Archive-specific official before/final artifacts and `test_summary.json` |
 
 DGM's archive, parent selection, branch scheduling, and official heldout workflow
-are recipe policy. They are intentionally not promoted into the generic
+are recipe policy. Its YAML schema lives in `recipes/dgm/config.py` and
+`configs/dgm_swebench.yaml`, not in the generic `evolution.config` builder, so
+the user experience stays consistent without promoting DGM semantics into the
 substrate.
 
 ## Writing a New Recipe

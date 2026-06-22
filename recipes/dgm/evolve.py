@@ -25,6 +25,7 @@ sys.path.insert(0, str(ROOT))  # for recipe support modules
 sys.path.insert(0, str(ROOT / "src"))
 
 import recipes.runtime as recipe_runtime  # noqa: E402
+from recipes.dgm.config import load_dgm_config  # noqa: E402
 from recipes.dgm import swebench as er  # noqa: E402
 from recipes.dgm.algorithm import archive, open_ended  # noqa: E402
 from simple_agent_lab.evolution import Experiment  # noqa: E402
@@ -38,8 +39,7 @@ from simple_agent_lab.evolution.types import RunScores, Slice, Verdict, Version 
 from simple_agent_lab.llm import Provider  # noqa: E402
 from simple_agent_lab.trace.jsonl import read_jsonl  # noqa: E402
 
-DEFAULT_OUTPUT_ROOT = Path("evals/out/dgm_swebench")
-DEFAULT_MODEL = er.DEFAULT_MODEL_NAME
+DEFAULT_CONFIG = Path("configs/dgm_swebench.yaml")
 
 SYSTEM_PROMPT = """You are a meta-agent evolving a SWE-bench coding agent.
 The agent is a Python package under `agent/`; `agent/agent_program.py` defines
@@ -51,9 +51,9 @@ Make one focused change likely to raise the resolve rate.
 
 
 def run_workflow(args: argparse.Namespace) -> None:
+    if not getattr(args, "_configured", False):
+        args = configure_args(args)
     recipe_runtime.load_dotenv(args.dotenv)
-    if args.model_name == DEFAULT_MODEL and os.environ.get("OPENAI_MODEL"):
-        args.model_name = os.environ["OPENAI_MODEL"]
     output_root = Path(args.output_root)
     run_root = safe_run_root(output_root, args.run_id)
     workspace = run_root / "evolution"
@@ -70,7 +70,7 @@ def run_workflow(args: argparse.Namespace) -> None:
         print("\ndry run only; pass --execute to run model + Docker evolution")
         return
 
-    recipe_runtime.check_docker_available()
+    prepare_execution_assets(args)
     rounds, branches, meta_workers = resolve_schedule(args)
     resolution = recipe_runtime.resolve_parallel_workers(
         args.parallel, len(train_records)
@@ -202,6 +202,85 @@ def resolve_schedule(args: argparse.Namespace) -> tuple[int, int, int]:
     return max(1, int(rounds)), branches, max(1, meta_workers)
 
 
+def configure_args(args: argparse.Namespace) -> argparse.Namespace:
+    """Resolve DGM YAML config plus explicit CLI overrides into one namespace."""
+
+    config = load_dgm_config(args.config)
+    run_id = args.run_id if args.run_id is not None else config.run.id
+    model_name = (
+        args.model_name
+        if args.model_name is not None
+        else os.environ.get(config.model.model_env, "") or config.model.default_model
+    )
+    uv_binary = (
+        args.uv_binary if args.uv_binary is not None else config.execution.uv_binary
+    )
+    if not uv_binary and os.environ.get("SWEBENCH_UV_BIN"):
+        uv_binary = os.environ["SWEBENCH_UV_BIN"]
+    rounds = (
+        args.rounds
+        if args.rounds is not None
+        else args.generations
+        if args.generations is not None
+        else config.dgm.rounds
+    )
+    configured = argparse.Namespace(
+        config=args.config,
+        run_id=run_id,
+        output_root=args.output_root or config.run.output_root,
+        dataset_name=args.dataset_name or config.dataset.name,
+        train_dataset=args.train_dataset or config.dataset.train_path,
+        test_dataset=args.test_dataset or config.dataset.test_path,
+        rounds=rounds,
+        branches=args.branches if args.branches is not None else config.dgm.branches,
+        meta_concurrency=(
+            args.meta_concurrency
+            if args.meta_concurrency is not None
+            else config.dgm.meta_concurrency
+        ),
+        generations=args.generations,
+        parent_selection=args.parent_selection or config.dgm.parent_selection,
+        parallel=args.parallel
+        if args.parallel is not None
+        else config.execution.parallel,
+        model_name=model_name,
+        api_kind=args.api_kind or config.model.api_kind,
+        dotenv=args.dotenv or config.run.dotenv,
+        wheelhouse=args.wheelhouse
+        if args.wheelhouse is not None
+        else config.execution.wheelhouse,
+        uv_binary=uv_binary,
+        max_turns=args.max_turns
+        if args.max_turns is not None
+        else config.execution.max_turns,
+        execute=bool(args.execute or config.run.execute),
+        reset=bool(args.reset or config.run.reset),
+        monitor=bool(args.monitor),
+        _configured=True,
+    )
+    validate_schedule_capacity(
+        branches=configured.branches, global_workers=configured.parallel
+    )
+    return configured
+
+
+def prepare_execution_assets(args: argparse.Namespace) -> None:
+    """Prepare Docker and wheelhouse inputs for a real DGM run."""
+
+    recipe_runtime.check_docker_available()
+    if not args.wheelhouse:
+        return
+    from evals.swebench.harness import prepare_wheelhouse_for_run
+
+    wheelhouse = Path(args.wheelhouse)
+    prepare_all = not wheelhouse.is_dir() or not any(wheelhouse.iterdir())
+    if prepare_all:
+        print("==> Preparing wheelhouse...")
+    else:
+        print("==> Refreshing project wheel...")
+    prepare_wheelhouse_for_run(wheelhouse, prepare_all=prepare_all)
+
+
 def validate_schedule_capacity(*, branches: int, global_workers: int) -> None:
     """Keep the advertised global Docker worker cap honest."""
 
@@ -274,6 +353,7 @@ def print_plan(
     test_records: Sequence[Mapping[str, Any]],
 ) -> None:
     print(f"run root: {layout.run_root}")
+    print(f"config: {args.config}")
     print(f"evolution workspace: {layout.evolution_workspace}")
     print(f"swebench runs: {layout.swebench_runs}")
     print(f"train dataset: {args.train_dataset}")
@@ -499,11 +579,16 @@ def _score(record: Mapping[str, Any]) -> float:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--run-id", required=True)
-    parser.add_argument("--output-root", default=str(DEFAULT_OUTPUT_ROOT))
-    parser.add_argument("--dataset-name", default=er.DEFAULT_DATASET)
-    parser.add_argument("--train-dataset", required=True)
-    parser.add_argument("--test-dataset", required=True)
+    parser.add_argument(
+        "--config",
+        default=str(DEFAULT_CONFIG),
+        help=f"YAML run config. Default: {DEFAULT_CONFIG}.",
+    )
+    parser.add_argument("--run-id")
+    parser.add_argument("--output-root")
+    parser.add_argument("--dataset-name")
+    parser.add_argument("--train-dataset")
+    parser.add_argument("--test-dataset")
     parser.add_argument(
         "--rounds",
         type=int,
@@ -513,14 +598,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--branches",
         type=int,
-        default=3,
-        help="Candidate branches evaluated concurrently per round. Default: 3.",
+        default=None,
+        help="Candidate branches evaluated concurrently per round.",
     )
     parser.add_argument(
         "--meta-concurrency",
         type=int,
-        default=0,
-        help="Concurrent meta-agent LLM calls per round. Default: 0 (= --branches).",
+        default=None,
+        help="Concurrent meta-agent LLM calls per round. 0 means --branches.",
     )
     parser.add_argument(
         "--generations",
@@ -531,33 +616,42 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--parent-selection",
         choices=["latest", "best", "score_prop", "score_child_prop"],
-        default="score_child_prop",
+        default=None,
     )
     parser.add_argument(
         "--parallel",
-        default="3",
-        help="Global Docker worker cap. Default: 3.",
+        type=_positive_int_arg,
+        default=None,
+        help="Global Docker worker cap.",
     )
-    parser.add_argument(
-        "--model-name", default=os.environ.get("OPENAI_MODEL", DEFAULT_MODEL)
-    )
+    parser.add_argument("--model-name")
     parser.add_argument(
         "--api-kind",
         choices=["openai-chat", "openai-responses"],
-        default="openai-chat",
+        default=None,
     )
-    parser.add_argument("--dotenv", default=".env")
-    parser.add_argument("--wheelhouse", default="")
-    parser.add_argument("--uv-binary", default="")
-    parser.add_argument("--max-turns", type=int, default=75)
+    parser.add_argument("--dotenv")
+    parser.add_argument("--wheelhouse")
+    parser.add_argument("--uv-binary")
+    parser.add_argument("--max-turns", type=int, default=None)
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--reset", action="store_true")
     parser.add_argument("--monitor", action="store_true")
     return parser
 
 
+def _positive_int_arg(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("must be a positive integer") from None
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
 def main() -> None:
-    args = build_parser().parse_args()
+    args = configure_args(build_parser().parse_args())
     if args.monitor:
         print_monitor(args)
         return

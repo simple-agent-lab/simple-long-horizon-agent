@@ -7,14 +7,14 @@ benchmark glue live; the substrate itself stays generic.
 | Recipe | Role | Loop | When to read |
 | --- | --- | --- | --- |
 | [`simple/`](simple/README.md) | Ergonomics showcase — minimal user code, maximal agent freedom | Sequential step loop | "How little does it take to start a real self-evolving run?" |
-| [`dgm/`](dgm/README.md) | Faithfulness showcase — a Darwin Gödel Machine reproduction with every knob exposed | Parallel open-ended archive-admission loop | "How do I reproduce DGM and tune it?" |
+| [`dgm/`](dgm/README.md) | Faithfulness showcase — a config-backed Darwin Gödel Machine reproduction with every knob exposed | Parallel open-ended archive-admission loop | "How do I reproduce DGM and tune it?" |
 
 Both recipes evolve the **whole agent program** under `agent/`: a model rewrites
 the agent's own Python files and each candidate is graded on a train slice inside
 a SWE-bench Docker sandbox. The simple recipe is the config-backed generic
 runner path with optional suite-scored heldout before/final reporting; the DGM
-recipe owns the archive-specific official scoring workflow and before/after
-delta used by the faithful reproduction.
+recipe is also YAML-backed, but owns its archive-specific official scoring
+workflow and before/after delta used by the faithful reproduction.
 
 ## How the layers fit together
 
@@ -22,6 +22,7 @@ delta used by the faithful reproduction.
 recipes/                                  # this directory — examples + ops scripts
   runtime.py                              # Docker/env helpers (kept out of src/)
   simple/evolve.py                        # sequential not-worse recipe
+  dgm/config.py                           # DGM YAML schema and CLI overrides
   dgm/evolve.py                           # the DGM recipe entrypoint
   dgm/swebench.py                         # DGM-specific SWE-bench run/scoring support
   dgm/algorithm/archive.py, open_ended.py  # DGM archive + parallel admission loop

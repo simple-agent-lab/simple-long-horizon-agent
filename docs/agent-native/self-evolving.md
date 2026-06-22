@@ -121,15 +121,16 @@ parents are explored and *how many* candidates run at once.
 | Recipe | What it shows | Loop | Knobs |
 | --- | --- | --- | --- |
 | [`recipes/simple/`](../../recipes/simple/README.md) | Config-backed generic `algorithm: simple` train-slice evolution with optional heldout before/final reporting | Sequential `Experiment.step` loop | YAML config — train/heldout paths, rounds, evaluation flags, execution settings |
-| [`recipes/dgm/`](../../recipes/dgm/README.md) | A faithful Darwin Gödel Machine reproduction with recipe-local held-out scoring | `recipes.dgm.algorithm.open_ended.run_evolution` (parallel) | all of them — branches, parent selection, meta-concurrency, parallelism |
+| [`recipes/dgm/`](../../recipes/dgm/README.md) | A config-backed faithful Darwin Gödel Machine reproduction with recipe-local held-out scoring | `recipes.dgm.algorithm.open_ended.run_evolution` (parallel) | YAML config plus CLI overrides — branches, parent selection, meta-concurrency, parallelism |
 
 Both evolve the **whole agent program** under `agent/`: the model rewrites the
 agent's own Python, each candidate is graded on a train slice in a SWE-bench
 Docker sandbox. The simple recipe runs through the generic config-backed runner
 and supports dry-runs plus generic heldout before/final reports when
-`instances.heldout` and `evaluation.*` are enabled. The DGM recipe owns the
-open-ended archive policy and its archive-specific held-out official scoring
-workflow. Start with `recipes/` for prerequisites and quick-starts.
+`instances.heldout` and `evaluation.*` are enabled. The DGM recipe is also
+YAML-backed through `configs/dgm_swebench.yaml` and `recipes/dgm/config.py`, but
+owns the open-ended archive policy and its archive-specific held-out official
+scoring workflow. Start with `recipes/` for prerequisites and quick-starts.
 
 ## Writing a self-evolving run
 
@@ -148,7 +149,8 @@ For the simple path, choose these pieces:
 - `InstanceSet` — the frozen train slice loaded from the JSONL path named in
   config.
 - `evolution.algorithm` — currently `simple` in the generic builder. DGM's
-  open-ended archive algorithm stays recipe-local under `recipes/dgm/`.
+  open-ended archive algorithm and DGM YAML schema stay recipe-local under
+  `recipes/dgm/`.
 
 The YAML config selects names and ordinary settings (`suite.name`,
 `surface.name`, `instances.train.path`, execution options, strategy settings,
@@ -156,8 +158,9 @@ criterion, and rounds). Python supplies the behavior behind those names:
 `AgentSurface` validation/staging, `rollout_from_suite`, suite host/container
 halves, strategy factories, reward, and criterion. SWE-bench simple runs compose
 through `recipes/simple/evolve.py` factory registration, `SwebenchSuite`,
-`AgentSurface`, and `rollout_from_suite`; DGM uses `recipes/dgm/swebench.py` for
-its recipe-local rollout and official-scoring workflow.
+`AgentSurface`, and `rollout_from_suite`; DGM uses `recipes/dgm/config.py` for
+its recipe-local YAML schema and `recipes/dgm/swebench.py` for its rollout and
+official-scoring workflow.
 
 ## Write your own recipe
 
@@ -206,6 +209,7 @@ evals/swebench/suite.py             # SWE-bench benchmark interface
 recipes/                            # runnable recipes + ops scripts
   simple/evolve.py
   runtime.py
+  dgm/config.py                      # DGM YAML schema and CLI overrides
   dgm/evolve.py
   dgm/swebench.py                    # DGM-specific SWE-bench run/scoring support
   dgm/algorithm/archive.py, open_ended.py, repo_edits.py

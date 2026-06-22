@@ -14,6 +14,8 @@ This recipe is the **faithfulness showcase** — the counterpart to the
 
 - `evolve.py` — the recipe (proposal, archive admission, train rollout, criterion,
   promotion, held-out scoring).
+- `../../configs/dgm_swebench.yaml` — the default editable run config.
+- `config.py` — recipe-local YAML schema and CLI-override resolver.
 - `algorithm/archive.py` / `algorithm/open_ended.py` — DGM-local archive
   reconstruction, parent selection, and parallel branch admission.
 - `algorithm/repo_edits.py` — optional DGM helper for turning full repository
@@ -58,24 +60,30 @@ the saved baseline JSONL.
 
 ## 2. Run the evolution
 
+The default config is [`../../configs/dgm_swebench.yaml`](../../configs/dgm_swebench.yaml).
+Copy it for real runs and edit the train/test paths, rounds, branch count,
+parallel worker cap, model, and wheelhouse settings:
+
+```bash
+cp configs/dgm_swebench.yaml configs/my_dgm_swebench.yaml
+```
+
 Dry plan first:
 
 ```bash
 bash runs/run_dgm_swebench.sh \
+  --config configs/my_dgm_swebench.yaml \
   --run-id dgm-smoke \
-  --train-dataset evals/out/dgm_swebench/splits/demo-train-60.jsonl \
-  --test-dataset evals/out/dgm_swebench/splits/demo-test-60.jsonl \
   --rounds 3
 ```
 
-Then the real run (the wrapper prepares Docker + wheelhouse, then calls
-`recipes/dgm/evolve.py --execute`):
+Then the real run (the wrapper ensures Docker/Linux `uv`; the recipe refreshes
+the configured wheelhouse, then runs `recipes/dgm/evolve.py --execute`):
 
 ```bash
 bash runs/run_dgm_swebench.sh \
+  --config configs/my_dgm_swebench.yaml \
   --run-id dgm-real \
-  --train-dataset evals/out/dgm_swebench/splits/demo-train-60.jsonl \
-  --test-dataset evals/out/dgm_swebench/splits/demo-test-60.jsonl \
   --rounds 5 --branches 3 --parent-selection score_child_prop \
   --execute
 ```
@@ -93,28 +101,31 @@ uv run python recipes/dgm/ops/report.py evals/out/dgm_swebench/<run-id> \
 
 # or via the recipe's built-in monitor flag
 bash runs/run_dgm_swebench.sh --run-id dgm-real \
-  --train-dataset ... --test-dataset ... --monitor
+  --config configs/my_dgm_swebench.yaml --monitor
 ```
 
-## DGM knobs
+## DGM Config
 
-| Flag | Default | Meaning |
+Most run shape lives in YAML now:
+
+| YAML field | Default | Meaning |
 | --- | --- | --- |
-| `--run-id` | required | Reproducible run id. |
-| `--train-dataset` / `--test-dataset` | required | Train (evolution) and held-out before/final scoring JSONL slices. |
-| `--rounds` | `4` | Sequential evolution rounds. Total candidates = `rounds × branches`. |
-| `--branches` | `3` | Candidate branches evaluated concurrently per round. |
-| `--meta-concurrency` | `0` (= branches) | Concurrent meta-agent LLM calls per round. |
-| `--parent-selection` | `score_child_prop` | `latest` \| `best` \| `score_prop` \| `score_child_prop`. |
-| `--parallel` | `3` | Global Docker worker cap. Must be at least `--branches`. |
-| `--model-name` | `OPENAI_MODEL` | Provider model written into `provider.json`. |
-| `--api-kind` | `openai-chat` | `openai-chat` \| `openai-responses`. |
-| `--max-turns` | `75` | Per-instance agent turn budget. |
-| `--dataset-name` | `princeton-nlp/SWE-bench_Verified` | Source dataset for official scoring. |
-| `--reset` | off | Remove the run root before starting. |
-| `--monitor` | off | Print the report for an existing run and exit. |
-| `--execute` | off | Run the real model + Docker (otherwise dry plan). |
-| `--generations` | — | Deprecated alias for `--rounds`. |
+| `dataset.train_path` / `dataset.test_path` | tiny examples | Train and held-out before/final scoring JSONL slices. |
+| `dgm.rounds` | `4` | Sequential evolution rounds. Total candidates = `rounds × branches`. |
+| `dgm.branches` | `3` | Candidate branches evaluated concurrently per round. |
+| `dgm.meta_concurrency` | `0` (= branches) | Concurrent meta-agent LLM calls per round. |
+| `dgm.parent_selection` | `score_child_prop` | `latest` \| `best` \| `score_prop` \| `score_child_prop`. |
+| `execution.parallel` | `3` | Global Docker worker cap. Must be at least `dgm.branches`. |
+| `execution.max_turns` | `75` | Per-instance agent turn budget. |
+| `execution.wheelhouse` | `evals/out/swebench/wheelhouse/cp311-manylinux` | Container wheelhouse. |
+| `model.default_model` | `dgm-swebench` | Provider model written into `provider.json` when `OPENAI_MODEL` is unset. |
+| `model.api_kind` | `openai-chat` | `openai-chat` \| `openai-responses`. |
+| `dataset.name` | `princeton-nlp/SWE-bench_Verified` | Source dataset for official scoring. |
+
+CLI flags are overrides for quick experiments. The common ones are `--config`,
+`--run-id`, `--execute`, `--reset`, and `--monitor`; lower-level flags such as
+`--rounds`, `--branches`, and `--parallel` remain available but should usually be
+edited in the YAML for reproducibility.
 
 ## Output
 
