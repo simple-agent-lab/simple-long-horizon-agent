@@ -62,8 +62,8 @@ the saved baseline JSONL.
 
 The default config is [`../../configs/dgm_swebench.yaml`](../../configs/dgm_swebench.yaml).
 It points at the generated demo train/test split under `configs/swebench/`.
-Copy it when you want to change the train/test paths, rounds, branch count,
-parallel worker cap, model, or wheelhouse settings:
+You can run it directly, or copy it when you want to change the train/test
+paths, rounds, branch count, parallel worker cap, model, or wheelhouse settings:
 
 ```bash
 cp configs/dgm_swebench.yaml configs/my_dgm_swebench.yaml
@@ -82,16 +82,21 @@ Then the real run (the wrapper ensures Docker/Linux `uv`; the recipe refreshes
 the configured wheelhouse, then runs `python -m recipes.dgm.evolve --execute`):
 
 ```bash
+bash runs/run_dgm_swebench.sh --run-id dgm-real --execute
+
 bash runs/run_dgm_swebench.sh \
   --config configs/my_dgm_swebench.yaml \
-  --run-id dgm-real \
+  --run-id dgm-real-custom \
   --rounds 5 --branches 3 --parent-selection score_child_prop \
   --execute
 ```
 
 You can also call the recipe directly with
 `uv run --extra swebench python -m recipes.dgm.evolve ...` if you have already
-prepared the wheelhouse.
+prepared the wheelhouse. Use module mode (`-m`) rather than
+`python recipes/dgm/evolve.py`; script-path execution can put `recipes/dgm/` on
+`sys.path` and shadow the installed `swebench` package with
+`recipes/dgm/swebench.py`.
 
 ## 3. Monitor / report
 

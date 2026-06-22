@@ -39,20 +39,21 @@ Dry-run the default config without Docker or credentials:
 bash runs/run_self_evolving_simple.sh --run-id simple-smoke
 ```
 
-Use an edited config:
+Run the configured model + Docker loop with the default config:
 
 ```bash
-bash runs/run_self_evolving_simple.sh \
-  --config configs/my_simple_swebench.yaml \
-  --run-id simple-real
+bash runs/run_self_evolving_simple.sh --run-id simple-real --execute
 ```
 
-Run the configured model + Docker loop:
+Copy the config when you want to change the split, model, output root, or
+execution settings:
 
 ```bash
+cp configs/simple_swebench.yaml configs/my_simple_swebench.yaml
+
 bash runs/run_self_evolving_simple.sh \
   --config configs/my_simple_swebench.yaml \
-  --run-id simple-real \
+  --run-id simple-real-custom \
   --execute
 ```
 

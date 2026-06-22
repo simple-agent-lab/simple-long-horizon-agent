@@ -33,23 +33,36 @@ evals/out/
 │           └── out/
 │               ├── trajectory.jsonl
 │               └── prediction.jsonl
-└── swebench_pro/                      ← SWE-bench Pro suite outputs
+├── swebench_pro/                      ← SWE-bench Pro suite outputs
+│   ├── README.md
+│   ├── instance_<id>.jsonl
+│   ├── wheelhouse/
+│   │   └── cp311-manylinux/*.whl
+│   └── <run-id>/
+│       └── <instance-id>/
+│           ├── input/
+│           │   └── instance.json
+│           └── out/
+│               ├── trajectory.jsonl
+│               └── prediction.jsonl
+└── dgm_swebench/                      ← DGM-style SWE-bench performance outputs
     ├── README.md
-    ├── instance_<id>.jsonl
-    ├── wheelhouse/
-    │   └── cp311-manylinux/*.whl
+    ├── splits/                        ← optional custom splits from baseline.py
     └── <run-id>/
-        └── <instance-id>/
-            ├── input/
-            │   └── instance.json
-            └── out/
-                ├── trajectory.jsonl
-                └── prediction.jsonl
+        ├── evolution/
+        ├── swebench_runs/
+        ├── official/                  ← baseline/ and final/ official scoring
+        ├── test_summary.json
+        └── generation_metrics.jsonl
 ```
 
 Each benchmark run family gets its own subdirectory under `evals/out/`. Some
 families share an adapter, such as SWE-bench Verified, Multilingual, and Pro
 through `evals/swebench/`.
+
+DGM's checked-in default train/test split lives under `configs/swebench/`.
+`evals/out/dgm_swebench/splits/` is only for local generated splits and remains
+ignored.
 
 ## Reproducing the Structure
 

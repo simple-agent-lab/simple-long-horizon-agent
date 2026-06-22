@@ -8,8 +8,8 @@ SWE-bench. Contents are gitignored except for this README.
 ```text
 evals/out/dgm_swebench/
 ├── splits/
-│   ├── macbook-train.jsonl          # Optional tiny local evolution dataset
-│   └── macbook-test.jsonl           # Optional tiny held-out scoring dataset
+│   ├── demo-train-60.jsonl          # Optional local/custom evolution dataset
+│   └── demo-test-60.jsonl           # Optional local/custom held-out dataset
 └── <run-id>/
     ├── evolution/                 # Version store, pointers, runs, decisions.jsonl
     ├── swebench_runs/             # Generic SWE-bench run_dataset artifacts
@@ -19,29 +19,32 @@ evals/out/dgm_swebench/
     │           ├── result.json
     │           └── trajectory.jsonl
     ├── official/
-    │   ├── <run-id>_predictions.jsonl
-    │   ├── eval_results.jsonl
-    │   └── harness/               # Official SWE-bench reports
+    │   ├── baseline/
+    │   │   ├── baseline_predictions.jsonl
+    │   │   ├── eval_results.jsonl
+    │   │   └── harness/           # Official SWE-bench reports
+    │   └── final/
+    │       ├── final_predictions.jsonl
+    │       ├── eval_results.jsonl
+    │       └── harness/
+    ├── test_summary.json          # Baseline/final held-out delta
     └── generation_metrics.jsonl    # Held-out summary row written after official
                                     # scoring (one row for the best held-out eval)
 ```
 
 `generation_metrics.jsonl` is the recipe-level summary. Official performance
-claims should use `official/eval_results.jsonl` or the corresponding official
-SWE-bench reports.
+claims should use `official/baseline/eval_results.jsonl`,
+`official/final/eval_results.jsonl`, `test_summary.json`, or the corresponding
+official SWE-bench reports.
 
 ## Smoke Command
 
 ```bash
-bash runs/run_dgm_swebench.sh \
-  --run-id dgm-swebench-smoke \
-  --train-dataset evals/out/dgm_swebench/splits/headroom-train-20.jsonl \
-  --test-dataset evals/out/dgm_swebench/splits/headroom-test-20.jsonl \
-  --rounds 3 \
-  --parent-selection score_child_prop
+bash runs/run_dgm_swebench.sh --run-id dgm-swebench-smoke
 ```
 
-The command above is a dry plan by default. Add `--execute` only after the
-SWE-bench run artifacts exist and Docker/provider prerequisites are ready. To
-build a balanced train/test split under `splits/`, see `recipes/dgm/baseline.py`
-(`recipes/dgm/README.md`).
+The command above is a dry plan by default and uses the tracked
+`configs/swebench/demo-*.jsonl` split from `configs/dgm_swebench.yaml`. Add
+`--execute` only after Docker/provider prerequisites are ready. To build a
+balanced custom train/test split under `splits/`, see
+`recipes/dgm/ops/baseline.py` (`recipes/dgm/README.md`).

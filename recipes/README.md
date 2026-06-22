@@ -56,8 +56,9 @@ Both recipes are real — they call a model and run Docker:
   `OPENAI_MODEL` and an `OPENAI_BASE_URL`).
 - A reachable Docker daemon (Docker Desktop or Colima).
 - A SWE-bench wheelhouse (the run wrappers under `runs/` prepare this for you).
-- Train/test SWE-bench splits as JSONL files (see the DGM recipe's
-  `ops/baseline.py` for building a repo-balanced "headroom" split).
+- Train/test SWE-bench splits as JSONL files. The checked-in defaults live under
+  `configs/swebench/`; see the DGM recipe's `ops/baseline.py` when you want to
+  build a larger repo-balanced "headroom" split.
 
 Every recipe is a **dry plan by default**; pass `--execute` to run the real model
 and Docker.

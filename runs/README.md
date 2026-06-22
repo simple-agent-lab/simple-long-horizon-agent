@@ -54,17 +54,16 @@ demo train/heldout split:
 bash runs/run_self_evolving_simple.sh --run-id simple-smoke
 ```
 
-For a real run, copy or create a config and edit the YAML paths and execution
-settings:
+For a real run, use the default config or copy it when you want to edit the YAML
+paths and execution settings:
 
 ```bash
-bash runs/run_self_evolving_simple.sh \
-  --config configs/my_simple_swebench.yaml \
-  --run-id simple-real
+bash runs/run_self_evolving_simple.sh --run-id simple-real --execute
 
+cp configs/simple_swebench.yaml configs/my_simple_swebench.yaml
 bash runs/run_self_evolving_simple.sh \
   --config configs/my_simple_swebench.yaml \
-  --run-id simple-real \
+  --run-id simple-real-custom \
   --execute
 ```
 
@@ -78,9 +77,10 @@ enabled. It expects `.env` or the shell environment to provide
 variant with all knobs exposed, see the DGM recipe below. Both recipes are
 documented under `recipes/`.
 
-Build the stronger demo split first with `recipes/dgm/ops/baseline.py`; it can fetch
-SWE-bench Verified, select a repo-balanced pool, measure seed resolves, and
-write disjoint headroom train/test files.
+Build a custom headroom split with `recipes/dgm/ops/baseline.py` when the
+tracked `configs/swebench/demo-*.jsonl` split is not the shape you want. The
+helper can fetch SWE-bench Verified, select a repo-balanced pool, measure seed
+resolves, and write disjoint train/test files.
 
 ```bash
 uv run --extra swebench python recipes/dgm/ops/baseline.py \
@@ -161,25 +161,27 @@ change the train/test paths, rounds, branch count, worker cap, model, or
 wheelhouse settings:
 
 ```bash
-cp configs/dgm_swebench.yaml configs/my_dgm_swebench.yaml
-```
+bash runs/run_dgm_swebench.sh --run-id dgm-demo
+bash runs/run_dgm_swebench.sh --run-id dgm-real --execute
 
-```bash
+cp configs/dgm_swebench.yaml configs/my_dgm_swebench.yaml
 bash runs/run_dgm_swebench.sh \
   --config configs/my_dgm_swebench.yaml \
-  --run-id dgm-demo \
+  --run-id dgm-demo-custom \
   --rounds 2 \
-  --parent-selection score_child_prop
+  --parent-selection score_child_prop \
+  --execute
 ```
 
-By default it prints a dry plan. Add `--execute` to run real model + Docker
-evolution. Use `--monitor` with the same run id and config to print the current
-report. Use the train dataset for evolution and the test dataset for held-out
-official scoring; this avoids reporting on the same instances used for
-selection. To build a balanced train/test split, see
-`recipes/dgm/ops/baseline.py`.
+Omit `--execute` to print a dry plan; add `--execute` to run real model +
+Docker evolution. Use `--monitor` with the same run id and config to print the
+current report. Use the train dataset for evolution and the test dataset for
+held-out official scoring; this avoids reporting on the same instances used for
+selection. To build a balanced train/test split, see `recipes/dgm/ops/baseline.py`.
 DGM writes scoped official artifacts under `official/baseline/` and
 `official/final/`, plus `test_summary.json` with the held-out delta. The simple
 wrapper writes the generic evolution workspace, suite run artifacts, and, when
 enabled, the suite-scored `evaluation/summary.json` described in its
-YAML-backed runner docs.
+YAML-backed runner docs. The DGM wrapper invokes the recipe as
+`python -m recipes.dgm.evolve`; use the same `-m` form for direct Python runs so
+`recipes/dgm/swebench.py` cannot shadow the installed `swebench` package.
