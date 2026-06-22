@@ -113,8 +113,8 @@ parents are explored and *how many* candidates run at once.
 
 | Recipe | What it shows | Loop | Knobs |
 | --- | --- | --- | --- |
-| [`recipes/simple/`](../recipes/simple/README.md) | Config-backed generic `algorithm: simple` train-slice evolution | `Experiment.run` (sequential) | YAML config — train path, rounds, execution settings |
-| [`recipes/dgm/`](../recipes/dgm/README.md) | A faithful Darwin Gödel Machine reproduction with recipe-local held-out scoring | `recipes.dgm.algorithm.open_ended.run_evolution` (parallel) | all of them — branches, parent selection, meta-concurrency, parallelism |
+| [`recipes/simple/`](../../recipes/simple/README.md) | Config-backed generic `algorithm: simple` train-slice evolution | `Experiment.run` (sequential) | YAML config — train path, rounds, execution settings |
+| [`recipes/dgm/`](../../recipes/dgm/README.md) | A faithful Darwin Gödel Machine reproduction with recipe-local held-out scoring | `recipes.dgm.algorithm.open_ended.run_evolution` (parallel) | all of them — branches, parent selection, meta-concurrency, parallelism |
 
 Both evolve the **whole agent program** under `agent/`: the model rewrites the
 agent's own Python, each candidate is graded on a train slice in a SWE-bench

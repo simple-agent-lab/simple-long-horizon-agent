@@ -11,10 +11,9 @@ note: amended by `retarget-recipe-to-dgm` (reference method changed to DGM)
 ## Context
 
 The evolution infra is the contribution we open-source ("VeRL for self-evolving
-agents", see `docs/design/20260612-evolution-infra-redesign.md`). To prove the
-substrate, we need a *faithful* demo recipe reproducing a real published method,
-the way VeRL ships PPO/GRPO. We chose HyperAgents (DGM successor,
-`.idea/hyperagents/`).
+agents"). To prove the substrate, we need a *faithful* demo recipe reproducing a
+real published method, the way VeRL ships PPO/GRPO. We chose HyperAgents (DGM
+successor, `.idea/hyperagents/`).
 
 The recipe currently in the tree reduces HyperAgents to editing two pure prompt
 functions (`scaffold.py`) under a `not_worse` hill-climb guard. That is not
@@ -68,10 +67,9 @@ advanced recipe, not the kernel).
   reference examples while keeping the default path conservative. The boundary
   the prior ADR protects (no free repository rewrites, no kernel mutation,
   traceable feedback) is preserved.
-- The current two-function scaffold recipe and its mis-titled plan
-  (`docs/superpowers/plans/2026-06-16-hyperagents-faithful-reproduction.md`) are
-  superseded by the new design spec; the scaffold approach may remain as a
-  separate, simpler "prompt-only" example if still useful.
+- The current two-function scaffold recipe and its local implementation plan are
+  superseded by this decision; the scaffold approach may remain as a separate,
+  simpler "prompt-only" example if still useful.
 - New cost: executing arbitrary evolved agent programs in a sandbox, plus staged
   eval to bound cost and reward noise.
 

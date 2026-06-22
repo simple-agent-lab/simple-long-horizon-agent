@@ -53,6 +53,9 @@ docs/reference-architectures/*
 # scratch only. The durable commitment lands in an ADR under docs/decisions/.
 docs/superpowers/
 
+# Local design drafts — keep PRs focused on durable docs and code.
+docs/design/
+
 # Vendored OneMillion-Bench checkout — a separate upstream project kept locally
 # as a reference for the `onemillion` eval suite (its grading logic is ported
 # into the wheel under simple_agent_lab.evals.suites.onemillion). Never pushed:
