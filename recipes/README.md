@@ -12,8 +12,9 @@ benchmark glue live; the substrate itself stays generic.
 Both recipes evolve the **whole agent program** under `agent/`: a model rewrites
 the agent's own Python files and each candidate is graded on a train slice inside
 a SWE-bench Docker sandbox. The simple recipe is the config-backed generic
-runner path for train-slice evolution and dry-runs; the DGM recipe owns the
-recipe-local held-out official scoring workflow and before/after delta.
+runner path with optional suite-scored heldout before/final reporting; the DGM
+recipe owns the archive-specific official scoring workflow and before/after
+delta used by the faithful reproduction.
 
 ## How the layers fit together
 

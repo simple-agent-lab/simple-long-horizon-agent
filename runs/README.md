@@ -47,8 +47,8 @@ bash runs/run_bash_agent_demo.sh
 This runs the config-backed simple self-evolving recipe
 (`recipes/simple/evolve.py`). The wrapper registers the SWE-bench factories,
 uses `configs/simple_swebench.yaml` when `--config` is omitted, and delegates to
-the generic self-evolving runner. The default config points at a checked-in tiny
-JSONL example so the dry-run works in a clean checkout:
+the generic self-evolving runner. The default config points at checked-in tiny
+train and heldout JSONL examples so the dry-run works in a clean checkout:
 
 ```bash
 bash runs/run_self_evolving_simple.sh --run-id simple-smoke
@@ -68,9 +68,12 @@ bash runs/run_self_evolving_simple.sh \
   --execute
 ```
 
-Train path, rounds, `parallel` / `max_turns`, backend options, model settings,
-and output root live in YAML now. The `--execute` command starts real model +
-Docker work and expects `.env` or the shell environment to provide
+Train and heldout paths, rounds, `evaluation.*`, `parallel` / `max_turns`,
+backend options, model settings, and output root live in YAML now. The
+`--execute` command starts real model + Docker work, evolves on the train split,
+and writes the generic heldout performance report to
+`<output_root>/<run-id>/evaluation/summary.json` when heldout evaluation is
+enabled. It expects `.env` or the shell environment to provide
 `OPENAI_AUTH_TOKEN` and, when needed, `OPENAI_BASE_URL`. For the faithful DGM
 variant with all knobs exposed, see the DGM recipe below. Both recipes are
 documented under `recipes/`.
@@ -169,5 +172,6 @@ selection. To build a balanced train/test split, see
 `recipes/dgm/ops/baseline.py`.
 DGM writes scoped official artifacts under `official/baseline/` and
 `official/final/`, plus `test_summary.json` with the held-out delta. The simple
-wrapper writes the generic evolution workspace and suite run artifacts described
-in its YAML-backed runner docs.
+wrapper writes the generic evolution workspace, suite run artifacts, and, when
+enabled, the suite-scored `evaluation/summary.json` described in its
+YAML-backed runner docs.

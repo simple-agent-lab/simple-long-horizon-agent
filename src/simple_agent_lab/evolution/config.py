@@ -23,6 +23,7 @@ from simple_agent_lab.evolution.components.rollout import Rollout, rollout_from_
 from simple_agent_lab.evolution.experiment import Experiment
 from simple_agent_lab.evolution.registry import Use
 from simple_agent_lab.evolution.surface import AgentSurface
+from simple_agent_lab.evolution.types import RewardFn
 from simple_agent_lab.llm.provider import ApiKind, Provider
 
 
@@ -127,6 +128,7 @@ class SelfEvolvingRun:
     train: InstanceSet
     heldout: InstanceSet | None
     rollout: Rollout
+    reward: RewardFn
     strategy: object
     experiment: Experiment
 
@@ -250,10 +252,11 @@ def build_self_evolving_run(config: SelfEvolvingConfig) -> SelfEvolvingRun:
         **surface.seed_files(),
         "provider.json": _provider_json(config),
     }
+    reward = registry.build("reward", Use("result_key"))
     experiment = Experiment(
         run_root / "evolution",
         rollout=rollout,
-        reward=registry.build("reward", Use("result_key")),
+        reward=reward,
         criterion=registry.build(
             "criterion",
             Use(config.evolution.criterion.name, **config.evolution.criterion.args),
@@ -270,6 +273,7 @@ def build_self_evolving_run(config: SelfEvolvingConfig) -> SelfEvolvingRun:
         train=train,
         heldout=heldout,
         rollout=rollout,
+        reward=reward,
         strategy=strategy,
         experiment=experiment,
     )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import tempfile
 import unittest
 from collections.abc import Callable
@@ -75,7 +76,13 @@ class EvolutionRunCliTest(unittest.TestCase):
         )
         return path
 
-    def _register_demo_factories(self) -> None:
+    def _register_demo_factories(
+        self,
+        *,
+        on_run: Callable[..., None] | None = None,
+        strategy_factory: Callable[..., Any] | None = None,
+        agent_program: str = "def build_agent(**kwargs): pass\n",
+    ) -> None:
         from simple_agent_lab.evals import FakeBackend, LocalDirStore
         from simple_agent_lab.evals.protocols import LaunchSpec
         from simple_agent_lab.evolution import registry
@@ -107,13 +114,15 @@ class EvolutionRunCliTest(unittest.TestCase):
         registry.SUITES["demo_suite"] = lambda **_args: DemoSuite()
         registry.SURFACES["python_agent_package"] = (
             lambda *, default, artifact_key, **_args: python_agent_surface(
-                default_files={"agent_program.py": "def build_agent(**kwargs): pass\n"},
+                default_files={"agent_program.py": agent_program},
                 artifact_key=artifact_key,
             )
         )
-        registry.BACKENDS["fake"] = lambda **_args: FakeBackend(on_run=None)
+        registry.BACKENDS["fake"] = lambda **_args: FakeBackend(on_run=on_run)
         registry.STORES["local_dir"] = lambda root, **_args: LocalDirStore(root)
-        registry.STRATEGIES["model_program"] = lambda **_args: lambda _ctx: None
+        registry.STRATEGIES["model_program"] = strategy_factory or (
+            lambda **_args: lambda _ctx: None
+        )
         self.addCleanup(self._restore_registry, previous)
 
     def _restore_registry(
@@ -228,6 +237,107 @@ class EvolutionRunCliTest(unittest.TestCase):
             self.assertEqual(f"monitor: {run_root}\n", output)
             self.assertTrue(stale.is_file())
             self.assertFalse((run_root / "evolution").exists())
+
+    def test_execute_writes_heldout_performance_summary(self) -> None:
+        from simple_agent_lab.evals import RESULT_KEY
+        from simple_agent_lab.evals.protocols import AGENT_PACKAGE_KEY
+        from simple_agent_lab.evolution.types import Proposal
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            heldout_path = root / "heldout.jsonl"
+            heldout_path.write_text(
+                '{"instance_id": "h1"}\n{"instance_id": "h2"}\n',
+                encoding="utf-8",
+            )
+            config = self._write_demo_config(root, run_id="measured-demo")
+            text = config.read_text(encoding="utf-8")
+            text = text.replace(
+                "instances:\n"
+                "  train:\n"
+                "    id: train\n"
+                "    path: " + str(root / "train.jsonl") + "\n",
+                "instances:\n"
+                "  train:\n"
+                "    id: train\n"
+                "    path: " + str(root / "train.jsonl") + "\n"
+                "  heldout:\n"
+                "    id: heldout\n"
+                "    path: " + str(heldout_path) + "\n",
+            )
+            text = text.replace("  api_kind: openai-chat\n", "  api_kind: fake\n")
+            text = text.replace("  rounds: 2\n", "  rounds: 1\n")
+            text = text.replace(
+                "  baseline_heldout: false\n", "  baseline_heldout: true\n"
+            )
+            text = text.replace("  final_heldout: false\n", "  final_heldout: true\n")
+            config.write_text(text, encoding="utf-8")
+
+            def on_run(_spec: Any, bound: Any) -> None:
+                package = json.loads(bound.get(AGENT_PACKAGE_KEY).decode("utf-8"))
+                reward = 1.0 if "better" in package["agent_program.py"] else 0.0
+                bound.put(
+                    RESULT_KEY,
+                    (
+                        json.dumps({"reward": reward, "resolved": reward > 0.0}) + "\n"
+                    ).encode("utf-8"),
+                )
+
+            proposed = False
+
+            def strategy_factory(**_args: Any) -> Callable[..., Any]:
+                def strategy(_ctx: Any) -> Proposal | None:
+                    nonlocal proposed
+                    if proposed:
+                        return None
+                    proposed = True
+                    return Proposal(
+                        {
+                            "agent/agent_program.py": "def build_agent(**kwargs):\n"
+                            "    return 'better'\n"
+                        },
+                        note="make the demo agent better",
+                    )
+
+                return strategy
+
+            self._register_demo_factories(
+                on_run=on_run,
+                strategy_factory=strategy_factory,
+                agent_program="def build_agent(**kwargs):\n    return 'baseline'\n",
+            )
+
+            output = self._run_cli(["--config", str(config), "--execute"])
+            summary_path = root / "measured-demo" / "evaluation" / "summary.json"
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(
+            [row["label"] for row in summary["evaluations"]], ["baseline", "final"]
+        )
+        self.assertEqual(summary["evaluations"][0]["metrics"]["reward_mean"], 0.0)
+        self.assertEqual(summary["evaluations"][0]["metrics"]["resolved"], 0)
+        self.assertEqual(summary["evaluations"][1]["metrics"]["reward_mean"], 1.0)
+        self.assertEqual(summary["evaluations"][1]["metrics"]["resolved"], 2)
+        self.assertEqual(summary["delta"]["reward_mean"], 1.0)
+        self.assertEqual(summary["delta"]["resolved"], 2)
+        self.assertIn("heldout baseline: reward=0.000 resolved=0/2", output)
+        self.assertIn("heldout final: reward=1.000 resolved=2/2", output)
+        self.assertIn("heldout delta: reward=+1.000 resolved=+2", output)
+
+    def test_execute_requires_heldout_when_evaluation_is_enabled(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._register_demo_factories()
+            config = self._write_demo_config(root)
+            text = config.read_text(encoding="utf-8")
+            text = text.replace("  api_kind: openai-chat\n", "  api_kind: fake\n")
+            text = text.replace(
+                "  baseline_heldout: false\n", "  baseline_heldout: true\n"
+            )
+            config.write_text(text, encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "heldout"):
+                main(["--config", str(config), "--execute"])
 
 
 if __name__ == "__main__":

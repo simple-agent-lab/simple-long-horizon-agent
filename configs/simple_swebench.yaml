@@ -6,6 +6,8 @@ run:
   dotenv: .env
 suite:
   name: swebench
+  args:
+    in_env_scoring: true
 surface:
   name: python_agent_package
   editable_components: [everything]
@@ -15,6 +17,9 @@ instances:
   train:
     id: train
     path: configs/examples/swebench_train_tiny.jsonl
+  heldout:
+    id: heldout
+    path: configs/examples/swebench_heldout_tiny.jsonl
 execution:
   backend:
     name: local_docker
@@ -44,8 +49,8 @@ evolution:
     args:
       dim: reward
 evaluation:
-  baseline_heldout: false
-  final_heldout: false
+  baseline_heldout: true
+  final_heldout: true
   heldout_every_rounds: 0
   repeats: 1
   official_scoring: false
