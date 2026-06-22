@@ -12,6 +12,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+EXAMPLE_DATASET_ROOT = REPO_ROOT / "configs" / "examples"
+
 
 def load_dotenv(path: str | Path) -> None:
     env_path = Path(path)
@@ -86,6 +89,41 @@ def cleanup_reset_containers(run_root: str | Path, *, client_factory=None) -> in
                 continue
             removed += 1
     return removed
+
+
+def reject_example_datasets_for_execute(
+    paths: list[str | Path], *, config_path: str | Path
+) -> None:
+    """Reject checked-in dry-run example datasets before real benchmark execution."""
+
+    examples = [
+        str(path)
+        for path in paths
+        if _is_checked_in_example_dataset(Path(path).expanduser())
+    ]
+    if not examples:
+        return
+    joined = "\n".join(f"  - {path}" for path in examples)
+    raise SystemExit(
+        "Refusing to execute with checked-in example dataset(s):\n"
+        f"{joined}\n"
+        "These files are dry-run examples only. Copy the config and set real "
+        "SWE-bench JSONL paths before using --execute.\n"
+        f"Config: {config_path}"
+    )
+
+
+def _is_checked_in_example_dataset(path: Path) -> bool:
+    resolved = (
+        (REPO_ROOT / path).resolve(strict=False)
+        if not path.is_absolute()
+        else path.resolve(strict=False)
+    )
+    try:
+        resolved.relative_to(EXAMPLE_DATASET_ROOT)
+    except ValueError:
+        return False
+    return resolved.name.startswith("swebench_") and resolved.suffix == ".jsonl"
 
 
 @dataclass(frozen=True)

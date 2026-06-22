@@ -14,6 +14,8 @@ surface:
   artifact_key: input/agent_package.json
   default: simple_agent_package
 instances:
+  # These checked-in tiny files are dry-run examples only. Copy this config and
+  # replace them with real SWE-bench JSONL paths before using --execute.
   train:
     id: train
     path: configs/examples/swebench_train_tiny.jsonl

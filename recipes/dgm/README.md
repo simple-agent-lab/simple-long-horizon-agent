@@ -68,6 +68,10 @@ parallel worker cap, model, and wheelhouse settings:
 cp configs/dgm_swebench.yaml configs/my_dgm_swebench.yaml
 ```
 
+The checked-in train/test paths in the default config are tiny dry-run examples.
+The recipe refuses `--execute` until you replace them with real SWE-bench JSONL
+splits.
+
 Dry plan first:
 
 ```bash

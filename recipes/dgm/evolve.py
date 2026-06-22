@@ -256,11 +256,17 @@ def configure_args(args: argparse.Namespace) -> argparse.Namespace:
         execute=bool(args.execute or config.run.execute),
         reset=bool(args.reset or config.run.reset),
         monitor=bool(args.monitor),
+        preflight_config_only=bool(args.preflight_config_only),
         _configured=True,
     )
     validate_schedule_capacity(
         branches=configured.branches, global_workers=configured.parallel
     )
+    if configured.execute:
+        recipe_runtime.reject_example_datasets_for_execute(
+            [configured.train_dataset, configured.test_dataset],
+            config_path=configured.config,
+        )
     return configured
 
 
@@ -637,6 +643,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--reset", action="store_true")
     parser.add_argument("--monitor", action="store_true")
+    parser.add_argument(
+        "--preflight-config-only", action="store_true", help=argparse.SUPPRESS
+    )
     return parser
 
 
@@ -652,6 +661,8 @@ def _positive_int_arg(value: str) -> int:
 
 def main() -> None:
     args = configure_args(build_parser().parse_args())
+    if args.preflight_config_only:
+        return
     if args.monitor:
         print_monitor(args)
         return

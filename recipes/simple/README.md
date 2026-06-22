@@ -30,6 +30,8 @@ a dry-run works in a clean checkout:
 For a real run, copy the config or pass your own with `--config`, then edit the
 `instances.train.path`, `instances.heldout.path`, model settings, output root,
 and execution settings for your environment.
+The recipe refuses `--execute` when those checked-in example paths are still in
+use, because they are placeholders for dry-run planning only.
 
 ## Run it
 

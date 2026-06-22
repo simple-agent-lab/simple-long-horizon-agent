@@ -77,6 +77,9 @@ enabled. It expects `.env` or the shell environment to provide
 `OPENAI_AUTH_TOKEN` and, when needed, `OPENAI_BASE_URL`. For the faithful DGM
 variant with all knobs exposed, see the DGM recipe below. Both recipes are
 documented under `recipes/`.
+The checked-in `configs/examples/swebench_*_tiny.jsonl` paths are dry-run
+examples only; both self-evolving recipes reject `--execute` until those paths
+are replaced with real SWE-bench JSONL files.
 
 Build the stronger demo split first with `recipes/dgm/ops/baseline.py`; it can fetch
 SWE-bench Verified, select a repo-balanced pool, measure seed resolves, and
