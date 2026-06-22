@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -293,6 +294,14 @@ dgm:
 
     def test_configure_args_uses_yaml_defaults_and_cli_overrides(self):
         with tempfile.TemporaryDirectory() as tmp:
+            old_model = os.environ.pop("OPENAI_MODEL", None)
+            self.addCleanup(
+                lambda: (
+                    os.environ.__setitem__("OPENAI_MODEL", old_model)
+                    if old_model is not None
+                    else os.environ.pop("OPENAI_MODEL", None)
+                )
+            )
             path = self._write_dgm_config(Path(tmp))
             ns = self.mod.build_parser().parse_args(
                 [
@@ -315,6 +324,29 @@ dgm:
         self.assertEqual(configured.parallel, 4)
         self.assertEqual(configured.train_dataset.endswith("train.jsonl"), True)
         self.assertEqual(configured.model_name, "yaml-model")
+
+    def test_configure_args_loads_config_dotenv_before_model_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old_model = os.environ.pop("OPENAI_MODEL", None)
+            self.addCleanup(
+                lambda: (
+                    os.environ.__setitem__("OPENAI_MODEL", old_model)
+                    if old_model is not None
+                    else os.environ.pop("OPENAI_MODEL", None)
+                )
+            )
+            path = self._write_dgm_config(root)
+            dotenv = root / ".env.test"
+            dotenv.write_text("OPENAI_MODEL=dotenv-dgm-model\n", encoding="utf-8")
+            text = path.read_text(encoding="utf-8")
+            text = text.replace("  dotenv: .env.test\n", f"  dotenv: {dotenv}\n")
+            path.write_text(text, encoding="utf-8")
+            ns = self.mod.build_parser().parse_args(["--config", str(path)])
+
+            configured = self.mod.configure_args(ns)
+
+        self.assertEqual(configured.model_name, "dotenv-dgm-model")
 
     def test_parser_exposes_dgm_knobs(self):
         ns = self.mod.build_parser().parse_args(

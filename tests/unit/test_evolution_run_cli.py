@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import tempfile
 import unittest
 from collections.abc import Callable
@@ -186,6 +187,33 @@ class EvolutionRunCliTest(unittest.TestCase):
 
         self.assertIn("run id: override-demo", output)
         self.assertIn(f"run root: {root.resolve() / 'override-demo'}", output)
+
+    def test_dotenv_is_loaded_before_provider_seed_is_written(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old_model = os.environ.pop("OPENAI_MODEL", None)
+            self.addCleanup(
+                lambda: (
+                    os.environ.__setitem__("OPENAI_MODEL", old_model)
+                    if old_model is not None
+                    else os.environ.pop("OPENAI_MODEL", None)
+                )
+            )
+            self._register_demo_factories()
+            config = self._write_demo_config(root)
+            dotenv = root / "demo.env"
+            dotenv.write_text("OPENAI_MODEL=dotenv-model\n", encoding="utf-8")
+            text = config.read_text(encoding="utf-8")
+            text = text.replace("  dotenv: .env\n", f"  dotenv: {dotenv}\n")
+            config.write_text(text, encoding="utf-8")
+
+            self._run_cli(["--config", str(config)])
+            provider_path = next(
+                (root / "demo" / "evolution" / "versions").glob("*/provider.json")
+            )
+            provider = json.loads(provider_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(provider["model"], "dotenv-model")
 
     def test_reset_clears_stale_state_before_build_and_keeps_seed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

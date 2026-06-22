@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
@@ -54,6 +55,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not args.config:
         parser.error("--config is required")
     config = _apply_overrides(load_self_evolving_config(args.config), args)
+    _load_dotenv(config.run.dotenv)
     run_root = safe_run_root(config.run.output_root, config.run.id)
 
     if args.monitor:
@@ -89,6 +91,22 @@ def _apply_overrides(
     if args.reset:
         run = replace(run, reset=True)
     return replace(config, run=run)
+
+
+def _load_dotenv(path: str | Path) -> None:
+    dotenv = Path(path)
+    if not dotenv.exists():
+        return
+    for raw_line in dotenv.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].strip()
+        key, separator, value = line.partition("=")
+        key = key.strip()
+        if separator and key and key not in os.environ:
+            os.environ[key] = value.strip().strip("'\"")
 
 
 def _execute(

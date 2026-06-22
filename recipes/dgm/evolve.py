@@ -206,6 +206,8 @@ def configure_args(args: argparse.Namespace) -> argparse.Namespace:
     """Resolve DGM YAML config plus explicit CLI overrides into one namespace."""
 
     config = load_dgm_config(args.config)
+    dotenv = args.dotenv or config.run.dotenv
+    recipe_runtime.load_dotenv(dotenv)
     run_id = args.run_id if args.run_id is not None else config.run.id
     model_name = (
         args.model_name
@@ -245,7 +247,7 @@ def configure_args(args: argparse.Namespace) -> argparse.Namespace:
         else config.execution.parallel,
         model_name=model_name,
         api_kind=args.api_kind or config.model.api_kind,
-        dotenv=args.dotenv or config.run.dotenv,
+        dotenv=dotenv,
         wheelhouse=args.wheelhouse
         if args.wheelhouse is not None
         else config.execution.wheelhouse,
