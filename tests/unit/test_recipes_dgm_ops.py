@@ -25,7 +25,7 @@ def _baseline(n_pass, n_fail):
 
 class SelectHeadroomTest(unittest.TestCase):
     def setUp(self):
-        self.mod = _load(ROOT / "recipes" / "dgm" / "baseline.py")
+        self.mod = _load(ROOT / "recipes" / "dgm" / "ops" / "baseline.py")
 
     def test_balances_passes_and_fails(self):
         chosen = self.mod.select_headroom(
@@ -48,7 +48,7 @@ class SelectHeadroomTest(unittest.TestCase):
 
 class SplitChosenTest(unittest.TestCase):
     def setUp(self):
-        self.mod = _load(ROOT / "recipes" / "dgm" / "baseline.py")
+        self.mod = _load(ROOT / "recipes" / "dgm" / "ops" / "baseline.py")
 
     def test_disjoint_full_records(self):
         pool = [
@@ -72,9 +72,43 @@ class SplitChosenTest(unittest.TestCase):
             )
 
 
+class DiversePoolTest(unittest.TestCase):
+    def setUp(self):
+        self.mod = _load(ROOT / "recipes" / "dgm" / "ops" / "baseline.py")
+
+    def test_selects_repo_balanced_pool(self):
+        pool = (
+            [{"instance_id": f"a__a-{i}", "repo": "org/a"} for i in range(10)]
+            + [{"instance_id": f"b__b-{i}", "repo": "org/b"} for i in range(10)]
+            + [{"instance_id": f"c__c-{i}", "repo": "org/c"} for i in range(10)]
+        )
+
+        chosen = self.mod.select_diverse_pool(pool, want=9, seed=1)
+
+        self.assertEqual(len(chosen), 9)
+        repos = [self.mod.repo_key(row) for row in chosen]
+        self.assertEqual(repos.count("org/a"), 3)
+        self.assertEqual(repos.count("org/b"), 3)
+        self.assertEqual(repos.count("org/c"), 3)
+
+    def test_backfills_from_large_repos(self):
+        pool = [{"instance_id": "a__a-0", "repo": "org/a"}] + [
+            {"instance_id": f"b__b-{i}", "repo": "org/b"} for i in range(5)
+        ]
+
+        chosen = self.mod.select_diverse_pool(pool, want=4, seed=1)
+
+        self.assertEqual(len(chosen), 4)
+        self.assertEqual(len({row["instance_id"] for row in chosen}), 4)
+        self.assertEqual(
+            [self.mod.repo_key(row) for row in chosen].count("org/a"),
+            1,
+        )
+
+
 class BaselineMainSafetyTest(unittest.TestCase):
     def setUp(self):
-        self.mod = _load(ROOT / "recipes" / "dgm" / "baseline.py")
+        self.mod = _load(ROOT / "recipes" / "dgm" / "ops" / "baseline.py")
 
     def test_rejects_unsafe_run_id_before_pool_read(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -113,7 +147,7 @@ class BaselineMainSafetyTest(unittest.TestCase):
 
 class ReportSummarizeTest(unittest.TestCase):
     def setUp(self):
-        self.mod = _load(ROOT / "recipes" / "dgm" / "report.py")
+        self.mod = _load(ROOT / "recipes" / "dgm" / "ops" / "report.py")
 
     def test_summarizes_best_generation_and_selectors(self):
         with tempfile.TemporaryDirectory() as tmp:

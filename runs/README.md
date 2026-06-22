@@ -75,6 +75,23 @@ Docker work and expects `.env` or the shell environment to provide
 variant with all knobs exposed, see the DGM recipe below. Both recipes are
 documented under `recipes/`.
 
+Build the stronger demo split first with `recipes/dgm/ops/baseline.py`; it can fetch
+SWE-bench Verified, select a repo-balanced pool, measure seed resolves, and
+write disjoint headroom train/test files.
+
+```bash
+uv run --extra swebench python recipes/dgm/ops/baseline.py \
+  --run-id baseline-demo-160 \
+  --pool-size 160 \
+  --pool-out evals/out/dgm_swebench/splits/demo-pool-160.jsonl \
+  --baseline-out evals/out/dgm_swebench/splits/demo-baseline-160.jsonl \
+  --train-out evals/out/dgm_swebench/splits/demo-train-60.jsonl \
+  --test-out evals/out/dgm_swebench/splits/demo-test-60.jsonl \
+  --train-size 60 \
+  --test-size 60 \
+  --parallel auto
+```
+
 To verify SWE-bench adapter tests specifically (already included in `run_ci.sh`):
 
 ```bash
@@ -137,9 +154,9 @@ quick-start and knob reference):
 
 ```bash
 bash runs/run_dgm_swebench.sh \
-  --run-id dgm-real-smoke \
-  --train-dataset evals/out/dgm_swebench/splits/macbook-train.jsonl \
-  --test-dataset evals/out/dgm_swebench/splits/macbook-test.jsonl \
+  --run-id dgm-demo \
+  --train-dataset evals/out/dgm_swebench/splits/demo-train-60.jsonl \
+  --test-dataset evals/out/dgm_swebench/splits/demo-test-60.jsonl \
   --rounds 2 \
   --parent-selection score_child_prop
 ```
@@ -148,7 +165,8 @@ By default it prints a dry plan. Add `--execute` to run real model + Docker
 evolution. Use `--monitor` with the same run id and dataset paths to print the
 current report. Use the train dataset for evolution and the test dataset for
 held-out official scoring; this avoids reporting on the same instances used for
-selection. To build a balanced train/test split, see `recipes/dgm/baseline.py`.
+selection. To build a balanced train/test split, see
+`recipes/dgm/ops/baseline.py`.
 DGM writes scoped official artifacts under `official/baseline/` and
 `official/final/`, plus `test_summary.json` with the held-out delta. The simple
 wrapper writes the generic evolution workspace and suite run artifacts described

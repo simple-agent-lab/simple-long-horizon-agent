@@ -19,10 +19,12 @@ recipe-local held-out official scoring workflow and before/after delta.
 
 ```text
 recipes/                                  # this directory — examples + ops scripts
-  _shared.py                              # Docker/env helpers (kept out of src/)
+  runtime.py                              # Docker/env helpers (kept out of src/)
   simple/evolve.py                        # sequential not-worse recipe
-  dgm/evolve.py, baseline.py, report.py   # the DGM recipe + its ops scripts
-  dgm/archive.py, open_ended.py            # DGM archive + parallel admission loop
+  dgm/evolve.py                           # the DGM recipe entrypoint
+  dgm/algorithm/archive.py, open_ended.py  # DGM archive + parallel admission loop
+  dgm/algorithm/repo_edits.py              # DGM proposal helpers
+  dgm/ops/baseline.py, report.py           # DGM operational commands
 
 evals/swebench/
   evolution_adapter.py                    # host-side SWE-bench adapter
@@ -49,7 +51,7 @@ Both recipes are real — they call a model and run Docker:
 - A reachable Docker daemon (Docker Desktop or Colima).
 - A SWE-bench wheelhouse (the run wrappers under `runs/` prepare this for you).
 - Train/test SWE-bench splits as JSONL files (see the DGM recipe's
-  `baseline.py` for building a balanced "headroom" split).
+  `ops/baseline.py` for building a repo-balanced "headroom" split).
 
 Every recipe is a **dry plan by default**; pass `--execute` to run the real model
 and Docker.

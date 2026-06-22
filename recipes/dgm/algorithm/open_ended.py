@@ -21,6 +21,7 @@ def run_evolution(
     branches: int,
     meta_workers: int | None = None,
     on_decision: Any = None,
+    on_proposal_error: Any = None,
 ) -> list:
     tail_lock = threading.Lock()
     out: list = []
@@ -32,6 +33,7 @@ def run_evolution(
             branches=branches,
             meta_workers=meta_workers,
             tail_lock=tail_lock,
+            on_proposal_error=on_proposal_error,
         ):
             out.append(decision)
             if on_decision is not None:
@@ -40,7 +42,14 @@ def run_evolution(
 
 
 def run_round(
-    workspace, components, slice_, *, branches, meta_workers=None, tail_lock=None
+    workspace,
+    components,
+    slice_,
+    *,
+    branches,
+    meta_workers=None,
+    tail_lock=None,
+    on_proposal_error=None,
 ) -> list:
     branches = max(1, int(branches))
     meta_workers = meta_workers or branches
@@ -51,16 +60,26 @@ def run_round(
     runs_by_hash = {current.hash: current_runs}
     scores_by_hash = {current.hash: score(current_runs, components.reward)}
 
-    def propose(_i):
-        return components.strategy(
-            Context(
-                runs=tuple(current_runs),
-                current=current,
-                workspace=workspace,
-                decisions=tuple(log.read(workspace)),
-                reward=components.reward,
+    def propose(i):
+        try:
+            return components.strategy(
+                Context(
+                    runs=tuple(current_runs),
+                    current=current,
+                    workspace=workspace,
+                    decisions=tuple(log.read(workspace)),
+                    reward=components.reward,
+                )
             )
-        )
+        except Exception as exc:
+            if on_proposal_error is not None:
+                on_proposal_error(exc)
+            else:
+                print(
+                    f"proposal branch {i} failed: {type(exc).__name__}: {exc}",
+                    flush=True,
+                )
+            return None
 
     with ThreadPoolExecutor(max_workers=max(1, meta_workers)) as pool:
         proposals = [p for p in pool.map(propose, range(branches)) if p is not None]

@@ -6,8 +6,9 @@
 #   bash runs/run_dgm_swebench.sh --run-id dgm-real --train-dataset train.jsonl --test-dataset test.jsonl --execute
 #
 # Thin wrapper over the DGM recipe: it prepares Docker + the container wheelhouse,
-# then runs the real self-evolving loop (meta-strategy proposal, archive parent
-# selection, parallel train rollout, criterion, promotion, held-out scoring).
+# then runs the real self-evolving loop (baseline held-out scoring, meta-strategy
+# proposal, archive parent selection, parallel train rollout, criterion,
+# promotion, final best-in-archive held-out scoring).
 # Without --execute it prints the plan and validates inputs without Docker.
 
 set -euo pipefail

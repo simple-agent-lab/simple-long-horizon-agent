@@ -17,6 +17,95 @@ def _load(path):
     return module
 
 
+class OfficialHeldoutArtifactsTest(unittest.TestCase):
+    def setUp(self):
+        from evals.swebench import evolution_adapter as er
+
+        self.er = er
+
+    def test_official_artifacts_are_scoped_by_label(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            layout = self.er.PerformanceLayout(Path(tmp), "demo")
+            baseline = self.er.official_artifacts(layout, "baseline")
+            final = self.er.official_artifacts(layout, "final")
+
+        self.assertNotEqual(baseline.predictions, final.predictions)
+        self.assertEqual(baseline.predictions.name, "baseline_predictions.jsonl")
+        self.assertEqual(final.eval_results.name, "eval_results.jsonl")
+        self.assertIn("baseline", baseline.harness.as_posix())
+        self.assertIn("final", final.harness.as_posix())
+
+    def test_official_commands_accept_scoped_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            layout = self.er.PerformanceLayout(Path(tmp), "demo")
+            artifacts = self.er.official_artifacts(layout, "baseline")
+            collect = self.er.collect_predictions_command(
+                layout,
+                dataset_name="dataset",
+                model_name="model",
+                source_run_id="version-slice",
+                predictions=artifacts.predictions,
+            )
+            official = self.er.official_eval_command(
+                layout,
+                dataset_name="dataset",
+                instance_ids=("i1",),
+                max_workers=2,
+                predictions=artifacts.predictions,
+                eval_results=artifacts.eval_results,
+                official_output_dir=artifacts.harness,
+                run_id=artifacts.run_id,
+            )
+
+        self.assertIn(str(artifacts.predictions), collect)
+        self.assertIn(str(artifacts.predictions), official)
+        self.assertIn(str(artifacts.eval_results), official)
+        self.assertIn(str(artifacts.harness), official)
+        self.assertIn(artifacts.run_id, official)
+
+    def test_summarizes_official_eval_results(self):
+        from simple_agent_lab.trace.jsonl import write_jsonl
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "eval_results.jsonl"
+            write_jsonl(
+                path,
+                [
+                    {"passed": True, "score": 1.0},
+                    {"passed": False, "score": 0.0},
+                    {"passed": True, "score": 1.0},
+                ],
+            )
+
+            summary = self.er.summarize_official_eval_results(path)
+
+        self.assertEqual(summary["resolved"], 2)
+        self.assertEqual(summary["total"], 3)
+        self.assertAlmostEqual(summary["resolved_rate"], 2 / 3)
+
+
+class RecipeLayoutTest(unittest.TestCase):
+    def test_recipes_have_clear_runtime_algorithm_and_ops_slots(self):
+        self.assertTrue((ROOT / "recipes" / "runtime.py").is_file())
+        self.assertFalse((ROOT / "recipes" / "_shared.py").exists())
+        self.assertTrue(
+            (ROOT / "recipes" / "dgm" / "algorithm" / "archive.py").is_file()
+        )
+        self.assertTrue(
+            (ROOT / "recipes" / "dgm" / "algorithm" / "open_ended.py").is_file()
+        )
+        self.assertTrue(
+            (ROOT / "recipes" / "dgm" / "algorithm" / "repo_edits.py").is_file()
+        )
+        self.assertTrue((ROOT / "recipes" / "dgm" / "ops" / "baseline.py").is_file())
+        self.assertTrue((ROOT / "recipes" / "dgm" / "ops" / "report.py").is_file())
+        self.assertFalse((ROOT / "recipes" / "dgm" / "archive.py").exists())
+        self.assertFalse((ROOT / "recipes" / "dgm" / "baseline.py").exists())
+        self.assertFalse((ROOT / "recipes" / "__init__.py").exists())
+        self.assertFalse((ROOT / "recipes" / "simple" / "__init__.py").exists())
+        self.assertFalse((ROOT / "recipes" / "dgm" / "__init__.py").exists())
+
+
 class SimpleRecipeSmokeTest(unittest.TestCase):
     def test_simple_recipe_runs_generic_dry_run_with_registered_swebench(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -141,7 +230,7 @@ class DgmRecipeSmokeTest(unittest.TestCase):
         self.assertFalse(ns.execute)
 
     def test_pick_best_node_selects_highest_valid(self):
-        from recipes.dgm import archive
+        from recipes.dgm.algorithm import archive
 
         nodes = (
             archive.ArchiveNode(hash="a", scores={"reward": 0.5}),
@@ -291,6 +380,25 @@ class RecordHeldoutGenerationTest(unittest.TestCase):
             self.assertEqual(written[0]["resolved_rate"], 0.5)
             self.assertEqual(written[0]["test_resolved_rate"], 0.5)
 
+    def test_writes_generation_metrics_from_scoped_eval_results(self):
+        from simple_agent_lab.trace.jsonl import write_jsonl
+
+        with tempfile.TemporaryDirectory() as tmp:
+            layout = self.er.PerformanceLayout(Path(tmp), "run")
+            layout.create()
+            artifacts = self.er.official_artifacts(layout, "final")
+            write_jsonl(artifacts.eval_results, self._eval_rows())
+            record = self.mod.record_heldout_generation(
+                layout,
+                SimpleNamespace(hash="v1", parent="v0"),
+                parent_selection="best",
+                eval_results=artifacts.eval_results,
+            )
+
+        self.assertEqual(record["resolved"], 1)
+        self.assertEqual(record["total"], 2)
+        self.assertEqual(record["test_resolved_rate"], 0.5)
+
     def test_skips_write_when_eval_results_missing(self):
         with tempfile.TemporaryDirectory() as tmp:
             layout = self.er.PerformanceLayout(Path(tmp), "run")
@@ -304,7 +412,7 @@ class RecordHeldoutGenerationTest(unittest.TestCase):
             self.assertFalse(layout.generation_metrics.is_file())
 
     def test_report_summarizes_written_generation_metrics(self):
-        report = _load(ROOT / "recipes" / "dgm" / "report.py")
+        report = _load(ROOT / "recipes" / "dgm" / "ops" / "report.py")
         with tempfile.TemporaryDirectory() as tmp:
             layout = self.er.PerformanceLayout(Path(tmp), "run")
             layout.create()

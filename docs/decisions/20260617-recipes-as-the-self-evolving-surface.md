@@ -47,11 +47,12 @@ Adopt a **three-tier** structure with an enforced import boundary.
 3. **Recipes — `recipes/` (the user surface).** Thin, runnable examples compose
    the tiers: `simple/` (sequential `Experiment.run`, minimal code) and `dgm/`
    (parallel open-ended loop, all knobs) plus small recipe-local ops scripts
-   (`dgm/baseline.py`, `dgm/report.py`). DGM's archive reconstruction,
+   (`dgm/ops/baseline.py`, `dgm/ops/report.py`). DGM's archive reconstruction,
    parent-selection policies, open-ended admission loop, and repo-tree edit
-   helpers live under `recipes/dgm/` because DGM is a demonstration method, not a
-   first-class framework API. The recipe layer is the **only** place allowed to
-   touch Docker and host env, via `recipes/_shared.py`; it is not arch-linted.
+   helpers live under `recipes/dgm/algorithm/` because DGM is a demonstration
+   method, not a first-class framework API. The recipe layer is the **only**
+   place allowed to touch Docker and host env, via `recipes/runtime.py`; it is
+   not arch-linted.
 
 A new benchmark adds an adapter plus a recipe and never edits the substrate.
 The legacy evolution-recipes tree under `scripts/` and the old top-level runners
@@ -64,7 +65,7 @@ are removed; `runs/` wrappers point at the recipes.
 - **Enforced:** the docker boundary and module zoning are checked by
   `arch_lint.py`, so the benchmark-agnostic claim cannot silently rot. Package
   code cannot import host-side `evals/`, and Docker probing is structurally
-  confined to `recipes/_shared.py`.
+  confined to `recipes/runtime.py`.
 - **Harder / out of scope:** one-off operational tooling (dataset splitting,
   bespoke reports) is intentionally kept as small recipe-local scripts rather
   than promoted into the package; throwaway tools (e.g. the old
@@ -79,7 +80,7 @@ are removed; `runs/` wrappers point at the recipes.
   ADR resolves. The eval suite already owns benchmark specifics.
 - **Keep Docker helpers in the package (behind lazy imports).** Rejected:
   `arch_lint` forbids `import docker` outside `evals.backends`, and recipes are
-  the natural home for host/Docker probing. Confining it to `recipes/_shared.py`
+  the natural home for host/Docker probing. Confining it to `recipes/runtime.py`
   keeps the package importable without Docker.
 - **Leave the legacy evolution-recipes tree in place.** Rejected: the sprawl
   is the problem; a clear surface requires removing the duplicate/legacy paths,

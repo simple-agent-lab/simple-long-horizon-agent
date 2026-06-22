@@ -24,7 +24,7 @@ from typing import Any
 from simple_agent_lab.evals.protocols import AGENT_PACKAGE_KEY
 from simple_agent_lab.evals.suites.swebench import agent_package as agent_pkg
 from simple_agent_lab.evolution.types import Run, Slice, Version
-from simple_agent_lab.trace.jsonl import write_jsonl
+from simple_agent_lab.trace.jsonl import read_jsonl, write_jsonl
 
 DEFAULT_DATASET = "princeton-nlp/SWE-bench_Verified"
 DEFAULT_MODEL_NAME = "dgm-swebench"
@@ -76,6 +76,29 @@ class PerformanceLayout:
             path.mkdir(parents=True, exist_ok=True)
 
 
+@dataclass(frozen=True)
+class OfficialArtifacts:
+    label: str
+    root: Path
+    predictions: Path
+    eval_results: Path
+    harness: Path
+    run_id: str
+
+
+def official_artifacts(layout: PerformanceLayout, label: str) -> OfficialArtifacts:
+    safe = _safe_path_part(label)
+    root = layout.official / safe
+    return OfficialArtifacts(
+        label=safe,
+        root=root,
+        predictions=root / f"{safe}_predictions.jsonl",
+        eval_results=root / "eval_results.jsonl",
+        harness=root / "harness",
+        run_id=f"{layout.run_id}-{safe}",
+    )
+
+
 def load_dataset(path: str | Path) -> tuple[dict[str, Any], ...]:
     """Load full SWE-bench instance records from a JSONL dataset file."""
 
@@ -96,6 +119,7 @@ def collect_predictions_command(
     dataset_name: str,
     model_name: str,
     source_run_id: str | None = None,
+    predictions: str | Path | None = None,
 ) -> list[str]:
     """Build the DGM command that collects rollout outputs into predictions JSONL."""
 
@@ -112,7 +136,7 @@ def collect_predictions_command(
         "--model-name",
         model_name,
         "--predictions",
-        str(layout.predictions),
+        str(predictions or layout.predictions),
     ]
 
 
@@ -122,6 +146,10 @@ def official_eval_command(
     dataset_name: str,
     instance_ids: Sequence[str] = (),
     max_workers: int = 1,
+    predictions: str | Path | None = None,
+    eval_results: str | Path | None = None,
+    official_output_dir: str | Path | None = None,
+    run_id: str | None = None,
 ) -> list[str]:
     """Build the DGM command that runs or normalizes official SWE-bench scoring."""
 
@@ -132,19 +160,34 @@ def official_eval_command(
         "--dataset-name",
         dataset_name,
         "--predictions",
-        str(layout.predictions),
+        str(predictions or layout.predictions),
         "--jsonl",
-        str(layout.eval_results),
+        str(eval_results or layout.eval_results),
         "--official-output-dir",
-        str(layout.official / "harness"),
+        str(official_output_dir or layout.official / "harness"),
         "--run-id",
-        layout.run_id,
+        run_id or layout.run_id,
         "--max-workers",
         str(max_workers),
     ]
     if instance_ids:
         command.extend(["--instance-ids", *instance_ids])
     return command
+
+
+def summarize_official_eval_results(path: str | Path) -> dict[str, Any]:
+    rows = read_jsonl(path)
+    total = len(rows)
+    resolved = sum(
+        1
+        for row in rows
+        if bool(row.get("passed")) or float(row.get("score", 0.0) or 0.0) > 0.0
+    )
+    return {
+        "resolved": resolved,
+        "total": total,
+        "resolved_rate": resolved / total if total else 0.0,
+    }
 
 
 def generation_metric_record(
@@ -227,6 +270,11 @@ def write_generation_metrics(
     path: str | Path, records: Sequence[Mapping[str, Any]]
 ) -> None:
     write_jsonl(path, records)
+
+
+def _safe_path_part(value: str) -> str:
+    safe = "".join(ch if ch.isalnum() or ch in "-_." else "-" for ch in value)
+    return safe.strip("-") or "official"
 
 
 def ensure_rollout_artifacts(

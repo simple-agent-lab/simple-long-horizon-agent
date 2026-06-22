@@ -4,8 +4,8 @@ A faithful [Darwin Gödel Machine](https://arxiv.org/abs/2505.22954) reproductio
 on SWE-bench. A model-driven meta-agent rewrites the whole agent program under
 `agent/`; the evolution kernel runs a **parallel open-ended archive-admission
 loop** (branches per round, best-valid promotion, archive parent selection); and
-the best-on-train agent is scored on a held-out test split. Every DGM knob is
-exposed.
+the seed and best-on-train agents are scored on a held-out test split so the run
+reports a before/after delta. Every DGM knob is exposed.
 
 This recipe is the **faithfulness showcase** — the counterpart to the
 [`simple`](../simple/README.md) recipe's minimalism.
@@ -14,18 +14,18 @@ This recipe is the **faithfulness showcase** — the counterpart to the
 
 - `evolve.py` — the recipe (proposal, archive admission, train rollout, criterion,
   promotion, held-out scoring).
-- `archive.py` / `open_ended.py` — DGM-local archive reconstruction, parent
-  selection, and parallel branch admission.
-- `repo_edits.py` — optional DGM helper for turning full repository tree changes
-  into version proposals.
-- `baseline.py` — measure the seed agent per-instance, then build a balanced
+- `algorithm/archive.py` / `algorithm/open_ended.py` — DGM-local archive
+  reconstruction, parent selection, and parallel branch admission.
+- `algorithm/repo_edits.py` — optional DGM helper for turning full repository
+  tree changes into version proposals.
+- `ops/baseline.py` — measure the seed agent per-instance, then build a balanced
   "headroom" train/test split (pure selection/splitting logic is unit-tested).
-- `report.py` — summarize a run. The held-out scoring step writes one
-  `generation_metrics.jsonl` row (aggregated from `official/eval_results.jsonl`)
-  capturing the best version's official resolved rate, selector, and held-out
-  test score; `report.py` headlines that row alongside the `decisions.jsonl`
-  monitor (accepted/rejected decisions, current version, selector distribution,
-  test-leakage monitor).
+- `ops/report.py` — summarize a run. The final held-out scoring step writes one
+  `generation_metrics.jsonl` row (aggregated from
+  `official/final/eval_results.jsonl`) capturing the best version's official
+  resolved rate, selector, and held-out test score; `report.py` headlines that
+  row alongside the `decisions.jsonl` monitor (accepted/rejected decisions,
+  current version, selector distribution, test-leakage monitor).
 
 ## Prerequisites
 
@@ -34,18 +34,27 @@ Docker daemon, a wheelhouse, and train/test SWE-bench JSONL splits.
 
 ## 1. Build a headroom split (optional)
 
-The default verified splits can be too easy/small to show signal. Roll the seed
-scaffold once over a candidate pool and carve a balanced split:
+The default verified splits can be too easy/small to show signal. Build a
+repo-balanced candidate pool, roll the seed scaffold once over that pool, and
+carve a balanced headroom split:
 
 ```bash
-uv run --extra swebench python recipes/dgm/baseline.py \
-  --run-id baseline-headroom \
-  --train-size 20 --test-size 20 \
-  --execute
+uv run --extra swebench python recipes/dgm/ops/baseline.py \
+  --run-id baseline-demo-160 \
+  --pool-size 160 \
+  --pool-out evals/out/dgm_swebench/splits/demo-pool-160.jsonl \
+  --baseline-out evals/out/dgm_swebench/splits/demo-baseline-160.jsonl \
+  --train-out evals/out/dgm_swebench/splits/demo-train-60.jsonl \
+  --test-out evals/out/dgm_swebench/splits/demo-test-60.jsonl \
+  --train-size 60 \
+  --test-size 60 \
+  --parallel auto
 ```
 
-This writes disjoint `*-train-*.jsonl` / `*-test-*.jsonl` files under
-`evals/out/dgm_swebench/splits/`.
+This writes a selected pool, per-instance seed resolve records, and disjoint
+train/test JSONL files under `evals/out/dgm_swebench/splits/`. To skip the
+Docker baseline pass after a previous measurement, pass `--reuse-baseline` with
+the saved baseline JSONL.
 
 ## 2. Run the evolution
 
@@ -54,8 +63,8 @@ Dry plan first:
 ```bash
 bash runs/run_dgm_swebench.sh \
   --run-id dgm-smoke \
-  --train-dataset evals/out/dgm_swebench/splits/headroom-train-20.jsonl \
-  --test-dataset evals/out/dgm_swebench/splits/headroom-test-20.jsonl \
+  --train-dataset evals/out/dgm_swebench/splits/demo-train-60.jsonl \
+  --test-dataset evals/out/dgm_swebench/splits/demo-test-60.jsonl \
   --rounds 3
 ```
 
@@ -65,8 +74,8 @@ Then the real run (the wrapper prepares Docker + wheelhouse, then calls
 ```bash
 bash runs/run_dgm_swebench.sh \
   --run-id dgm-real \
-  --train-dataset evals/out/dgm_swebench/splits/headroom-train-20.jsonl \
-  --test-dataset evals/out/dgm_swebench/splits/headroom-test-20.jsonl \
+  --train-dataset evals/out/dgm_swebench/splits/demo-train-60.jsonl \
+  --test-dataset evals/out/dgm_swebench/splits/demo-test-60.jsonl \
   --rounds 5 --branches 3 --parent-selection score_child_prop \
   --execute
 ```
@@ -79,7 +88,7 @@ prepared the wheelhouse.
 
 ```bash
 # during or after a run
-uv run python recipes/dgm/report.py evals/out/dgm_swebench/<run-id> \
+uv run python recipes/dgm/ops/report.py evals/out/dgm_swebench/<run-id> \
   --test-dataset evals/out/dgm_swebench/splits/headroom-test-20.jsonl
 
 # or via the recipe's built-in monitor flag
@@ -92,7 +101,7 @@ bash runs/run_dgm_swebench.sh --run-id dgm-real \
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--run-id` | required | Reproducible run id. |
-| `--train-dataset` / `--test-dataset` | required | Train (evolution) and held-out (scoring) JSONL slices. |
+| `--train-dataset` / `--test-dataset` | required | Train (evolution) and held-out before/final scoring JSONL slices. |
 | `--rounds` | `4` | Sequential evolution rounds. Total candidates = `rounds × branches`. |
 | `--branches` | `3` | Candidate branches evaluated concurrently per round. |
 | `--meta-concurrency` | `0` (= branches) | Concurrent meta-agent LLM calls per round. |
@@ -112,4 +121,5 @@ bash runs/run_dgm_swebench.sh --run-id dgm-real \
 Run artifacts land under `evals/out/dgm_swebench/<run-id>/` (gitignored). See
 [`evals/out/dgm_swebench/README.md`](../../evals/out/dgm_swebench/README.md) for
 the directory layout. Official performance claims should use
-`official/eval_results.jsonl`, not the recipe-level `generation_metrics.jsonl`.
+`official/baseline/eval_results.jsonl`, `official/final/eval_results.jsonl`, and
+`test_summary.json`, not only the recipe-level `generation_metrics.jsonl`.

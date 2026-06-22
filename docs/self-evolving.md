@@ -73,11 +73,12 @@ owns this sequence:
 **Sequential** — `Experiment.run(strategy, n=...)` calls `step` n times,
 auto-promoting whenever the criterion accepts. This is the simple recipe.
 
-**Parallel, open-ended** — `recipes.dgm.open_ended.run_evolution(...)` runs
-several branches per round, admits every *valid* child into the archive
-(worse-but-valid versions stay as stepping stones), promotes the best valid
-child of the round, and lets the strategy pick a parent from the whole archive.
-This is the DGM recipe; the archive machinery is intentionally recipe-local.
+**Parallel, open-ended** —
+`recipes.dgm.algorithm.open_ended.run_evolution(...)` runs several branches per
+round, admits every *valid* child into the archive (worse-but-valid versions
+stay as stepping stones), promotes the best valid child of the round, and lets
+the strategy pick a parent from the whole archive. This is the DGM recipe; the
+archive machinery is intentionally recipe-local.
 
 Both share the exact same kernel guarantees; open-ended only changes *which*
 parents are explored and *how many* candidates run at once.
@@ -103,8 +104,8 @@ parents are explored and *how many* candidates run at once.
   `Proposal`. Benchmark-agnostic; the recipe injects the domain prompt. Any
   non-current parent-selection policy must be supplied by the recipe through
   `parent_selector`.
-- `recipes.dgm.archive.nodes(workspace)` and
-  `recipes.dgm.archive.select_parent(nodes, method=)` — the DGM parent-selection
+- `recipes.dgm.algorithm.archive.nodes(workspace)` and
+  `recipes.dgm.algorithm.archive.select_parent(nodes, method=)` — the DGM parent-selection
   policies (`latest`, `best`, `score_prop`, `score_child_prop`, `random`)
   derived from the decision log.
 
@@ -113,7 +114,7 @@ parents are explored and *how many* candidates run at once.
 | Recipe | What it shows | Loop | Knobs |
 | --- | --- | --- | --- |
 | [`recipes/simple/`](../recipes/simple/README.md) | Config-backed generic `algorithm: simple` train-slice evolution | `Experiment.run` (sequential) | YAML config — train path, rounds, execution settings |
-| [`recipes/dgm/`](../recipes/dgm/README.md) | A faithful Darwin Gödel Machine reproduction with recipe-local held-out scoring | `recipes.dgm.open_ended.run_evolution` (parallel) | all of them — branches, parent selection, meta-concurrency, parallelism |
+| [`recipes/dgm/`](../recipes/dgm/README.md) | A faithful Darwin Gödel Machine reproduction with recipe-local held-out scoring | `recipes.dgm.algorithm.open_ended.run_evolution` (parallel) | all of them — branches, parent selection, meta-concurrency, parallelism |
 
 Both evolve the **whole agent program** under `agent/`: the model rewrites the
 agent's own Python, each candidate is graded on a train slice in a SWE-bench
@@ -178,7 +179,7 @@ decisions = exp.run(strategy, n=4)   # sequential
 To go open-ended (archive + parallel branches), treat that as a recipe policy:
 copy or import the DGM recipe helpers under `recipes/dgm/` and pass the same
 components to
-`recipes.dgm.open_ended.run_evolution(workspace, components, slice_, rounds=..., branches=...)`
+`recipes.dgm.algorithm.open_ended.run_evolution(workspace, components, slice_, rounds=..., branches=...)`
 with `criterion=valid_when("reward")` so worse-but-valid children stay as
 stepping stones. See `recipes/dgm/evolve.py` for the fully wired version.
 
@@ -196,10 +197,13 @@ src/simple_agent_lab/evolution/    # substrate (benchmark-agnostic)
 evals/swebench/evolution_adapter.py # SWE-bench/DGM compatibility + scoring glue
 recipes/                            # runnable recipes + ops scripts
   simple/evolve.py
-  dgm/archive.py, open_ended.py, repo_edits.py
+  runtime.py
+  dgm/evolve.py
+  dgm/algorithm/archive.py, open_ended.py, repo_edits.py
+  dgm/ops/baseline.py, report.py
 ```
 
 The boundary is enforced: the substrate never imports a benchmark or the
 top-level host `evals/` tree, the SWE-bench adapter never imports Docker
 (`scripts/arch_lint.py`), and Docker/host probing lives only in the recipe layer
-(`recipes/_shared.py`).
+(`recipes/runtime.py`).

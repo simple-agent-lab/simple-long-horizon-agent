@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from recipes.dgm.repo_edits import (
+from recipes.dgm.algorithm.repo_edits import (
     directory_edits,
     proposal_from_changed_tree,
     touched_paths,

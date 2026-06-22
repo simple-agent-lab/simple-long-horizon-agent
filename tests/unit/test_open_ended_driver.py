@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from recipes.dgm import archive, open_ended
+from recipes.dgm.algorithm import archive, open_ended
 from simple_agent_lab.evolution.components.criterion import valid_when
 from simple_agent_lab.evolution.kernel import log, store
 from simple_agent_lab.evolution.types import Manifest, Proposal, Run, Slice, Verdict

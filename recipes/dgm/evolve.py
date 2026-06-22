@@ -10,6 +10,7 @@ default; --execute runs real model + Docker.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -20,11 +21,11 @@ from types import SimpleNamespace
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT))  # for `recipes._shared`
+sys.path.insert(0, str(ROOT))  # for recipe support modules
 sys.path.insert(0, str(ROOT / "src"))
 
-from recipes import _shared  # noqa: E402
-from recipes.dgm import archive, open_ended  # noqa: E402
+import recipes.runtime as recipe_runtime  # noqa: E402
+from recipes.dgm.algorithm import archive, open_ended  # noqa: E402
 from evals.swebench import evolution_adapter as er  # noqa: E402
 from simple_agent_lab.evolution import Experiment  # noqa: E402
 from simple_agent_lab.evolution.components.criterion import valid_when  # noqa: E402
@@ -50,14 +51,14 @@ Make one focused change likely to raise the resolve rate.
 
 
 def run_workflow(args: argparse.Namespace) -> None:
-    _shared.load_dotenv(args.dotenv)
+    recipe_runtime.load_dotenv(args.dotenv)
     if args.model_name == DEFAULT_MODEL and os.environ.get("OPENAI_MODEL"):
         args.model_name = os.environ["OPENAI_MODEL"]
     output_root = Path(args.output_root)
     run_root = safe_run_root(output_root, args.run_id)
     workspace = run_root / "evolution"
     if args.reset and run_root.exists():
-        _shared.cleanup_reset_containers(run_root)
+        recipe_runtime.cleanup_reset_containers(run_root)
         shutil.rmtree(run_root)
     layout = er.PerformanceLayout(output_root, args.run_id)
     layout.create()
@@ -69,11 +70,13 @@ def run_workflow(args: argparse.Namespace) -> None:
         print("\ndry run only; pass --execute to run model + Docker evolution")
         return
 
-    _shared.check_docker_available()
+    recipe_runtime.check_docker_available()
     rounds, branches, meta_workers = resolve_schedule(args)
-    resolution = _shared.resolve_parallel_workers(args.parallel, len(train_records))
+    resolution = recipe_runtime.resolve_parallel_workers(
+        args.parallel, len(train_records)
+    )
     global_workers = resolution.workers
-    per_branch = _shared.branch_concurrency(
+    per_branch = recipe_runtime.branch_concurrency(
         global_workers=global_workers, branches=branches
     )
     print(f"global workers: {global_workers} ({resolution.detail})")
@@ -125,6 +128,15 @@ def run_workflow(args: argparse.Namespace) -> None:
             base_url=os.environ.get(er.OPENAI_BASE_URL_ENV, "").strip(),
         ),
     )
+    baseline_test = run_heldout_scoring(
+        args,
+        layout,
+        test_records,
+        exp.current(),
+        base_rollout,
+        label="baseline",
+        record_generation=False,
+    )
     strategy = model_program_strategy(
         provider=provider,
         prefix="agent/",
@@ -158,7 +170,17 @@ def run_workflow(args: argparse.Namespace) -> None:
 
     best = best_archive_version(workspace) or exp.current()
     print(f"\nbest-in-archive version: {best.hash}")
-    run_heldout_scoring(args, layout, test_records, best, base_rollout)
+    final_test = run_heldout_scoring(
+        args,
+        layout,
+        test_records,
+        best,
+        base_rollout,
+        label="final",
+        record_generation=True,
+    )
+    summary_path = write_test_summary(layout, baseline=baseline_test, final=final_test)
+    print_test_summary(summary_path)
 
 
 def resolve_schedule(args: argparse.Namespace) -> tuple[int, int, int]:
@@ -265,8 +287,12 @@ def run_heldout_scoring(
     test_records: Sequence[Mapping[str, Any]],
     version: Version,
     base_rollout,
-) -> None:
-    print("\nheld-out test rollout:")
+    *,
+    label: str,
+    record_generation: bool = True,
+) -> dict[str, Any]:
+    artifacts = er.official_artifacts(layout, label)
+    print(f"\nheld-out test rollout ({label}):")
     test_slice = heldout_slice(version, test_records)
     base_rollout(version, test_slice)
     source_run_id = heldout_run_id(version, test_records)
@@ -276,12 +302,17 @@ def run_heldout_scoring(
         dataset_name=args.dataset_name,
         model_name=f"{args.model_name}-{args.parent_selection}",
         source_run_id=source_run_id,
+        predictions=artifacts.predictions,
     )
     official = er.official_eval_command(
         layout,
         dataset_name=args.dataset_name,
         instance_ids=er.instance_ids(test_records),
         max_workers=args.parallel,
+        predictions=artifacts.predictions,
+        eval_results=artifacts.eval_results,
+        official_output_dir=artifacts.harness,
+        run_id=artifacts.run_id,
     )
     print("\ncollect predictions:")
     print(" ".join(collect))
@@ -289,7 +320,25 @@ def run_heldout_scoring(
     print("\nofficial scoring:")
     print(" ".join(official))
     subprocess.run(official, cwd=ROOT, check=True)
-    record_heldout_generation(layout, version, parent_selection=args.parent_selection)
+    summary = er.summarize_official_eval_results(artifacts.eval_results)
+    record: dict[str, Any] = {
+        "label": label,
+        "version": version.hash,
+        "parent": version.parent or "",
+        "source_run_id": source_run_id,
+        "predictions": str(artifacts.predictions),
+        "eval_results": str(artifacts.eval_results),
+        **summary,
+    }
+    print_score_line(label, record)
+    if record_generation:
+        record_heldout_generation(
+            layout,
+            version,
+            parent_selection=args.parent_selection,
+            eval_results=artifacts.eval_results,
+        )
+    return record
 
 
 def record_heldout_generation(
@@ -297,6 +346,7 @@ def record_heldout_generation(
     version: Version,
     *,
     parent_selection: str,
+    eval_results: str | Path | None = None,
 ) -> dict[str, Any]:
     """Write one ``generation_metrics`` row from the held-out official eval results.
 
@@ -306,9 +356,12 @@ def record_heldout_generation(
     best version's held-out official resolved rate. Docker-free and unit-testable.
     """
 
-    if not layout.eval_results.is_file():
+    eval_results_path = (
+        Path(eval_results) if eval_results is not None else layout.eval_results
+    )
+    if not eval_results_path.is_file():
         return {}
-    rows = read_jsonl(layout.eval_results)
+    rows = read_jsonl(eval_results_path)
     if not rows:
         return {}
     runs = [
@@ -332,6 +385,67 @@ def record_heldout_generation(
     return record
 
 
+def write_test_summary(
+    layout: er.PerformanceLayout,
+    *,
+    baseline: Mapping[str, Any],
+    final: Mapping[str, Any],
+) -> Path:
+    baseline_resolved = _as_int(baseline.get("resolved"))
+    final_resolved = _as_int(final.get("resolved"))
+    baseline_rate = _as_float(baseline.get("resolved_rate"))
+    final_rate = _as_float(final.get("resolved_rate"))
+    summary = {
+        "baseline": dict(baseline),
+        "final": dict(final),
+        "delta_resolved": final_resolved - baseline_resolved,
+        "delta_resolved_rate": final_rate - baseline_rate,
+    }
+    path = layout.run_root / "test_summary.json"
+    path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
+    return path
+
+
+def print_test_summary(path: Path) -> None:
+    summary = json.loads(path.read_text(encoding="utf-8"))
+    print("\nheld-out test summary:")
+    print_score_line("baseline", summary["baseline"])
+    print_score_line("final", summary["final"])
+    delta_resolved = int(summary.get("delta_resolved", 0))
+    delta_rate = float(summary.get("delta_resolved_rate", 0.0))
+    print(f"delta: {delta_resolved:+d} / {delta_rate:+.3f}")
+    print(f"summary: {path}")
+
+
+def print_score_line(label: str, record: Mapping[str, Any]) -> None:
+    resolved = _as_int(record.get("resolved"))
+    total = _as_int(record.get("total"))
+    rate = _as_float(record.get("resolved_rate"))
+    print(f"{label} test: {resolved}/{total} = {rate:.3f}")
+
+
+def _as_int(value: object) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str) and value:
+        return int(value)
+    return 0
+
+
+def _as_float(value: object) -> float:
+    if isinstance(value, bool):
+        return float(value)
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str) and value:
+        return float(value)
+    return 0.0
+
+
 def heldout_slice(version: Version, test_records: Sequence[Mapping[str, Any]]) -> Slice:
     del version  # scaffold reaches the container via version_artifacts staging
     return Slice("swebench-test", tuple(dict(rec) for rec in test_records))
@@ -343,7 +457,7 @@ def heldout_run_id(version: Version, test_records: Sequence[Mapping[str, Any]]) 
 
 
 def print_monitor(args: argparse.Namespace) -> None:
-    _shared.load_dotenv(args.dotenv)
+    recipe_runtime.load_dotenv(args.dotenv)
     run_root = safe_run_root(args.output_root, args.run_id)
     summary = subprocess.run(
         [
@@ -410,7 +524,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--parallel",
-        default=_shared.AUTO_PARALLEL,
+        default=recipe_runtime.AUTO_PARALLEL,
         help="Global worker cap, or 'auto' to size to the Docker VM. Default: auto.",
     )
     parser.add_argument(

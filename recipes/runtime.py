@@ -1,4 +1,4 @@
-"""Shared recipe helpers (dotenv + Docker daemon probing/sizing).
+"""Recipe runtime helpers for env loading, Docker probing, and worker sizing.
 
 These live in the recipe layer, not the package: they import ``docker`` directly,
 which arch_lint confines to ``evals.backends`` inside the package. Recipes are

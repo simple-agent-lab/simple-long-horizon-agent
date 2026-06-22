@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from recipes import _shared
+import recipes.runtime as runtime
 
 
 class _FakeDockerInfo:
@@ -16,20 +16,20 @@ class _FakeDockerInfo:
 
 class BranchConcurrencyTest(unittest.TestCase):
     def test_never_exceeds_global(self):
-        self.assertEqual(_shared.branch_concurrency(global_workers=19, branches=3), 6)
+        self.assertEqual(runtime.branch_concurrency(global_workers=19, branches=3), 6)
 
     def test_floor_is_one(self):
-        self.assertEqual(_shared.branch_concurrency(global_workers=2, branches=5), 1)
+        self.assertEqual(runtime.branch_concurrency(global_workers=2, branches=5), 1)
 
 
 class ResolveParallelTest(unittest.TestCase):
     def test_honors_explicit(self):
-        res = _shared.resolve_parallel_workers("4", 8)
+        res = runtime.resolve_parallel_workers("4", 8)
         self.assertEqual(res.workers, 4)
         self.assertIn("explicit", res.detail)
 
     def test_auto_memory_capped_small_vm(self):
-        res = _shared.resolve_parallel_workers(
+        res = runtime.resolve_parallel_workers(
             "auto",
             8,
             client_factory=lambda: _FakeDockerInfo(ncpu=4, mem_bytes=8 * 1024**3),
@@ -38,7 +38,7 @@ class ResolveParallelTest(unittest.TestCase):
         self.assertIn("docker VM", res.detail)
 
     def test_auto_instance_capped_large_vm(self):
-        res = _shared.resolve_parallel_workers(
+        res = runtime.resolve_parallel_workers(
             "auto",
             8,
             client_factory=lambda: _FakeDockerInfo(ncpu=12, mem_bytes=32 * 1024**3),
@@ -49,15 +49,15 @@ class ResolveParallelTest(unittest.TestCase):
         def broken():
             raise RuntimeError("no docker")
 
-        res = _shared.resolve_parallel_workers("auto", 8, client_factory=broken)
-        self.assertEqual(res.workers, _shared.FALLBACK_PARALLEL)
+        res = runtime.resolve_parallel_workers("auto", 8, client_factory=broken)
+        self.assertEqual(res.workers, runtime.FALLBACK_PARALLEL)
         self.assertIn("fallback", res.detail)
 
     def test_rejects_invalid(self):
         with self.assertRaises(SystemExit):
-            _shared.resolve_parallel_workers("zero", 8)
+            runtime.resolve_parallel_workers("zero", 8)
         with self.assertRaises(SystemExit):
-            _shared.resolve_parallel_workers("0", 8)
+            runtime.resolve_parallel_workers("0", 8)
 
 
 class DockerHelpersTest(unittest.TestCase):
@@ -66,7 +66,7 @@ class DockerHelpersTest(unittest.TestCase):
             raise RuntimeError("socket missing")
 
         with self.assertRaisesRegex(SystemExit, "Docker is required"):
-            _shared.check_docker_available(client_factory=broken)
+            runtime.check_docker_available(client_factory=broken)
 
     def test_cleanup_reset_containers_removes_matching(self):
         class FakeContainer:
@@ -97,7 +97,7 @@ class DockerHelpersTest(unittest.TestCase):
             (run_root / "swebench_runs" / "3b89f9b34cec-9119f5eb01dc").mkdir(
                 parents=True
             )
-            removed = _shared.cleanup_reset_containers(
+            removed = runtime.cleanup_reset_containers(
                 run_root, client_factory=lambda: client
             )
         self.assertEqual(removed, 1)
@@ -116,7 +116,7 @@ class LoadDotenvTest(unittest.TestCase):
             for k in old:
                 os.environ.pop(k, None)
             try:
-                _shared.load_dotenv(env_path)
+                runtime.load_dotenv(env_path)
                 self.assertEqual(os.environ["OPENAI_MODEL"], "dotenv-model")
                 self.assertEqual(os.environ["OPENAI_AUTH_TOKEN"], "dotenv-token")
             finally:

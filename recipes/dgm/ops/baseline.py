@@ -4,7 +4,8 @@ The current splits are too easy (base already ~75%) and too small to show signal
 This script rolls the seed scaffold once over a candidate pool, records which
 instances the base resolves, and selects a balanced "headroom" set (a mix of
 passing and failing instances so the base resolve rate lands in a detectable
-band) split into disjoint train/test JSONL files.
+band) split into disjoint train/test JSONL files. The pool can come from a JSONL
+file or be fetched from SWE-bench Verified and down-selected by repository.
 
 Selection (``select_headroom``) and splitting (``split_chosen``) are pure and
 unit-tested; the Docker measurement pass reuses the same SWE-bench rollout the
@@ -22,11 +23,11 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT))  # for `recipes._shared`
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))  # for recipe support modules
 sys.path.insert(0, str(ROOT / "src"))
 
-from recipes import _shared  # noqa: E402
+import recipes.runtime as recipe_runtime  # noqa: E402
 from evals.swebench import evolution_adapter as er  # noqa: E402
 from simple_agent_lab.evolution.run_paths import safe_run_root  # noqa: E402
 
@@ -51,6 +52,50 @@ def write_jsonl(path: str | Path, records: Sequence[Mapping[str, Any]]) -> None:
         ),
         encoding="utf-8",
     )
+
+
+def repo_key(record: Mapping[str, Any]) -> str:
+    repo = str(record.get("repo") or "").strip()
+    if repo:
+        return repo
+    instance_id = str(record.get("instance_id") or "")
+    if "__" in instance_id:
+        return instance_id.split("__", 1)[0]
+    return "unknown"
+
+
+def select_diverse_pool(
+    pool: Sequence[Mapping[str, Any]],
+    *,
+    want: int,
+    seed: int = 0,
+) -> list[dict[str, Any]]:
+    """Pick a repo-balanced candidate pool with deterministic shuffling."""
+
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for record in pool:
+        groups.setdefault(repo_key(record), []).append(dict(record))
+    rng = random.Random(seed)
+    for records in groups.values():
+        rng.shuffle(records)
+    repos = sorted(groups)
+    rng.shuffle(repos)
+
+    chosen: list[dict[str, Any]] = []
+    target = min(max(0, int(want)), len(pool))
+    while len(chosen) < target and any(groups[repo] for repo in repos):
+        for repo in repos:
+            if groups[repo]:
+                chosen.append(groups[repo].pop())
+                if len(chosen) >= target:
+                    break
+    return chosen
+
+
+def load_dataset_pool(dataset_name: str, split: str) -> list[dict[str, Any]]:
+    from datasets import load_dataset
+
+    return [dict(row) for row in load_dataset(dataset_name, split=split)]
 
 
 def select_headroom(
@@ -168,7 +213,22 @@ def measure_pool(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--pool", required=True, help="Candidate pool JSONL.")
+    parser.add_argument(
+        "--pool",
+        default="",
+        help="Candidate pool JSONL. When omitted, fetch --dataset-name/--dataset-split.",
+    )
+    parser.add_argument(
+        "--pool-size",
+        type=int,
+        default=0,
+        help="Repo-balanced pool size. Default: all provided pool, or 160 when fetching.",
+    )
+    parser.add_argument(
+        "--pool-out",
+        default="",
+        help="Optional path to write the selected diverse pool JSONL.",
+    )
     parser.add_argument("--train-out", required=True)
     parser.add_argument("--test-out", required=True)
     parser.add_argument("--train-size", type=int, default=20)
@@ -178,7 +238,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-id", default="baseline-pool")
     parser.add_argument("--output-root", default=str(DEFAULT_OUTPUT_ROOT))
     parser.add_argument("--dataset-name", default=er.DEFAULT_DATASET)
-    parser.add_argument("--parallel", default=_shared.AUTO_PARALLEL)
+    parser.add_argument("--dataset-split", default="test")
+    parser.add_argument("--parallel", default=recipe_runtime.AUTO_PARALLEL)
     parser.add_argument(
         "--model-name",
         default=os.environ.get("OPENAI_MODEL", ""),
@@ -206,21 +267,35 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     safe_run_root(args.output_root, args.run_id)
 
-    _shared.load_dotenv(args.dotenv)
-    pool = read_jsonl(args.pool)
+    recipe_runtime.load_dotenv(args.dotenv)
+    if args.pool:
+        pool = read_jsonl(args.pool)
+        pool_size = args.pool_size
+    else:
+        pool = load_dataset_pool(args.dataset_name, args.dataset_split)
+        pool_size = args.pool_size or 160
+    if pool_size:
+        pool = select_diverse_pool(pool, want=pool_size, seed=args.seed)
+    if args.pool_out:
+        write_jsonl(args.pool_out, pool)
 
     model_name = args.model_name or os.environ.get("OPENAI_MODEL", "")
     base_url = os.environ.get(er.OPENAI_BASE_URL_ENV, "").strip()
+    pool_ids = {str(record.get("instance_id") or "") for record in pool}
 
     if args.reuse_baseline:
-        baseline = read_jsonl(args.reuse_baseline)
+        baseline = [
+            row
+            for row in read_jsonl(args.reuse_baseline)
+            if str(row.get("instance_id") or "") in pool_ids
+        ]
     else:
         if not model_name:
             raise SystemExit(
                 "No model: pass --model-name or set OPENAI_MODEL in the env/.env."
             )
-        _shared.check_docker_available()
-        resolution = _shared.resolve_parallel_workers(args.parallel, len(pool))
+        recipe_runtime.check_docker_available()
+        resolution = recipe_runtime.resolve_parallel_workers(args.parallel, len(pool))
         print(f"baseline pass workers: {resolution.workers} ({resolution.detail})")
         print(f"provider model: {model_name}  base_url: {base_url or '(default)'}")
         baseline = measure_pool(

@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from recipes.dgm import open_ended
+from recipes.dgm.algorithm import open_ended
 from simple_agent_lab.evolution.kernel import log, store
 from simple_agent_lab.evolution.types import Proposal, Slice, Verdict
 
@@ -88,6 +88,31 @@ class RunRoundTest(unittest.TestCase):
         self.assertEqual(len(decisions), 3)
         logged = log.read(self.ws)
         self.assertEqual(len(logged), 3)
+
+    def test_run_round_skips_failed_proposal_branch(self) -> None:
+        components = self._components()
+        original_strategy = components.strategy
+
+        def strategy(ctx):
+            with self._counter_lock:
+                self._proposal_counter += 1
+                n = self._proposal_counter
+            if n == 1:
+                raise ValueError("bad model response")
+            return original_strategy(ctx)
+
+        components.strategy = strategy
+
+        decisions = open_ended.run_round(
+            self.ws,
+            components,
+            self.slice_,
+            branches=3,
+            on_proposal_error=lambda e: None,
+        )
+
+        self.assertEqual(len(decisions), 2)
+        self.assertEqual(len(log.read(self.ws)), 2)
 
     def test_rollouts_run_concurrently_but_tail_is_serialized(self) -> None:
         open_ended.run_round(self.ws, self._components(), self.slice_, branches=3)
