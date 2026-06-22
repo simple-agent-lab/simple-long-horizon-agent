@@ -33,7 +33,7 @@ from simple_agent_lab.evolution.components.strategy import (  # noqa: E402
     model_program_strategy,
 )
 from simple_agent_lab.evolution.kernel import store as evo_store  # noqa: E402
-from simple_agent_lab.evolution.run_paths import safe_run_root  # noqa: E402
+from simple_agent_lab.evolution.config import safe_run_root  # noqa: E402
 from simple_agent_lab.evolution.types import RunScores, Slice, Verdict, Version  # noqa: E402
 from simple_agent_lab.llm import Provider  # noqa: E402
 from simple_agent_lab.trace.jsonl import read_jsonl  # noqa: E402

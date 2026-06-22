@@ -2,11 +2,17 @@ from __future__ import annotations
 
 import unittest
 
+import simple_agent_lab.evolution as evolution
 from simple_agent_lab.evolution import registry
-from simple_agent_lab.evolution.config import Use
+from simple_agent_lab.evolution.registry import Use
 
 
 class RegistryTest(unittest.TestCase):
+    def test_use_belongs_to_registry(self) -> None:
+        self.assertEqual(Use.__module__, "simple_agent_lab.evolution.registry")
+        self.assertNotIn("Config", evolution.__all__)
+        self.assertFalse(hasattr(evolution, "Config"))
+
     def test_builtin_criterion_resolves_by_name(self) -> None:
         crit = registry.build("criterion", Use("improve", dim="reward"))
         base = {"i1": {"reward": 0.0}}

@@ -39,8 +39,7 @@ class _Components:
 class Experiment:
     """One experiment: a workspace, a way to run, a way to score, a way to judge.
 
-    Level 1 (direct): ``Experiment(ws, rollout=fn, reward=fn, criterion=fn)``.
-    Level 2 (config): ``Experiment.from_config(cfg)``.
+    Direct use: ``Experiment(ws, rollout=fn, reward=fn, criterion=fn)``.
     """
 
     def __init__(
@@ -66,27 +65,6 @@ class Experiment:
         self.slice = Slice(slice_id, tuple(instances))
         self.auto_promote = auto_promote
         self._ensure_seed(seed or {"prompt.md": ""})
-
-    @classmethod
-    def from_config(cls, config) -> "Experiment":
-        from simple_agent_lab.evolution import registry
-
-        strategy = (
-            registry.build("strategy", config.strategy)
-            if config.strategy is not None
-            else None
-        )
-        return cls(
-            config.workspace,
-            rollout=registry.build("rollout", config.rollout),
-            reward=registry.build("reward", config.reward),
-            strategy=strategy,
-            criterion=registry.build("criterion", config.criterion),
-            slice_id=config.slice_id,
-            instances=config.instances,
-            seed=config.seed or None,
-            auto_promote=config.auto_promote,
-        )
 
     def _ensure_seed(self, seed: Mapping[str, str]) -> None:
         try:

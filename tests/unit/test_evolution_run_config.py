@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from simple_agent_lab.evolution.run_config import load_self_evolving_config
+from simple_agent_lab.evolution.config import load_self_evolving_config
 
 
 CONFIG = """
@@ -147,7 +147,7 @@ class RunConfigTest(unittest.TestCase):
                 load_self_evolving_config(path)
 
     def test_build_self_evolving_run_with_registered_factories(self) -> None:
-        from simple_agent_lab.evolution.run_config import build_self_evolving_run
+        from simple_agent_lab.evolution.config import build_self_evolving_run
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -174,7 +174,7 @@ class RunConfigTest(unittest.TestCase):
         from simple_agent_lab.evolution.components.strategy import (
             model_program_strategy,
         )
-        from simple_agent_lab.evolution.run_config import build_self_evolving_run
+        from simple_agent_lab.evolution.config import build_self_evolving_run
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -186,7 +186,7 @@ class RunConfigTest(unittest.TestCase):
         self.assertTrue(callable(built.strategy))
 
     def test_build_self_evolving_run_passes_strategy_parent_selection(self) -> None:
-        from simple_agent_lab.evolution.run_config import build_self_evolving_run
+        from simple_agent_lab.evolution.config import build_self_evolving_run
 
         captured: list[object] = []
 
@@ -226,7 +226,7 @@ class RunConfigTest(unittest.TestCase):
                 load_self_evolving_config(path)
 
     def test_build_self_evolving_run_rejects_unwired_algorithm(self) -> None:
-        from simple_agent_lab.evolution.run_config import build_self_evolving_run
+        from simple_agent_lab.evolution.config import build_self_evolving_run
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -240,7 +240,7 @@ class RunConfigTest(unittest.TestCase):
                 build_self_evolving_run(load_self_evolving_config(path))
 
     def test_build_self_evolving_run_rejects_unknown_api_kind(self) -> None:
-        from simple_agent_lab.evolution.run_config import build_self_evolving_run
+        from simple_agent_lab.evolution.config import build_self_evolving_run
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -256,7 +256,7 @@ class RunConfigTest(unittest.TestCase):
     def test_build_self_evolving_run_reset_clears_stale_experiment_state(
         self,
     ) -> None:
-        from simple_agent_lab.evolution.run_config import build_self_evolving_run
+        from simple_agent_lab.evolution.config import build_self_evolving_run
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -288,7 +288,7 @@ class RunConfigTest(unittest.TestCase):
             )
 
     def test_build_self_evolving_run_rejects_unsafe_run_id_before_reset(self) -> None:
-        from simple_agent_lab.evolution.run_config import build_self_evolving_run
+        from simple_agent_lab.evolution.config import build_self_evolving_run
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -310,7 +310,7 @@ class RunConfigTest(unittest.TestCase):
             self.assertTrue(keep.is_file())
 
     def test_safe_run_root_rejects_run_ids_that_are_paths(self) -> None:
-        from simple_agent_lab.evolution.run_paths import safe_run_root
+        from simple_agent_lab.evolution.config import safe_run_root
 
         with tempfile.TemporaryDirectory() as tmp:
             for run_id in ("", ".", "..", "../x", "x/y", r"x\y", "/tmp/x"):

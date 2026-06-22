@@ -8,13 +8,13 @@ from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
-from simple_agent_lab.evolution.experiment import Strategy
-from simple_agent_lab.evolution.run_config import (
+from simple_agent_lab.evolution.config import (
     SelfEvolvingConfig,
     build_self_evolving_run,
     load_self_evolving_config,
+    safe_run_root,
 )
-from simple_agent_lab.evolution.run_paths import safe_run_root
+from simple_agent_lab.evolution.experiment import Strategy
 
 
 def build_parser() -> argparse.ArgumentParser:

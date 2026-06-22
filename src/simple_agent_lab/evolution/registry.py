@@ -5,11 +5,24 @@ scanning, no metaclasses. Register a custom component by assigning into the dict
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from simple_agent_lab.evolution.components import criterion as _criterion
 from simple_agent_lab.evolution.components import reward as _reward
-from simple_agent_lab.evolution.config import Use
+
+
+@dataclass(frozen=True)
+class Use:
+    """A component reference: a registry name plus the kwargs its factory takes."""
+
+    name: str
+    args: dict[str, Any] = field(default_factory=dict)
+
+    def __init__(self, name: str, **args: Any) -> None:
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "args", dict(args))
+
 
 # Each factory takes the Use.args as kwargs and returns the component callable.
 ROLLOUTS: dict[str, Callable[..., Any]] = {}
