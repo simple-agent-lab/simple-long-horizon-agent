@@ -61,16 +61,13 @@ the saved baseline JSONL.
 ## 2. Run the evolution
 
 The default config is [`../../configs/dgm_swebench.yaml`](../../configs/dgm_swebench.yaml).
-Copy it for real runs and edit the train/test paths, rounds, branch count,
-parallel worker cap, model, and wheelhouse settings:
+It points at the generated demo train/test split under `configs/swebench/`.
+Copy it when you want to change the train/test paths, rounds, branch count,
+parallel worker cap, model, or wheelhouse settings:
 
 ```bash
 cp configs/dgm_swebench.yaml configs/my_dgm_swebench.yaml
 ```
-
-The checked-in train/test paths in the default config are tiny dry-run examples.
-The recipe refuses `--execute` until you replace them with real SWE-bench JSONL
-splits.
 
 Dry plan first:
 
@@ -114,7 +111,7 @@ Most run shape lives in YAML now:
 
 | YAML field | Default | Meaning |
 | --- | --- | --- |
-| `dataset.train_path` / `dataset.test_path` | tiny examples | Train and held-out before/final scoring JSONL slices. |
+| `dataset.train_path` / `dataset.test_path` | `configs/swebench/demo-*.jsonl` | Train and held-out before/final scoring JSONL slices. |
 | `dgm.rounds` | `4` | Sequential evolution rounds. Total candidates = `rounds × branches`. |
 | `dgm.branches` | `3` | Candidate branches evaluated concurrently per round. |
 | `dgm.meta_concurrency` | `0` (= branches) | Concurrent meta-agent LLM calls per round. |

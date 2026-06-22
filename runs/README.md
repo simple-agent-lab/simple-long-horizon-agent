@@ -47,8 +47,8 @@ bash runs/run_bash_agent_demo.sh
 This runs the config-backed simple self-evolving recipe
 (`recipes/simple/evolve.py`). The wrapper registers the SWE-bench factories,
 uses `configs/simple_swebench.yaml` when `--config` is omitted, and delegates to
-the generic self-evolving runner. The default config points at checked-in tiny
-train and heldout JSONL examples so the dry-run works in a clean checkout:
+the generic self-evolving runner. The default config points at the generated
+demo train/heldout split:
 
 ```bash
 bash runs/run_self_evolving_simple.sh --run-id simple-smoke
@@ -77,9 +77,6 @@ enabled. It expects `.env` or the shell environment to provide
 `OPENAI_AUTH_TOKEN` and, when needed, `OPENAI_BASE_URL`. For the faithful DGM
 variant with all knobs exposed, see the DGM recipe below. Both recipes are
 documented under `recipes/`.
-The checked-in `configs/examples/swebench_*_tiny.jsonl` paths are dry-run
-examples only; both self-evolving recipes reject `--execute` until those paths
-are replaced with real SWE-bench JSONL files.
 
 Build the stronger demo split first with `recipes/dgm/ops/baseline.py`; it can fetch
 SWE-bench Verified, select a repo-balanced pool, measure seed resolves, and
@@ -157,8 +154,11 @@ workarounds, and troubleshooting.
 This runs the faithful DGM self-evolving recipe over SWE-bench, with artifacts
 under `evals/out/dgm_swebench/` (see `recipes/dgm/README.md` for the full
 quick-start and config reference). The default config is
-`configs/dgm_swebench.yaml`; copy it for real runs and edit the train/test paths,
-rounds, branch count, worker cap, model, and wheelhouse settings there:
+`configs/dgm_swebench.yaml`; it uses
+`configs/swebench/demo-train-60.jsonl` and
+`configs/swebench/demo-test-60.jsonl`. Copy it when you want to
+change the train/test paths, rounds, branch count, worker cap, model, or
+wheelhouse settings:
 
 ```bash
 cp configs/dgm_swebench.yaml configs/my_dgm_swebench.yaml

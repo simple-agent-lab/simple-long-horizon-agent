@@ -19,7 +19,6 @@ for arg in "$@"; do
 done
 
 if [ "$EXECUTE" -eq 1 ]; then
-  "${PYTHON[@]}" recipes/dgm/evolve.py --preflight-config-only "$@"
   docker_resolve_host
   if ! docker_ensure_running; then
     echo "ERROR: Docker daemon is not reachable and could not be started automatically." >&2

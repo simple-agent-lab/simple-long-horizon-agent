@@ -152,12 +152,10 @@ surface:
 instances:
   train:
     id: train
-    # Dry-run example only. Replace before using --execute.
-    path: configs/examples/swebench_train_tiny.jsonl
+    path: configs/swebench/demo-train-60.jsonl
   heldout:
     id: heldout
-    # Dry-run example only. Replace before using --execute.
-    path: configs/examples/swebench_heldout_tiny.jsonl
+    path: configs/swebench/demo-test-60.jsonl
 
 execution:
   backend:

@@ -21,17 +21,15 @@ It uses registry names for the SWE-bench suite and Python-agent surface:
 - strategy: `model_program`
 - algorithm: `simple`
 
-The default train and heldout slices point at checked-in tiny JSONL examples so
-a dry-run works in a clean checkout:
+The default train and heldout slices point at the generated SWE-bench demo
+split:
 
-- [`../../configs/examples/swebench_train_tiny.jsonl`](../../configs/examples/swebench_train_tiny.jsonl)
-- [`../../configs/examples/swebench_heldout_tiny.jsonl`](../../configs/examples/swebench_heldout_tiny.jsonl)
+- [`../../configs/swebench/demo-train-60.jsonl`](../../configs/swebench/demo-train-60.jsonl)
+- [`../../configs/swebench/demo-test-60.jsonl`](../../configs/swebench/demo-test-60.jsonl)
 
 For a real run, copy the config or pass your own with `--config`, then edit the
 `instances.train.path`, `instances.heldout.path`, model settings, output root,
-and execution settings for your environment.
-The recipe refuses `--execute` when those checked-in example paths are still in
-use, because they are placeholders for dry-run planning only.
+and execution settings when you want a different split or runtime shape.
 
 ## Run it
 

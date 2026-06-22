@@ -14,14 +14,12 @@ surface:
   artifact_key: input/agent_package.json
   default: simple_agent_package
 instances:
-  # These checked-in tiny files are dry-run examples only. Copy this config and
-  # replace them with real SWE-bench JSONL paths before using --execute.
   train:
     id: train
-    path: configs/examples/swebench_train_tiny.jsonl
+    path: configs/swebench/demo-train-60.jsonl
   heldout:
     id: heldout
-    path: configs/examples/swebench_heldout_tiny.jsonl
+    path: configs/swebench/demo-test-60.jsonl
 execution:
   backend:
     name: local_docker

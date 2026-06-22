@@ -111,6 +111,32 @@ class RecipeLayoutTest(unittest.TestCase):
         )
 
 
+class DefaultConfigDatasetPathTest(unittest.TestCase):
+    def _assert_real_jsonl(self, path: str):
+        data_path = Path(path)
+        if not data_path.is_absolute():
+            data_path = ROOT / data_path
+        self.assertTrue(data_path.is_file(), path)
+        self.assertNotIn("configs/examples", data_path.as_posix())
+
+    def test_simple_default_config_uses_real_dataset_paths(self):
+        from simple_agent_lab.evolution.config import load_self_evolving_config
+
+        config = load_self_evolving_config(ROOT / "configs" / "simple_swebench.yaml")
+
+        self._assert_real_jsonl(config.instances.train.path)
+        self.assertIsNotNone(config.instances.heldout)
+        self._assert_real_jsonl(config.instances.heldout.path)
+
+    def test_dgm_default_config_uses_real_dataset_paths(self):
+        from recipes.dgm.config import load_dgm_config
+
+        config = load_dgm_config(ROOT / "configs" / "dgm_swebench.yaml")
+
+        self._assert_real_jsonl(config.dataset.train_path)
+        self._assert_real_jsonl(config.dataset.test_path)
+
+
 class SimpleRecipeSmokeTest(unittest.TestCase):
     def test_simple_recipe_runs_generic_dry_run_with_registered_swebench(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -209,26 +235,6 @@ evaluation:
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("dry-run", result.stdout)
         self.assertIn("run id: default-simple-smoke", result.stdout)
-
-    def test_simple_recipe_default_config_refuses_execute_on_example_datasets(self):
-        result = subprocess.run(
-            [
-                sys.executable,
-                "recipes/simple/evolve.py",
-                "--run-id",
-                "default-simple-execute",
-                "--execute",
-            ],
-            cwd=ROOT,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-        )
-
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("dry-run examples only", result.stderr)
-        self.assertIn("configs/examples/swebench_train_tiny.jsonl", result.stderr)
 
 
 class DgmRecipeSmokeTest(unittest.TestCase):
@@ -406,26 +412,6 @@ dgm:
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("dry run only", result.stdout)
         self.assertIn("run root:", result.stdout)
-
-    def test_default_config_refuses_execute_on_example_datasets(self):
-        result = subprocess.run(
-            [
-                sys.executable,
-                "recipes/dgm/evolve.py",
-                "--run-id",
-                "default-dgm-execute",
-                "--execute",
-            ],
-            cwd=ROOT,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-        )
-
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("dry-run examples only", result.stderr)
-        self.assertIn("configs/examples/swebench_train_tiny.jsonl", result.stderr)
 
     def test_validate_schedule_capacity_rejects_more_branches_than_workers(self):
         with self.assertRaisesRegex(SystemExit, "--parallel.*--branches"):

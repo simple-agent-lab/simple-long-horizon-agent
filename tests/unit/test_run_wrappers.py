@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import subprocess
 import unittest
 from pathlib import Path
@@ -72,23 +71,6 @@ class RunWrapperHelpTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 2)
         self.assertIn("must be a positive integer", result.stderr)
-
-    def test_dgm_wrapper_refuses_execute_on_example_datasets_before_docker(self):
-        result = _run(
-            "run_dgm_swebench.sh",
-            "--run-id",
-            "dgm-example-guard",
-            "--execute",
-            env={
-                **os.environ,
-                "DOCKER_HOST": "unix:///tmp/simple-agent-lab-missing-docker.sock",
-                "SAL_DOCKER_AUTOSTART": "0",
-            },
-        )
-
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("dry-run examples only", result.stderr)
-        self.assertNotIn("Docker daemon", result.stderr)
 
 
 if __name__ == "__main__":

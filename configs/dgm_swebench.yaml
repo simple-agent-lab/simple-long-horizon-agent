@@ -6,10 +6,8 @@ run:
   dotenv: .env
 dataset:
   name: princeton-nlp/SWE-bench_Verified
-  # These checked-in tiny files are dry-run examples only. Copy this config and
-  # replace them with real SWE-bench JSONL paths before using --execute.
-  train_path: configs/examples/swebench_train_tiny.jsonl
-  test_path: configs/examples/swebench_heldout_tiny.jsonl
+  train_path: configs/swebench/demo-train-60.jsonl
+  test_path: configs/swebench/demo-test-60.jsonl
 execution:
   parallel: 3
   max_turns: 75

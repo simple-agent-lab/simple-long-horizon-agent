@@ -85,22 +85,6 @@ class DockerHelpersTest(unittest.TestCase):
         self.assertTrue(client.containers.container.removed)
 
 
-class ExampleDatasetGuardTest(unittest.TestCase):
-    def test_rejects_checked_in_example_datasets_for_execute(self):
-        with self.assertRaisesRegex(SystemExit, "dry-run examples only") as raised:
-            runtime.reject_example_datasets_for_execute(
-                [
-                    "configs/examples/swebench_train_tiny.jsonl",
-                    "evals/out/dgm_swebench/splits/real-train.jsonl",
-                ],
-                config_path="configs/dgm_swebench.yaml",
-            )
-
-        message = str(raised.exception)
-        self.assertIn("configs/dgm_swebench.yaml", message)
-        self.assertIn("configs/examples/swebench_train_tiny.jsonl", message)
-
-
 class LoadDotenvTest(unittest.TestCase):
     def test_sets_missing_values(self):
         with tempfile.TemporaryDirectory() as tmp:
