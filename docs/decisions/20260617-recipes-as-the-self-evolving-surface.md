@@ -37,31 +37,32 @@ Adopt a **three-tier** structure with an enforced import boundary.
    parent selection is supplied by a recipe callback. The substrate imports
    **no benchmark** and no host-side `evals/` modules.
 
-2. **Adapter — `evals/swebench/evolution_adapter.py`.** All host-side SWE-bench
-   evolution glue (rollout construction, dataset/command helpers, grading reuse,
-   performance layout, seed package) lives beside the benchmark scripts it
-   serves, outside the shipped package. It is **Docker-import-free**:
-   `scripts/arch_lint.py` restricts `import docker` to `evals.backends` and
-   rejects package imports from the top-level `evals/` tree.
+2. **Benchmark interface — `evals/swebench/suite.py`.** SWE-bench stays a normal
+   eval suite: the host half maps instances to launch specs and the container
+   half runs the benchmark task. Evolution code composes this suite through the
+   generic rollout/surface path instead of adding a SWE-bench-specific evolution
+   adapter.
 
 3. **Recipes — `recipes/` (the user surface).** Thin, runnable examples compose
    the tiers: `simple/` (sequential `Experiment.run`, minimal code) and `dgm/`
    (parallel open-ended loop, all knobs) plus small recipe-local ops scripts
    (`dgm/ops/baseline.py`, `dgm/ops/report.py`). DGM's archive reconstruction,
    parent-selection policies, open-ended admission loop, and repo-tree edit
-   helpers live under `recipes/dgm/algorithm/` because DGM is a demonstration
-   method, not a first-class framework API. The recipe layer is the **only**
-   place allowed to touch Docker and host env, via `recipes/runtime.py`; it is
-   not arch-linted.
+   helpers live under `recipes/dgm/algorithm/`, and DGM's SWE-bench-specific
+   run/scoring helpers live in `recipes/dgm/swebench.py`, because DGM is a
+   demonstration method, not a first-class framework API. The recipe layer is the
+   **only** place allowed to touch Docker and host env, via `recipes/runtime.py`;
+   it is not arch-linted.
 
-A new benchmark adds an adapter plus a recipe and never edits the substrate.
+A new benchmark adds a suite plus recipe-local support and never edits the
+substrate.
 The legacy evolution-recipes tree under `scripts/` and the old top-level runners
 are removed; `runs/` wrappers point at the recipes.
 
 ## Consequences
 
 - **Easier:** finding the framework (one `evolution/` package), reading a recipe
-  end-to-end, and adding a benchmark (adapter + recipe, substrate untouched).
+  end-to-end, and adding a benchmark (suite + recipe, substrate untouched).
 - **Enforced:** the docker boundary and module zoning are checked by
   `arch_lint.py`, so the benchmark-agnostic claim cannot silently rot. Package
   code cannot import host-side `evals/`, and Docker probing is structurally

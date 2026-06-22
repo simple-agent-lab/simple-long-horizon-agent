@@ -132,8 +132,8 @@ objects do not read YAML directly.
 
 For the simple path, choose these pieces:
 
-- `Suite` — the benchmark or task runner. For SWE-bench, the host-side factory is
-  registered by `evals/swebench/self_evolving.py`.
+- `Suite` — the benchmark or task runner. For SWE-bench, recipes use the existing
+  `evals/swebench/suite.py` `SwebenchSuite`.
 - `AgentSurface` — the editable agent shape: default files, valid editable
   components, and how a version is staged into each run.
 - editable components — the surface slices the strategy may change, such as
@@ -148,10 +148,9 @@ The YAML config selects names and ordinary settings (`suite.name`,
 criterion, and rounds). Python supplies the behavior behind those names:
 `AgentSurface` validation/staging, `rollout_from_suite`, suite host/container
 halves, strategy factories, reward, and criterion. SWE-bench simple runs compose
-through `evals/swebench/self_evolving.py`, `AgentSurface`, and
-`rollout_from_suite`; DGM continues to use the compatibility helpers in
-`evals/swebench/evolution_adapter.py` for its recipe-local rollout and
-official-scoring workflow.
+through `recipes/simple/evolve.py` factory registration, `SwebenchSuite`,
+`AgentSurface`, and `rollout_from_suite`; DGM uses `recipes/dgm/swebench.py` for
+its recipe-local rollout and official-scoring workflow.
 
 ## Write your own recipe
 
@@ -183,10 +182,12 @@ components to
 with `criterion=valid_when("reward")` so worse-but-valid children stay as
 stepping stones. See `recipes/dgm/evolve.py` for the fully wired version.
 
-The only benchmark-specific piece is the rollout (and its reward). For
-SWE-bench, that glue already exists in the adapter
-`evals/swebench/evolution_adapter.py`; a new benchmark adds its own adapter and
-recipe and never touches the substrate.
+The benchmark-specific piece is the suite plus whatever rollout/reward support
+the recipe chooses to add. For SWE-bench, the benchmark interface is
+`SwebenchSuite`; DGM's extra run/scoring helpers live in `recipes/dgm/swebench.py`
+because they are DGM workflow support, not universal benchmark API. A new
+benchmark adds its own suite and recipe-local support without touching the
+substrate.
 
 ## Where things live
 
@@ -194,16 +195,17 @@ recipe and never touches the substrate.
 src/simple_agent_lab/evolution/    # substrate (benchmark-agnostic)
   kernel/        store, log, loop   # versions, decision log, the loop + guarantees
   components/    reward, criterion, rollout, strategy
-evals/swebench/evolution_adapter.py # SWE-bench/DGM compatibility + scoring glue
+evals/swebench/suite.py             # SWE-bench benchmark interface
 recipes/                            # runnable recipes + ops scripts
   simple/evolve.py
   runtime.py
   dgm/evolve.py
+  dgm/swebench.py                    # DGM-specific SWE-bench run/scoring support
   dgm/algorithm/archive.py, open_ended.py, repo_edits.py
   dgm/ops/baseline.py, report.py
 ```
 
 The boundary is enforced: the substrate never imports a benchmark or the
-top-level host `evals/` tree, the SWE-bench adapter never imports Docker
+top-level host `evals/` tree, DGM's SWE-bench support never imports Docker
 (`scripts/arch_lint.py`), and Docker/host probing lives only in the recipe layer
 (`recipes/runtime.py`).

@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from simple_agent_lab.evals.protocols import AGENT_PACKAGE_KEY
-from evals.swebench import evolution_adapter as er
+from recipes.dgm import swebench as er
 from simple_agent_lab.evolution.kernel import store
 from simple_agent_lab.evolution.types import Manifest, Run, Version
 

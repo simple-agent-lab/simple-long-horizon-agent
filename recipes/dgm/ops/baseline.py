@@ -28,7 +28,7 @@ sys.path.insert(0, str(ROOT))  # for recipe support modules
 sys.path.insert(0, str(ROOT / "src"))
 
 import recipes.runtime as recipe_runtime  # noqa: E402
-from evals.swebench import evolution_adapter as er  # noqa: E402
+from recipes.dgm import swebench as er  # noqa: E402
 from simple_agent_lab.evolution.run_paths import safe_run_root  # noqa: E402
 
 DEFAULT_OUTPUT_ROOT = Path("evals/out/dgm_swebench")

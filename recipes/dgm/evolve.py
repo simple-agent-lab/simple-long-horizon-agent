@@ -25,8 +25,8 @@ sys.path.insert(0, str(ROOT))  # for recipe support modules
 sys.path.insert(0, str(ROOT / "src"))
 
 import recipes.runtime as recipe_runtime  # noqa: E402
+from recipes.dgm import swebench as er  # noqa: E402
 from recipes.dgm.algorithm import archive, open_ended  # noqa: E402
-from evals.swebench import evolution_adapter as er  # noqa: E402
 from simple_agent_lab.evolution import Experiment  # noqa: E402
 from simple_agent_lab.evolution.components.criterion import valid_when  # noqa: E402
 from simple_agent_lab.evolution.components.strategy import (  # noqa: E402

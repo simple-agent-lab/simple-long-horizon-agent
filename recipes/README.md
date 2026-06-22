@@ -22,12 +22,13 @@ recipes/                                  # this directory — examples + ops sc
   runtime.py                              # Docker/env helpers (kept out of src/)
   simple/evolve.py                        # sequential not-worse recipe
   dgm/evolve.py                           # the DGM recipe entrypoint
+  dgm/swebench.py                         # DGM-specific SWE-bench run/scoring support
   dgm/algorithm/archive.py, open_ended.py  # DGM archive + parallel admission loop
   dgm/algorithm/repo_edits.py              # DGM proposal helpers
   dgm/ops/baseline.py, report.py           # DGM operational commands
 
 evals/swebench/
-  evolution_adapter.py                    # host-side SWE-bench adapter
+  suite.py                                # SWE-bench benchmark interface
 
 src/simple_agent_lab/evolution/           # benchmark-agnostic substrate
   kernel/        # store, log, loop, experiment, types
@@ -35,9 +36,10 @@ src/simple_agent_lab/evolution/           # benchmark-agnostic substrate
 ```
 
 The substrate never imports a benchmark or the host-side `evals/` tree; the
-SWE-bench adapter never imports Docker (that boundary is enforced by
-`scripts/arch_lint.py`); anything that has to touch Docker or the host
-environment lives here in `recipes/`.
+benchmark interface stays in `evals/swebench/suite.py`; DGM-specific SWE-bench
+support lives with the DGM recipe and never imports Docker (that boundary is
+enforced by `scripts/arch_lint.py`). Anything that has to touch Docker or the
+host environment lives here in `recipes/`.
 
 For the concepts behind self-evolution (substrate vs. recipe, the archive,
 parent selection, criteria), see

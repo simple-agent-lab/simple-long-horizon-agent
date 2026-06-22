@@ -5,7 +5,7 @@ import unittest
 from simple_agent_lab.evolution import registry
 
 
-class SwebenchSelfEvolvingRegistryTest(unittest.TestCase):
+class SimpleRecipeRegistryTest(unittest.TestCase):
     def setUp(self) -> None:
         self._snapshots = {
             "swebench": registry.SUITES.get("swebench"),
@@ -31,28 +31,28 @@ class SwebenchSelfEvolvingRegistryTest(unittest.TestCase):
             else:
                 table[name] = original
 
-    def test_registers_swebench_self_evolving_factories(self) -> None:
-        from evals.swebench.self_evolving import (
-            register_swebench_self_evolving_factories,
-        )
+    def test_registers_simple_recipe_factories(self) -> None:
+        from recipes.simple.evolve import register_recipe_factories
 
-        register_swebench_self_evolving_factories()
+        register_recipe_factories()
 
         self.assertIn("swebench", registry.SUITES)
         self.assertIn("python_agent_package", registry.SURFACES)
         self.assertIn("local_docker", registry.BACKENDS)
         self.assertIn("local_dir", registry.STORES)
         self.assertIn("model_program", registry.STRATEGIES)
+        self.assertEqual(
+            registry.SUITES["swebench"]().container_module,
+            "simple_agent_lab.evals.suites.swebench.evolving",
+        )
 
     def test_registration_preserves_user_overrides(self) -> None:
-        from evals.swebench.self_evolving import (
-            register_swebench_self_evolving_factories,
-        )
+        from recipes.simple.evolve import register_recipe_factories
 
         sentinel = object()
         registry.SUITES["swebench"] = sentinel
 
-        register_swebench_self_evolving_factories()
+        register_recipe_factories()
 
         self.assertIs(registry.SUITES["swebench"], sentinel)
 

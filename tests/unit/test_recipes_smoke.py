@@ -19,7 +19,7 @@ def _load(path):
 
 class OfficialHeldoutArtifactsTest(unittest.TestCase):
     def setUp(self):
-        from evals.swebench import evolution_adapter as er
+        from recipes.dgm import swebench as er
 
         self.er = er
 
@@ -99,11 +99,16 @@ class RecipeLayoutTest(unittest.TestCase):
         )
         self.assertTrue((ROOT / "recipes" / "dgm" / "ops" / "baseline.py").is_file())
         self.assertTrue((ROOT / "recipes" / "dgm" / "ops" / "report.py").is_file())
+        self.assertTrue((ROOT / "recipes" / "dgm" / "swebench.py").is_file())
         self.assertFalse((ROOT / "recipes" / "dgm" / "archive.py").exists())
         self.assertFalse((ROOT / "recipes" / "dgm" / "baseline.py").exists())
         self.assertFalse((ROOT / "recipes" / "__init__.py").exists())
         self.assertFalse((ROOT / "recipes" / "simple" / "__init__.py").exists())
         self.assertFalse((ROOT / "recipes" / "dgm" / "__init__.py").exists())
+        self.assertFalse((ROOT / "evals" / "swebench" / "self_evolving.py").exists())
+        self.assertFalse(
+            (ROOT / "evals" / "swebench" / "evolution_adapter.py").exists()
+        )
 
 
 class SimpleRecipeSmokeTest(unittest.TestCase):
@@ -327,7 +332,7 @@ class DgmRecipeSmokeTest(unittest.TestCase):
 class RecordHeldoutGenerationTest(unittest.TestCase):
     def setUp(self):
         self.mod = _load(ROOT / "recipes" / "dgm" / "evolve.py")
-        from evals.swebench import evolution_adapter as er
+        from recipes.dgm import swebench as er
 
         self.er = er
 

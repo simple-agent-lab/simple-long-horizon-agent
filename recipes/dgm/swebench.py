@@ -1,15 +1,12 @@
-"""Host-side SWE-bench / DGM compatibility and official-scoring glue.
+"""DGM recipe support for running and scoring SWE-bench.
 
-The generic v1 simple self-evolving path no longer builds its rollout here. It
-registers SWE-bench factories in ``evals/swebench/self_evolving.py`` and then
-composes ``Suite`` + ``AgentSurface`` + ``rollout_from_suite`` from the YAML
-runner.
+SWE-bench itself is represented by ``evals.swebench.suite.SwebenchSuite``. This
+module is recipe-local glue for DGM's workflow: output layout, seed/version
+artifact staging, rollout wrapping, reward extraction, and official-scoring
+command builders.
 
-DGM remains recipe-local and still imports this module for its SWE-bench
-compatibility helpers: layouts, seed/version artifact staging, rollout wrapping,
-reward extraction, and official-scoring command builders. Keep this file
-Docker-free by design (arch_lint restricts ``import docker`` to
-``evals.backends``); Docker probing belongs in the recipe layer.
+Keep this file Docker-free by design (arch_lint restricts ``import docker`` to
+``evals.backends``); Docker probing belongs in ``recipes.runtime``.
 """
 
 from __future__ import annotations
@@ -239,8 +236,9 @@ def build_swebench_rollout(
     ``container_module`` overrides the suite's container half (e.g. the
     ``evolving`` module that builds the agent from the staged package).
 
-    Generic simple runs should prefer ``evals/swebench/self_evolving.py`` plus
-    the YAML runner, which composes ``AgentSurface`` and ``rollout_from_suite``.
+    Generic simple runs should prefer the YAML runner, which composes
+    ``SwebenchSuite`` + ``AgentSurface`` + ``rollout_from_suite`` after
+    ``recipes.simple.evolve`` registers the recipe's named factories.
     This helper stays for DGM's recipe-local wiring and tests.
     """
 
