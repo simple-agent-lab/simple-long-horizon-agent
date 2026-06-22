@@ -47,10 +47,8 @@ from simple_agent_lab.workflow import (
     make_planner_agent,
     make_router_agent,
     make_selector_agent,
-    make_value_agent,
     run_agent,
     run_chain,
-    run_mcts,
     run_parallel,
     run_pdr,
     run_planner_executor,
@@ -85,8 +83,6 @@ RTV_ROLLOUTS_ENV = "OMB_RTV_ROLLOUTS"
 RTV_GROUP_ENV = "OMB_RTV_GROUP"
 PDR_ROUNDS_ENV = "OMB_PDR_ROUNDS"
 PDR_WIDTH_ENV = "OMB_PDR_WIDTH"
-MCTS_BUDGET_ENV = "OMB_MCTS_BUDGET"
-MCTS_BRANCH_ENV = "OMB_MCTS_BRANCH"
 # Per-request timeout for every sub-agent. The default LLM request timeout is
 # 60s, far too short for slow high-reasoning models on a long case, so the
 # workflow agents use a generous default that callers can override.
@@ -117,7 +113,6 @@ WORKFLOW_CHOICES = (
     "routing",
     "rtv",
     "pdr",
-    "mcts",
 )
 
 
@@ -338,8 +333,7 @@ def make_workflow_runner(
             request_extra,
             timeout_seconds=timeout,
             extra_prompt=(
-                "Using the prior findings, write the complete, accurate final "
-                "answer."
+                "Using the prior findings, write the complete, accurate final answer."
             ),
         )
         return lambda task: run_pdr(
@@ -351,27 +345,6 @@ def make_workflow_runner(
             finalizer=finalizer,
             worker_max_turns=1,
             finalizer_max_turns=1,
-        )
-
-    if name == "mcts":
-        # Value-guided tree search. On single-turn Q&A every child is terminal
-        # at depth 1, so this degrades to best-of-`branch` by the value agent;
-        # the tree depth shows on multi-turn agentic suites.
-        budget = _env_int(MCTS_BUDGET_ENV, 4)
-        branch = _env_int(MCTS_BRANCH_ENV, 4)
-        worker = _answer_agent(
-            provider, "rollout", request_extra, timeout_seconds=timeout
-        )
-        value = make_value_agent(
-            provider, request_extra=request_extra, timeout_seconds=timeout
-        )
-        return lambda task: run_mcts(
-            worker,
-            value,
-            task,
-            budget=budget,
-            branch=branch,
-            segment_turns=1,
         )
 
     raise SystemExit(

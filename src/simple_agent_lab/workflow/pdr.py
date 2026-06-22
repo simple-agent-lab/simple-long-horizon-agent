@@ -28,6 +28,7 @@ from simple_agent_lab.llm_agent import make_llm_agent
 from simple_agent_lab.tools import AbortFlag
 
 from .base import StepResult, WorkflowResult, as_text, never_abort, run_agent
+from .goal_loop import CompletionCheck
 from .parallel import run_parallel
 
 DISTILLER_ROLE = "Distill several attempts into a compact findings brief."
@@ -66,6 +67,7 @@ def run_pdr(
     rounds: int = 3,
     width: int = 3,
     finalizer: Agent | None = None,
+    check: CompletionCheck | None = None,
     worker_max_turns: int = 20,
     distiller_max_turns: int = 4,
     finalizer_max_turns: int = 20,
@@ -80,8 +82,16 @@ def run_pdr(
     round, `finalizer` (defaulting to `worker`) writes the final answer from the
     task plus the accumulated brief.
 
+    `check` is an optional "done early" gate (the same `CompletionCheck` the goal
+    loop uses, e.g. `command_verifier_check`). When given, each round's attempts
+    are scanned right after they run; the FIRST one whose `check(state).done` is
+    True is returned immediately, skipping the remaining rounds, the
+    distillations, and the finalizer. This is the big saving for simple tasks: if
+    round 1 already solves it, PDR stops instead of spending its full budget.
+
     `steps` are, in order, every round's attempts followed by that round's
-    distillation, and finally the finalizer step.
+    distillation, and finally the finalizer step. (On an early `check` hit,
+    `steps` end at the winning round's attempts — no distill, no finalizer.)
     """
     if rounds < 1:
         raise ValueError("run_pdr requires rounds >= 1")
@@ -102,6 +112,12 @@ def run_pdr(
             abort=abort,
         )
         steps.extend(round_result.steps)
+        # Done-early gate: a verifiably-correct attempt ends the run now, skipping
+        # the remaining rounds, the distillations, and the finalizer.
+        if check is not None:
+            for attempt in round_result.steps:
+                if check(attempt.state).done:
+                    return WorkflowResult(output=attempt.output, steps=steps)
         if abort():
             break
         distill_step = run_agent(

@@ -81,7 +81,10 @@ def _fake_generate(messages):  # type: ignore[no-untyped-def]
             ToolCallBlock(
                 id=f"call_ug_{turn}",
                 name="update_goal",
-                arguments={"status": "complete", "reason": "sentinel file confirmed present"},
+                arguments={
+                    "status": "complete",
+                    "reason": "sentinel file confirmed present",
+                },
             ),
         ),
         sender="goal_agent",
@@ -114,7 +117,9 @@ def main() -> None:
     # ------------------------------------------------------------------
     # Reset the turn counter so the demo is idempotent if called in a test.
     _TURN["n"] = 0
-    agent = Agent(name="goal_agent", generate=_fake_generate, tools=(update_goal_tool(),))
+    agent = Agent(
+        name="goal_agent", generate=_fake_generate, tools=(update_goal_tool(),)
+    )
 
     # ------------------------------------------------------------------
     # The completion check: model-declared PLUS independent shell verifier.
@@ -127,7 +132,9 @@ def main() -> None:
     print("=== goal loop demo (fake provider, independent shell verifier) ===")
     print(f"objective : {objective[:120]}{'...' if len(objective) > 120 else ''}")
     print(f"sentinel  : {sentinel}")
-    print("check     : default_check(verifier=command_verifier_check(test -f ... && test -s ...))")
+    print(
+        "check     : default_check(verifier=command_verifier_check(test -f ... && test -s ...))"
+    )
     print()
 
     result = run_goal_loop(
@@ -155,7 +162,9 @@ def main() -> None:
     sentinel_dir.rmdir()
 
     if result.status != "complete":
-        print(f"ERROR: expected status=complete, got {result.status!r}", file=sys.stderr)
+        print(
+            f"ERROR: expected status=complete, got {result.status!r}", file=sys.stderr
+        )
         sys.exit(1)
 
 

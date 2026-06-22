@@ -264,7 +264,7 @@ def run_goal_loop(
             return GoalResult(
                 status=status,
                 objective=objective_text,
-                output=final_output(state, agent.name),
+                output=steps[-1].output,
                 steps=steps,
                 turns_used=turns_used,
                 tokens_used=tokens_used,
@@ -284,7 +284,7 @@ def run_goal_loop(
             return GoalResult(
                 status=status,
                 objective=objective_text,
-                output=final_output(state, agent.name),
+                output=steps[-1].output,
                 steps=steps,
                 turns_used=turns_used,
                 tokens_used=tokens_used,
@@ -310,7 +310,7 @@ def run_goal_loop(
                 return GoalResult(
                     status=status,
                     objective=objective_text,
-                    output=final_output(state, agent.name),
+                    output=steps[-1].output,
                     steps=steps,
                     turns_used=turns_used,
                     tokens_used=tokens_used,
@@ -331,12 +331,13 @@ def run_goal_loop(
             return GoalResult(
                 status=status,
                 objective=objective_text,
-                output=final_output(state, agent.name),
+                output=steps[-1].output,
                 steps=steps,
                 turns_used=turns_used,
                 tokens_used=tokens_used,
             )
 
+        segment_start = len(state.messages)
         state, events = agent.resume(
             state,
             _continuation_prompt(objective_text),
@@ -351,7 +352,9 @@ def run_goal_loop(
                 name=agent.name,
                 role=agent.role,
                 task=_continuation_prompt(objective_text),
-                output=final_output(state, agent.name),
+                output=final_output(
+                    state, agent.name, after_message_index=segment_start
+                ),
                 state=state,
             )
         )

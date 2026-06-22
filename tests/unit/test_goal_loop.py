@@ -6,7 +6,12 @@ import unittest
 
 from simple_agent_lab.core import Agent
 from simple_agent_lab.llm import Provider
-from simple_agent_lab.messages import AssistantMessage, TextBlock, TokenUsage, ToolCallBlock
+from simple_agent_lab.messages import (
+    AssistantMessage,
+    TextBlock,
+    TokenUsage,
+    ToolCallBlock,
+)
 from simple_agent_lab.protocols import GoalStatusEvent
 from simple_agent_lab.workflow import (
     CompletionResult,
@@ -70,7 +75,9 @@ class GoalLoopPhase1Test(unittest.TestCase):
             return CompletionResult(done=True)
 
         run_goal_loop(agent, "obj", check=check)
-        goal_events = [e for e in seen["state"].events if isinstance(e, GoalStatusEvent)]
+        goal_events = [
+            e for e in seen["state"].events if isinstance(e, GoalStatusEvent)
+        ]
         # one "active" (first run) + one terminal "complete"
         self.assertEqual([e.status for e in goal_events], ["active", "complete"])
         self.assertTrue(all(e.objective == "obj" for e in goal_events))
@@ -104,6 +111,48 @@ class GoalLoopPhase1Test(unittest.TestCase):
         )
         # first run + 2 continuations
         self.assertEqual(len(result.steps), 3)
+
+    def test_resume_step_output_ignores_previous_final(self):
+        from simple_agent_lab.workflow import update_goal_tool
+
+        tool = update_goal_tool()
+        calls = {"n": 0}
+
+        def generate(messages):
+            del messages
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return AssistantMessage(
+                    content=(TextBlock("first segment final"),),
+                    sender="goal_agent",
+                    target="user",
+                    kind="final",
+                )
+            return AssistantMessage(
+                content=(
+                    TextBlock("second segment tool result"),
+                    ToolCallBlock(
+                        id="call_resume",
+                        name="update_goal",
+                        arguments={"status": "complete"},
+                    ),
+                ),
+                sender="goal_agent",
+                target="goal_agent",
+                kind="step",
+            )
+
+        agent = Agent(name="goal_agent", generate=generate, tools=(tool,))
+        result = run_goal_loop(
+            agent,
+            "obj",
+            check=_fails_n_then_passes(1),
+            budgets=GoalBudgets(max_turns=2),
+        )
+
+        self.assertEqual(result.steps[0].output, "first segment final")
+        self.assertEqual(result.steps[1].output, "second segment tool result")
+        self.assertEqual(result.output, "second segment tool result")
 
 
 def _final_agent_with_usage(output_tokens: int, name: str = "goal_agent") -> Agent:
@@ -140,7 +189,9 @@ class GoalLoopPhase2Test(unittest.TestCase):
         result = run_goal_loop(
             agent,
             "obj",
-            check=lambda s: CompletionResult(done=False, blocked=True, reason="no network"),
+            check=lambda s: CompletionResult(
+                done=False, blocked=True, reason="no network"
+            ),
             budgets=GoalBudgets(max_turns=10),
         )
         self.assertEqual(result.status, "blocked")
@@ -369,7 +420,10 @@ class GoalLoopChecksTest(unittest.TestCase):
 
     def test_goal_prompt_has_untrusted_wrapper(self):
         """The first-turn prompt wraps the objective as untrusted data."""
-        from simple_agent_lab.workflow.goal_loop import _goal_prompt, UNTRUSTED_OBJECTIVE_PREAMBLE
+        from simple_agent_lab.workflow.goal_loop import (
+            _goal_prompt,
+            UNTRUSTED_OBJECTIVE_PREAMBLE,
+        )
 
         prompt = _goal_prompt("my objective")
         self.assertIn("<untrusted_objective>", prompt)
@@ -383,11 +437,21 @@ class GoalLoopChecksTest(unittest.TestCase):
         result = _parse_judge_json("I cannot determine this")
         self.assertFalse(result.get("done"))
 
+    def test_judge_agent_check_scalar_json_returns_not_done(self):
+        """Valid non-object JSON still falls back instead of crashing."""
+        from simple_agent_lab.workflow.goal_checks import _parse_judge_json
+
+        result = _parse_judge_json("true")
+        self.assertFalse(result.get("done"))
+        self.assertEqual(result.get("reason"), "parse failure")
+
     def test_judge_agent_check_json_in_prose(self):
         """_parse_judge_json extracts JSON embedded in prose."""
         from simple_agent_lab.workflow.goal_checks import _parse_judge_json
 
-        result = _parse_judge_json('After analysis: {"done": true, "reason": "ok"} Done.')
+        result = _parse_judge_json(
+            'After analysis: {"done": true, "reason": "ok"} Done.'
+        )
         self.assertTrue(result.get("done"))
         self.assertEqual(result.get("reason"), "ok")
 

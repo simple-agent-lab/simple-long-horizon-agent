@@ -68,7 +68,7 @@ class WorkflowResult:
         return [step.state for step in self.steps]
 
 
-def final_output(state: State, agent_name: str) -> str:
+def final_output(state: State, agent_name: str, *, after_message_index: int = 0) -> str:
     """Extract `agent_name`'s answer text from a finished run.
 
     Prefers the terminal `final` message (the one the core loop stops on).
@@ -79,11 +79,15 @@ def final_output(state: State, agent_name: str) -> str:
     Uses `text_of` (full content), not `message_text` (a 120-char preview):
     a step's output is fed verbatim into the next agent's task, so it must
     not be truncated.
+
+    `after_message_index` narrows extraction to one resumed segment of a shared
+    `State`, avoiding stale final messages from earlier segments.
     """
-    for message in reversed(state.messages):
+    messages = state.messages[after_message_index:]
+    for message in reversed(messages):
         if message.sender == agent_name and message.kind == "final":
             return text_of(message.content)
-    for message in reversed(state.messages):
+    for message in reversed(messages):
         if isinstance(message, AssistantMessage) and message.sender == agent_name:
             text = text_of(message.content)
             if text:
@@ -161,57 +165,4 @@ def run_agent(
         task=as_text(task),
         output=final_output(state, agent.name),
         state=state,
-    )
-
-
-def resume_agent(
-    agent: Agent,
-    state: State,
-    followup: ContentInput,
-    *,
-    max_turns: int = 10,
-    abort: AbortFlag = never_abort,
-    role: str = "",
-) -> StepResult:
-    """Continue an existing `state` with `followup` via the core ReAct loop.
-
-    The `run_agent` counterpart for *continuation*: instead of seeding a fresh
-    `State`, it appends `followup` to `state` and drives the loop, so messages
-    and trace events keep accumulating on the same conversation. This is the
-    seam tree search uses to grow a node — fork a parent `State` (`fork_state`),
-    then `resume_agent` the fork independently.
-    """
-    state, events = agent.resume(state, followup, max_turns=max_turns, abort=abort)
-    for _ in events:
-        if abort():
-            break
-    return StepResult(
-        name=agent.name,
-        role=role or agent.role,
-        task=as_text(followup),
-        output=final_output(state, agent.name),
-        state=state,
-    )
-
-
-def fork_state(state: State) -> State:
-    """Return an independent copy of `state` that can be resumed in isolation.
-
-    Thin alias for `State.fork()` — kept as a workflow-level name because tree
-    search reads as `fork_state(node.state)`. The actual copy semantics (events
-    shared by list copy, snapshot replayed, `data` deep-copied, monotonic clock
-    carried over) live on `State` so they stay correct as `State` grows fields.
-    """
-    return state.fork()
-
-
-def emitted_final(state: State, agent_name: str) -> bool:
-    """True iff `agent_name` produced a terminal `final` message in `state`.
-
-    Distinguishes a node that *finished* (the loop stopped on `final`) from one
-    truncated at `max_turns` — tree search needs that to mark terminal leaves.
-    """
-    return any(
-        message.sender == agent_name and message.kind == "final"
-        for message in state.messages
     )

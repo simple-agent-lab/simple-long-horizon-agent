@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import dataclasses
 import time
 from dataclasses import dataclass, field
@@ -142,30 +141,6 @@ class State:
             snapshot.apply(event)
         self.snapshot = snapshot
         return snapshot
-
-    def fork(self) -> State:
-        """Return an independent copy that can be advanced in isolation.
-
-        State is event-sourced and its `Event`/`Message` records are frozen, so
-        the events are shared by a shallow list copy (appending to one list never
-        touches the other) and the `snapshot` is replayed from them. `data` —
-        the untyped scratchpad, which may hold mutable values — is deep-copied so
-        a fork cannot mutate its parent's. `_monotonic_origin` is carried over so
-        a fork's event `elapsed` timings stay on the parent's clock rather than
-        restarting from the fork moment.
-
-        Copying every field here (not just the few a caller happens to know) is
-        what keeps forking correct as `State` grows new fields — the seam tree
-        search relies on to branch one conversation into several.
-        """
-        clone = dataclasses.replace(
-            self,
-            events=list(self.events),
-            data=copy.deepcopy(self.data),
-            snapshot=StateSnapshot(),
-        )
-        clone.rebuild_snapshot()
-        return clone
 
     def send(
         self,

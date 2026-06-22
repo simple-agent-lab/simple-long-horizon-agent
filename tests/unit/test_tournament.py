@@ -3,7 +3,8 @@ from __future__ import annotations
 import unittest
 
 from simple_agent_lab import Agent, Message, assistant_message, text_of
-from simple_agent_lab.workflow import pick_index, run_rtv
+from simple_agent_lab.state import State
+from simple_agent_lab.workflow import CompletionResult, pick_index, run_rtv
 
 
 def _task_text(visible: list[Message]) -> str:
@@ -24,6 +25,16 @@ def make_fake_agent(name: str, reply):
 
 def _const(value: str):
     return lambda task: value
+
+
+def _check_for(target: str):
+    """A `CompletionCheck` that is `done` once `target` appears in the state."""
+
+    def check(state: State) -> CompletionResult:
+        done = any(target in text_of(message.content) for message in state.messages)
+        return CompletionResult(done=done)
+
+    return check
 
 
 class PickIndexTest(unittest.TestCase):
@@ -73,9 +84,7 @@ class RtvTest(unittest.TestCase):
         result = run_rtv(self._workers(), selector, "q", group_size=2)
 
         self.assertEqual(result.output, "AAA")  # index 0 survives
-        self.assertEqual(
-            sum(1 for s in result.steps if s.role == "selector"), 3
-        )
+        self.assertEqual(sum(1 for s in result.steps if s.role == "selector"), 3)
 
     def test_output_is_full_rollout_not_summary(self) -> None:
         summarizer = make_fake_agent("sum", lambda answer_task: f"SUM:{answer_task}")
@@ -87,9 +96,7 @@ class RtvTest(unittest.TestCase):
         # Selection runs over summaries, but the result is the winning rollout's
         # full answer, never the summary text.
         self.assertEqual(result.output, "AAA")
-        self.assertEqual(
-            sum(1 for s in result.steps if s.role == "summarizer"), 4
-        )
+        self.assertEqual(sum(1 for s in result.steps if s.role == "summarizer"), 4)
 
     def test_single_agent_is_replicated_into_rollouts(self) -> None:
         worker = make_fake_agent("w", _const("ONE"))
@@ -106,6 +113,30 @@ class RtvTest(unittest.TestCase):
 
         self.assertEqual(result.output, "ONLY")
         self.assertEqual(sum(1 for s in result.steps if s.role == "selector"), 0)
+
+    def test_check_short_circuits_before_tournament(self) -> None:
+        # A verified rollout (output "CCC") wins outright: no summaries, no
+        # selector comparisons run, even with group_size that would tournament.
+        selector = make_fake_agent("sel", _const("boom"))  # must never run
+        result = run_rtv(
+            self._workers(), selector, "q", group_size=2, check=_check_for("CCC")
+        )
+
+        self.assertEqual(result.output, "CCC")
+        roles = [step.role for step in result.steps]
+        self.assertEqual(roles.count("worker"), 4)  # rollouts still fan out
+        self.assertEqual(roles.count("selector"), 0)
+        self.assertEqual(roles.count("summarizer"), 0)
+
+    def test_check_that_never_passes_runs_full_tournament(self) -> None:
+        # check never done -> falls back to the normal selector tournament.
+        selector = make_fake_agent("sel", _const("1"))
+        result = run_rtv(
+            self._workers(), selector, "q", group_size=2, check=_check_for("ZZZ")
+        )
+
+        self.assertEqual(result.output, "AAA")
+        self.assertEqual(sum(1 for s in result.steps if s.role == "selector"), 3)
 
     def test_empty_worker_sequence_raises(self) -> None:
         selector = make_fake_agent("sel", _const("1"))

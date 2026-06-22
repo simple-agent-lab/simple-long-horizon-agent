@@ -3,7 +3,8 @@ from __future__ import annotations
 import unittest
 
 from simple_agent_lab import Agent, Message, assistant_message, text_of
-from simple_agent_lab.workflow import run_pdr
+from simple_agent_lab.state import State
+from simple_agent_lab.workflow import CompletionResult, run_pdr
 
 
 def _task_text(visible: list[Message]) -> str:
@@ -32,14 +33,22 @@ def make_counting_agent(name: str, prefix: str):
     return make_fake_agent(name, reply)
 
 
+def _check_for(target: str):
+    """A `CompletionCheck` that is `done` once `target` appears in the state."""
+
+    def check(state: State) -> CompletionResult:
+        done = any(target in text_of(message.content) for message in state.messages)
+        return CompletionResult(done=done)
+
+    return check
+
+
 class PdrTest(unittest.TestCase):
     def test_step_structure_and_roles(self) -> None:
         worker = make_fake_agent("attempt", lambda task: "a")
         distiller = make_fake_agent("distiller", lambda task: "brief")
         finalizer = make_fake_agent("finalizer", lambda task: "final answer")
-        result = run_pdr(
-            worker, distiller, "q", rounds=2, width=2, finalizer=finalizer
-        )
+        result = run_pdr(worker, distiller, "q", rounds=2, width=2, finalizer=finalizer)
 
         roles = [step.role for step in result.steps]
         self.assertEqual(roles.count("worker"), 4)  # 2 rounds * width 2
@@ -49,11 +58,11 @@ class PdrTest(unittest.TestCase):
 
     def test_brief_threads_into_next_round_and_finalizer(self) -> None:
         worker = make_fake_agent("attempt", lambda task: "a")
-        distiller = make_counting_agent("distiller", "BRIEF")  # sequential: BRIEF1, BRIEF2
+        distiller = make_counting_agent(
+            "distiller", "BRIEF"
+        )  # sequential: BRIEF1, BRIEF2
         finalizer = make_fake_agent("finalizer", lambda task: "done")
-        result = run_pdr(
-            worker, distiller, "q", rounds=2, width=2, finalizer=finalizer
-        )
+        result = run_pdr(worker, distiller, "q", rounds=2, width=2, finalizer=finalizer)
 
         attempts = [s for s in result.steps if s.role == "worker"]
         # Round-2 attempts (3rd and 4th) are conditioned on round-1's brief.
@@ -73,6 +82,48 @@ class PdrTest(unittest.TestCase):
         finalizer_step = next(s for s in result.steps if s.role == "finalizer")
         self.assertEqual(finalizer_step.name, "attempt")
         self.assertEqual(result.output, "ans")
+
+    def test_check_short_circuits_after_first_round(self) -> None:
+        # Round-1 attempts already pass the check -> stop before distill,
+        # remaining rounds, and the finalizer.
+        worker = make_fake_agent("attempt", lambda task: "SOLVED")
+        distiller = make_fake_agent("distiller", lambda task: "brief")  # never runs
+        finalizer = make_fake_agent("finalizer", lambda task: "final")  # never runs
+        result = run_pdr(
+            worker,
+            distiller,
+            "q",
+            rounds=3,
+            width=2,
+            finalizer=finalizer,
+            check=_check_for("SOLVED"),
+        )
+
+        self.assertEqual(result.output, "SOLVED")
+        roles = [step.role for step in result.steps]
+        self.assertEqual(roles.count("worker"), 2)  # only round 1's attempts
+        self.assertEqual(roles.count("distiller"), 0)
+        self.assertEqual(roles.count("finalizer"), 0)
+
+    def test_check_that_never_passes_runs_full_budget(self) -> None:
+        worker = make_fake_agent("attempt", lambda task: "a")
+        distiller = make_fake_agent("distiller", lambda task: "brief")
+        finalizer = make_fake_agent("finalizer", lambda task: "final")
+        result = run_pdr(
+            worker,
+            distiller,
+            "q",
+            rounds=2,
+            width=2,
+            finalizer=finalizer,
+            check=_check_for("NOPE"),
+        )
+
+        self.assertEqual(result.output, "final")
+        roles = [step.role for step in result.steps]
+        self.assertEqual(roles.count("worker"), 4)
+        self.assertEqual(roles.count("distiller"), 2)
+        self.assertEqual(roles.count("finalizer"), 1)
 
     def test_invalid_rounds_or_width_raise(self) -> None:
         worker = make_fake_agent("attempt", lambda task: "a")

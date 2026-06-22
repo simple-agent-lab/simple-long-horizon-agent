@@ -35,6 +35,7 @@ from .base import (
     pick_index,
     run_agent,
 )
+from .goal_loop import CompletionCheck
 from .parallel import run_parallel
 
 SELECTOR_ROLE = "Pick the single best answer from several candidates."
@@ -88,6 +89,7 @@ def run_rtv(
     rollouts: int = 8,
     group_size: int = 3,
     summarizer: Agent | None = None,
+    check: CompletionCheck | None = None,
     worker_max_turns: int = 20,
     selector_max_turns: int = 4,
     summarizer_max_turns: int = 4,
@@ -106,8 +108,18 @@ def run_rtv(
     and the round repeats until a single rollout remains — whose **full** answer
     is the result (selection is on summaries, the output is always the rollout).
 
+    `check` is an optional "done early" gate (the same `CompletionCheck` the goal
+    loop uses, e.g. `command_verifier_check`). When given, the rollouts are
+    scanned in order right after the parallel fan; the FIRST one whose
+    `check(state).done` is True is returned immediately and the summarization +
+    tournament are skipped. This is what keeps simple tasks cheap: a
+    verifiably-correct rollout wins without spending O(N) selector comparisons.
+    The rollouts themselves still run (they fan out in parallel before any check
+    is possible); the savings are the downstream selection cost.
+
     `steps` are, in order: every rollout, then every summary, then every
     selector comparison — a complete audit trail with each sub-run's `State`.
+    (On an early `check` hit, `steps` are just the rollouts.)
     """
     if isinstance(worker, Agent):
         workers: list[Agent] = [worker] * max(1, rollouts)
@@ -126,6 +138,13 @@ def run_rtv(
         abort=abort,
     )
     rollout_steps = fan.steps
+
+    # Done-early gate: a verifiably-correct rollout wins outright, skipping the
+    # summarization + tournament (the expensive O(N) selector comparisons).
+    if check is not None:
+        for rollout in rollout_steps:
+            if check(rollout.state).done:
+                return WorkflowResult(output=rollout.output, steps=list(rollout_steps))
 
     summary_steps: list[StepResult] = []
     candidate_text: list[str] = []

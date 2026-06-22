@@ -95,7 +95,9 @@ def model_declared_check(state: State) -> CompletionResult:
     return CompletionResult(done=False)
 
 
-def command_verifier_check(command: str, *, cwd: str | Path | None = None) -> CompletionCheck:
+def command_verifier_check(
+    command: str, *, cwd: str | Path | None = None
+) -> CompletionCheck:
     """Done iff `command` exits 0 (e.g. `pytest -q && ruff check`)."""
 
     def check(state: State) -> CompletionResult:
@@ -122,15 +124,19 @@ def _parse_judge_json(output: str) -> dict[str, Any]:
     """Extract the first JSON object from `output`; fall back to done=false."""
     # Try direct parse first
     try:
-        return dict(json.loads(output.strip()))
-    except (json.JSONDecodeError, ValueError):
+        parsed = json.loads(output.strip())
+        if isinstance(parsed, dict):
+            return parsed
+    except json.JSONDecodeError:
         pass
     # Try to extract the first {...} object from prose
     match = re.search(r"\{[^{}]*\}", output, re.DOTALL)
     if match:
         try:
-            return dict(json.loads(match.group()))
-        except (json.JSONDecodeError, ValueError):
+            parsed = json.loads(match.group())
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
             pass
     return {"done": False, "reason": "parse failure"}
 
@@ -139,7 +145,9 @@ def judge_agent_check(judge: Agent, objective: str) -> CompletionCheck:
     """Done per an independent judge agent returning `{"done", "reason"}` JSON."""
 
     def check(state: State) -> CompletionResult:
-        transcript = final_output(state, state.messages[0].target if state.messages else "")
+        transcript = final_output(
+            state, state.messages[0].target if state.messages else ""
+        )
         step = run_agent(judge, _judge_prompt(objective, transcript))
         verdict = _parse_judge_json(step.output)
         return CompletionResult(
