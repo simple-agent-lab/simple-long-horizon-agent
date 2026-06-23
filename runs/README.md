@@ -73,8 +73,8 @@ backend options, model settings, and output root live in YAML now. The
 and writes the generic heldout performance report to
 `<output_root>/<run-id>/evaluation/summary.json` when heldout evaluation is
 enabled. It expects `.env` or the shell environment to provide
-`OPENAI_AUTH_TOKEN` and, when needed, `OPENAI_BASE_URL`. For the faithful DGM
-variant with all knobs exposed, see the DGM recipe below. Both recipes are
+`OPENAI_AUTH_TOKEN` and, when needed, `OPENAI_BASE_URL`. For the DGM-style
+archive variant with all knobs exposed, see the DGM recipe below. Both recipes are
 documented under `recipes/`.
 
 Build a custom headroom split with `recipes/dgm/ops/baseline.py` when the
@@ -151,9 +151,9 @@ workarounds, and troubleshooting.
 
 ## DGM SWE-bench Recipe
 
-This runs the faithful DGM self-evolving recipe over SWE-bench, with artifacts
-under `evals/out/dgm_swebench/` (see `recipes/dgm/README.md` for the full
-quick-start and config reference). The default config is
+This runs the DGM-style archive recipe over SWE-bench, with artifacts under
+`evals/out/dgm_swebench/` (see `recipes/dgm/README.md` for the full quick-start
+and config reference). The default config is
 `configs/dgm_swebench.yaml`; it uses
 `configs/swebench/demo-train-60.jsonl` and
 `configs/swebench/demo-test-60.jsonl`. Copy it when you want to
@@ -185,3 +185,6 @@ enabled, the suite-scored `evaluation/summary.json` described in its
 YAML-backed runner docs. The DGM wrapper invokes the recipe as
 `python -m recipes.dgm.evolve`; use the same `-m` form for direct Python runs so
 `recipes/dgm/swebench.py` cannot shadow the installed `swebench` package.
+The current DGM recipe covers archive admission and parent selection; full
+self-reference remains a separate milestone before claiming a complete Darwin
+Gödel Machine reproduction.

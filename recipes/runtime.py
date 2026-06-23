@@ -8,6 +8,7 @@ scaffolding and are not arch-linted.
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -49,6 +50,72 @@ def check_docker_available(*, client_factory=None) -> None:
             "&& export DOCKER_HOST=unix://$HOME/.colima/default/docker.sock. "
             f"Original error: {type(exc).__name__}: {exc}"
         ) from exc
+
+
+def preflight_suite_images(
+    suite: Any,
+    instances: Sequence[Mapping[str, Any]],
+    *,
+    client_factory=None,
+    pull: str = "missing",
+    label: str = "instances",
+) -> int:
+    """Check SWE-bench images before spending model tokens.
+
+    Returns the number of unique images checked. ``pull`` mirrors the Docker
+    backend policy: ``never`` only checks local cache, ``missing`` pulls absent
+    images, and ``always`` pulls every image up front.
+    """
+
+    if pull not in {"missing", "always", "never"}:
+        raise SystemExit(
+            f"image preflight pull policy must be missing/always/never, got {pull!r}"
+        )
+    try:
+        if client_factory is None:
+            import docker
+
+            client_factory = docker.from_env
+        client = client_factory()
+    except Exception as exc:
+        raise SystemExit(
+            "Docker is required for SWE-bench image preflight, but the daemon "
+            f"is not reachable. Original error: {type(exc).__name__}: {exc}"
+        ) from exc
+
+    image_specs: dict[str, str | None] = {}
+    for instance in instances:
+        spec = suite.launch_spec(instance)
+        image_specs.setdefault(spec.image, spec.platform)
+
+    failures: list[str] = []
+    for image, platform in image_specs.items():
+        try:
+            if pull == "always":
+                client.images.pull(image, platform=platform)
+            elif pull == "missing":
+                try:
+                    client.images.get(image)
+                except Exception:
+                    client.images.pull(image, platform=platform)
+            else:
+                client.images.get(image)
+        except Exception as exc:  # noqa: BLE001 - summarize all image failures.
+            failures.append(f"{image}: {type(exc).__name__}: {exc}")
+
+    if failures:
+        shown = "\n".join(f"  - {line}" for line in failures[:12])
+        more = "" if len(failures) <= 12 else f"\n  ... {len(failures) - 12} more"
+        raise SystemExit(
+            f"SWE-bench image preflight failed for {len(failures)}/"
+            f"{len(image_specs)} unique {label} images using pull={pull!r}.\n"
+            f"{shown}{more}"
+        )
+    print(
+        f"SWE-bench image preflight: {len(image_specs)} unique {label} images "
+        f"reachable (pull={pull})"
+    )
+    return len(image_specs)
 
 
 def cleanup_reset_containers(run_root: str | Path, *, client_factory=None) -> int:

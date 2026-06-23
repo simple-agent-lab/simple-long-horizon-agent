@@ -1,13 +1,15 @@
-# DGM self-evolving recipe
+# DGM-style self-evolving recipe
 
-A faithful [Darwin Gödel Machine](https://arxiv.org/abs/2505.22954) reproduction
-on SWE-bench. A model-driven meta-agent rewrites the whole agent program under
-`agent/`; the evolution kernel runs a **parallel open-ended archive-admission
-loop** (branches per round, best-valid promotion, archive parent selection); and
-the seed and best-on-train agents are scored on a held-out test split so the run
-reports a before/after delta. Every DGM knob is exposed.
+This recipe reproduces the SWE-bench-facing DGM archive mechanics: a
+model-driven meta-agent rewrites the whole agent package under `agent/`; the
+evolution kernel runs a **parallel open-ended archive-admission loop** (branches
+per round, best-valid promotion, archive parent selection); and the seed and
+best-on-train agents are scored on a held-out test split so the run reports a
+before/after delta. Every archive-loop knob is exposed.
 
-This recipe is the **faithfulness showcase** — the counterpart to the
+It is not yet a complete Darwin Gödel Machine: the self-reference milestone,
+where the evolved coding agent performs its own improver step, remains future
+work. Treat this as the DGM-style archive showcase — the counterpart to the
 [`simple`](../simple/README.md) recipe's minimalism.
 
 ## Layout
@@ -27,7 +29,8 @@ This recipe is the **faithfulness showcase** — the counterpart to the
   `official/final/eval_results.jsonl`) capturing the best version's official
   resolved rate, selector, and held-out test score; `report.py` headlines that
   row alongside the `decisions.jsonl` monitor (accepted/rejected decisions,
-  current version, selector distribution, test-leakage monitor).
+  valid/improved/tied/regressed child counts, current version, selector
+  distribution, test-leakage monitor).
 
 ## Prerequisites
 
@@ -140,3 +143,6 @@ Run artifacts land under `evals/out/dgm_swebench/<run-id>/` (gitignored). See
 the directory layout. Official performance claims should use
 `official/baseline/eval_results.jsonl`, `official/final/eval_results.jsonl`, and
 `test_summary.json`, not only the recipe-level `generation_metrics.jsonl`.
+Accepted archive children may be tied or worse on train reward; use
+`recipes/dgm/ops/report.py` to separate valid, improved, tied, regressed, and
+invalid children before making research claims.

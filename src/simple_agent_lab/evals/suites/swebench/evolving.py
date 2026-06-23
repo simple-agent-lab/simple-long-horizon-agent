@@ -68,8 +68,26 @@ def _staged_agent_builder() -> Callable[..., Any] | None:
         files = json.loads(store.get(AGENT_PACKAGE_KEY).decode("utf-8"))
         if isinstance(files, Mapping):
             root = Path(tempfile.mkdtemp(prefix="sal_agent_pkg_"))
-            builder = agent_package.load_agent_package(dict(files), root=root)
-    except Exception:
+            result = agent_package.load_agent_package_result(dict(files), root=root)
+            builder = result.builder
+            if builder is None:
+                _set_package_status(
+                    loaded=result.loaded,
+                    used_fallback=True,
+                    error=result.error,
+                )
+        else:
+            _set_package_status(
+                loaded=False,
+                used_fallback=True,
+                error="agent package artifact is not a JSON object",
+            )
+    except Exception as exc:
+        _set_package_status(
+            loaded=False,
+            used_fallback=True,
+            error=f"{type(exc).__name__}: {exc}",
+        )
         builder = None
     _PACKAGE_CACHE.append(builder)
     return builder
@@ -102,11 +120,15 @@ def build_agent(
                 error=f"{type(exc).__name__}: {exc}",
             )
     else:
-        _set_package_status(
-            loaded=False,
-            used_fallback=True,
-            error="no valid staged agent package",
-        )
+        if (
+            not _PACKAGE_STATUS.get("error")
+            or _PACKAGE_STATUS.get("error") == "agent package has not been loaded"
+        ):
+            _set_package_status(
+                loaded=False,
+                used_fallback=True,
+                error="no valid staged agent package",
+            )
     return _base_build_agent(
         spec=agent_spec(), provider=provider, cwd=cwd, request_extra=request_extra
     )

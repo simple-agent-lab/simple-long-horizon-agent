@@ -204,4 +204,6 @@ class Context:
         return tuple(r for r in self.runs if score(r) <= 0.0)
 
     def version(self, hash_: str) -> Version:
-        return Version(self.workspace / "versions" / hash_)
+        from simple_agent_lab.evolution.kernel import store
+
+        return store.version(self.workspace, hash_)

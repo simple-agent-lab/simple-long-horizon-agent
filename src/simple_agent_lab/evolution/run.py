@@ -215,6 +215,18 @@ def _metrics(runs: Sequence[Run], run_scores: RunScores) -> dict[str, float | in
         metrics["resolved"] = count
         metrics["resolved_total"] = len(resolved)
         metrics["resolved_rate"] = count / len(resolved)
+    package_statuses: list[Mapping[str, Any]] = []
+    for run in runs:
+        status = run.result.get("agent_package")
+        if isinstance(status, Mapping):
+            package_statuses.append(status)
+    if package_statuses:
+        metrics["agent_package_loaded"] = sum(
+            1 for status in package_statuses if status.get("loaded")
+        )
+        metrics["agent_package_fallback"] = sum(
+            1 for status in package_statuses if status.get("used_fallback")
+        )
     return metrics
 
 
@@ -230,6 +242,8 @@ def _run_summary(run: Run, scores: Mapping[str, float]) -> dict[str, Any]:
         row["resolved"] = bool(result["resolved"])
     if "score" in result:
         row["score"] = result["score"]
+    if isinstance(result.get("agent_package"), Mapping):
+        row["agent_package"] = dict(result["agent_package"])
     return row
 
 

@@ -2,11 +2,12 @@ import random
 import tempfile
 import unittest
 from pathlib import Path
+import threading
 from types import SimpleNamespace
 
 from recipes.dgm.algorithm import archive, open_ended
 from simple_agent_lab.evolution.components.criterion import valid_when
-from simple_agent_lab.evolution.kernel import log, store
+from simple_agent_lab.evolution.kernel import store
 from simple_agent_lab.evolution.types import Manifest, Proposal, Run, Slice, Verdict
 
 
@@ -21,6 +22,9 @@ def _seed(ws: Path) -> None:
 
 
 def _fake_components(ws, runs_by_hash):
+    lock = threading.Lock()
+    counter = {"n": 0}
+
     def rollout(version, slice_):
         run_dir = ws / "runs" / version.hash / "i1"
         (run_dir / "out").mkdir(parents=True, exist_ok=True)
@@ -35,7 +39,9 @@ def _fake_components(ws, runs_by_hash):
     def strategy(ctx):
         from simple_agent_lab.evolution.types import Proposal
 
-        n = len(tuple(log.read(ctx.workspace)))
+        with lock:
+            counter["n"] += 1
+            n = counter["n"]
         return Proposal(
             edits={"agent/agent_program.py": f"x={n + 2}\n"}, note="m", kind="code"
         )
@@ -126,6 +132,46 @@ class OpenEndedDriverTest(unittest.TestCase):
 
         self.assertEqual(decisions[0].baseline["hash"], parent.hash)
         self.assertEqual(decisions[0].baseline["scores"]["reward"], 0.6)
+
+    def test_duplicate_candidates_share_one_rollout_and_decision(self):
+        _seed(self.ws)
+        rollout_counts: dict[str, int] = {}
+        lock = threading.Lock()
+
+        def rollout(version, _slice):
+            with lock:
+                rollout_counts[version.hash] = rollout_counts.get(version.hash, 0) + 1
+            run_dir = self.ws / "runs" / version.hash / "i1"
+            (run_dir / "out").mkdir(parents=True, exist_ok=True)
+            (run_dir / "out" / "result.json").write_text(
+                '{"reward": 0.5}', encoding="utf-8"
+            )
+            return [Run(run_dir)]
+
+        def strategy(_ctx):
+            return Proposal(
+                edits={"agent/agent_program.py": "x=2\n"},
+                note="same candidate",
+                kind="code",
+            )
+
+        components = SimpleNamespace(
+            rollout=rollout,
+            reward=lambda run: run.reward if run.reward is not None else 0.0,
+            strategy=strategy,
+            criterion=valid_when(),
+        )
+
+        decisions = open_ended.run_round(
+            self.ws,
+            components,
+            Slice("s", ({"instance_id": "i1"},)),
+            branches=3,
+        )
+
+        self.assertEqual(len(decisions), 1)
+        candidate_hash = decisions[0].candidate["hash"]
+        self.assertEqual(rollout_counts[candidate_hash], 1)
 
 
 if __name__ == "__main__":

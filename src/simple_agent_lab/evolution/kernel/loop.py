@@ -110,6 +110,30 @@ def step(
             note=proposal.note,
         ),
     )
+    if candidate.hash == base.hash:
+        base_scores = score(base_runs, components.reward)
+        return log.append(
+            workspace,
+            baseline={"hash": base.hash, "scores": means(base_scores)},
+            candidate={
+                "hash": candidate.hash,
+                "parent": candidate.parent,
+                "scores": means(base_scores),
+                "note": proposal.note,
+                "evidence": list(proposal.evidence),
+            },
+            slice_=slice_,
+            verdict=Verdict(
+                False,
+                "no-op proposal produced unchanged version",
+                {"no_op": 1.0},
+            ),
+            kind=proposal.kind,
+            runs={
+                "baseline": _run_id(base_runs),
+                "candidate": _run_id(base_runs),
+            },
+        )
     cand_runs = components.rollout(candidate, slice_)
     _check_pair(base_runs, cand_runs)
 

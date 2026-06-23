@@ -121,16 +121,20 @@ parents are explored and *how many* candidates run at once.
 | Recipe | What it shows | Loop | Knobs |
 | --- | --- | --- | --- |
 | [`recipes/simple/`](../../recipes/simple/README.md) | Config-backed generic `algorithm: simple` train-slice evolution with optional heldout before/final reporting | Sequential `Experiment.step` loop | YAML config — train/heldout paths, rounds, evaluation flags, execution settings |
-| [`recipes/dgm/`](../../recipes/dgm/README.md) | A config-backed faithful Darwin Gödel Machine reproduction with recipe-local held-out scoring | `recipes.dgm.algorithm.open_ended.run_evolution` (parallel) | YAML config plus CLI overrides — branches, parent selection, meta-concurrency, parallelism |
+| [`recipes/dgm/`](../../recipes/dgm/README.md) | Config-backed DGM-style archive mechanics with recipe-local held-out scoring; full self-reference is not complete yet | `recipes.dgm.algorithm.open_ended.run_evolution` (parallel) | YAML config plus CLI overrides — branches, parent selection, meta-concurrency, parallelism |
 
 Both evolve the **whole agent program** under `agent/`: the model rewrites the
-agent's own Python, each candidate is graded on a train slice in a SWE-bench
-Docker sandbox. The simple recipe runs through the generic config-backed runner
-and supports dry-runs plus generic heldout before/final reports when
+agent's Python package, each candidate is graded on a train slice in a SWE-bench
+Docker sandbox, and helper modules beside `agent_program.py` are part of the
+supported surface. The simple recipe runs through the generic config-backed
+runner and supports dry-runs plus generic heldout before/final reports when
 `instances.heldout` and `evaluation.*` are enabled. The DGM recipe is also
 YAML-backed through `configs/dgm_swebench.yaml` and `recipes/dgm/config.py`, but
 owns the open-ended archive policy and its archive-specific held-out official
-scoring workflow. Start with `recipes/` for prerequisites and quick-starts.
+scoring workflow. It currently reproduces the archive/open-ended mechanics; the
+Gödel/self-reference milestone, where the evolved coding agent improves its own
+improver, remains future work. Start with `recipes/` for prerequisites and
+quick-starts.
 
 ## Writing a self-evolving run
 
@@ -227,3 +231,13 @@ The boundary is enforced: the substrate never imports a benchmark or the
 top-level host `evals/` tree, DGM's SWE-bench support never imports Docker
 (`scripts/arch_lint.py`), and Docker/host probing lives only in the recipe layer
 (`recipes/runtime.py`).
+
+## Research-readiness bar
+
+Treat a self-evolving run as research evidence only when the artifact set names
+the exact config, train/test instance files, model/provider, image namespace/tag
+policy, fallback count, missing-result count, decision log, train score deltas,
+and held-out before/final scores. Accepted ties and DGM valid-but-regressed
+archive children must be reported separately from strict improvements. A dry-run
+or a train-only lineage is useful engineering evidence, but it is not a
+performance claim.

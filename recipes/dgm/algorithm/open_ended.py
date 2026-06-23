@@ -86,12 +86,27 @@ def run_round(
     if not proposals:
         return []
 
-    staged = []
+    staged_by_hash = {}
     with tail_lock:
         for proposal in proposals:
-            base = store.version(workspace, proposal.base) if proposal.base else current
+            try:
+                base = (
+                    store.version(workspace, proposal.base)
+                    if proposal.base
+                    else current
+                )
+            except ValueError as exc:
+                if on_proposal_error is not None:
+                    on_proposal_error(exc)
+                continue
             if not base.dir.is_dir():
-                base = current
+                if on_proposal_error is not None:
+                    on_proposal_error(
+                        ValueError(
+                            f"proposal.base {proposal.base!r} is not a known version"
+                        )
+                    )
+                continue
             cand = store.stage(
                 workspace,
                 base=base,
@@ -103,7 +118,10 @@ def run_round(
                     note=proposal.note,
                 ),
             )
-            staged.append((proposal, base, cand))
+            staged_by_hash.setdefault(cand.hash, (proposal, base, cand))
+    staged = list(staged_by_hash.values())
+    if not staged:
+        return []
 
     def roll(item):
         proposal, base, cand = item

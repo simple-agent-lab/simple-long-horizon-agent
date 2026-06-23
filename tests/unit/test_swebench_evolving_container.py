@@ -4,41 +4,53 @@ from pathlib import Path
 from simple_agent_lab.evals.suites.swebench import evolving
 
 
-def test_reexports_base_hooks():
-    assert callable(evolving.build_task)
-    assert callable(evolving.extract_result)
-    assert callable(evolving.prepare)
+class EvolvingContainerTest(unittest.TestCase):
+    def test_reexports_base_hooks(self):
+        self.assertTrue(callable(evolving.build_task))
+        self.assertTrue(callable(evolving.extract_result))
+        self.assertTrue(callable(evolving.prepare))
 
+    def test_build_agent_falls_back_when_no_package(self):
+        old_builder = evolving._staged_agent_builder
+        old_base = evolving._base_build_agent
+        try:
+            evolving._staged_agent_builder = lambda: None
 
-def test_build_agent_falls_back_when_no_package(monkeypatch, tmp_path: Path):
-    monkeypatch.setattr(evolving, "_staged_agent_builder", lambda: None)
+            class FakeProvider:
+                pass
 
-    class FakeProvider:
-        pass
+            captured = {}
 
-    captured = {}
+            def fake_base_build(*, spec, provider, cwd, request_extra=None, hooks=None):
+                captured["used_base"] = True
+                return "BASE_AGENT"
 
-    def fake_base_build(*, spec, provider, cwd, request_extra=None, hooks=None):
-        captured["used_base"] = True
-        return "BASE_AGENT"
+            evolving._base_build_agent = fake_base_build
+            agent = evolving.build_agent(provider=FakeProvider(), cwd=Path("."))
 
-    monkeypatch.setattr(evolving, "_base_build_agent", fake_base_build)
-    agent = evolving.build_agent(provider=FakeProvider(), cwd=tmp_path)
-    assert agent == "BASE_AGENT"
-    assert captured["used_base"] is True
+            self.assertEqual(agent, "BASE_AGENT")
+            self.assertTrue(captured["used_base"])
+        finally:
+            evolving._staged_agent_builder = old_builder
+            evolving._base_build_agent = old_base
 
+    def test_build_agent_uses_staged_package(self):
+        old_builder = evolving._staged_agent_builder
+        try:
 
-def test_build_agent_uses_staged_package(monkeypatch, tmp_path: Path):
-    def fake_builder(*, provider, cwd, base_system_prompt):
-        return ("PKG_AGENT", base_system_prompt)
+            def fake_builder(*, provider, cwd, base_system_prompt):
+                return ("PKG_AGENT", base_system_prompt)
 
-    monkeypatch.setattr(evolving, "_staged_agent_builder", lambda: fake_builder)
+            evolving._staged_agent_builder = lambda: fake_builder
 
-    class FakeProvider:
-        pass
+            class FakeProvider:
+                pass
 
-    agent = evolving.build_agent(provider=FakeProvider(), cwd=tmp_path)
-    assert agent[0] == "PKG_AGENT"
+            agent = evolving.build_agent(provider=FakeProvider(), cwd=Path("."))
+
+            self.assertEqual(agent[0], "PKG_AGENT")
+        finally:
+            evolving._staged_agent_builder = old_builder
 
 
 class EvolvingContainerMetadataTest(unittest.TestCase):
@@ -70,6 +82,7 @@ class EvolvingContainerMetadataTest(unittest.TestCase):
         old_base = evolving._base_build_agent
         old_status = dict(evolving._PACKAGE_STATUS)
         try:
+
             def broken_builder(*, provider, cwd, base_system_prompt):
                 raise RuntimeError("agent package boom")
 

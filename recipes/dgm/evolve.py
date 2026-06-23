@@ -71,6 +71,7 @@ def run_workflow(args: argparse.Namespace) -> None:
         return
 
     prepare_execution_assets(args)
+    preflight_execution_images(args, train_records, test_records)
     rounds, branches, meta_workers = resolve_schedule(args)
     resolution = recipe_runtime.resolve_parallel_workers(
         args.parallel, len(train_records)
@@ -281,6 +282,30 @@ def prepare_execution_assets(args: argparse.Namespace) -> None:
     else:
         print("==> Refreshing project wheel...")
     prepare_wheelhouse_for_run(wheelhouse, prepare_all=prepare_all)
+
+
+def preflight_execution_images(
+    args: argparse.Namespace,
+    train_records: Sequence[Mapping[str, Any]],
+    test_records: Sequence[Mapping[str, Any]],
+) -> None:
+    """Check configured SWE-bench images before model calls begin."""
+
+    from evals.swebench.suite import SwebenchSuite
+
+    suite = SwebenchSuite(dataset_name=args.dataset_name, in_env_scoring=True)
+    recipe_runtime.preflight_suite_images(
+        suite,
+        train_records,
+        pull="missing",
+        label="train",
+    )
+    recipe_runtime.preflight_suite_images(
+        suite,
+        test_records,
+        pull="missing",
+        label="heldout",
+    )
 
 
 def validate_schedule_capacity(*, branches: int, global_workers: int) -> None:

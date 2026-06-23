@@ -56,6 +56,12 @@ class StoreTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             store.stage(self.ws, base=None, edits={"/etc/passwd": "x"})
 
+    def test_version_rejects_non_hash_values(self) -> None:
+        for value in ("../pointers", "pointers", "deadbeef", "selected-best"):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    store.version(self.ws, value)
+
     def test_current_missing_raises(self) -> None:
         with self.assertRaises(FileNotFoundError):
             store.current(self.ws)

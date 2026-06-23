@@ -16,6 +16,17 @@ class FakeResponse:
         self.text = text
 
 
+class SequenceComplete:
+    def __init__(self, *texts: str) -> None:
+        self.texts = list(texts)
+        self.calls = 0
+
+    def __call__(self, _request):
+        text = self.texts[self.calls]
+        self.calls += 1
+        return FakeResponse(text)
+
+
 def fake_complete(_request):
     return FakeResponse(
         '{"note": "n", "evidence": ["e"], '
@@ -115,7 +126,7 @@ class StrategyComponentTest(unittest.TestCase):
             )
         )
 
-    def test_strategy_surface_ignores_non_mapping_edits(self):
+    def test_strategy_declines_when_surface_edits_are_not_a_mapping(self):
         from simple_agent_lab.evals.protocols import AGENT_PACKAGE_KEY
         from simple_agent_lab.evolution.surface import python_agent_surface
 
@@ -151,10 +162,102 @@ class StrategyComponentTest(unittest.TestCase):
 
                     proposal = strat(ctx)
 
-                self.assertIsNotNone(proposal)
-                assert proposal is not None
-                self.assertEqual(proposal.edits, {})
-                self.assertEqual(proposal.evidence, ())
+                self.assertIsNone(proposal)
+
+    def test_strategy_declines_when_all_edits_are_rejected(self):
+        from simple_agent_lab.evals.protocols import AGENT_PACKAGE_KEY
+        from simple_agent_lab.evolution.surface import python_agent_surface
+
+        surface = python_agent_surface(
+            default_files={"agent_program.py": "def build_agent(**kwargs): pass\n"},
+            artifact_key=AGENT_PACKAGE_KEY,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "ws"
+            exp = Experiment(ws, rollout=lambda v, s: [], seed=surface.seed_files())
+            strat = model_program_strategy(
+                provider=object(),
+                surface=surface,
+                editable_components=("prompts",),
+                complete_fn=lambda _request: FakeResponse(
+                    '{"note": "n", "evidence": [], '
+                    '"edits": {"agent/tool_policy.py": "MAX_RETRIES = 3\\n"}}'
+                ),
+            )
+            ctx = Context(
+                runs=(),
+                current=exp.current(),
+                workspace=ws,
+                decisions=(),
+                reward=lambda r: 0.0,
+            )
+
+            proposal = strat(ctx)
+
+        self.assertIsNone(proposal)
+
+    def test_strategy_retries_invalid_json_before_returning_proposal(self):
+        complete = SequenceComplete(
+            "",
+            '{"note": "n", "evidence": [], '
+            '"edits": {"agent/agent_program.py": "X = 2\\n"}}',
+        )
+        logs: list[str] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "ws"
+            exp = Experiment(
+                ws, rollout=lambda v, s: [], seed={"agent/agent_program.py": "X = 0\n"}
+            )
+            strat = model_program_strategy(
+                provider=object(),
+                prefix="agent/",
+                complete_fn=complete,
+                log_fn=logs.append,
+            )
+            ctx = Context(
+                runs=(),
+                current=exp.current(),
+                workspace=ws,
+                decisions=(),
+                reward=lambda r: 0.0,
+            )
+
+            proposal = strat(ctx)
+
+            self.assertIsNotNone(proposal)
+            self.assertEqual(complete.calls, 2)
+            self.assertEqual(len(logs), 1)
+            assert proposal is not None
+            self.assertEqual(proposal.edits["agent/agent_program.py"], "X = 2\n")
+
+    def test_strategy_declines_after_repeated_invalid_json(self):
+        complete = SequenceComplete("", "not json", "[]")
+        logs: list[str] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "ws"
+            exp = Experiment(
+                ws, rollout=lambda v, s: [], seed={"agent/agent_program.py": "X = 0\n"}
+            )
+            strat = model_program_strategy(
+                provider=object(),
+                prefix="agent/",
+                complete_fn=complete,
+                log_fn=logs.append,
+            )
+            ctx = Context(
+                runs=(),
+                current=exp.current(),
+                workspace=ws,
+                decisions=(),
+                reward=lambda r: 0.0,
+            )
+
+            proposal = strat(ctx)
+
+            self.assertIsNone(proposal)
+            self.assertEqual(complete.calls, 3)
+            self.assertEqual(len(logs), 3)
 
     def test_current_parent_selection_does_not_read_archive(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -191,6 +294,31 @@ class StrategyComponentTest(unittest.TestCase):
             exp = Experiment(
                 ws, rollout=lambda v, s: [], seed={"agent/agent_program.py": "X = 0\n"}
             )
+            selected = exp.current().hash
+            strat = model_program_strategy(
+                provider=object(),
+                prefix="agent/",
+                parent_selection="best",
+                parent_selector=lambda _ctx, method: selected,
+                build_prompt=lambda _version, _failures: "prompt",
+                complete_fn=fake_complete,
+            )
+            ctx = Context(
+                runs=(),
+                current=exp.current(),
+                workspace=ws,
+                decisions=(),
+                reward=lambda r: 0.0,
+            )
+            proposal = strat(ctx)
+            self.assertEqual(proposal.base, selected)
+
+    def test_parent_selector_must_return_version_hash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "ws"
+            exp = Experiment(
+                ws, rollout=lambda v, s: [], seed={"agent/agent_program.py": "X = 0\n"}
+            )
             strat = model_program_strategy(
                 provider=object(),
                 prefix="agent/",
@@ -206,8 +334,8 @@ class StrategyComponentTest(unittest.TestCase):
                 decisions=(),
                 reward=lambda r: 0.0,
             )
-            proposal = strat(ctx)
-            self.assertEqual(proposal.base, "selected-best")
+            with self.assertRaisesRegex(ValueError, "version hash"):
+                strat(ctx)
 
     def test_non_current_parent_selection_requires_recipe_selector(self):
         with tempfile.TemporaryDirectory() as tmp:

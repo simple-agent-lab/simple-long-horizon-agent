@@ -230,6 +230,61 @@ class ReportSummarizeTest(unittest.TestCase):
         self.assertEqual(summary["monitor"]["current_version"], "v1")
         self.assertTrue(summary["monitor"]["test_touched_before_final_scoring"])
 
+    def test_monitor_breaks_out_valid_improved_and_regressed_children(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_root = Path(tmp)
+            (run_root / "decisions.jsonl").write_text(
+                json.dumps(
+                    {
+                        "id": "d-000001",
+                        "accepted": True,
+                        "deltas": {"reward": 0.2, "valid_parent": 1.0},
+                        "candidate": {
+                            "hash": "improved",
+                            "scores": {"reward": 0.7},
+                            "valid_parent": True,
+                        },
+                    }
+                )
+                + "\n"
+                + json.dumps(
+                    {
+                        "id": "d-000002",
+                        "accepted": True,
+                        "deltas": {"reward": -0.1, "valid_parent": 1.0},
+                        "candidate": {
+                            "hash": "regressed",
+                            "scores": {"reward": 0.4},
+                            "valid_parent": True,
+                        },
+                    }
+                )
+                + "\n"
+                + json.dumps(
+                    {
+                        "id": "d-000003",
+                        "accepted": False,
+                        "deltas": {"reward": -1.0, "valid_parent": 0.0},
+                        "candidate": {
+                            "hash": "invalid",
+                            "scores": {"reward": -1.0},
+                            "valid_parent": False,
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            summary = self.mod.summarize(run_root)
+
+        monitor = summary["monitor"]
+        self.assertEqual(monitor["valid_children"], 2)
+        self.assertEqual(monitor["improved_children"], 1)
+        self.assertEqual(monitor["regressed_children"], 1)
+        self.assertEqual(monitor["invalid_children"], 1)
+        self.assertEqual(monitor["promoted_child"], "regressed")
+
 
 if __name__ == "__main__":
     unittest.main()

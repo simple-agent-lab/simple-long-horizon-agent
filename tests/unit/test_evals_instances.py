@@ -30,6 +30,24 @@ class InstanceSetTest(unittest.TestCase):
         self.assertEqual(a.sha, b.sha)
         self.assertEqual(a.n, 2)
 
+    def test_sha_changes_when_instance_content_changes(self) -> None:
+        old = InstanceSet(
+            "train",
+            ({"instance_id": "i1", "problem_statement": "old"},),
+        )
+        new = InstanceSet(
+            "train",
+            ({"instance_id": "i1", "problem_statement": "new"},),
+        )
+
+        self.assertNotEqual(old.sha, new.sha)
+
+    def test_sha_changes_when_set_id_changes(self) -> None:
+        train = InstanceSet("train", ({"instance_id": "i1"},))
+        heldout = InstanceSet("heldout", ({"instance_id": "i1"},))
+
+        self.assertNotEqual(train.sha, heldout.sha)
+
     def test_sha_uses_index_when_instance_id_is_missing(self) -> None:
         items = InstanceSet("custom", ({"x": 1}, {"x": 2}))
 

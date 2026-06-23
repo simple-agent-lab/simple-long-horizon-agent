@@ -63,6 +63,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         args = ["--config", str(DEFAULT_CONFIG), *args]
     config_path = None if _asks_for_help(args) else _option_value(args, "--config")
     register_recipe_factories(config_path)
+    if config_path is not None:
+        _preflight_if_execute(args, config_path)
     return run_main(args)
 
 
@@ -99,6 +101,37 @@ def _swebench_reward_from_config(config_path: str | Path):
         dataset_name=dataset_name,
         model_name=model_name,
     )
+
+
+def _preflight_if_execute(args: Sequence[str], config_path: str | Path) -> None:
+    from evals.swebench.suite import SwebenchSuite
+    from recipes import runtime as recipe_runtime
+    from simple_agent_lab.evals.instances import load_jsonl_instances
+    from simple_agent_lab.evolution.config import load_self_evolving_config
+
+    config = load_self_evolving_config(config_path)
+    execute = config.run.execute or _has_option(args, "--execute")
+    if not execute or _has_option(args, "--monitor") or config.suite.name != "swebench":
+        return
+    suite = SwebenchSuite(**config.suite.args)
+    pull = str(config.execution.backend.args.get("pull", "missing"))
+    recipe_runtime.preflight_suite_images(
+        suite,
+        load_jsonl_instances(config.instances.train.path),
+        pull=pull,
+        label="train",
+    )
+    if config.instances.heldout is not None and (
+        config.evaluation.baseline_heldout
+        or config.evaluation.final_heldout
+        or config.evaluation.heldout_every_rounds
+    ):
+        recipe_runtime.preflight_suite_images(
+            suite,
+            load_jsonl_instances(config.instances.heldout.path),
+            pull=pull,
+            label="heldout",
+        )
 
 
 if __name__ == "__main__":

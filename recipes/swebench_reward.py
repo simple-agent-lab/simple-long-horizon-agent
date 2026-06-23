@@ -90,7 +90,9 @@ def make_reuse_reward(
 
         instance = by_id.get(run.instance_id)
         if instance is None:
-            _write_scoring_error(run, f"missing SWE-bench instance record: {run.instance_id}")
+            _write_scoring_error(
+                run, f"missing SWE-bench instance record: {run.instance_id}"
+            )
             return 0.0
         try:
             row = reuse_eval_row(

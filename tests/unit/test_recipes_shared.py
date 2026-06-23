@@ -1,9 +1,12 @@
 import os
+import contextlib
+import io
 import tempfile
 import unittest
 from pathlib import Path
 
 import recipes.runtime as runtime
+from simple_agent_lab.evals.protocols import LaunchSpec
 
 
 class BranchConcurrencyTest(unittest.TestCase):
@@ -83,6 +86,58 @@ class DockerHelpersTest(unittest.TestCase):
             )
         self.assertEqual(removed, 1)
         self.assertTrue(client.containers.container.removed)
+
+    def test_preflight_suite_images_checks_unique_images_once(self):
+        class FakeImages:
+            def __init__(self):
+                self.checked = []
+
+            def get(self, image):
+                self.checked.append(image)
+
+        class FakeClient:
+            def __init__(self):
+                self.images = FakeImages()
+
+        class FakeSuite:
+            def launch_spec(self, instance):
+                return LaunchSpec(image=instance["image"], workdir="/work")
+
+        client = FakeClient()
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            checked = runtime.preflight_suite_images(
+                FakeSuite(),
+                ({"image": "img:a"}, {"image": "img:a"}, {"image": "img:b"}),
+                client_factory=lambda: client,
+                pull="never",
+                label="train",
+            )
+
+        self.assertEqual(checked, 2)
+        self.assertEqual(client.images.checked, ["img:a", "img:b"])
+
+    def test_preflight_suite_images_reports_missing_images_before_running(self):
+        class FakeImages:
+            def get(self, image):
+                raise RuntimeError(f"missing {image}")
+
+        class FakeClient:
+            def __init__(self):
+                self.images = FakeImages()
+
+        class FakeSuite:
+            def launch_spec(self, instance):
+                return LaunchSpec(image=instance["image"], workdir="/work")
+
+        with self.assertRaisesRegex(SystemExit, "SWE-bench image preflight failed"):
+            runtime.preflight_suite_images(
+                FakeSuite(),
+                ({"image": "img:missing"},),
+                client_factory=lambda: FakeClient(),
+                pull="never",
+                label="train",
+            )
 
 
 class LoadDotenvTest(unittest.TestCase):

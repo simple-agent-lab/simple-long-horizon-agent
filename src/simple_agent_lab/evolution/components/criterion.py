@@ -100,9 +100,7 @@ def valid_when(dim: str = "reward") -> Criterion:
     def judge(baseline: RunScores, candidate: RunScores) -> Verdict:
         valid = len(candidate) > 0
         delta = (
-            _mean(candidate, dim) - _mean(baseline, dim)
-            if valid and baseline
-            else 0.0
+            _mean(candidate, dim) - _mean(baseline, dim) if valid and baseline else 0.0
         )
         word = "valid" if valid else "invalid"
         return Verdict(

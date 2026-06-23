@@ -19,10 +19,19 @@ class InstanceSet:
 
     @property
     def sha(self) -> str:
-        ids = sorted(
-            str(inst.get("instance_id", n)) for n, inst in enumerate(self.instances)
-        )
-        return hashlib.sha256(json.dumps(ids).encode("utf-8")).hexdigest()[:12]
+        rows = []
+        for n, inst in enumerate(self.instances):
+            record = dict(inst)
+            instance_key = str(record.get("instance_id", f"__index_{n}"))
+            rows.append(
+                {
+                    "key": instance_key,
+                    "record": record,
+                }
+            )
+        rows.sort(key=lambda row: (row["key"], _canonical_json(row["record"])))
+        payload = {"id": self.id, "instances": rows}
+        return hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()[:12]
 
     @property
     def n(self) -> int:
@@ -38,3 +47,13 @@ def load_jsonl_instances(path: str | Path) -> tuple[dict[str, Any], ...]:
                 raise ValueError(f"{path} contains a non-object JSONL row")
             rows.append(row)
     return tuple(rows)
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )

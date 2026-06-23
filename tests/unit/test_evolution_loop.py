@@ -11,6 +11,7 @@ from simple_agent_lab.evolution.components.criterion import (
     guarded,
     improve,
     not_worse,
+    promote_not_worse,
 )
 from simple_agent_lab.evolution.components.reward import result_key
 from simple_agent_lab.evolution.kernel import loop, store
@@ -96,6 +97,36 @@ class LoopTest(unittest.TestCase):
         self.assertFalse(decision.accepted)
         self.assertEqual(store.current(self.ws).read("prompt.md"), "weak")
 
+    def test_unchanged_candidate_is_logged_as_no_op_without_promotion(self) -> None:
+        rollout_calls: list[str] = []
+
+        def rollout(version: Version, slice_: Slice) -> list[Run]:
+            rollout_calls.append(version.hash)
+            run_dir = self.ws / "runs" / f"{version.hash}-{slice_.sha}" / "i1"
+            (run_dir / "out").mkdir(parents=True, exist_ok=True)
+            (run_dir / "out" / "result.json").write_text(
+                json.dumps({"reward": 1.0}), encoding="utf-8"
+            )
+            return [Run(run_dir)]
+
+        def strategy(ctx: Context) -> Proposal:
+            return Proposal(edits={}, note="empty edit", kind="prompt")
+
+        components = Components(
+            rollout=rollout,
+            reward=result_key,
+            strategy=strategy,
+            criterion=promote_not_worse("reward"),
+        )
+
+        decision = loop.step(self.ws, components, self.slice)
+
+        self.assertFalse(decision.accepted)
+        self.assertIn("no-op", decision.reason)
+        self.assertEqual(decision.baseline["hash"], decision.candidate["hash"])
+        self.assertEqual(store.current(self.ws).hash, decision.baseline["hash"])
+        self.assertEqual(rollout_calls, [decision.baseline["hash"]])
+
     def test_no_proposal_returns_none(self) -> None:
         decision = loop.step(self.ws, self._components(lambda ctx: None), self.slice)
         self.assertIsNone(decision)
@@ -103,6 +134,13 @@ class LoopTest(unittest.TestCase):
     def test_unknown_base_raises(self) -> None:
         def strategy(ctx: Context) -> Proposal:
             return Proposal(edits={"prompt.md": "strong"}, base="deadbeef")
+
+        with self.assertRaises(ValueError):
+            loop.step(self.ws, self._components(strategy), self.slice)
+
+    def test_path_like_proposal_base_is_rejected(self) -> None:
+        def strategy(ctx: Context) -> Proposal:
+            return Proposal(edits={"prompt.md": "strong"}, base="../pointers")
 
         with self.assertRaises(ValueError):
             loop.step(self.ws, self._components(strategy), self.slice)

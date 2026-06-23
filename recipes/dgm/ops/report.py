@@ -54,15 +54,20 @@ def monitor_summary(
     test_dataset: str | Path | None = None,
 ) -> dict[str, Any]:
     decisions_path = run_root / "decisions.jsonl"
+    if not decisions_path.is_file():
+        decisions_path = run_root / "evolution" / "decisions.jsonl"
     decisions = read_jsonl(decisions_path) if decisions_path.is_file() else []
     accepted = [row for row in decisions if bool(row.get("accepted"))]
     latest_accepted = accepted[-1] if accepted else {}
-    current_version = str(
-        _nested(latest_accepted, "candidate", "hash")
-        or _nested(decisions[-1], "candidate", "hash")
-        if decisions
-        else ""
-    )
+    promoted_child = str(_current_pointer(run_root) or "")
+    if promoted_child:
+        current_version = promoted_child
+    elif latest_accepted:
+        current_version = str(_nested(latest_accepted, "candidate", "hash") or "")
+    elif decisions:
+        current_version = str(_nested(decisions[-1], "candidate", "hash") or "")
+    else:
+        current_version = ""
     best_train_score = 0.0
     for row in decisions:
         best_train_score = max(
@@ -79,11 +84,55 @@ def monitor_summary(
         "decision_count": len(decisions),
         "accepted": len(accepted),
         "rejected": len(decisions) - len(accepted),
+        **_archive_child_counts(decisions),
+        "promoted_child": current_version,
         "current_version": current_version,
         "best_train_score": best_train_score,
         "latest_test_score": latest_test_score,
         "test_touched_before_final_scoring": _test_touched(decisions, test_dataset),
     }
+
+
+def _archive_child_counts(decisions: list[dict[str, Any]]) -> dict[str, int]:
+    valid = invalid = improved = tied = regressed = 0
+    for row in decisions:
+        is_valid = bool(
+            _nested(row, "candidate", "valid_parent")
+            or float(_nested(row, "deltas", "valid_parent") or 0.0) > 0.0
+        )
+        if is_valid:
+            valid += 1
+            delta = float(_nested(row, "deltas", "reward") or 0.0)
+            if delta > 0.0:
+                improved += 1
+            elif delta < 0.0:
+                regressed += 1
+            else:
+                tied += 1
+        else:
+            invalid += 1
+    return {
+        "valid_children": valid,
+        "invalid_children": invalid,
+        "improved_children": improved,
+        "tied_children": tied,
+        "regressed_children": regressed,
+    }
+
+
+def _current_pointer(run_root: Path) -> str:
+    for path in (
+        run_root / "evolution" / "pointers" / "current.json",
+        run_root / "pointers" / "current.json",
+    ):
+        if not path.is_file():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        return str(data.get("hash") or "")
+    return ""
 
 
 def _nested(row: dict[str, Any], *keys: str) -> Any:

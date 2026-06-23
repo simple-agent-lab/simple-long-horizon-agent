@@ -23,6 +23,42 @@ class AgentPackageTest(unittest.TestCase):
                 )
         self.assertTrue(callable(builder))
 
+    def test_load_agent_package_supports_sibling_imports(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            builder = agent_package.load_agent_package(
+                {
+                    agent_package.ENTRY_MODULE_FILENAME: (
+                        "from prompts import VALUE\n\n"
+                        "def build_agent(**kwargs):\n"
+                        "    return VALUE\n"
+                    ),
+                    "prompts.py": "VALUE = 123\n",
+                },
+                root=Path(tmp),
+            )
+
+        self.assertTrue(callable(builder))
+        assert builder is not None
+        self.assertEqual(builder(), 123)
+
+    def test_load_agent_package_result_preserves_import_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = agent_package.load_agent_package_result(
+                {
+                    agent_package.ENTRY_MODULE_FILENAME: (
+                        "from missing_helper import VALUE\n\n"
+                        "def build_agent(**kwargs):\n"
+                        "    return VALUE\n"
+                    )
+                },
+                root=Path(tmp),
+            )
+
+        self.assertIsNone(result.builder)
+        self.assertFalse(result.loaded)
+        self.assertIn("ModuleNotFoundError", result.error)
+        self.assertIn("missing_helper", result.error)
+
     def test_load_agent_package_returns_none_on_bad_code(self):
         with tempfile.TemporaryDirectory() as tmp:
             bad = {agent_package.ENTRY_MODULE_FILENAME: "def build_agent(:\n"}

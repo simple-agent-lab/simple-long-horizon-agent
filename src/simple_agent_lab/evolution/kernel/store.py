@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import tempfile
 from collections.abc import Mapping
@@ -26,6 +27,8 @@ from simple_agent_lab.evolution.types import (
     Manifest,
     Version,
 )
+
+VERSION_HASH_RE = re.compile(r"^[0-9a-f]{12}$")
 
 
 def _now() -> str:
@@ -52,6 +55,10 @@ def version_hash(version_dir: Path) -> str:
         parts.append(f"{rel}:{digest}")
     blob = "\n".join(parts).encode("utf-8")
     return hashlib.sha256(blob).hexdigest()[:12]
+
+
+def is_version_hash(value: str) -> bool:
+    return bool(VERSION_HASH_RE.fullmatch(value))
 
 
 def stage(
@@ -162,4 +169,10 @@ def promote(workspace: Path, version_: Version, *, namespace: str = "") -> None:
 
 
 def version(workspace: Path, hash_: str) -> Version:
-    return Version(workspace / "versions" / hash_)
+    if not is_version_hash(hash_):
+        raise ValueError(f"not a valid version hash: {hash_!r}")
+    versions_root = (workspace / "versions").resolve()
+    path = (versions_root / hash_).resolve()
+    if path.parent != versions_root:
+        raise ValueError(f"version path escapes versions directory: {hash_!r}")
+    return Version(path)

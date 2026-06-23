@@ -304,10 +304,24 @@ class EvolutionRunCliTest(unittest.TestCase):
             def on_run(_spec: Any, bound: Any) -> None:
                 package = json.loads(bound.get(AGENT_PACKAGE_KEY).decode("utf-8"))
                 reward = 1.0 if "better" in package["agent_program.py"] else 0.0
+                agent_package = {
+                    "loaded": True,
+                    "used_fallback": _spec.instance_id == "h2" and reward > 0.0,
+                    "error": "demo fallback"
+                    if _spec.instance_id == "h2" and reward > 0.0
+                    else "",
+                }
                 bound.put(
                     RESULT_KEY,
                     (
-                        json.dumps({"reward": reward, "resolved": reward > 0.0}) + "\n"
+                        json.dumps(
+                            {
+                                "reward": reward,
+                                "resolved": reward > 0.0,
+                                "agent_package": agent_package,
+                            }
+                        )
+                        + "\n"
                     ).encode("utf-8"),
                 )
 
@@ -346,6 +360,12 @@ class EvolutionRunCliTest(unittest.TestCase):
         self.assertEqual(summary["evaluations"][0]["metrics"]["resolved"], 0)
         self.assertEqual(summary["evaluations"][1]["metrics"]["reward_mean"], 1.0)
         self.assertEqual(summary["evaluations"][1]["metrics"]["resolved"], 2)
+        self.assertEqual(
+            summary["evaluations"][1]["metrics"]["agent_package_fallback"], 1
+        )
+        self.assertTrue(
+            summary["evaluations"][1]["runs"][1]["agent_package"]["used_fallback"]
+        )
         self.assertEqual(summary["delta"]["reward_mean"], 1.0)
         self.assertEqual(summary["delta"]["resolved"], 2)
         self.assertIn("heldout baseline: reward=0.000 resolved=0/2", output)

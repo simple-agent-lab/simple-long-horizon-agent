@@ -13,6 +13,10 @@ run, while the package itself is just the editable Python agent program behind
 from __future__ import annotations
 
 import importlib.util
+import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping
 
@@ -54,6 +58,13 @@ def default_agent_package() -> dict[str, str]:
     return {ENTRY_MODULE_FILENAME: _DEFAULT_AGENT_PROGRAM}
 
 
+@dataclass(frozen=True)
+class AgentPackageLoad:
+    builder: Callable[..., object] | None
+    loaded: bool
+    error: str = ""
+
+
 def load_agent_package(
     files: Mapping[str, str], *, root: Path
 ) -> Callable[..., object] | None:
@@ -64,6 +75,14 @@ def load_agent_package(
     built-in default agent.
     """
 
+    return load_agent_package_result(files, root=root).builder
+
+
+def load_agent_package_result(
+    files: Mapping[str, str], *, root: Path
+) -> AgentPackageLoad:
+    """Load an agent package and preserve load diagnostics."""
+
     try:
         for rel, text in files.items():
             dest = root / rel
@@ -71,13 +90,58 @@ def load_agent_package(
             dest.write_text(text, encoding="utf-8")
         module_path = root / ENTRY_MODULE_FILENAME
         if not module_path.is_file():
-            return None
+            return AgentPackageLoad(None, False, f"missing {ENTRY_MODULE_FILENAME}")
         spec = importlib.util.spec_from_file_location(ENTRY_IMPORT_NAME, module_path)
         if spec is None or spec.loader is None:
-            return None
+            return AgentPackageLoad(None, False, "could not create import spec")
         module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-    except Exception:
-        return None
+        with _package_import_context(root, files):
+            spec.loader.exec_module(module)
+    except Exception as exc:  # noqa: BLE001 - diagnostic boundary for untrusted code.
+        return AgentPackageLoad(None, False, f"{type(exc).__name__}: {exc}")
     builder = getattr(module, "build_agent", None)
-    return builder if callable(builder) else None
+    if not callable(builder):
+        return AgentPackageLoad(None, False, "missing callable build_agent")
+    return AgentPackageLoad(_wrap_builder(builder, root, files), True)
+
+
+def _wrap_builder(
+    builder: Callable[..., object], root: Path, files: Mapping[str, str]
+) -> Callable[..., object]:
+    def call(*args: object, **kwargs: object) -> object:
+        with _package_import_context(root, files):
+            return builder(*args, **kwargs)
+
+    return call
+
+
+@contextmanager
+def _package_import_context(root: Path, files: Mapping[str, str]) -> Iterator[None]:
+    module_names = _top_level_module_names(files)
+    previous_modules = {name: sys.modules.get(name) for name in module_names}
+    missing = {name for name in module_names if name not in sys.modules}
+    old_path = list(sys.path)
+    try:
+        sys.path.insert(0, str(root))
+        for name in module_names:
+            sys.modules.pop(name, None)
+        yield
+    finally:
+        sys.path[:] = old_path
+        for name, module in previous_modules.items():
+            if name in missing:
+                sys.modules.pop(name, None)
+            elif module is not None:
+                sys.modules[name] = module
+
+
+def _top_level_module_names(files: Mapping[str, str]) -> tuple[str, ...]:
+    names: list[str] = []
+    for rel in files:
+        path = Path(rel)
+        if len(path.parts) != 1 or path.suffix != ".py":
+            continue
+        stem = path.stem
+        if stem != Path(ENTRY_MODULE_FILENAME).stem and stem.isidentifier():
+            names.append(stem)
+    return tuple(sorted(names))
