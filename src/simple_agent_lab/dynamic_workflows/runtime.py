@@ -360,7 +360,12 @@ class DynamicWorkflowRuntime:
 
 
 def _node_command(node_binary: str) -> list[str]:
-    return [_resolve_node_binary(node_binary), "--permission", "-e", _NODE_RUNTIME_SOURCE]
+    return [
+        _resolve_node_binary(node_binary),
+        "--permission",
+        "-e",
+        _NODE_RUNTIME_SOURCE,
+    ]
 
 
 def _resolve_node_binary(node_binary: str) -> str:
