@@ -33,6 +33,10 @@ agent runtime:
 - The workflow script does not receive direct filesystem, shell, environment,
   or module-loading capabilities. Subagents get tools through normal Agent
   construction.
+- The Node runtime subprocess is launched with a stripped environment and
+  Node's permission model enabled, so generated scripts do not inherit eval
+  credentials and cannot use filesystem, child-process, worker, native-addon, or
+  WASI capabilities through Node APIs.
 - The runtime writes `workflow.js`, `workflow_journal.jsonl`,
   `workflow_result.json`, and per-subagent traces under `subagents/`.
 - The journal stores completed agent-call results by stable call id or cache
@@ -57,10 +61,10 @@ it provides a deterministic no-Docker smoke path with the fake provider. Coding
 bench suites can later reuse the same bridge with bash-capable subagents and
 optional worktree isolation.
 
-The JavaScript sandbox is a capability boundary for normal workflow scripts,
-not a hardened security boundary for hostile code. The runtime does not expose
-host modules or process objects, and all powerful operations must go through
-subagents.
+The JavaScript `vm` context shapes the workflow API for normal scripts, while
+process isolation limits the blast radius if generated code reaches Node globals.
+This is still not a hardened hostile-code sandbox: OS-level process/user
+isolation remains the right boundary for adversarial code.
 
 ## Alternatives Considered
 
