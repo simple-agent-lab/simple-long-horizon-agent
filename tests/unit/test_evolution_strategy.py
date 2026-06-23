@@ -197,6 +197,35 @@ class StrategyComponentTest(unittest.TestCase):
 
         self.assertIsNone(proposal)
 
+    def test_strategy_declines_when_edits_do_not_change_base(self):
+        logs: list[str] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "ws"
+            exp = Experiment(
+                ws, rollout=lambda v, s: [], seed={"agent/agent_program.py": "X = 0\n"}
+            )
+            strat = model_program_strategy(
+                provider=object(),
+                prefix="agent/",
+                complete_fn=lambda _request: FakeResponse(
+                    '{"note": "copy seed", "evidence": [], '
+                    '"edits": {"agent/agent_program.py": "X = 0\\n"}}'
+                ),
+                log_fn=logs.append,
+            )
+            ctx = Context(
+                runs=(),
+                current=exp.current(),
+                workspace=ws,
+                decisions=(),
+                reward=lambda r: 0.0,
+            )
+
+            proposal = strat(ctx)
+
+        self.assertIsNone(proposal)
+        self.assertEqual(logs, ["meta-strategy produced no content-changing edits"])
+
     def test_strategy_retries_invalid_json_before_returning_proposal(self):
         complete = SequenceComplete(
             "",

@@ -25,6 +25,8 @@ DEFAULT_SYSTEM_PROMPT = """You are a meta-agent evolving a program.
 The program is a set of files under a fixed path prefix. You may edit any file
 under that prefix, add new files under it, or remove one (set its value to null).
 Provide FULL new file content, never a diff.
+At least one edit must change the current program. Do not return empty edits or
+unchanged copies of existing files.
 
 Return ONLY JSON: {"note": "...", "evidence": ["..."],
 "edits": {"<prefix>/<path>": "FULL content" | null}}
@@ -109,6 +111,11 @@ def model_program_strategy(
             detail = f"; rejected={', '.join(rejected)}" if rejected else ""
             _log(log_fn, f"meta-strategy produced no valid edits{detail}")
             return None
+        edits, unchanged = content_changing_edits(base, edits)
+        evidence += tuple(f"discarded-unchanged-path:{p}" for p in unchanged)
+        if not edits:
+            _log(log_fn, "meta-strategy produced no content-changing edits")
+            return None
         return Proposal(
             base=parent,
             edits=edits,
@@ -164,6 +171,28 @@ def safe_prefix_edits(
         else:
             rejected.append(path)
     return edits, tuple(rejected)
+
+
+def content_changing_edits(
+    base: Version, edits: Mapping[str, str | None]
+) -> tuple[dict[str, str | None], tuple[str, ...]]:
+    """Keep only edits that would change ``base`` before staging a candidate."""
+
+    base_files = set(base.files())
+    out: dict[str, str | None] = {}
+    unchanged: list[str] = []
+    for path, content in edits.items():
+        if content is None:
+            if path in base_files:
+                out[path] = None
+            else:
+                unchanged.append(path)
+            continue
+        if path in base_files and base.read(path) == content:
+            unchanged.append(path)
+            continue
+        out[path] = content
+    return out, tuple(unchanged)
 
 
 def _prefix_path_ok(path: str, prefix: str) -> bool:

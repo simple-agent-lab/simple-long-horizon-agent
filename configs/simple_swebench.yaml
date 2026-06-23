@@ -45,7 +45,9 @@ strategy:
 
       The agent is a Python package. Make one focused whole-program change
       likely to raise the measured resolve rate. Return only the JSON edit
-      payload requested by the meta-strategy.
+      payload requested by the meta-strategy. At least one edit must change
+      the current package; do not return empty edits or unchanged copies of
+      existing files.
 evolution:
   algorithm: simple
   rounds: 4
