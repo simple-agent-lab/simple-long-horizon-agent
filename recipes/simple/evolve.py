@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -16,7 +17,7 @@ DEFAULT_CONFIG = ROOT / "configs" / "simple_swebench.yaml"
 EVOLVING_CONTAINER_MODULE = "simple_agent_lab.evals.suites.swebench.evolving"
 
 
-def register_recipe_factories() -> None:
+def register_recipe_factories(config_path: str | Path | None = None) -> None:
     """Register the factories this runnable recipe names in YAML.
 
     This keeps SWE-bench represented by its existing ``SwebenchSuite`` while the
@@ -49,6 +50,9 @@ def register_recipe_factories() -> None:
     )
     registry.STORES.setdefault("local_dir", lambda root, **_args: LocalDirStore(root))
     registry.STRATEGIES.setdefault("model_program", model_program_strategy)
+    if config_path is not None:
+        reward = _swebench_reward_from_config(config_path)
+        registry.REWARDS["result_key"] = lambda reward=reward: reward
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -57,7 +61,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"default config: {DEFAULT_CONFIG.relative_to(ROOT)}")
     if not _has_option(args, "--config") and not _asks_for_help(args):
         args = ["--config", str(DEFAULT_CONFIG), *args]
-    register_recipe_factories()
+    config_path = None if _asks_for_help(args) else _option_value(args, "--config")
+    register_recipe_factories(config_path)
     return run_main(args)
 
 
@@ -67,6 +72,33 @@ def _has_option(args: Sequence[str], option: str) -> bool:
 
 def _asks_for_help(args: Sequence[str]) -> bool:
     return any(arg in {"-h", "--help"} for arg in args)
+
+
+def _option_value(args: Sequence[str], option: str) -> str | None:
+    for i, arg in enumerate(args):
+        if arg == option and i + 1 < len(args):
+            return args[i + 1]
+        if arg.startswith(f"{option}="):
+            return arg.split("=", 1)[1]
+    return None
+
+
+def _swebench_reward_from_config(config_path: str | Path):
+    from evals.swebench import harness
+    from recipes import swebench_reward
+    from simple_agent_lab.evolution.config import load_self_evolving_config
+
+    config = load_self_evolving_config(config_path)
+    instance_paths = [config.instances.train.path]
+    if config.instances.heldout is not None:
+        instance_paths.append(config.instances.heldout.path)
+    dataset_name = str(config.suite.args.get("dataset_name") or harness.DEFAULT_DATASET)
+    model_name = os.environ.get(config.model.model_env, "") or "simple-agent-lab"
+    return swebench_reward.make_reuse_reward_from_paths(
+        instance_paths=instance_paths,
+        dataset_name=dataset_name,
+        model_name=model_name,
+    )
 
 
 if __name__ == "__main__":

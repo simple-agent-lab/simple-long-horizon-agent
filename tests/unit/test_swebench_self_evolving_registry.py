@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from simple_agent_lab.evolution import registry
 
@@ -13,6 +14,7 @@ class SimpleRecipeRegistryTest(unittest.TestCase):
             "local_docker": registry.BACKENDS.get("local_docker"),
             "local_dir": registry.STORES.get("local_dir"),
             "model_program": registry.STRATEGIES.get("model_program"),
+            "result_key": registry.REWARDS.get("result_key"),
         }
         self.addCleanup(self._restore_registries)
 
@@ -23,6 +25,7 @@ class SimpleRecipeRegistryTest(unittest.TestCase):
             (registry.BACKENDS, "local_docker"),
             (registry.STORES, "local_dir"),
             (registry.STRATEGIES, "model_program"),
+            (registry.REWARDS, "result_key"),
         )
         for table, name in targets:
             original = self._snapshots[name]
@@ -55,6 +58,18 @@ class SimpleRecipeRegistryTest(unittest.TestCase):
         register_recipe_factories()
 
         self.assertIs(registry.SUITES["swebench"], sentinel)
+
+    def test_config_registration_uses_swebench_reward(self) -> None:
+        from recipes.simple import evolve
+
+        reward = object()
+        with patch.object(
+            evolve, "_swebench_reward_from_config", return_value=reward
+        ) as build:
+            evolve.register_recipe_factories("config.yaml")
+
+        build.assert_called_once_with("config.yaml")
+        self.assertIs(registry.REWARDS["result_key"](), reward)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from recipes import swebench_reward as shared_reward
 from simple_agent_lab.evals.protocols import AGENT_PACKAGE_KEY
 from simple_agent_lab.evolution import agent_package as agent_pkg
 from simple_agent_lab.evolution.types import Run, Slice, Version
@@ -365,15 +366,7 @@ def version_package_artifacts(version: Version) -> dict[str, bytes]:
 def reward_from_result(result: Mapping[str, Any]) -> float:
     """Extract the DGM train reward from a SWE-bench ``result.json`` mapping."""
 
-    agent_package = result.get("agent_package", {})
-    if isinstance(agent_package, Mapping) and agent_package.get("used_fallback"):
-        return -1.0
-    if "resolved" in result:
-        return 1.0 if bool(result.get("resolved")) else 0.0
-    if "score" in result:
-        return float(result.get("score") or 0.0)
-    value = result.get("reward", 0.0)
-    return float(value or 0.0)
+    return shared_reward.reward_from_result(result)
 
 
 def swebench_reward(run: Run) -> float:
@@ -383,22 +376,7 @@ def swebench_reward(run: Run) -> float:
 
 
 def apply_eval_score(run: Run, eval_row: Mapping[str, Any]) -> None:
-    path = run.dir / "out" / "result.json"
-    result = dict(run.result)
-    metrics = eval_row.get("metrics", {})
-    metrics = metrics if isinstance(metrics, Mapping) else {}
-    score = float(eval_row.get("score", 0.0) or 0.0)
-    result.update(
-        {
-            "resolved": bool(metrics.get("resolved") or eval_row.get("passed")),
-            "status": str(metrics.get("status") or eval_row.get("reason") or ""),
-            "score": score,
-            "reward": score,
-        }
-    )
-    path.write_text(
-        json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    shared_reward.apply_eval_score(run, eval_row)
 
 
 def grade_reuse_runs(
