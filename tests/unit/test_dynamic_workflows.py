@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -130,6 +131,40 @@ return {
                 "fetchType": "undefined",
             },
         )
+
+    def test_escaped_process_does_not_inherit_parent_environment(self) -> None:
+        key = "SIMPLE_AGENT_LAB_SECRET_CANARY"
+        previous = os.environ.get(key)
+        os.environ[key] = "should-not-leak"
+        script = f"""
+let envValue = "";
+try {{
+  const escapedProcess = this.constructor.constructor("return process")();
+  envValue = escapedProcess.env.{key} || "";
+}} catch (err) {{
+  envValue = "escape-blocked";
+}}
+return {{ envValue }};
+"""
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                runner = SimpleAgentCallRunner(
+                    provider=FAKE_PROVIDER,
+                    cwd=tmp,
+                    build_agent=_echo_builder,
+                )
+                result = DynamicWorkflowRuntime(runner=runner).run(
+                    script=script,
+                    task="task",
+                    artifacts_dir=Path(tmp) / "artifacts",
+                )
+        finally:
+            if previous is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = previous
+
+        self.assertIn(result.raw_result["envValue"], {"", "escape-blocked"})
 
     def test_extract_javascript_from_fence(self) -> None:
         text = "Here:\n```js\nphase('x');\nreturn 'ok';\n```"
