@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import queue
+import shutil
 import subprocess
 import threading
 import time
@@ -129,12 +131,13 @@ class DynamicWorkflowRuntime:
         filename: str,
     ) -> tuple[Any, list[dict[str, Any]]]:
         proc = subprocess.Popen(
-            [self.options.node_binary, "-e", _NODE_RUNTIME_SOURCE],
+            _node_command(self.options.node_binary),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
+            env=_node_env(),
         )
         if proc.stdin is None or proc.stdout is None or proc.stderr is None:
             raise RuntimeError("failed to open node workflow runtime pipes")
@@ -170,89 +173,91 @@ class DynamicWorkflowRuntime:
         )
         agent_count = 0
         futures: dict[Future[dict[str, Any]], str] = {}
+        pool: ThreadPoolExecutor | None = None
+        pool_closed = False
 
         try:
-            with ThreadPoolExecutor(
-                max_workers=max(1, self.options.max_concurrency)
-            ) as pool:
-                while True:
-                    if deadline is not None and time.monotonic() >= deadline:
-                        proc.kill()
-                        raise TimeoutError(
-                            "dynamic workflow timed out after "
-                            f"{self.options.timeout_seconds}s"
-                        )
+            pool = ThreadPoolExecutor(max_workers=max(1, self.options.max_concurrency))
+            while True:
+                if deadline is not None and time.monotonic() >= deadline:
+                    proc.kill()
+                    raise TimeoutError(
+                        "dynamic workflow timed out after "
+                        f"{self.options.timeout_seconds}s"
+                    )
 
+                _flush_completed(proc, futures)
+
+                if final_error:
+                    proc.kill()
+                    raise RuntimeError(final_error)
+                if final_result is not None:
                     _flush_completed(proc, futures)
-
-                    if final_error:
-                        proc.kill()
-                        raise RuntimeError(final_error)
-                    if final_result is not None:
-                        _flush_completed(proc, futures)
-                        if not futures:
-                            break
-
-                    if proc.poll() is not None and messages.empty() and not futures:
+                    if not futures:
                         break
 
-                    try:
-                        message = messages.get(timeout=0.05)
-                    except queue.Empty:
-                        continue
+                if proc.poll() is not None and messages.empty() and not futures:
+                    break
 
-                    kind = message.get("type")
-                    if kind == "event":
-                        event = dict(message.get("event") or {})
-                        event_kind = str(event.pop("kind", "workflow_event"))
-                        journal.append(event_kind, **event)
-                        continue
+                try:
+                    message = messages.get(timeout=0.05)
+                except queue.Empty:
+                    continue
 
-                    if kind == "request":
-                        req_id = str(message.get("id") or "")
-                        method = str(message.get("method") or "")
-                        params = dict(message.get("params") or {})
-                        if method == "agent":
-                            agent_count += 1
-                            if agent_count > self.options.max_agents:
-                                _send_error(
-                                    proc,
-                                    req_id,
-                                    "dynamic workflow agent cap exceeded",
-                                )
-                                continue
-                            future = pool.submit(
-                                self._handle_agent_request,
-                                params=params,
-                                artifacts_dir=artifacts_dir,
-                                journal=journal,
-                                script_hash=script_hash,
-                                calls=calls,
-                            )
-                        elif method == "workflow":
-                            future = pool.submit(
-                                self._handle_workflow_request,
-                                params=params,
-                                artifacts_dir=artifacts_dir,
-                            )
-                        else:
+                kind = message.get("type")
+                if kind == "event":
+                    event = dict(message.get("event") or {})
+                    event_kind = str(event.pop("kind", "workflow_event"))
+                    journal.append(event_kind, **event)
+                    continue
+
+                if kind == "request":
+                    req_id = str(message.get("id") or "")
+                    method = str(message.get("method") or "")
+                    params = dict(message.get("params") or {})
+                    if method == "agent":
+                        agent_count += 1
+                        if agent_count > self.options.max_agents:
                             _send_error(
                                 proc,
                                 req_id,
-                                f"unsupported workflow method {method!r}",
+                                "dynamic workflow agent cap exceeded",
                             )
                             continue
-                        futures[future] = req_id
+                        future = pool.submit(
+                            self._handle_agent_request,
+                            params=params,
+                            artifacts_dir=artifacts_dir,
+                            journal=journal,
+                            script_hash=script_hash,
+                            calls=calls,
+                        )
+                    elif method == "workflow":
+                        future = pool.submit(
+                            self._handle_workflow_request,
+                            params=params,
+                            artifacts_dir=artifacts_dir,
+                        )
+                    else:
+                        _send_error(
+                            proc,
+                            req_id,
+                            f"unsupported workflow method {method!r}",
+                        )
                         continue
+                    futures[future] = req_id
+                    continue
 
-                    if kind == "result":
-                        final_result = message.get("result")
-                        continue
+                if kind == "result":
+                    final_result = message.get("result")
+                    continue
 
-                    if kind == "error":
-                        final_error = str(message.get("error") or "workflow failed")
-                        continue
+                if kind == "error":
+                    final_error = str(message.get("error") or "workflow failed")
+                    continue
 
+            pool.shutdown(wait=True)
+            pool_closed = True
             exit_code = _finish_process(proc)
             if exit_code != 0 and final_result is None:
                 stderr = "".join(stderr_lines).strip()
@@ -264,6 +269,8 @@ class DynamicWorkflowRuntime:
                 raise RuntimeError(f"workflow did not return a result: {stderr}")
             return final_result, calls
         finally:
+            if pool is not None and not pool_closed:
+                pool.shutdown(wait=False, cancel_futures=True)
             _close_streams(proc)
 
     def _handle_agent_request(
@@ -350,6 +357,26 @@ class DynamicWorkflowRuntime:
             name=name,
         )
         return nested.as_dict()
+
+
+def _node_command(node_binary: str) -> list[str]:
+    return [_resolve_node_binary(node_binary), "--permission", "-e", _NODE_RUNTIME_SOURCE]
+
+
+def _resolve_node_binary(node_binary: str) -> str:
+    path = Path(node_binary)
+    if path.is_absolute() or path.parent != Path("."):
+        return str(path)
+    return shutil.which(node_binary) or node_binary
+
+
+def _node_env() -> dict[str, str]:
+    env: dict[str, str] = {}
+    for key in ("SystemRoot", "WINDIR"):
+        value = os.environ.get(key)
+        if value:
+            env[key] = value
+    return env
 
 
 def _flush_completed(
