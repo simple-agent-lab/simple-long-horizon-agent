@@ -20,6 +20,7 @@ runs/run_swebench_multilingual.sh, and runs/run_swebench_pro.sh.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -31,11 +32,17 @@ for path in (ROOT, SRC):
         sys.path.insert(0, str(path))
 
 from evals.swebench import harness  # noqa: E402
-from evals.swebench.suite import SwebenchSuite  # noqa: E402
+from evals.swebench.suite import SwebenchDynamicWorkflowSuite, SwebenchSuite  # noqa: E402
 from simple_agent_lab.evals import (  # noqa: E402
     LocalDirStore,
     LocalDockerBackend,
     run_suite_instance,
+)
+from simple_agent_lab.evals.suites.swebench.dynamic_workflow_container import (  # noqa: E402
+    SWE_DYNAMIC_WORKFLOW_MAX_AGENTS_ENV,
+    SWE_DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV,
+    SWE_DYNAMIC_WORKFLOW_SCRIPT_ENV,
+    SWE_DYNAMIC_WORKFLOW_TIMEOUT_ENV,
 )
 from simple_agent_lab.evals.backends.docker_local import (  # noqa: E402
     DEFAULT_DOCKER_TIMEOUT_S,
@@ -98,6 +105,19 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--in-env-scoring", action="store_true")
     parser.add_argument("--keep-container", action="store_true")
     parser.add_argument(
+        "--dynamic-workflow",
+        action="store_true",
+        help="Run the SWE-bench agent through a generated JavaScript workflow.",
+    )
+    parser.add_argument(
+        "--workflow-script",
+        default="",
+        help="Optional workflow.js path; defaults to model-generated workflow.",
+    )
+    parser.add_argument("--workflow-max-concurrency", type=int, default=1)
+    parser.add_argument("--workflow-max-agents", type=int, default=12)
+    parser.add_argument("--workflow-timeout", type=float, default=1800.0)
+    parser.add_argument(
         "--force",
         action="store_true",
         help="Remove an existing container with the same name before starting.",
@@ -148,6 +168,20 @@ def main() -> None:
     provider_env = harness._container_environment(args.provider)
     provider_env[harness.API_KIND_ENV] = harness.resolve_api_kind(args.api_kind)
     provider_env["AGENT_FLAVOR"] = args.agent_flavor
+    if args.dynamic_workflow:
+        workflow_env = {
+            SWE_DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV: str(
+                args.workflow_max_concurrency
+            ),
+            SWE_DYNAMIC_WORKFLOW_MAX_AGENTS_ENV: str(args.workflow_max_agents),
+            SWE_DYNAMIC_WORKFLOW_TIMEOUT_ENV: str(args.workflow_timeout),
+        }
+        if args.workflow_script:
+            workflow_env[SWE_DYNAMIC_WORKFLOW_SCRIPT_ENV] = str(
+                Path(args.workflow_script).resolve()
+            )
+        os.environ.update(workflow_env)
+        provider_env.update(workflow_env)
 
     run_root, wheelhouse = _resolve_paths(args, instance)
     mcp_config_path = harness.resolve_mcp_config_path(args.mcp_config)
@@ -161,7 +195,14 @@ def main() -> None:
         extras=package_extras,
     )
 
-    suite = SwebenchSuite(
+    if args.dynamic_workflow and mcp_config_path:
+        raise SystemExit(
+            "--dynamic-workflow is not compatible with --mcp-config; "
+            "the dynamic container half supplies a custom build_agent hook."
+        )
+
+    suite_cls = SwebenchDynamicWorkflowSuite if args.dynamic_workflow else SwebenchSuite
+    suite = suite_cls(
         dataset_name=args.dataset_name,
         namespace=args.namespace,
         platform=args.platform,
@@ -185,6 +226,10 @@ def main() -> None:
     print(f"    max-turns:  {args.max_turns}")
     print(f"    run-id:     {args.run_id}")
     print(f"    agent:      {args.agent_flavor}")
+    if args.dynamic_workflow:
+        print("    workflow:   dynamic JavaScript")
+        if args.workflow_script:
+            print(f"    script:     {Path(args.workflow_script).resolve()}")
     if mcp_config_path:
         print(f"    mcp config: {mcp_config_path}")
     print(f"    container:  {name}")

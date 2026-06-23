@@ -46,7 +46,9 @@ class WorkflowJournal:
         if not self.path.exists():
             return []
         records: list[dict[str, Any]] = []
-        for line in self.path.read_text(encoding="utf-8").splitlines():
+        with self._lock:
+            text = self.path.read_text(encoding="utf-8")
+        for line in text.splitlines():
             if not line.strip():
                 continue
             try:

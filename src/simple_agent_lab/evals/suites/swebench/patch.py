@@ -27,6 +27,8 @@ DEFAULT_GITIGNORE_RULES = [
     "*.so",
     "build",
     "Build",
+    ".simple-agent-lab/",
+    "dynamic_workflow/",
 ]
 
 LANGUAGE_GITIGNORE_RULES = {

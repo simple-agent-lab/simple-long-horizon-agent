@@ -13,6 +13,7 @@ import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from collections.abc import Mapping
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,7 @@ class WorkflowRuntimeOptions:
     max_agents: int = 1000
     timeout_seconds: float | None = None
     node_binary: str = "node"
+    enforce_node_permissions: bool = True
 
 
 @dataclass(frozen=True)
@@ -130,13 +132,18 @@ class DynamicWorkflowRuntime:
         budget: dict[str, Any],
         filename: str,
     ) -> tuple[Any, list[dict[str, Any]]]:
+        command = _node_command(
+            self.options.node_binary,
+            enforce_permissions=self.options.enforce_node_permissions,
+        )
         proc = subprocess.Popen(
-            _node_command(self.options.node_binary),
+            command,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
+            cwd=artifacts_dir,
             env=_node_env(),
         )
         if proc.stdin is None or proc.stdout is None or proc.stderr is None:
@@ -180,7 +187,10 @@ class DynamicWorkflowRuntime:
             pool = ThreadPoolExecutor(max_workers=max(1, self.options.max_concurrency))
             while True:
                 if deadline is not None and time.monotonic() >= deadline:
-                    proc.kill()
+                    _abort_process(proc)
+                    _cancel_futures(futures)
+                    pool.shutdown(wait=False, cancel_futures=True)
+                    pool_closed = True
                     raise TimeoutError(
                         "dynamic workflow timed out after "
                         f"{self.options.timeout_seconds}s"
@@ -189,7 +199,10 @@ class DynamicWorkflowRuntime:
                 _flush_completed(proc, futures)
 
                 if final_error:
-                    proc.kill()
+                    _abort_process(proc)
+                    _cancel_futures(futures)
+                    pool.shutdown(wait=False, cancel_futures=True)
+                    pool_closed = True
                     raise RuntimeError(final_error)
                 if final_result is not None:
                     _flush_completed(proc, futures)
@@ -359,31 +372,6 @@ class DynamicWorkflowRuntime:
         return nested.as_dict()
 
 
-def _node_command(node_binary: str) -> list[str]:
-    return [
-        _resolve_node_binary(node_binary),
-        "--permission",
-        "-e",
-        _NODE_RUNTIME_SOURCE,
-    ]
-
-
-def _resolve_node_binary(node_binary: str) -> str:
-    path = Path(node_binary)
-    if path.is_absolute() or path.parent != Path("."):
-        return str(path)
-    return shutil.which(node_binary) or node_binary
-
-
-def _node_env() -> dict[str, str]:
-    env: dict[str, str] = {}
-    for key in ("SystemRoot", "WINDIR"):
-        value = os.environ.get(key)
-        if value:
-            env[key] = value
-    return env
-
-
 def _flush_completed(
     proc: subprocess.Popen[str], futures: dict[Future[dict[str, Any]], str]
 ) -> None:
@@ -397,6 +385,22 @@ def _flush_completed(
             _send_error(proc, req_id, f"{type(exc).__name__}: {exc}")
         else:
             _send(proc, {"id": req_id, "ok": True, "result": result})
+
+
+def _cancel_futures(futures: dict[Future[dict[str, Any]], str]) -> None:
+    for future in futures:
+        future.cancel()
+    futures.clear()
+
+
+def _abort_process(proc: subprocess.Popen[str]) -> None:
+    if proc.poll() is not None:
+        return
+    proc.kill()
+    try:
+        proc.wait(timeout=1)
+    except subprocess.TimeoutExpired:
+        pass
 
 
 def _finish_process(proc: subprocess.Popen[str]) -> int:
@@ -430,6 +434,57 @@ def _send(proc: subprocess.Popen[str], payload: Mapping[str, Any]) -> None:
 
 def _send_error(proc: subprocess.Popen[str], req_id: str, error: str) -> None:
     _send(proc, {"id": req_id, "ok": False, "error": error})
+
+
+def _node_command(node_binary: str, *, enforce_permissions: bool) -> list[str]:
+    node = _resolve_node_binary(node_binary)
+    command = [node]
+    if enforce_permissions:
+        # The vm context is not a sandbox; constrain host capabilities on the child.
+        command.append(_node_permission_flag(node))
+    command.extend(["-e", _NODE_RUNTIME_SOURCE])
+    return command
+
+
+def _resolve_node_binary(node_binary: str) -> str:
+    resolved = shutil.which(node_binary)
+    if resolved is None:
+        raise RuntimeError(f"node binary not found: {node_binary!r}")
+    return resolved
+
+
+@lru_cache(maxsize=8)
+def _node_permission_flag(node_binary: str) -> str:
+    for flag in ("--permission", "--experimental-permission"):
+        try:
+            result = subprocess.run(
+                [node_binary, flag, "-e", ""],
+                check=False,
+                env=_node_env(),
+                stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                text=True,
+                timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if result.returncode == 0:
+            return flag
+    raise RuntimeError(
+        "dynamic workflows require Node's permission model; install a Node "
+        "version that supports --permission, or only run trusted scripts with "
+        "WorkflowRuntimeOptions(enforce_node_permissions=False)"
+    )
+
+
+def _node_env() -> dict[str, str]:
+    env: dict[str, str] = {}
+    for name in ("PATH", "SystemRoot", "WINDIR", "PATHEXT"):
+        value = os.environ.get(name)
+        if value:
+            env[name] = value
+    return env
 
 
 def _read_stdout(stream: Any, messages: "queue.Queue[dict[str, Any]]") -> None:
