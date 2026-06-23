@@ -41,6 +41,36 @@ class AgentPackageTest(unittest.TestCase):
         assert builder is not None
         self.assertEqual(builder(), 123)
 
+    def test_load_agent_package_isolates_nested_helper_imports(self):
+        program = (
+            "from tools.helper import VALUE\n\n"
+            "def build_agent(**kwargs):\n"
+            "    return VALUE\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = agent_package.load_agent_package(
+                {
+                    agent_package.ENTRY_MODULE_FILENAME: program,
+                    "tools/helper.py": "VALUE = 'one'\n",
+                },
+                root=root / "one",
+            )
+            second = agent_package.load_agent_package(
+                {
+                    agent_package.ENTRY_MODULE_FILENAME: program,
+                    "tools/helper.py": "VALUE = 'two'\n",
+                },
+                root=root / "two",
+            )
+
+        self.assertTrue(callable(first))
+        self.assertTrue(callable(second))
+        assert first is not None
+        assert second is not None
+        self.assertEqual(first(), "one")
+        self.assertEqual(second(), "two")
+
     def test_load_agent_package_result_preserves_import_error(self):
         with tempfile.TemporaryDirectory() as tmp:
             result = agent_package.load_agent_package_result(

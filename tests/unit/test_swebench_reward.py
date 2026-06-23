@@ -85,7 +85,9 @@ class SwebenchRewardTest(unittest.TestCase):
             model_name="model",
         )
 
-        with patch.object(swebench_reward, "reuse_eval_row", side_effect=RuntimeError("boom")):
+        with patch.object(
+            swebench_reward, "reuse_eval_row", side_effect=RuntimeError("boom")
+        ):
             self.assertEqual(reward(run), 0.0)
 
         result = json.loads(result_path.read_text())

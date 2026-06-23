@@ -1,10 +1,11 @@
-"""Faithful DGM self-evolving SWE-bench recipe.
+"""DGM-style self-evolving SWE-bench recipe.
 
 A model-driven meta-agent rewrites the whole agent program under ``agent/``; the
 evolution kernel runs a parallel open-ended archive-admission loop (branches per
 round, best-valid promotion, archive parent selection), and the best-on-train
-agent is scored on a held-out test split. All DGM knobs are exposed. Dry by
-default; --execute runs real model + Docker.
+agent is scored on a held-out test split. This is archive-mechanics
+infrastructure; the stronger self-reference milestone is still future work. All
+DGM knobs are exposed. Dry by default; --execute runs real model + Docker.
 """
 
 from __future__ import annotations

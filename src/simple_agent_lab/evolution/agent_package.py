@@ -18,6 +18,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 from typing import Callable, Mapping
 
 ENTRY_MODULE_FILENAME = "agent_program.py"
@@ -117,31 +118,47 @@ def _wrap_builder(
 
 @contextmanager
 def _package_import_context(root: Path, files: Mapping[str, str]) -> Iterator[None]:
-    module_names = _top_level_module_names(files)
-    previous_modules = {name: sys.modules.get(name) for name in module_names}
-    missing = {name for name in module_names if name not in sys.modules}
+    import_roots = _top_level_import_roots(files)
+    previous_modules = _snapshot_modules(import_roots)
     old_path = list(sys.path)
     try:
         sys.path.insert(0, str(root))
-        for name in module_names:
-            sys.modules.pop(name, None)
+        _remove_modules(import_roots)
         yield
     finally:
         sys.path[:] = old_path
-        for name, module in previous_modules.items():
-            if name in missing:
-                sys.modules.pop(name, None)
-            elif module is not None:
-                sys.modules[name] = module
+        _remove_modules(import_roots)
+        sys.modules.update(previous_modules)
 
 
-def _top_level_module_names(files: Mapping[str, str]) -> tuple[str, ...]:
-    names: list[str] = []
+def _snapshot_modules(import_roots: tuple[str, ...]) -> dict[str, ModuleType]:
+    return {
+        name: module
+        for name, module in sys.modules.items()
+        if _belongs_to_roots(name, import_roots)
+    }
+
+
+def _remove_modules(import_roots: tuple[str, ...]) -> None:
+    for name in tuple(sys.modules):
+        if _belongs_to_roots(name, import_roots):
+            sys.modules.pop(name, None)
+
+
+def _belongs_to_roots(module_name: str, import_roots: tuple[str, ...]) -> bool:
+    return any(
+        module_name == root or module_name.startswith(root + ".")
+        for root in import_roots
+    )
+
+
+def _top_level_import_roots(files: Mapping[str, str]) -> tuple[str, ...]:
+    roots: set[str] = set()
     for rel in files:
         path = Path(rel)
-        if len(path.parts) != 1 or path.suffix != ".py":
+        if path.suffix != ".py" or not path.parts:
             continue
-        stem = path.stem
-        if stem != Path(ENTRY_MODULE_FILENAME).stem and stem.isidentifier():
-            names.append(stem)
-    return tuple(sorted(names))
+        root = path.stem if len(path.parts) == 1 else path.parts[0]
+        if root != Path(ENTRY_MODULE_FILENAME).stem and root.isidentifier():
+            roots.add(root)
+    return tuple(sorted(roots))
