@@ -137,6 +137,15 @@ class DefaultConfigDatasetPathTest(unittest.TestCase):
         self._assert_real_jsonl(config.dataset.train_path)
         self._assert_real_jsonl(config.dataset.test_path)
 
+    def test_ahe_default_config_uses_real_dataset_paths(self):
+        from simple_agent_lab.evolution.config import load_self_evolving_config
+
+        config = load_self_evolving_config(ROOT / "configs" / "ahe_swebench.yaml")
+
+        self._assert_real_jsonl(config.instances.train.path)
+        self.assertIsNotNone(config.instances.heldout)
+        self._assert_real_jsonl(config.instances.heldout.path)
+
 
 class SimpleRecipeSmokeTest(unittest.TestCase):
     def test_simple_recipe_runs_generic_dry_run_with_registered_swebench(self):
@@ -236,6 +245,104 @@ evaluation:
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("dry-run", result.stdout)
         self.assertIn("run id: default-simple-smoke", result.stdout)
+
+
+class AheRecipeSmokeTest(unittest.TestCase):
+    def test_ahe_recipe_runs_generic_dry_run_with_registered_swebench(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            train = root / "train.jsonl"
+            train.write_text('{"instance_id": "sympy__sympy-1"}\n', encoding="utf-8")
+            config = root / "ahe.yaml"
+            config.write_text(
+                f"""
+run:
+  id: temp-ahe
+  output_root: {root / "out"}
+  execute: false
+  reset: false
+  dotenv: .env
+suite:
+  name: swebench
+surface:
+  name: ahe_harness_surface
+  editable_components: [everything]
+  artifact_key: input/agent_package.json
+  default: ahe_harness_package
+instances:
+  train:
+    id: train
+    path: {train}
+execution:
+  backend:
+    name: local_docker
+  store:
+    name: local_dir
+  parallel: 1
+  max_turns: 3
+model:
+  api_kind: openai-chat
+  model_env: OPENAI_MODEL
+  api_key_env: OPENAI_AUTH_TOKEN
+strategy:
+  name: ahe_model
+evolution:
+  algorithm: simple
+  rounds: 2
+  criterion:
+    name: promote_not_worse
+    args:
+      dim: reward
+evaluation:
+  baseline_heldout: false
+  final_heldout: false
+  heldout_every_rounds: 0
+  repeats: 1
+  official_scoring: false
+""".lstrip(),
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "recipes/ahe/evolve.py",
+                    "--config",
+                    str(config),
+                    "--run-id",
+                    "override-ahe",
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("dry-run", result.stdout)
+        self.assertIn("run id: override-ahe", result.stdout)
+        self.assertIn("suite: swebench", result.stdout)
+        self.assertIn("surface: ahe_harness_surface", result.stdout)
+        self.assertIn("editable components: everything", result.stdout)
+
+    def test_ahe_recipe_default_config_runs_dry_run(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                "recipes/ahe/evolve.py",
+                "--run-id",
+                "default-ahe-smoke",
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("dry-run", result.stdout)
+        self.assertIn("run id: default-ahe-smoke", result.stdout)
 
 
 class DgmRecipeSmokeTest(unittest.TestCase):

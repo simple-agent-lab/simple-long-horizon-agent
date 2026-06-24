@@ -33,6 +33,20 @@ def _run(
 
 
 class RunWrapperHelpTest(unittest.TestCase):
+    def test_ahe_wrapper_help_documents_execution_inputs(self):
+        result = _help("run_self_evolving_ahe.sh")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        usage = next(
+            line for line in result.stdout.splitlines() if line.startswith("usage:")
+        )
+        self.assertIn("--config", result.stdout)
+        self.assertIn("[--config CONFIG]", usage)
+        self.assertIn("configs/ahe_swebench.yaml", result.stdout)
+        self.assertIn("--run-id", result.stdout)
+        self.assertIn("--execute", result.stdout)
+        self.assertIn("--reset", result.stdout)
+        self.assertIn("--monitor", result.stdout)
+
     def test_simple_wrapper_help_documents_execution_inputs(self):
         result = _help("run_self_evolving_simple.sh")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -93,6 +107,17 @@ class RunWrapperHelpTest(unittest.TestCase):
         self.assertIn("source runs/_docker.sh", script)
         self.assertIn("docker_ensure_running", script)
         self.assertIn("swebench_ensure_linux_uv", script)
+
+    def test_ahe_wrapper_prepares_docker_and_linux_uv_for_execute(self):
+        script = (ROOT / "runs" / "run_self_evolving_ahe.sh").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("source runs/_swebench_uv.sh", script)
+        self.assertIn("source runs/_docker.sh", script)
+        self.assertIn("docker_ensure_running", script)
+        self.assertIn("swebench_ensure_linux_uv", script)
+        self.assertIn("recipes/ahe/evolve.py", script)
 
 
 if __name__ == "__main__":

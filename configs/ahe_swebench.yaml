@@ -1,0 +1,58 @@
+run:
+  id: ahe-swebench-demo
+  output_root: evals/out/self_evolving/ahe
+  execute: false
+  reset: false
+  dotenv: .env
+suite:
+  name: swebench
+  args:
+    in_env_scoring: true
+surface:
+  name: ahe_harness_surface
+  editable_components: [everything]
+  artifact_key: input/agent_package.json
+  default: ahe_harness_package
+instances:
+  train:
+    id: train
+    path: configs/swebench/demo-train-60.jsonl
+  heldout:
+    id: heldout
+    path: configs/swebench/demo-test-60.jsonl
+execution:
+  backend:
+    name: local_docker
+    args:
+      wheelhouse: evals/out/swebench/wheelhouse/cp311-manylinux
+      uv_binary: evals/out/uv-linux/uv-x86_64-unknown-linux-musl/uv
+  store:
+    name: local_dir
+  parallel: 1
+  max_turns: 75
+  run_kwargs:
+    wheelhouse_mount: /agent/wheelhouse
+model:
+  api_kind: openai-chat
+  model_env: OPENAI_MODEL
+  api_key_env: OPENAI_AUTH_TOKEN
+  base_url_env: OPENAI_BASE_URL
+strategy:
+  name: ahe_model
+  args:
+    knowledge_paths:
+      - recipes/ahe/knowledge/sal-framework-guide.md
+      - recipes/ahe/knowledge/coding-agent-design-patterns.md
+evolution:
+  algorithm: simple
+  rounds: 4
+  criterion:
+    name: promote_not_worse
+    args:
+      dim: reward
+evaluation:
+  baseline_heldout: true
+  final_heldout: true
+  heldout_every_rounds: 0
+  repeats: 1
+  official_scoring: false
