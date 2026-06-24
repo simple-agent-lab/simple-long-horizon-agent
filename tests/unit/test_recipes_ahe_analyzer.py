@@ -41,11 +41,11 @@ class AheAnalyzerTest(unittest.TestCase):
             ]
 
             result = analyze_runs(
-                provider=Provider(id="fake", api="fake", model="fake-model"),
-                runs=runs,
-                version=version,
-                decisions=decisions,
-                output_dir=analysis_dir,
+                Provider(id="fake", api="fake", model="fake-model"),
+                runs,
+                version,
+                decisions,
+                analysis_dir,
                 knowledge=("tool usage is flaky",),
                 complete_fn=lambda req: FakeResponse(
                     json.dumps(

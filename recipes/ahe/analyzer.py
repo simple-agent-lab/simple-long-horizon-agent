@@ -21,7 +21,6 @@ class AnalysisResult:
 
 
 def analyze_runs(
-    *,
     provider: Provider,
     runs: Sequence[Run],
     version: Version,
