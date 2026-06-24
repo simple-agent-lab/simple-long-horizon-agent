@@ -456,7 +456,9 @@ evaluation:
             kind="ahe_harness",
         )
 
-    def _write_reward_run(self, run_root: Path, instance_id: str, reward: float) -> None:
+    def _write_reward_run(
+        self, run_root: Path, instance_id: str, reward: float
+    ) -> None:
         out_dir = run_root / instance_id / "out"
         out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / "result.json").write_text(

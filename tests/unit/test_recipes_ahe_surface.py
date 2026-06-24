@@ -95,7 +95,9 @@ class AheSurfaceTest(unittest.TestCase):
         surface = ahe_harness_surface(artifact_key=AGENT_PACKAGE_KEY)
 
         result = surface.validate_edits(
-            {"harness/agent_program.py": "def other(*, provider, cwd, base_system_prompt):\n    pass\n"},
+            {
+                "harness/agent_program.py": "def other(*, provider, cwd, base_system_prompt):\n    pass\n"
+            },
             components=("everything",),
         )
 

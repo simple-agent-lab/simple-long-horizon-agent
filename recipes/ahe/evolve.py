@@ -189,9 +189,7 @@ def _run_ahe_execute(config, built) -> tuple[list[Any], Path | None]:
             generic_run._print_evaluation(row)
 
     if config.evaluation.final_heldout:
-        row = generic_run._evaluate_heldout(
-            built, "final", built.experiment.current()
-        )
+        row = generic_run._evaluate_heldout(built, "final", built.experiment.current())
         evaluations.append(row)
         generic_run._print_evaluation(row)
 

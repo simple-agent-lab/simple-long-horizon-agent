@@ -131,7 +131,9 @@ class AheLedgerTest(unittest.TestCase):
                 (ahe_root(run_root) / "best_ever.json").read_text(encoding="utf-8")
             )
 
-        self.assertEqual(first, {"round": 1, "version": "v1", "reward_mean": 0.5, "total": 2})
+        self.assertEqual(
+            first, {"round": 1, "version": "v1", "reward_mean": 0.5, "total": 2}
+        )
         self.assertEqual(second, first)
         self.assertEqual(stored, first)
 

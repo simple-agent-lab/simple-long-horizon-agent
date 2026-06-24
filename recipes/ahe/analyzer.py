@@ -43,7 +43,9 @@ def analyze_runs(
 
     request = LLMRequest(
         provider=provider,
-        messages=[llm_message("user", _build_prompt(version, runs, decisions, knowledge))],
+        messages=[
+            llm_message("user", _build_prompt(version, runs, decisions, knowledge))
+        ],
         system_prompt=_system_prompt(),
         max_tokens=max_tokens,
     )
@@ -52,7 +54,9 @@ def analyze_runs(
     run_count = len(runs)
     failed_runs = [run for run in runs if _is_failed(run)]
 
-    overview = _overview_text(payload.get("overview"), version=version, run_count=run_count)
+    overview = _overview_text(
+        payload.get("overview"), version=version, run_count=run_count
+    )
     overview_path = output_dir / "overview.md"
     overview_path.write_text(overview, encoding="utf-8")
 
@@ -64,7 +68,9 @@ def analyze_runs(
             if isinstance(detail_text, str):
                 path = detail_dir / _safe_detail_filename(run.instance_id)
                 path.write_text(detail_text, encoding="utf-8")
-                details_written[run.instance_id] = path.relative_to(output_dir).as_posix()
+                details_written[run.instance_id] = path.relative_to(
+                    output_dir
+                ).as_posix()
 
     for run in failed_runs:
         if run.instance_id in details_written:
@@ -152,9 +158,7 @@ def _knowledge_section(knowledge: Sequence[str]) -> str:
     return "\n".join(lines)
 
 
-def _runs_section(
-    runs: Sequence[Run], *, total_runs: int, total_failed: int
-) -> str:
+def _runs_section(runs: Sequence[Run], *, total_runs: int, total_failed: int) -> str:
     lines = []
     passed_count = total_runs - total_failed
     lines.append(
@@ -188,7 +192,9 @@ def _overview_text(value: object, *, version: Version, run_count: int) -> str:
 def _fallback_detail(run: Run) -> str:
     result = dict(run.result)
     result_keys = _result_keys(result)
-    selected = {key: result[key] for key in _selected_result_keys(result) if key in result}
+    selected = {
+        key: result[key] for key in _selected_result_keys(result) if key in result
+    }
     result_preview = _clip(
         json.dumps(result, indent=2, sort_keys=True, ensure_ascii=True),
         MAX_RESULT_CHARS,
@@ -220,9 +226,11 @@ def _is_failed(run: Run) -> bool:
 
 
 def _safe_detail_filename(instance_id: str) -> str:
-    slug = re.sub(r"_+", "_", "".join(
-        ch if ch.isalnum() or ch in "._-" else "_" for ch in instance_id
-    )).strip("_")
+    slug = re.sub(
+        r"_+",
+        "_",
+        "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in instance_id),
+    ).strip("_")
     if not slug:
         slug = "instance"
     return slug + ".md"
@@ -236,7 +244,9 @@ def _normalize_pattern(pattern: object) -> dict[str, object]:
 
 def _event_preview(event: object) -> str:
     try:
-        text = json.dumps(event, sort_keys=True, ensure_ascii=True, separators=(",", ":"))
+        text = json.dumps(
+            event, sort_keys=True, ensure_ascii=True, separators=(",", ":")
+        )
     except TypeError:
         text = repr(event)
     return text

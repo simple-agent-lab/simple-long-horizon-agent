@@ -82,9 +82,7 @@ def evaluate_manifest_predictions(
         if not isinstance(change, Mapping):
             continue
         predicted_fixes = [
-            str(item)
-            for item in change.get("predicted_fixes", [])
-            if str(item)
+            str(item) for item in change.get("predicted_fixes", []) if str(item)
         ]
         risk_tasks = [str(item) for item in change.get("risk_tasks", []) if str(item)]
         expected_fixes_verified = sorted(
@@ -135,7 +133,8 @@ def update_best_ever(
     path = ahe_root(run_root) / "best_ever.json"
     total = len(scores)
     reward_mean = (
-        sum(float(score_map.get("reward", 0.0)) for score_map in scores.values()) / total
+        sum(float(score_map.get("reward", 0.0)) for score_map in scores.values())
+        / total
         if total
         else 0.0
     )

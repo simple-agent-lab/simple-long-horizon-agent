@@ -35,8 +35,12 @@ class AheAnalyzerTest(unittest.TestCase):
             analysis_dir = root / "analysis"
             version = store.stage(workspace, base=None, edits={"prompt.md": "hello"})
             runs = [
-                self._make_run(root, "round_001", "i1", reward=0, message="pytest failed"),
-                self._make_run(root, "round_001", "i2", reward=1, message="tests passed"),
+                self._make_run(
+                    root, "round_001", "i1", reward=0, message="pytest failed"
+                ),
+                self._make_run(
+                    root, "round_001", "i2", reward=1, message="tests passed"
+                ),
             ]
             decisions = [
                 Decision(
@@ -96,7 +100,11 @@ class AheAnalyzerTest(unittest.TestCase):
             workspace = root / "workspace"
             analysis_dir = root / "analysis"
             version = store.stage(workspace, base=None, edits={"prompt.md": "hello"})
-            runs = [self._make_run(root, "round_001", "i1", reward=0, message="pytest failed")]
+            runs = [
+                self._make_run(
+                    root, "round_001", "i1", reward=0, message="pytest failed"
+                )
+            ]
 
             analyze_runs(
                 provider=Provider(id="fake", api="fake", model="fake-model"),
@@ -105,7 +113,9 @@ class AheAnalyzerTest(unittest.TestCase):
                 decisions=(),
                 output_dir=analysis_dir,
                 complete_fn=lambda req: FakeResponse(
-                    json.dumps({"overview": "# Overview\nEmpty details.", "details": {}})
+                    json.dumps(
+                        {"overview": "# Overview\nEmpty details.", "details": {}}
+                    )
                 ),
             )
 
@@ -141,13 +151,17 @@ class AheAnalyzerTest(unittest.TestCase):
 
             self.assertTrue((analysis_dir / "detail" / "repo_name_case.md").is_file())
 
-    def test_analyze_runs_writes_relative_detail_paths_and_sorted_patterns(self) -> None:
+    def test_analyze_runs_writes_relative_detail_paths_and_sorted_patterns(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             workspace = root / "workspace"
             analysis_dir = root / "analysis"
             version = store.stage(workspace, base=None, edits={"prompt.md": "hello"})
-            runs = [self._make_run(root, "round_001", "i1", reward=0, message="tool failed")]
+            runs = [
+                self._make_run(root, "round_001", "i1", reward=0, message="tool failed")
+            ]
             recorder = FakeCompleteRecorder(
                 json.dumps(
                     {
@@ -170,7 +184,9 @@ class AheAnalyzerTest(unittest.TestCase):
                 complete_fn=recorder,
             )
 
-            index = json.loads((analysis_dir / "index.json").read_text(encoding="utf-8"))
+            index = json.loads(
+                (analysis_dir / "index.json").read_text(encoding="utf-8")
+            )
             self.assertEqual(index["details"]["i1"], "detail/i1.md")
             self.assertEqual([p["id"] for p in index["patterns"]], ["pat-a", "pat-b"])
 

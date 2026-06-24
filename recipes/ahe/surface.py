@@ -140,17 +140,11 @@ def _long_term_memory_md() -> str:
 
 
 def _short_term_memory_md() -> str:
-    return (
-        "# Short Term Memory\n\n"
-        "Keep temporary notes here for the current run.\n"
-    )
+    return "# Short Term Memory\n\nKeep temporary notes here for the current run.\n"
 
 
 def _bash_tool_description_md() -> str:
-    return (
-        "# bash\n\n"
-        "Run a focused shell command in the harness workspace.\n"
-    )
+    return "# bash\n\nRun a focused shell command in the harness workspace.\n"
 
 
 def _bash_tool_py() -> str:
@@ -170,14 +164,8 @@ def _middleware_readme_md() -> str:
 
 
 def _skills_readme_md() -> str:
-    return (
-        "# Skills\n\n"
-        "Harness-local skills live here.\n"
-    )
+    return "# Skills\n\nHarness-local skills live here.\n"
 
 
 def _sub_agents_readme_md() -> str:
-    return (
-        "# Sub Agents\n\n"
-        "Harness-local sub-agent notes live here.\n"
-    )
+    return "# Sub Agents\n\nHarness-local sub-agent notes live here.\n"
