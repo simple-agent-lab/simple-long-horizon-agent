@@ -338,6 +338,40 @@ class AheRecipeSmokeTest(unittest.TestCase):
         self.assertIn("candidate-hash", history)
         self.assertIn("accepted", history)
 
+    def test_ahe_best_ever_keeps_baseline_when_candidate_is_rejected(self):
+        mod = _load(ROOT / "recipes" / "ahe" / "evolve.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_root = root / "run"
+            round_path = run_root / "ahe" / "rounds" / "round_001"
+            round_path.mkdir(parents=True)
+            (round_path / "change_manifest.json").write_text(
+                json.dumps({"round": 1, "changes": []}),
+                encoding="utf-8",
+            )
+            self._write_reward_run(run_root / "runs" / "baseline", "i1", 1.0)
+            self._write_reward_run(run_root / "runs" / "candidate", "i1", 0.0)
+            decision = self._make_decision(
+                accepted=False,
+                reason="candidate worse",
+                baseline_run_id="baseline",
+                candidate_run_id="candidate",
+            )
+
+            mod._write_round_ledger(
+                run_root,
+                1,
+                decision,
+                lambda run: run.reward if run.reward is not None else 0.0,
+            )
+
+            best_ever = json.loads(
+                (run_root / "ahe" / "best_ever.json").read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(best_ever["version"], "baseline-hash")
+        self.assertEqual(best_ever["reward_mean"], 1.0)
+
     def test_ahe_recipe_runs_generic_dry_run_with_registered_swebench(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

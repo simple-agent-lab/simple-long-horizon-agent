@@ -8,6 +8,7 @@ from simple_agent_lab.evolution.components.strategy import (
     content_changing_edits,
     parse_model_json,
 )
+from simple_agent_lab.evolution.kernel.loop import score
 from simple_agent_lab.evolution.surface import AgentSurface
 from simple_agent_lab.evolution.types import Context, Proposal, Version
 from simple_agent_lab.llm import LLMRequest, Provider, complete, llm_message
@@ -42,10 +43,11 @@ def ahe_model_strategy(
 
     def strategy(ctx: Context) -> Proposal | None:
         run_root = ctx.workspace.parent
-        round_index = len(ctx.decisions) + 1
+        round_index = _next_round_index(run_root, preferred=len(ctx.decisions) + 1)
         round_path = ledger.round_dir(run_root, round_index)
 
         knowledge_texts = _read_knowledge(knowledge_paths)
+        run_scores = score(ctx.runs, ctx.reward)
         analysis = analyzer_fn(
             provider,
             ctx.runs,
@@ -53,6 +55,7 @@ def ahe_model_strategy(
             ctx.decisions,
             round_path / "analysis",
             knowledge=knowledge_texts,
+            run_scores=run_scores,
         )
 
         current_files = _read_harness_files(ctx.current)
@@ -125,6 +128,13 @@ def ahe_model_strategy(
         )
 
     return strategy
+
+
+def _next_round_index(run_root: Path, *, preferred: int) -> int:
+    round_index = max(1, preferred)
+    while (ledger.ahe_root(run_root) / "rounds" / f"round_{round_index:03d}").exists():
+        round_index += 1
+    return round_index
 
 
 def _read_knowledge(knowledge_paths: Sequence[str]) -> tuple[str, ...]:

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from simple_agent_lab.evolution.components.strategy import parse_model_json
-from simple_agent_lab.evolution.types import Decision, Run, Version
+from simple_agent_lab.evolution.types import Decision, Run, RunScores, Version
 from simple_agent_lab.llm import LLMRequest, Provider, complete, llm_message
 
 MAX_DECISIONS = 5
@@ -34,6 +34,7 @@ def analyze_runs(
     decisions: Sequence[Decision],
     output_dir: Path,
     knowledge: Sequence[str] = (),
+    run_scores: RunScores | None = None,
     complete_fn: Callable[[LLMRequest], Any] = complete,
     max_tokens: int = 4000,
 ) -> AnalysisResult:
@@ -44,15 +45,25 @@ def analyze_runs(
     request = LLMRequest(
         provider=provider,
         messages=[
-            llm_message("user", _build_prompt(version, runs, decisions, knowledge))
+            llm_message(
+                "user",
+                _build_prompt(
+                    version, runs, decisions, knowledge, run_scores=run_scores
+                ),
+            )
         ],
         system_prompt=_system_prompt(),
         max_tokens=max_tokens,
     )
-    payload = parse_model_json(complete_fn(request).text)
+    try:
+        payload = parse_model_json(complete_fn(request).text)
+        parse_error = ""
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        payload = {}
+        parse_error = f"{type(exc).__name__}: {exc}"
 
     run_count = len(runs)
-    failed_runs = [run for run in runs if _is_failed(run)]
+    failed_runs = [run for run in runs if _is_failed(run, run_scores=run_scores)]
 
     overview = _overview_text(
         payload.get("overview"), version=version, run_count=run_count
@@ -86,6 +97,8 @@ def analyze_runs(
         "patterns": _patterns_list(payload.get("patterns")),
         "details": details_written,
     }
+    if parse_error:
+        index_data["analyzer_error"] = parse_error
     index_path = output_dir / "index.json"
     index_path.write_text(
         json.dumps(index_data, indent=2, sort_keys=True) + "\n",
@@ -116,14 +129,21 @@ def _build_prompt(
     runs: Sequence[Run],
     decisions: Sequence[Decision],
     knowledge: Sequence[str],
+    *,
+    run_scores: RunScores | None = None,
 ) -> str:
-    prompt_runs = _prompt_runs(runs)
-    total_failed = sum(1 for run in runs if _is_failed(run))
+    prompt_runs = _prompt_runs(runs, run_scores=run_scores)
+    total_failed = sum(1 for run in runs if _is_failed(run, run_scores=run_scores))
     sections = [
         f"Current version: {version.hash}",
         _decision_section(decisions),
         _knowledge_section(knowledge),
-        _runs_section(prompt_runs, total_runs=len(runs), total_failed=total_failed),
+        _runs_section(
+            prompt_runs,
+            total_runs=len(runs),
+            total_failed=total_failed,
+            run_scores=run_scores,
+        ),
         (
             "Return JSON with:\n"
             '{\n  "overview": "# Overview\\n...",\n'
@@ -158,7 +178,13 @@ def _knowledge_section(knowledge: Sequence[str]) -> str:
     return "\n".join(lines)
 
 
-def _runs_section(runs: Sequence[Run], *, total_runs: int, total_failed: int) -> str:
+def _runs_section(
+    runs: Sequence[Run],
+    *,
+    total_runs: int,
+    total_failed: int,
+    run_scores: RunScores | None = None,
+) -> str:
     lines = []
     passed_count = total_runs - total_failed
     lines.append(
@@ -167,7 +193,7 @@ def _runs_section(runs: Sequence[Run], *, total_runs: int, total_failed: int) ->
     for run in runs:
         keys = ", ".join(_result_keys(run.result)) or "(none)"
         lines.append(
-            f"- {run.instance_id}: reward={run.reward}, "
+            f"- {run.instance_id}: reward={_reward(run, run_scores)}, "
             f"result_keys=[{_clip(keys, 120)}], trajectory={_trajectory_preview(run)}"
         )
     return "\n".join(lines)
@@ -220,9 +246,15 @@ def _patterns_list(value: object) -> list[object]:
     return []
 
 
-def _is_failed(run: Run) -> bool:
-    reward = run.reward
+def _is_failed(run: Run, *, run_scores: RunScores | None = None) -> bool:
+    reward = _reward(run, run_scores)
     return reward is not None and reward <= 0
+
+
+def _reward(run: Run, run_scores: RunScores | None = None) -> float | None:
+    if run_scores is not None and run.instance_id in run_scores:
+        return float(run_scores[run.instance_id].get("reward", 0.0))
+    return run.reward
 
 
 def _safe_detail_filename(instance_id: str) -> str:
@@ -263,9 +295,11 @@ def _clip(text: object, limit: int) -> str:
     return value[: limit - 3] + "..."
 
 
-def _prompt_runs(runs: Sequence[Run]) -> list[Run]:
-    failed = [run for run in runs if _is_failed(run)]
-    passed = [run for run in runs if not _is_failed(run)]
+def _prompt_runs(
+    runs: Sequence[Run], *, run_scores: RunScores | None = None
+) -> list[Run]:
+    failed = [run for run in runs if _is_failed(run, run_scores=run_scores)]
+    passed = [run for run in runs if not _is_failed(run, run_scores=run_scores)]
     selected = list(failed[:MAX_RUNS_IN_PROMPT])
     if len(selected) < MAX_RUNS_IN_PROMPT:
         selected.extend(passed[: MAX_RUNS_IN_PROMPT - len(selected)])

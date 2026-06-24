@@ -223,8 +223,15 @@ def _write_round_ledger(run_root: Path, round_index: int, decision, reward) -> N
     ledger.update_best_ever(
         run_root,
         round_index,
+        str(decision.baseline.get("hash", "")),
+        baseline_scores,
+    )
+    ledger.update_best_ever(
+        run_root,
+        round_index,
         str(decision.candidate.get("hash", "")),
         candidate_scores,
+        replace_on_equal=decision.accepted,
     )
     outcome = "accepted" if decision.accepted else "rejected"
     ledger.append_history(

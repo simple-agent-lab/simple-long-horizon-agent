@@ -145,6 +145,42 @@ class AheSurfaceTest(unittest.TestCase):
         self.assertIsInstance(agent, Agent)
         self.assertTrue(callable(loaded.builder))
 
+    def test_loaded_package_uses_editable_tool_and_prompt_component_files(
+        self,
+    ) -> None:
+        files = default_harness_files()
+        files["tool_descriptions/bash.tool.md"] = "# bash\n\nCUSTOM TOOL DESCRIPTION\n"
+        files["middleware/README.md"] = "# Middleware\n\nCUSTOM MIDDLEWARE NOTE\n"
+        files["skills/README.md"] = "# Skills\n\nCUSTOM SKILL NOTE\n"
+        files["sub_agents/README.md"] = "# Sub Agents\n\nCUSTOM SUBAGENT NOTE\n"
+        files["tools/bash.py"] = (
+            "from __future__ import annotations\n\n"
+            "from simple_agent_lab.tools import AgentTool, text_result\n\n\n"
+            "def build_tool(*, cwd):\n"
+            "    return AgentTool(\n"
+            "        name='custom_bash',\n"
+            "        description='custom executable bash replacement',\n"
+            "        parameters={'type': 'object', 'properties': {}},\n"
+            "        execute=lambda call_id, args, abort, update: text_result('custom'),\n"
+            "    )\n"
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            loaded = load_agent_package_result(files, root=root)
+            assert loaded.builder is not None
+            agent = loaded.builder(
+                provider=Provider(id="fake", api="fake", model="fake-model"),
+                cwd=root,
+                base_system_prompt="base prompt",
+            )
+
+        self.assertEqual(agent.tools[0].name, "custom_bash")
+        self.assertIn("CUSTOM TOOL DESCRIPTION", agent.system_prompt)
+        self.assertIn("CUSTOM MIDDLEWARE NOTE", agent.system_prompt)
+        self.assertIn("CUSTOM SKILL NOTE", agent.system_prompt)
+        self.assertIn("CUSTOM SUBAGENT NOTE", agent.system_prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from simple_agent_lab.evals.protocols import AGENT_PACKAGE_KEY
 from simple_agent_lab.evolution import Experiment
-from simple_agent_lab.evolution.types import Context
+from simple_agent_lab.evolution.types import Context, Run
 
 from recipes.ahe.analyzer import AnalysisResult
 from recipes.ahe.surface import ahe_harness_surface
@@ -256,6 +256,104 @@ class AheStrategyTest(unittest.TestCase):
         self.assertIsNotNone(proposal)
         self.assertEqual(proposal.kind, "ahe_harness")
         self.assertTrue(analyzer.calls)
+
+    def test_ahe_strategy_scores_runs_before_analyzer(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workspace"
+            experiment, _ctx = _make_context(workspace)
+            run_dir = root / "runs" / "baseline" / "i1"
+            out_dir = run_dir / "out"
+            out_dir.mkdir(parents=True)
+            (out_dir / "result.json").write_text(
+                json.dumps({"eval_log": "raw swe-bench log"}),
+                encoding="utf-8",
+            )
+            analyzer = RecordingAnalyzer()
+            reward_calls = []
+            ctx = Context(
+                runs=(Run(run_dir),),
+                current=experiment.current(),
+                workspace=workspace,
+                decisions=(),
+                reward=lambda run: reward_calls.append(run.instance_id) or 0.0,
+            )
+
+            def complete_fn(_request: object) -> FakeResponse:
+                return FakeResponse(
+                    json.dumps(
+                        {
+                            "note": "score first",
+                            "evidence": [],
+                            "manifest": {"changes": []},
+                            "edits": {"harness/systemprompt.md": "scored\n"},
+                        }
+                    )
+                )
+
+            strategy = ahe_model_strategy(
+                provider=object(),
+                surface=ahe_harness_surface(artifact_key=AGENT_PACKAGE_KEY),
+                editable_components=("system_prompt",),
+                complete_fn=complete_fn,
+                analyzer_fn=analyzer,
+            )
+
+            proposal = strategy(ctx)
+
+        self.assertIsNotNone(proposal)
+        self.assertEqual(reward_calls, ["i1"])
+        self.assertEqual(analyzer.calls[0][1]["run_scores"], {"i1": {"reward": 0.0}})
+
+    def test_ahe_strategy_uses_next_unused_round_after_no_proposal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workspace"
+            _, ctx = _make_context(workspace)
+            analyzer = RecordingAnalyzer()
+            calls = {"count": 0}
+
+            def complete_fn(_request: object) -> FakeResponse:
+                calls["count"] += 1
+                if calls["count"] == 1:
+                    return FakeResponse("not json")
+                return FakeResponse(
+                    json.dumps(
+                        {
+                            "note": "second attempt",
+                            "evidence": [],
+                            "manifest": {"changes": []},
+                            "edits": {"harness/systemprompt.md": "second\n"},
+                        }
+                    )
+                )
+
+            strategy = ahe_model_strategy(
+                provider=object(),
+                surface=ahe_harness_surface(artifact_key=AGENT_PACKAGE_KEY),
+                editable_components=("system_prompt",),
+                complete_fn=complete_fn,
+                analyzer_fn=analyzer,
+            )
+
+            first = strategy(ctx)
+            second = strategy(ctx)
+
+            first_manifest = (
+                root / "ahe" / "rounds" / "round_001" / "change_manifest.json"
+            )
+            second_manifest = (
+                root / "ahe" / "rounds" / "round_002" / "change_manifest.json"
+            )
+            first_manifest_exists = first_manifest.exists()
+            second_manifest_exists = second_manifest.is_file()
+            second_data = json.loads(second_manifest.read_text(encoding="utf-8"))
+
+        self.assertIsNone(first)
+        self.assertFalse(first_manifest_exists)
+        self.assertIsNotNone(second)
+        self.assertTrue(second_manifest_exists)
+        self.assertEqual(second_data["round"], 2)
 
     def test_ahe_strategy_canonicalizes_prompt_bounds_and_order(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

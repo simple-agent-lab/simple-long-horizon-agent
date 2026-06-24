@@ -129,6 +129,8 @@ def update_best_ever(
     round_index: int,
     version_hash: str,
     scores: Mapping[str, Mapping[str, float]],
+    *,
+    replace_on_equal: bool = False,
 ) -> dict[str, object]:
     path = ahe_root(run_root) / "best_ever.json"
     total = len(scores)
@@ -148,7 +150,9 @@ def update_best_ever(
     if not isinstance(best, dict):
         best = {}
     previous_mean = float(best.get("reward_mean", float("-inf")))
-    if reward_mean > previous_mean:
+    if reward_mean > previous_mean or (
+        replace_on_equal and reward_mean == previous_mean
+    ):
         write_json(path, current)
         return current
     return best

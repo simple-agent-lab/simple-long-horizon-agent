@@ -312,6 +312,70 @@ class AheAnalyzerTest(unittest.TestCase):
             self.assertIn("- agent_package: package-v1", detail_text)
             self.assertIn("Result JSON Preview", detail_text)
 
+    def test_analyze_runs_uses_scored_rewards_for_unscored_results(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workspace"
+            analysis_dir = root / "analysis"
+            version = store.stage(workspace, base=None, edits={"prompt.md": "hello"})
+            run_dir = root / "round_001" / "i1"
+            out_dir = run_dir / "out"
+            out_dir.mkdir(parents=True)
+            (out_dir / "result.json").write_text(
+                json.dumps({"eval_log": "raw swe-bench log"}),
+                encoding="utf-8",
+            )
+            run = Run(run_dir)
+            recorder = FakeCompleteRecorder(
+                json.dumps({"overview": "# Overview\nScored.", "details": {}})
+            )
+
+            analyze_runs(
+                Provider(id="fake", api="fake", model="fake-model"),
+                [run],
+                version,
+                (),
+                analysis_dir,
+                run_scores={"i1": {"reward": 0.0}},
+                complete_fn=recorder,
+            )
+
+            index = json.loads(
+                (analysis_dir / "index.json").read_text(encoding="utf-8")
+            )
+            prompt = recorder.requests[0].messages[0].content[0].text
+            self.assertEqual(index["failed_count"], 1)
+            self.assertIn("failed=1 passed=0", prompt)
+            self.assertIn("- i1: reward=0.0", prompt)
+            self.assertTrue((analysis_dir / "detail" / "i1.md").is_file())
+
+    def test_analyze_runs_falls_back_when_model_returns_invalid_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workspace"
+            analysis_dir = root / "analysis"
+            version = store.stage(workspace, base=None, edits={"prompt.md": "hello"})
+            runs = [
+                self._make_run(
+                    root, "round_001", "i1", reward=0, message="pytest failed"
+                )
+            ]
+
+            result = analyze_runs(
+                Provider(id="fake", api="fake", model="fake-model"),
+                runs,
+                version,
+                (),
+                analysis_dir,
+                complete_fn=lambda req: FakeResponse("not json"),
+            )
+
+            index = json.loads(result.index_path.read_text(encoding="utf-8"))
+            self.assertEqual(index["failed_count"], 1)
+            self.assertIn("analyzer_error", index)
+            self.assertIn("Analyzed version", result.overview)
+            self.assertTrue((analysis_dir / "detail" / "i1.md").is_file())
+
     def _make_run(
         self, root: Path, run_id: str, instance_id: str, *, reward: float, message: str
     ) -> Run:
