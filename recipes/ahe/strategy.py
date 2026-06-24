@@ -15,6 +15,15 @@ from simple_agent_lab.llm import LLMRequest, Provider, complete, llm_message
 from recipes.ahe import ledger
 from recipes.ahe.analyzer import AnalysisResult, analyze_runs
 
+MAX_KNOWLEDGE_SNIPPETS = 6
+MAX_KNOWLEDGE_CHARS = 320
+MAX_HARNESS_FILES = 8
+MAX_HARNESS_FILE_CHARS = 900
+MAX_ANALYSIS_INDEX_CHARS = 1800
+MAX_PRIOR_DECISIONS = 5
+MAX_DECISION_CHARS = 240
+MAX_EVIDENCE_CHARS = 320
+
 
 def ahe_model_strategy(
     *,
@@ -77,7 +86,7 @@ def ahe_model_strategy(
 
         note = str(payload.get("note", ""))
         evidence = tuple(
-            str(item)
+            _clip_text(item, MAX_EVIDENCE_CHARS)
             for item in _string_items(payload.get("evidence", ()))
             if str(item)
         )
@@ -119,23 +128,27 @@ def ahe_model_strategy(
 
 def _read_knowledge(knowledge_paths: Sequence[str]) -> tuple[str, ...]:
     texts: list[str] = []
-    for raw_path in knowledge_paths:
+    for raw_path in sorted(knowledge_paths, key=str):
         path = Path(raw_path)
         if path.is_file():
-            texts.append(path.read_text(encoding="utf-8"))
+            texts.append(
+                _clip_text(path.read_text(encoding="utf-8"), MAX_KNOWLEDGE_CHARS)
+            )
         else:
-            texts.append(f"missing knowledge: {path}")
-    return tuple(texts)
+            texts.append(_clip_text(f"missing knowledge: {path}", MAX_KNOWLEDGE_CHARS))
+    return tuple(texts[:MAX_KNOWLEDGE_SNIPPETS])
 
 
 def _read_harness_files(version: Version) -> tuple[tuple[str, str], ...]:
     files = []
-    for name in version.files():
+    for name in sorted(version.files()):
         if not name.startswith("harness/"):
             continue
         if name == "harness/provider.json":
             continue
-        files.append((name, version.read(name)))
+        files.append((name, _clip_text(version.read(name), MAX_HARNESS_FILE_CHARS)))
+    if len(files) > MAX_HARNESS_FILES:
+        files = files[:MAX_HARNESS_FILES]
     return tuple(files)
 
 
@@ -151,11 +164,12 @@ def _build_user_prompt(
     files_block = (
         "\n\n".join(f"### {path}\n{text}" for path, text in current_files) or "- none"
     )
-    decision_lines = [_format_decision(decision) for decision in decisions] or [
-        "- none"
-    ]
+    decision_lines = _format_decision_lines(decisions)
     decision_block = "\n".join(decision_lines)
-    analysis_index = f"{analysis.index_path}\n{analysis.index}"
+    analysis_index = (
+        f"{analysis.index_path}\n"
+        f"{_clip_text(_deterministic_json(analysis.index), MAX_ANALYSIS_INDEX_CHARS)}"
+    )
     return "\n\n".join(
         [
             f"Round index: {round_index}",
@@ -186,8 +200,11 @@ def _format_decision(decision: object) -> str:
         and hasattr(decision, "outcome")
         and hasattr(decision, "reason")
     ):
-        return f"- {decision.id}: outcome={decision.outcome}, reason={decision.reason}"
-    return f"- {decision}"
+        return _clip_text(
+            f"- {decision.id}: outcome={decision.outcome}, reason={decision.reason}",
+            MAX_DECISION_CHARS,
+        )
+    return _clip_text(f"- {decision}", MAX_DECISION_CHARS)
 
 
 def _manifest_from_payload(
@@ -196,12 +213,10 @@ def _manifest_from_payload(
     if isinstance(raw_manifest, Mapping):
         manifest = dict(raw_manifest)
     else:
-        manifest = {"round": round_index, "base_version": current_hash, "changes": []}
+        manifest = {}
     manifest["round"] = round_index
     manifest["base_version"] = current_hash
-    changes = manifest.get("changes")
-    if not isinstance(changes, list):
-        manifest["changes"] = []
+    manifest["changes"] = _normalize_manifest_changes(manifest.get("changes"))
     return manifest
 
 
@@ -211,3 +226,72 @@ def _string_items(value: object) -> tuple[str, ...]:
     if value is None:
         return ()
     return (str(value),)
+
+
+def _format_decision_lines(decisions: Sequence[object]) -> list[str]:
+    if not decisions:
+        return ["- none"]
+    selected = list(decisions[-MAX_PRIOR_DECISIONS:])
+    lines = [_format_decision(decision) for decision in selected]
+    if len(decisions) > MAX_PRIOR_DECISIONS:
+        lines.insert(
+            0, f"- ... {len(decisions) - MAX_PRIOR_DECISIONS} earlier decisions omitted"
+        )
+    return lines
+
+
+def _normalize_manifest_changes(raw_changes: object) -> list[dict[str, object]]:
+    if not isinstance(raw_changes, list):
+        return []
+    changes: list[dict[str, object]] = []
+    for index, raw_change in enumerate(raw_changes, start=1):
+        if not isinstance(raw_change, Mapping):
+            continue
+        changes.append(_normalize_manifest_change(raw_change, index))
+    return changes
+
+
+def _normalize_manifest_change(
+    raw_change: Mapping[str, object], index: int
+) -> dict[str, object]:
+    change_id = _string_field(raw_change.get("id")) or f"chg-{index}"
+    return {
+        "id": change_id,
+        "type": _string_field(raw_change.get("type")),
+        "component": _string_field(raw_change.get("component")),
+        "files": _string_list(raw_change.get("files")),
+        "failure_pattern": _string_field(raw_change.get("failure_pattern")),
+        "root_cause": _string_field(raw_change.get("root_cause")),
+        "targeted_fix": _string_field(raw_change.get("targeted_fix")),
+        "predicted_fixes": _string_list(raw_change.get("predicted_fixes")),
+        "risk_tasks": _string_list(raw_change.get("risk_tasks")),
+        "why_this_component": _string_field(raw_change.get("why_this_component")),
+    }
+
+
+def _string_field(value: object) -> str:
+    return "" if value is None else str(value)
+
+
+def _string_list(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        return [str(item) for item in value if str(item)]
+    text = str(value)
+    return [text] if text else []
+
+
+def _clip_text(text: object, limit: int) -> str:
+    value = str(text)
+    if limit < 0 or len(value) <= limit:
+        return value
+    if limit <= 3:
+        return value[:limit]
+    return value[: limit - 3] + "..."
+
+
+def _deterministic_json(value: object) -> str:
+    import json
+
+    return json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False)

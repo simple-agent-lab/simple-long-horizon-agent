@@ -11,7 +11,12 @@ from simple_agent_lab.evolution.types import Context
 
 from recipes.ahe.analyzer import AnalysisResult
 from recipes.ahe.surface import ahe_harness_surface
-from recipes.ahe.strategy import ahe_model_strategy
+from recipes.ahe.strategy import (
+    MAX_ANALYSIS_INDEX_CHARS,
+    MAX_HARNESS_FILE_CHARS,
+    MAX_KNOWLEDGE_CHARS,
+    ahe_model_strategy,
+)
 
 
 class FakeResponse:
@@ -250,6 +255,183 @@ class AheStrategyTest(unittest.TestCase):
         self.assertIsNotNone(proposal)
         self.assertEqual(proposal.kind, "ahe_harness")
         self.assertTrue(analyzer.calls)
+
+    def test_ahe_strategy_canonicalizes_prompt_bounds_and_order(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workspace"
+            experiment = Experiment(
+                workspace,
+                rollout=lambda _version, _slice: [],
+                seed={
+                    "harness/zzz.md": "Z" * 2000,
+                    "harness/aaa.md": "A" * 2000,
+                    "harness/systemprompt.md": "S" * 2000,
+                },
+            )
+            ctx = Context(
+                runs=(),
+                current=experiment.current(),
+                workspace=workspace,
+                decisions=tuple(
+                    type(
+                        "DecisionLike",
+                        (),
+                        {
+                            "id": f"dec-{index}",
+                            "outcome": "accepted",
+                            "reason": "R" * 500,
+                        },
+                    )()
+                    for index in range(7)
+                ),
+                reward=lambda _run: 0.0,
+            )
+            analysis_overview = "# Overview\n" + ("V" * 2000) + "\n"
+            analysis_index = {"noise": "O" * 3000, "version": experiment.current().hash}
+            knowledge_path = root / "knowledge.md"
+            knowledge_path.write_text("K" * 2000, encoding="utf-8")
+            captured_prompt: dict[str, str] = {}
+
+            def analyzer_fn(*args: object, **kwargs: object) -> AnalysisResult:
+                output_dir = Path(args[4])
+                output_dir.mkdir(parents=True, exist_ok=True)
+                overview_path = output_dir / "overview.md"
+                overview_path.write_text(analysis_overview, encoding="utf-8")
+                index_path = output_dir / "index.json"
+                index_path.write_text(
+                    json.dumps(analysis_index, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                detail_dir = output_dir / "detail"
+                detail_dir.mkdir(parents=True, exist_ok=True)
+                return AnalysisResult(
+                    overview_path=overview_path,
+                    detail_dir=detail_dir,
+                    index_path=index_path,
+                    overview=analysis_overview,
+                    index=analysis_index,
+                )
+
+            def complete_fn(request: object) -> FakeResponse:
+                prompt = request.messages[0].content[0].text
+                captured_prompt["text"] = prompt
+                self.assertIn("### harness/aaa.md", prompt)
+                self.assertIn("### harness/zzz.md", prompt)
+                self.assertLess(
+                    prompt.index("### harness/aaa.md"),
+                    prompt.index("### harness/zzz.md"),
+                )
+                self.assertIn("K" * 200, prompt)
+                self.assertNotIn("K" * (MAX_KNOWLEDGE_CHARS + 20), prompt)
+                self.assertIn("A" * 200, prompt)
+                self.assertNotIn("A" * (MAX_HARNESS_FILE_CHARS + 20), prompt)
+                self.assertIn("O" * 200, prompt)
+                self.assertNotIn("O" * (MAX_ANALYSIS_INDEX_CHARS + 20), prompt)
+                self.assertIn("- ... 2 earlier decisions omitted", prompt)
+                return FakeResponse(
+                    json.dumps(
+                        {
+                            "note": "prompt bounded",
+                            "evidence": [],
+                            "manifest": {"changes": []},
+                            "edits": {"harness/systemprompt.md": "new prompt\n"},
+                        }
+                    )
+                )
+
+            strategy = ahe_model_strategy(
+                provider=object(),
+                surface=ahe_harness_surface(artifact_key=AGENT_PACKAGE_KEY),
+                editable_components=("system_prompt",),
+                knowledge_paths=(str(knowledge_path),),
+                complete_fn=complete_fn,
+                analyzer_fn=analyzer_fn,
+            )
+
+            proposal = strategy(ctx)
+
+        self.assertIsNotNone(proposal)
+        self.assertEqual(captured_prompt["text"].count("### harness/"), 3)
+
+    def test_ahe_strategy_normalizes_malformed_manifest_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workspace"
+            _, ctx = _make_context(workspace)
+            analyzer = RecordingAnalyzer()
+
+            def complete_fn(_request: object) -> FakeResponse:
+                return FakeResponse(
+                    json.dumps(
+                        {
+                            "note": "normalize manifest",
+                            "evidence": ["ok"],
+                            "manifest": {
+                                "round": 999,
+                                "base_version": "wrong",
+                                "changes": [
+                                    "drop-me",
+                                    {
+                                        "id": 7,
+                                        "type": 1,
+                                        "component": ["system_prompt"],
+                                        "files": "harness/systemprompt.md",
+                                        "failure_pattern": None,
+                                        "root_cause": 42,
+                                        "targeted_fix": {"x": 1},
+                                        "predicted_fixes": ("i1", 2),
+                                        "risk_tasks": None,
+                                        "why_this_component": False,
+                                    },
+                                    {
+                                        "component": "tool_implementations",
+                                        "files": ["harness/tools/bash.py"],
+                                        "predicted_fixes": ["i2"],
+                                        "risk_tasks": ["r1", 2],
+                                        "why_this_component": "global rule",
+                                    },
+                                ],
+                            },
+                            "edits": {"harness/systemprompt.md": "normalized\n"},
+                        }
+                    )
+                )
+
+            strategy = ahe_model_strategy(
+                provider=object(),
+                surface=ahe_harness_surface(artifact_key=AGENT_PACKAGE_KEY),
+                editable_components=("system_prompt",),
+                complete_fn=complete_fn,
+                analyzer_fn=analyzer,
+            )
+
+            proposal = strategy(ctx)
+
+            manifest_path = (
+                root / "ahe" / "rounds" / "round_001" / "change_manifest.json"
+            )
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+        self.assertIsNotNone(proposal)
+        self.assertEqual(manifest["round"], 1)
+        self.assertEqual(manifest["base_version"], ctx.current.hash)
+        self.assertEqual(len(manifest["changes"]), 2)
+        self.assertEqual(manifest["changes"][0]["id"], "7")
+        self.assertEqual(manifest["changes"][0]["type"], "1")
+        self.assertEqual(manifest["changes"][0]["component"], "['system_prompt']")
+        self.assertEqual(manifest["changes"][0]["files"], ["harness/systemprompt.md"])
+        self.assertEqual(manifest["changes"][0]["failure_pattern"], "")
+        self.assertEqual(manifest["changes"][0]["root_cause"], "42")
+        self.assertEqual(manifest["changes"][0]["targeted_fix"], "{'x': 1}")
+        self.assertEqual(manifest["changes"][0]["predicted_fixes"], ["i1", "2"])
+        self.assertEqual(manifest["changes"][0]["risk_tasks"], [])
+        self.assertEqual(manifest["changes"][0]["why_this_component"], "False")
+        self.assertEqual(manifest["changes"][1]["id"], "chg-3")
+        self.assertEqual(manifest["changes"][1]["component"], "tool_implementations")
+        self.assertEqual(manifest["changes"][1]["predicted_fixes"], ["i2"])
+        self.assertEqual(manifest["changes"][1]["risk_tasks"], ["r1", "2"])
+        self.assertEqual(manifest["changes"][1]["why_this_component"], "global rule")
 
 
 if __name__ == "__main__":
