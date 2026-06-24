@@ -7,16 +7,19 @@ benchmark glue live; the substrate itself stays generic.
 | Recipe | Role | Loop | When to read |
 | --- | --- | --- | --- |
 | [`simple/`](simple/README.md) | Ergonomics showcase — minimal user code, maximal agent freedom | Sequential step loop | "How little does it take to start a real self-evolving run?" |
+| [`ahe/`](ahe/README.md) | AHE observability showcase on SWE-bench; uses SAL `AgentSurface`, pre-proposal analysis, and recipe-local ledgering | Sequential step loop with analyzer-before-proposal and AHE round ledger | "How does AHE-style component, experience, and decision observability map onto SAL?" |
 | [`dgm/`](dgm/README.md) | DGM-style archive showcase with every operational knob exposed; full self-reference is pending | Parallel open-ended archive-admission loop | "How do I study DGM mechanics and tune the archive loop?" |
 
 Both recipes evolve the **whole agent program** under `agent/`: a model rewrites
 the agent's Python package, including helper modules beside `agent_program.py`,
 and each candidate is graded on a train slice inside a SWE-bench Docker sandbox.
 The simple recipe is the config-backed generic runner path with optional
-suite-scored heldout before/final reporting; the DGM recipe is also YAML-backed,
-but owns its archive-specific official scoring workflow and before/after delta.
-The current DGM recipe reproduces archive admission and parent-selection
-mechanics, not the final self-referential Gödel step.
+suite-scored heldout before/final reporting; the AHE recipe keeps the same
+simple sequential loop but adds analyzer-before-proposal and a richer
+recipe-local ledger; the DGM recipe is also YAML-backed, but owns its
+archive-specific official scoring workflow and before/after delta. The current
+DGM recipe reproduces archive admission and parent-selection mechanics, not the
+final self-referential Gödel step.
 
 ## How the layers fit together
 
@@ -24,6 +27,11 @@ mechanics, not the final self-referential Gödel step.
 recipes/                                  # this directory — examples + ops scripts
   runtime.py                              # Docker/env helpers (kept out of src/)
   simple/evolve.py                        # sequential not-worse recipe
+  ahe/evolve.py                           # AHE SWE-bench recipe entrypoint
+  ahe/surface.py                          # AHE harness surface definition
+  ahe/analyzer.py                         # AHE pre-proposal analysis
+  ahe/ledger.py                           # AHE round ledger helpers
+  ahe/knowledge/*.md                      # local guidance for the meta-agent
   dgm/config.py                           # DGM YAML schema and CLI overrides
   dgm/evolve.py                           # the DGM recipe entrypoint
   dgm/swebench.py                         # DGM-specific SWE-bench run/scoring support
