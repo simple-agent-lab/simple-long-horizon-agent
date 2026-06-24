@@ -17,6 +17,16 @@ class FakeResponse:
         self.text = text
 
 
+class FakeCompleteRecorder:
+    def __init__(self, response: str = "{}") -> None:
+        self.response = response
+        self.requests = []
+
+    def __call__(self, request) -> FakeResponse:
+        self.requests.append(request)
+        return FakeResponse(self.response)
+
+
 class AheAnalyzerTest(unittest.TestCase):
     def test_analyze_runs_writes_overview_details_and_index(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -130,6 +140,71 @@ class AheAnalyzerTest(unittest.TestCase):
             )
 
             self.assertTrue((analysis_dir / "detail" / "repo_name_case.md").is_file())
+
+    def test_analyze_runs_writes_relative_detail_paths_and_sorted_patterns(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workspace"
+            analysis_dir = root / "analysis"
+            version = store.stage(workspace, base=None, edits={"prompt.md": "hello"})
+            runs = [self._make_run(root, "round_001", "i1", reward=0, message="tool failed")]
+            recorder = FakeCompleteRecorder(
+                json.dumps(
+                    {
+                        "overview": "# Overview\nRelative paths.",
+                        "details": {"i1": "# i1\nRoot cause."},
+                        "patterns": [
+                            {"id": "pat-b", "instances": ["i1"]},
+                            {"id": "pat-a", "instances": ["i1"]},
+                        ],
+                    }
+                )
+            )
+
+            analyze_runs(
+                Provider(id="fake", api="fake", model="fake-model"),
+                runs,
+                version,
+                (),
+                analysis_dir,
+                complete_fn=recorder,
+            )
+
+            index = json.loads((analysis_dir / "index.json").read_text(encoding="utf-8"))
+            self.assertEqual(index["details"]["i1"], "detail/i1.md")
+            self.assertEqual([p["id"] for p in index["patterns"]], ["pat-a", "pat-b"])
+
+    def test_analyze_runs_clips_prompt_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workspace"
+            analysis_dir = root / "analysis"
+            version = store.stage(workspace, base=None, edits={"prompt.md": "hello"})
+            run = self._make_run(
+                root,
+                "round_001",
+                "i1",
+                reward=0,
+                message="x" * 1000,
+            )
+            recorder = FakeCompleteRecorder(
+                json.dumps({"overview": "# Overview\nClipped.", "details": {}})
+            )
+
+            analyze_runs(
+                Provider(id="fake", api="fake", model="fake-model"),
+                [run],
+                version,
+                (),
+                analysis_dir,
+                knowledge=("k" * 1000,),
+                complete_fn=recorder,
+            )
+
+            prompt = recorder.requests[0].messages[0].content[0].text
+            self.assertIn("x" * 100, prompt)
+            self.assertIn("...", prompt)
+            self.assertIn("k" * 100, prompt)
 
     def _make_run(
         self, root: Path, run_id: str, instance_id: str, *, reward: float, message: str
