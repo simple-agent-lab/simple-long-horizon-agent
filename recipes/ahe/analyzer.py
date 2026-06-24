@@ -87,7 +87,10 @@ def analyze_runs(
         if run.instance_id in details_written:
             continue
         path = detail_dir / _safe_detail_filename(run.instance_id)
-        path.write_text(_fallback_detail(run), encoding="utf-8")
+        path.write_text(
+            _fallback_detail(run, reward=_reward(run, run_scores)),
+            encoding="utf-8",
+        )
         details_written[run.instance_id] = path.relative_to(output_dir).as_posix()
 
     index_data: dict[str, object] = {
@@ -215,12 +218,13 @@ def _overview_text(value: object, *, version: Version, run_count: int) -> str:
     return f"# Overview\nAnalyzed version {version.hash} across {run_count} runs.\n"
 
 
-def _fallback_detail(run: Run) -> str:
+def _fallback_detail(run: Run, *, reward: float | None = None) -> str:
     result = dict(run.result)
     result_keys = _result_keys(result)
     selected = {
         key: result[key] for key in _selected_result_keys(result) if key in result
     }
+    reward_value = run.reward if reward is None else reward
     result_preview = _clip(
         json.dumps(result, indent=2, sort_keys=True, ensure_ascii=True),
         MAX_RESULT_CHARS,
@@ -228,7 +232,7 @@ def _fallback_detail(run: Run) -> str:
     return (
         f"# Fallback analysis for {run.instance_id}\n\n"
         f"- Run ref: {run.ref}\n"
-        f"- Reward: {run.reward}\n\n"
+        f"- Reward: {reward_value}\n\n"
         f"- Result keys: {', '.join(result_keys) if result_keys else '(none)'}\n\n"
         "## Selected Result Fields\n"
         f"{_format_selected_fields(selected)}\n\n"

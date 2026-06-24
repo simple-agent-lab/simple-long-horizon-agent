@@ -347,7 +347,10 @@ class AheAnalyzerTest(unittest.TestCase):
             self.assertEqual(index["failed_count"], 1)
             self.assertIn("failed=1 passed=0", prompt)
             self.assertIn("- i1: reward=0.0", prompt)
-            self.assertTrue((analysis_dir / "detail" / "i1.md").is_file())
+            detail_text = (analysis_dir / "detail" / "i1.md").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn("- Reward: 0.0", detail_text)
 
     def test_analyze_runs_falls_back_when_model_returns_invalid_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
