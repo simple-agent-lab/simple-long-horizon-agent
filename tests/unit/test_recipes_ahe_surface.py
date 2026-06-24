@@ -18,9 +18,15 @@ class AheSurfaceTest(unittest.TestCase):
         files = default_harness_files()
 
         self.assertIn("agent_program.py", files)
+        self.assertIn("code_agent.yaml", files)
         self.assertIn("systemprompt.md", files)
         self.assertIn("LongTermMEMORY.md", files)
+        self.assertIn("ShortTermMEMORY.md", files)
+        self.assertIn("tool_descriptions/bash.tool.md", files)
         self.assertIn("tools/bash.py", files)
+        self.assertIn("middleware/README.md", files)
+        self.assertIn("skills/README.md", files)
+        self.assertIn("sub_agents/README.md", files)
         tree = ast.parse(files["agent_program.py"])
         self.assertTrue(
             any(getattr(node, "name", "") == "build_agent" for node in tree.body)
@@ -65,6 +71,28 @@ class AheSurfaceTest(unittest.TestCase):
 
         result = surface.validate_edits(
             {"harness/agent_program.py": None},
+            components=("everything",),
+        )
+
+        self.assertEqual(result.edits, {})
+        self.assertIn("harness/agent_program.py", result.rejected)
+
+    def test_surface_rejects_invalid_python_syntax(self) -> None:
+        surface = ahe_harness_surface(artifact_key=AGENT_PACKAGE_KEY)
+
+        result = surface.validate_edits(
+            {"harness/tools/bash.py": "def (\n"},
+            components=("tool_implementations",),
+        )
+
+        self.assertEqual(result.edits, {})
+        self.assertIn("harness/tools/bash.py", result.rejected)
+
+    def test_surface_rejects_entrypoint_replacement(self) -> None:
+        surface = ahe_harness_surface(artifact_key=AGENT_PACKAGE_KEY)
+
+        result = surface.validate_edits(
+            {"harness/agent_program.py": "def other(*, provider, cwd, base_system_prompt):\n    pass\n"},
             components=("everything",),
         )
 
