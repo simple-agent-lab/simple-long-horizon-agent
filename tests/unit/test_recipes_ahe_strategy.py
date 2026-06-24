@@ -13,6 +13,7 @@ from recipes.ahe.analyzer import AnalysisResult
 from recipes.ahe.surface import ahe_harness_surface
 from recipes.ahe.strategy import (
     MAX_ANALYSIS_INDEX_CHARS,
+    MAX_ANALYSIS_OVERVIEW_CHARS,
     MAX_HARNESS_FILE_CHARS,
     MAX_KNOWLEDGE_CHARS,
     ahe_model_strategy,
@@ -326,6 +327,8 @@ class AheStrategyTest(unittest.TestCase):
                 self.assertNotIn("K" * (MAX_KNOWLEDGE_CHARS + 20), prompt)
                 self.assertIn("A" * 200, prompt)
                 self.assertNotIn("A" * (MAX_HARNESS_FILE_CHARS + 20), prompt)
+                self.assertIn("V" * 200, prompt)
+                self.assertNotIn("V" * (MAX_ANALYSIS_OVERVIEW_CHARS + 20), prompt)
                 self.assertIn("O" * 200, prompt)
                 self.assertNotIn("O" * (MAX_ANALYSIS_INDEX_CHARS + 20), prompt)
                 self.assertIn("- ... 2 earlier decisions omitted", prompt)
@@ -419,18 +422,18 @@ class AheStrategyTest(unittest.TestCase):
         self.assertEqual(len(manifest["changes"]), 2)
         self.assertEqual(manifest["changes"][0]["id"], "7")
         self.assertEqual(manifest["changes"][0]["type"], "1")
-        self.assertEqual(manifest["changes"][0]["component"], "['system_prompt']")
-        self.assertEqual(manifest["changes"][0]["files"], ["harness/systemprompt.md"])
+        self.assertEqual(manifest["changes"][0]["component"], "unknown")
+        self.assertEqual(manifest["changes"][0]["files"], [])
         self.assertEqual(manifest["changes"][0]["failure_pattern"], "")
         self.assertEqual(manifest["changes"][0]["root_cause"], "42")
-        self.assertEqual(manifest["changes"][0]["targeted_fix"], "{'x': 1}")
-        self.assertEqual(manifest["changes"][0]["predicted_fixes"], ["i1", "2"])
+        self.assertEqual(manifest["changes"][0]["targeted_fix"], "")
+        self.assertEqual(manifest["changes"][0]["predicted_fixes"], ["i1"])
         self.assertEqual(manifest["changes"][0]["risk_tasks"], [])
         self.assertEqual(manifest["changes"][0]["why_this_component"], "False")
         self.assertEqual(manifest["changes"][1]["id"], "chg-3")
         self.assertEqual(manifest["changes"][1]["component"], "tool_implementations")
         self.assertEqual(manifest["changes"][1]["predicted_fixes"], ["i2"])
-        self.assertEqual(manifest["changes"][1]["risk_tasks"], ["r1", "2"])
+        self.assertEqual(manifest["changes"][1]["risk_tasks"], ["r1"])
         self.assertEqual(manifest["changes"][1]["why_this_component"], "global rule")
 
 

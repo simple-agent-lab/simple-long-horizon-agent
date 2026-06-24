@@ -19,6 +19,7 @@ MAX_KNOWLEDGE_SNIPPETS = 6
 MAX_KNOWLEDGE_CHARS = 320
 MAX_HARNESS_FILES = 8
 MAX_HARNESS_FILE_CHARS = 900
+MAX_ANALYSIS_OVERVIEW_CHARS = 1200
 MAX_ANALYSIS_INDEX_CHARS = 1800
 MAX_PRIOR_DECISIONS = 5
 MAX_DECISION_CHARS = 240
@@ -166,6 +167,7 @@ def _build_user_prompt(
     )
     decision_lines = _format_decision_lines(decisions)
     decision_block = "\n".join(decision_lines)
+    overview_text = _clip_text(analysis.overview, MAX_ANALYSIS_OVERVIEW_CHARS)
     analysis_index = (
         f"{analysis.index_path}\n"
         f"{_clip_text(_deterministic_json(analysis.index), MAX_ANALYSIS_INDEX_CHARS)}"
@@ -174,7 +176,7 @@ def _build_user_prompt(
         [
             f"Round index: {round_index}",
             f"Analysis overview path: {analysis.overview_path}",
-            analysis.overview,
+            overview_text,
             f"Analysis index path: {analysis.index_path}",
             analysis_index,
             knowledge_block,
@@ -258,7 +260,7 @@ def _normalize_manifest_change(
     return {
         "id": change_id,
         "type": _string_field(raw_change.get("type")),
-        "component": _string_field(raw_change.get("component")),
+        "component": _component_field(raw_change.get("component")),
         "files": _string_list(raw_change.get("files")),
         "failure_pattern": _string_field(raw_change.get("failure_pattern")),
         "root_cause": _string_field(raw_change.get("root_cause")),
@@ -270,16 +272,21 @@ def _normalize_manifest_change(
 
 
 def _string_field(value: object) -> str:
-    return "" if value is None else str(value)
+    if isinstance(value, (str, int, float, bool)):
+        return str(value)
+    return ""
+
+
+def _component_field(value: object) -> str:
+    if isinstance(value, str):
+        return value
+    return "unknown"
 
 
 def _string_list(value: object) -> list[str]:
-    if value is None:
+    if not isinstance(value, list):
         return []
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
-        return [str(item) for item in value if str(item)]
-    text = str(value)
-    return [text] if text else []
+    return [item for item in value if isinstance(item, str) and item]
 
 
 def _clip_text(text: object, limit: int) -> str:
