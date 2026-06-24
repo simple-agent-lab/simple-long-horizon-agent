@@ -103,11 +103,16 @@ def _agent_program_py() -> str:
         "def build_agent(*, provider, cwd, base_system_prompt):\n"
         "    package_dir = Path(__file__).resolve().parent\n"
         "    system_prompt = (package_dir / 'systemprompt.md').read_text(encoding='utf-8').strip()\n"
-        "    long_term_memory = (package_dir / 'LongTermMEMORY.md').read_text(encoding='utf-8').strip()\n"
-        "    short_term_memory = (package_dir / 'ShortTermMEMORY.md').read_text(encoding='utf-8').strip()\n"
+        "    long_term_memory = _read_text_if_exists(package_dir / 'LongTermMEMORY.md')\n"
+        "    short_term_memory = _read_text_if_exists(package_dir / 'ShortTermMEMORY.md')\n"
         "    parts = [part.strip() for part in (base_system_prompt, system_prompt, long_term_memory, short_term_memory) if part and part.strip()]\n"
         "    system_prompt = '\\n\\n'.join(parts)\n"
         "    return make_bash_agent(provider=provider, cwd=cwd, system_prompt=system_prompt)\n"
+        "\n\n"
+        "def _read_text_if_exists(path: Path) -> str:\n"
+        "    if not path.is_file():\n"
+        "        return ''\n"
+        "    return path.read_text(encoding='utf-8').strip()\n"
     )
 
 

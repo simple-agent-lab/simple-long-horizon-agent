@@ -6,9 +6,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from simple_agent_lab import Agent
 from simple_agent_lab.evals.protocols import AGENT_PACKAGE_KEY
+from simple_agent_lab.evolution.agent_package import load_agent_package_result
 from simple_agent_lab.evolution.kernel import store
 from simple_agent_lab.evolution.types import Manifest, Version
+from simple_agent_lab.llm import Provider
 
 from recipes.ahe.surface import ahe_harness_surface, default_harness_files
 
@@ -118,6 +121,27 @@ class AheSurfaceTest(unittest.TestCase):
         self.assertIn("agent_program.py", payload)
         self.assertNotIn("harness/agent_program.py", payload)
         self.assertIn("tools/bash.py", payload)
+
+    def test_loaded_package_builds_agent_without_memory_files(self) -> None:
+        files = default_harness_files()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            loaded = load_agent_package_result(files, root=root)
+            self.assertTrue(loaded.loaded)
+            self.assertIsNotNone(loaded.builder)
+
+            (root / "LongTermMEMORY.md").unlink()
+            (root / "ShortTermMEMORY.md").unlink()
+
+            agent = loaded.builder(
+                provider=Provider(id="fake", api="fake", model="fake-model"),
+                cwd=root,
+                base_system_prompt="base prompt",
+            )
+
+        self.assertIsInstance(agent, Agent)
+        self.assertTrue(callable(loaded.builder))
 
 
 if __name__ == "__main__":
