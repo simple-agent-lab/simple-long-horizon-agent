@@ -248,6 +248,96 @@ evaluation:
 
 
 class AheRecipeSmokeTest(unittest.TestCase):
+    def test_ahe_execute_writes_round_ledger_artifacts(self):
+        mod = _load(ROOT / "recipes" / "ahe" / "evolve.py")
+
+        class FakeExperiment:
+            def __init__(self, workspace: Path, decisions):
+                self.workspace = workspace
+                self._decisions = list(decisions)
+
+            def step(self, _strategy):
+                return self._decisions.pop(0) if self._decisions else None
+
+        with tempfile.TemporaryDirectory() as tmp:
+            run_root = Path(tmp) / "out" / "ahe-run"
+            workspace = run_root / "evolution"
+            workspace.mkdir(parents=True, exist_ok=True)
+            self._write_reward_run(run_root / "runs" / "baseline-run", "i1", 0.0)
+            self._write_reward_run(run_root / "runs" / "baseline-run", "i2", 1.0)
+            self._write_reward_run(run_root / "runs" / "candidate-run", "i1", 1.0)
+            self._write_reward_run(run_root / "runs" / "candidate-run", "i2", 0.0)
+            round_path = run_root / "ahe" / "rounds" / "round_001"
+            round_path.mkdir(parents=True, exist_ok=True)
+            (round_path / "change_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "round": 1,
+                        "changes": [
+                            {
+                                "id": "chg-1",
+                                "predicted_fixes": ["i1"],
+                                "risk_tasks": ["i2"],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            decision = self._make_decision(
+                accepted=True,
+                reason="candidate fixed one task but regressed another",
+                baseline_run_id="baseline-run",
+                candidate_run_id="candidate-run",
+            )
+            config = SimpleNamespace(
+                run=SimpleNamespace(id="ahe-run"),
+                evolution=SimpleNamespace(rounds=1),
+                evaluation=SimpleNamespace(
+                    baseline_heldout=False,
+                    final_heldout=False,
+                    heldout_every_rounds=0,
+                    repeats=1,
+                    official_scoring=False,
+                ),
+            )
+            built = SimpleNamespace(
+                strategy=object(),
+                reward=lambda run: run.reward if run.reward is not None else 0.0,
+                heldout=None,
+                experiment=FakeExperiment(workspace, [decision]),
+            )
+
+            decisions, report_path = mod._run_ahe_execute(config, built)
+
+            self.assertEqual(len(decisions), 1)
+            self.assertIsNone(report_path)
+            self.assertTrue((run_root / "ahe" / "task_history.json").is_file())
+            self.assertTrue((run_root / "ahe" / "best_ever.json").is_file())
+            self.assertTrue((run_root / "ahe" / "history.md").is_file())
+            self.assertTrue((round_path / "change_evaluation.json").is_file())
+
+            task_history = json.loads(
+                (run_root / "ahe" / "task_history.json").read_text(encoding="utf-8")
+            )
+            best_ever = json.loads(
+                (run_root / "ahe" / "best_ever.json").read_text(encoding="utf-8")
+            )
+            change_eval = json.loads(
+                (round_path / "change_evaluation.json").read_text(encoding="utf-8")
+            )
+            history = (run_root / "ahe" / "history.md").read_text(encoding="utf-8")
+
+        self.assertEqual(task_history["i1"][0]["round"], 1)
+        self.assertEqual(task_history["i1"][0]["scores"], {"reward": 1.0})
+        self.assertTrue(task_history["i1"][0]["passed"])
+        self.assertEqual(best_ever["version"], "candidate-hash")
+        self.assertEqual(change_eval["fixed_tasks"], ["i1"])
+        self.assertEqual(change_eval["regressed_tasks"], ["i2"])
+        self.assertIn("round 1", history)
+        self.assertIn("candidate-hash", history)
+        self.assertIn("accepted", history)
+
     def test_ahe_recipe_runs_generic_dry_run_with_registered_swebench(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -343,6 +433,36 @@ evaluation:
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("dry-run", result.stdout)
         self.assertIn("run id: default-ahe-smoke", result.stdout)
+
+    def _make_decision(
+        self,
+        *,
+        accepted: bool,
+        reason: str,
+        baseline_run_id: str,
+        candidate_run_id: str,
+    ):
+        from simple_agent_lab.evolution.types import Decision
+
+        return Decision(
+            id="d-000001",
+            ts="2026-06-24T00:00:00Z",
+            baseline={"hash": "baseline-hash", "scores": {"reward": 0.5}},
+            candidate={"hash": "candidate-hash", "scores": {"reward": 0.5}},
+            slice={"id": "train", "sha": "demo", "n": 2},
+            accepted=accepted,
+            reason=reason,
+            runs={"baseline": baseline_run_id, "candidate": candidate_run_id},
+            kind="ahe_harness",
+        )
+
+    def _write_reward_run(self, run_root: Path, instance_id: str, reward: float) -> None:
+        out_dir = run_root / instance_id / "out"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "result.json").write_text(
+            json.dumps({"reward": reward}),
+            encoding="utf-8",
+        )
 
 
 class DgmRecipeSmokeTest(unittest.TestCase):
