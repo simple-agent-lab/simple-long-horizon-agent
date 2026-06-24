@@ -206,6 +206,96 @@ class AheAnalyzerTest(unittest.TestCase):
             self.assertIn("...", prompt)
             self.assertIn("k" * 100, prompt)
 
+    def test_analyze_runs_caps_prompt_runs_and_prioritizes_failed_first(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workspace"
+            analysis_dir = root / "analysis"
+            version = store.stage(workspace, base=None, edits={"prompt.md": "hello"})
+            runs = [
+                self._make_run(root, "round_001", "p1", reward=1, message="passed-1"),
+                self._make_run(root, "round_001", "f1", reward=0, message="failed-1"),
+                self._make_run(root, "round_001", "p2", reward=1, message="passed-2"),
+                self._make_run(root, "round_001", "f2", reward=0, message="failed-2"),
+                self._make_run(root, "round_001", "p3", reward=1, message="passed-3"),
+                self._make_run(root, "round_001", "p4", reward=1, message="passed-4"),
+                self._make_run(root, "round_001", "f3", reward=0, message="failed-3"),
+                self._make_run(root, "round_001", "p5", reward=1, message="passed-5"),
+                self._make_run(root, "round_001", "p6", reward=1, message="passed-6"),
+                self._make_run(root, "round_001", "p7", reward=1, message="passed-7"),
+            ]
+            recorder = FakeCompleteRecorder(
+                json.dumps({"overview": "# Overview\nCapped.", "details": {}})
+            )
+
+            analyze_runs(
+                Provider(id="fake", api="fake", model="fake-model"),
+                runs,
+                version,
+                (),
+                analysis_dir,
+                complete_fn=recorder,
+            )
+
+            prompt = recorder.requests[0].messages[0].content[0].text
+            self.assertIn("Showing 8 of 10 runs; failed=3 passed=7", prompt)
+            lines = [
+                line
+                for line in prompt.splitlines()
+                if line.startswith("- p") or line.startswith("- f")
+            ]
+            self.assertEqual(len(lines), 8)
+            self.assertEqual(
+                [line.split(":")[0].removeprefix("- ") for line in lines[:3]],
+                ["f1", "f2", "f3"],
+            )
+            self.assertTrue(all(line.startswith("- p") for line in lines[3:]))
+
+    def test_analyze_runs_writes_structured_fallback_detail(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workspace"
+            analysis_dir = root / "analysis"
+            version = store.stage(workspace, base=None, edits={"prompt.md": "hello"})
+            runs = [
+                self._make_fake_run(
+                    instance_id="i1",
+                    run_id="round_001",
+                    reward=0,
+                    result={
+                        "resolved": False,
+                        "score": 0,
+                        "error": "missing context",
+                        "message": "tool failed with missing context",
+                        "agent_package": "package-v1",
+                        "other": "extra evidence",
+                    },
+                    events=[{"type": "tool", "message": "pytest failed"}],
+                )
+            ]
+
+            analyze_runs(
+                Provider(id="fake", api="fake", model="fake-model"),
+                runs,
+                version,
+                (),
+                analysis_dir,
+                complete_fn=lambda req: FakeResponse(
+                    json.dumps({"overview": "# Overview\nStructured.", "details": {}})
+                ),
+            )
+
+            detail_text = (analysis_dir / "detail" / "i1.md").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn("Result keys:", detail_text)
+            self.assertIn("- resolved: False", detail_text)
+            self.assertIn("- score: 0", detail_text)
+            self.assertIn("- error: missing context", detail_text)
+            self.assertIn("- message: tool failed with missing context", detail_text)
+            self.assertIn("- agent_package: package-v1", detail_text)
+            self.assertIn("Result JSON Preview", detail_text)
+
     def _make_run(
         self, root: Path, run_id: str, instance_id: str, *, reward: float, message: str
     ) -> Run:

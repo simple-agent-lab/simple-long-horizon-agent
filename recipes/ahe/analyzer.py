@@ -12,6 +12,7 @@ from simple_agent_lab.evolution.types import Decision, Run, Version
 from simple_agent_lab.llm import LLMRequest, Provider, complete, llm_message
 
 MAX_DECISIONS = 5
+MAX_RUNS_IN_PROMPT = 8
 MAX_KNOWLEDGE_CHARS = 320
 MAX_EVENT_CHARS = 240
 MAX_RESULT_CHARS = 600
@@ -110,11 +111,13 @@ def _build_prompt(
     decisions: Sequence[Decision],
     knowledge: Sequence[str],
 ) -> str:
+    prompt_runs = _prompt_runs(runs)
+    total_failed = sum(1 for run in runs if _is_failed(run))
     sections = [
         f"Current version: {version.hash}",
         _decision_section(decisions),
         _knowledge_section(knowledge),
-        _runs_section(runs),
+        _runs_section(prompt_runs, total_runs=len(runs), total_failed=total_failed),
         (
             "Return JSON with:\n"
             '{\n  "overview": "# Overview\\n...",\n'
@@ -149,14 +152,19 @@ def _knowledge_section(knowledge: Sequence[str]) -> str:
     return "\n".join(lines)
 
 
-def _runs_section(runs: Sequence[Run]) -> str:
-    lines = ["Run summaries:"]
+def _runs_section(
+    runs: Sequence[Run], *, total_runs: int, total_failed: int
+) -> str:
+    lines = []
+    passed_count = total_runs - total_failed
+    lines.append(
+        f"Showing {len(runs)} of {total_runs} runs; failed={total_failed} passed={passed_count}"
+    )
     for run in runs:
-        keys = ", ".join(sorted(dict(run.result).keys())) or "(none)"
+        keys = ", ".join(_result_keys(run.result)) or "(none)"
         lines.append(
-            "- "
-            f"{run.instance_id}: reward={run.reward}, "
-            f"result_keys=[{keys}], trajectory={_trajectory_preview(run)}"
+            f"- {run.instance_id}: reward={run.reward}, "
+            f"result_keys=[{_clip(keys, 120)}], trajectory={_trajectory_preview(run)}"
         )
     return "\n".join(lines)
 
@@ -178,16 +186,22 @@ def _overview_text(value: object, *, version: Version, run_count: int) -> str:
 
 
 def _fallback_detail(run: Run) -> str:
-    result_json = _clip(
-        json.dumps(run.result, indent=2, sort_keys=True, ensure_ascii=True),
+    result = dict(run.result)
+    result_keys = _result_keys(result)
+    selected = {key: result[key] for key in _selected_result_keys(result) if key in result}
+    result_preview = _clip(
+        json.dumps(result, indent=2, sort_keys=True, ensure_ascii=True),
         MAX_RESULT_CHARS,
     )
     return (
         f"# Fallback analysis for {run.instance_id}\n\n"
         f"- Run ref: {run.ref}\n"
         f"- Reward: {run.reward}\n\n"
-        "## Result JSON\n"
-        f"```json\n{result_json}\n```\n\n"
+        f"- Result keys: {', '.join(result_keys) if result_keys else '(none)'}\n\n"
+        "## Selected Result Fields\n"
+        f"{_format_selected_fields(selected)}\n\n"
+        "## Result JSON Preview\n"
+        f"```json\n{result_preview}\n```\n\n"
         "## Trajectory Preview\n"
         f"{_trajectory_preview(run)}\n"
     )
@@ -237,3 +251,31 @@ def _clip(text: object, limit: int) -> str:
     if limit <= 3:
         return value[:limit]
     return value[: limit - 3] + "..."
+
+
+def _prompt_runs(runs: Sequence[Run]) -> list[Run]:
+    failed = [run for run in runs if _is_failed(run)]
+    passed = [run for run in runs if not _is_failed(run)]
+    selected = list(failed[:MAX_RUNS_IN_PROMPT])
+    if len(selected) < MAX_RUNS_IN_PROMPT:
+        selected.extend(passed[: MAX_RUNS_IN_PROMPT - len(selected)])
+    return selected
+
+
+def _result_keys(result: Mapping[str, object]) -> list[str]:
+    return sorted(str(key) for key in result.keys())
+
+
+def _selected_result_keys(result: Mapping[str, object]) -> tuple[str, ...]:
+    keys = ("resolved", "score", "error", "message", "agent_package")
+    return tuple(key for key in keys if key in result)
+
+
+def _format_selected_fields(selected: Mapping[str, object]) -> str:
+    if not selected:
+        return "- none"
+    lines = []
+    for key in ("resolved", "score", "error", "message", "agent_package"):
+        if key in selected:
+            lines.append(f"- {key}: {_clip(selected[key], MAX_RESULT_CHARS)}")
+    return "\n".join(lines)
