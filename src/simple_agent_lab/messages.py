@@ -438,6 +438,102 @@ def tool_results_message(
     return message
 
 
+def _token_usage_from_record(record: Mapping[str, Any] | None) -> TokenUsage | None:
+    """Rebuild a `TokenUsage` from its serialized fields (None when absent)."""
+    if not record:
+        return None
+    return TokenUsage(
+        input_tokens=int(record.get("input_tokens", 0)),
+        output_tokens=int(record.get("output_tokens", 0)),
+        cache_read_tokens=int(record.get("cache_read_tokens", 0)),
+        cache_write_tokens=int(record.get("cache_write_tokens", 0)),
+    )
+
+
+def _content_block_from_record(record: Mapping[str, Any]) -> ContentBlock:
+    """Rebuild one content block from its serialized form (keyed by `kind`)."""
+    kind = record.get("kind")
+    if kind == "text":
+        return TextBlock(text=record.get("text", ""))
+    if kind == "image":
+        return ImageBlock(
+            data=record.get("data", ""), mime_type=record.get("mime_type", "")
+        )
+    if kind == "thinking":
+        return ThinkingBlock(
+            text=record.get("text", ""),
+            signature=record.get("signature"),
+            redacted=bool(record.get("redacted", False)),
+            source_field=record.get("source_field"),
+        )
+    if kind == "tool_call":
+        return ToolCallBlock(
+            id=record.get("id", ""),
+            name=record.get("name", ""),
+            arguments=dict(record.get("arguments") or {}),
+        )
+    if kind == "tool_result":
+        nested = record.get("content") or ()
+        visible = tuple(
+            block
+            for raw in nested
+            if isinstance(
+                block := _content_block_from_record(raw), (TextBlock, ImageBlock)
+            )
+        )
+        return ToolResultBlock(
+            tool_call_id=record.get("tool_call_id", ""),
+            tool_name=record.get("tool_name", ""),
+            content=visible,
+            is_error=bool(record.get("is_error", False)),
+        )
+    raise ValueError(f"unknown content block kind: {kind!r}")
+
+
+def message_from_record(record: Mapping[str, Any]) -> Message:
+    """Rebuild a `Message` from its serialized form (the inverse of `json_safe`).
+
+    Used to replay a persisted trace's event stream back into typed objects so
+    the span/training transforms (which dispatch on `isinstance`) can run over a
+    trace loaded from disk. Trusted-input only — it skips `validate_message`, on
+    the assumption the records were produced by this runtime's serializer.
+    """
+    role = record.get("role")
+    content = tuple(
+        _content_block_from_record(block) for block in record.get("content", ())
+    )
+    target = record.get("target", "all")
+    kind = record.get("kind", "message")
+    sidecar = cast("MessageSidecar", dict(record.get("sidecar") or {}))
+    if role == "user":
+        return UserMessage(
+            content=content,
+            sender=record.get("sender", "user"),
+            target=target,
+            kind=kind,
+            sidecar=sidecar,
+        )
+    if role == "system":
+        return RuntimeMessage(
+            content=content,
+            sender=record.get("sender", "system"),
+            target=target,
+            kind=kind,
+            sidecar=sidecar,
+        )
+    if role == "assistant":
+        return AssistantMessage(
+            content=content,
+            sender=record.get("sender", "assistant"),
+            target=target,
+            kind=kind,
+            usage=_token_usage_from_record(record.get("usage")),
+            model=record.get("model", ""),
+            sidecar=sidecar,
+        )
+    raise ValueError(f"unknown message role: {role!r}")
+
+
 def message_tool_calls(message: Message) -> tuple[ToolCallBlock, ...]:
     if isinstance(message, AssistantMessage):
         return message.tool_calls

@@ -12,8 +12,20 @@ Before ``docker run``, prepare a run directory on the host:
 HOST_RUN/
   input/          # optional inputs (instance JSON, etc.)
   out/
-    trajectory.jsonl   # live + final trace (single JSON object per file)
+    trajectory.jsonl   # live: append-only event stream; final: one canonical record
 ```
+
+While a run is in flight, ``trajectory.jsonl`` is an **append-only event
+stream** — a header line (``{"type":"trace_header",...}``) followed by one
+``event_record`` per line. Each flush appends only the events added since the
+last one, so a long run costs O(new events) per flush instead of rewriting the
+whole record every interval. On ``stop(final_flush=True)`` (or an explicit
+``write_canonical_trace``) the file is materialized into the **single canonical
+record** the non-live writer produces, so a finished file is unchanged for every
+reader. ``trace_record_from_jsonl`` folds either shape back into one record; the
+host trace viewer calls it transparently, so it can tail a live stream or open a
+finished file with no difference. A crash mid-append can only lose the torn last
+line (JSONL readers skip it), instead of the old whole-file rewrite.
 
 ## Mount
 

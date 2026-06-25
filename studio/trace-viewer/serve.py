@@ -54,6 +54,11 @@ DEFAULT_SCAN_DIR = PROJECT_ROOT / "evals" / "out"
 
 MAX_PEEK_BYTES = 96 * 1024
 TRAJECTORY_SCHEMA_PREFIX = "simple-agent-lab.trajectory"
+# A live run writes its trace as an append-only stream: a header line of this
+# `type` followed by one event per line. A finished run is the single canonical
+# record. Mirrors `simple_agent_lab.trace.TRACE_HEADER_TYPE` (kept as a local
+# literal so the scanner stays stdlib-only).
+TRACE_HEADER_TYPE = "trace_header"
 SCANNED_EXTENSIONS = {".jsonl", ".json"}
 # Don't waste a stat() walking into these
 IGNORED_DIRS = {"wheelhouse", "docker-config", "__pycache__", ".git"}
@@ -153,6 +158,13 @@ def count_records(path: Path) -> int:
     try:
         n = 0
         with path.open("rb") as f:
+            first = f.readline()
+            # A live event stream folds into one trajectory record, so report it
+            # as a single record rather than counting its header + event lines.
+            if first[:1] == b"{" and b'"type"' in first and b'"trace_header"' in first:
+                return 1
+            if first[:1] == b"{":
+                n += 1
             for line in f:
                 if line[:1] == b"{":
                     n += 1
@@ -363,17 +375,47 @@ def _safe_head_text(path: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _fold_event_stream():
+    """Best-effort import of the package's stream→record folder.
+
+    Returns ``trace_record_from_jsonl`` if the package is importable from the
+    repo's ``src`` tree, else ``None`` so callers fall back to stdlib-only
+    behavior (canonical files need no folding; only live event streams do).
+    """
+    try:
+        src = str(PROJECT_ROOT / "src")
+        if src not in sys.path:
+            sys.path.insert(0, src)
+        from simple_agent_lab.trace import trace_record_from_jsonl
+
+        return trace_record_from_jsonl
+    except Exception:
+        return None
+
+
+def _is_event_stream_text(text: str) -> bool:
+    """True when the file opens with an append-only trace header line."""
+    first = _nth_json_object(text, 0)
+    return isinstance(first, dict) and first.get("type") == TRACE_HEADER_TYPE
+
+
 def read_trace_record(path: Path, line_index: int = 0) -> dict | None:
     """Return one parsed record from path.
 
     For plain .json: the whole file (line_index ignored).
     For .jsonl: the record at line_index (0-based).  Supports both
-    single-line JSONL and pretty-printed (``indent=2``) records.
+    single-line JSONL and pretty-printed (``indent=2``) records. An
+    append-only event stream (header + event lines) is folded back into the
+    single canonical trajectory record.
     """
     if path.suffix.lower() == ".json":
         with path.open("r", encoding="utf-8") as f:
             return json.load(f)
     text = path.read_text(encoding="utf-8")
+    if _is_event_stream_text(text):
+        fold = _fold_event_stream()
+        if fold is not None:
+            return fold(path)
     return _nth_json_object(text, line_index)
 
 
@@ -392,6 +434,12 @@ def read_all_records(path: Path, limit: int = 5000) -> list[dict]:
             return [r for r in data[:limit] if isinstance(r, dict)]
         return [data] if isinstance(data, dict) else []
     text = path.read_text(encoding="utf-8")
+    # Fold a live event stream into its single trajectory record so /api/records
+    # of an in-progress trace returns the trajectory, not the raw event lines.
+    if _is_event_stream_text(text):
+        fold = _fold_event_stream()
+        if fold is not None:
+            return [fold(path)]
     out: list[dict] = []
     decoder = json.JSONDecoder()
     idx, length = 0, len(text)
@@ -427,6 +475,12 @@ def read_trace_record_bytes(path: Path, line_index: int = 0) -> bytes | None:
         text = path.read_text(encoding="utf-8")
     except OSError:
         return None
+    # A live event stream has no single record to slice; fold it first. Falls
+    # through to the byte-slice fast path for canonical single-record files.
+    if _is_event_stream_text(text):
+        fold = _fold_event_stream()
+        if fold is not None:
+            return json.dumps(fold(path), ensure_ascii=False).encode("utf-8")
     span = _nth_json_span(text, line_index)
     if span is None:
         return None

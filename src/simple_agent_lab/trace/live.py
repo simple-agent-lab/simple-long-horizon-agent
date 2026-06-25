@@ -1,10 +1,11 @@
 """Incremental ("live") trajectory export for Docker and long-running hosts.
 
 This is the genuinely IO/concurrency-heavy edge of the package: a
-background daemon thread atomically rewrites a single-record
-``trajectory.jsonl`` on a fixed interval so a polling host viewer can tail
-it without ever seeing a torn file. Beginners reading the core runtime can
-skip this module entirely; nothing in ``core`` depends on it.
+background daemon thread *appends* new events to an append-only
+``trajectory.jsonl`` (header line + one event per line) on a fixed interval
+so a polling host viewer can tail it cheaply, then materializes the single
+canonical record on stop. Beginners reading the core runtime can skip this
+module entirely; nothing in ``core`` depends on it.
 
 Mount a host-visible directory into the container and point
 ``LiveTraceSession`` (or ``run_agent_with_live_trace``) at a path under that
@@ -14,6 +15,7 @@ contract.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import threading
@@ -22,10 +24,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
-from ..messages import ContentInput
+from ..messages import ContentInput, normalize_content, text_of
 from ..protocols import Event
-from .jsonl import write_jsonl_atomic
-from .run_trace import SCHEMA, RunTrace, run_trace_from_state, trace_record
+from .jsonl import json_safe, write_jsonl_atomic
+from .run_trace import (
+    SCHEMA,
+    RunTrace,
+    event_record,
+    run_trace_from_state,
+    trace_header_record,
+    trace_record,
+)
 
 if TYPE_CHECKING:
     from ..core import Agent
@@ -58,18 +67,29 @@ def live_trace_path_from_env() -> Path | None:
 
 
 class IncrementalTraceWriter:
-    """Periodically dump a live ``RunTrace`` to disk so viewers can tail it.
+    """Stream a live trace to disk append-only so viewers can tail it.
 
-    The trace file is the SAME single-record JSONL the final writer produces:
-    one canonical :func:`trace_record` per file, atomically rewritten as the
-    run progresses.  Anything reading ``trajectory.jsonl`` (the viewer,
-    ``read_jsonl``, ``jq``) keeps working unchanged — they just see a record
-    that grows over time.
+    The live file is an append-only event stream: a header line
+    (:func:`trace_header_record`) followed by one ``event_record`` per line, in
+    record order. Each flush *appends* only the events added since the last one,
+    so a long run pays O(new events) per flush instead of re-serializing and
+    rewriting the whole growing record every interval (the old single-record
+    shape was O(total) per flush, O(n²) over a run).
 
-    Cadence: a background daemon thread takes a snapshot of ``state`` every
-    ``min_interval_s`` seconds and rewrites the file only when the event log
-    has actually grown.  Chatty agents with hundreds of fast events per
-    second therefore pay at most one rewrite per interval, not one per event.
+    On :meth:`stop` with ``final_flush=True`` the file is materialized into the
+    single canonical :func:`trace_record` (one atomic rewrite), so a *finished*
+    file is byte-for-byte what the non-live writer produces and every existing
+    reader keeps working. While a run is in flight the file is the event stream;
+    :func:`trace_record_from_jsonl` folds either shape back into one record.
+
+    Crash safety differs from the old atomic rewrite: a crash mid-append can
+    leave a torn trailing line, which any JSONL reader skips (it stops at the
+    first undecodable tail). The trade is one possibly-lost last event instead
+    of an O(n) rewrite every interval.
+
+    Cadence: a background daemon thread appends every ``min_interval_s`` seconds
+    only when the event log has actually grown, so chatty agents pay at most one
+    append per interval, not one per event.
 
     Lifecycle::
 
@@ -85,7 +105,7 @@ class IncrementalTraceWriter:
         try:
             ... drive the agent loop ...
         finally:
-            writer.stop()  # also performs one final flush
+            writer.stop()  # materializes the canonical final record
     """
 
     def __init__(
@@ -110,10 +130,11 @@ class IncrementalTraceWriter:
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._write_lock = threading.Lock()
-        # Tracks how many events were on disk last flush; cheap "did anything
-        # change since last write" check so we don't rewrite an unchanged
-        # multi-megabyte JSON record every interval.
-        self._last_event_count: int = -1
+        # How many events are already appended to the stream; the next flush
+        # writes only `events[_written_event_count:]`. `_header_written` gates
+        # the one-time header line (and selects truncate-vs-append mode).
+        self._written_event_count: int = 0
+        self._header_written: bool = False
 
     @property
     def path(self) -> Path:
@@ -134,7 +155,13 @@ class IncrementalTraceWriter:
         thread.start()
 
     def stop(self, *, final_flush: bool = True) -> None:
-        """Signal the background thread to exit and (optionally) flush once more."""
+        """Stop the background thread; if ``final_flush`` materialize the canonical record.
+
+        ``final_flush=True`` replaces the append-only stream with the single
+        canonical :func:`trace_record` so a finished file matches the non-live
+        writer. ``final_flush=False`` leaves the stream in place (the caller will
+        write the canonical record itself, e.g. after post-run enrichment).
+        """
 
         self._stop_event.set()
         thread = self._thread
@@ -143,7 +170,7 @@ class IncrementalTraceWriter:
         self._thread = None
         if final_flush:
             try:
-                self.flush_now(force=True)
+                self.write_final()
             except Exception as exc:  # pragma: no cover - defensive
                 self._report_error(exc)
 
@@ -155,28 +182,38 @@ class IncrementalTraceWriter:
         self.stop()
 
     def flush_now(self, *, force: bool = False) -> bool:
-        """Serialize the current ``state`` and atomically rewrite the file.
+        """Append any new events (and the header on first write) to the stream.
 
-        Returns ``True`` when a write actually happened (state grew, or
-        ``force`` was passed).  ``False`` when there was nothing new to
-        write.  Thread-safe via an internal lock so the background thread
-        and an explicit ``flush_now`` call from the agent thread can't
-        clobber each other.
+        Returns ``True`` when a write actually happened (the log grew, or the
+        header was not yet written), ``False`` when there was nothing new.
+        Thread-safe via an internal lock so the background thread and an
+        explicit ``flush_now`` from the agent thread can't interleave.
         """
 
         with self._write_lock:
             events = list(getattr(self._state, "events", []) or [])
             count = len(events)
-            if not force and count == self._last_event_count:
+            new_events = events[self._written_event_count :]
+            if not new_events and self._header_written:
                 return False
+            try:
+                self._append_stream(new_events)
+            except Exception as exc:
+                self._report_error(exc)
+                return False
+            self._written_event_count = count
+            return True
 
+    def write_final(self) -> None:
+        """Materialize the canonical single-record trace (atomic), replacing the stream."""
+
+        with self._write_lock:
             meta: Mapping[str, Any] | None
             try:
                 meta = self._meta_fn() if self._meta_fn is not None else None
             except Exception as exc:  # pragma: no cover - defensive
                 self._report_error(exc)
                 meta = None
-
             trace = run_trace_from_state(
                 state=self._state,
                 trace_id=self._trace_id,
@@ -187,9 +224,49 @@ class IncrementalTraceWriter:
                 write_jsonl_atomic(self._path, [trace_record(trace)])
             except Exception as exc:
                 self._report_error(exc)
-                return False
-            self._last_event_count = count
-            return True
+
+    def _append_stream(self, new_events: list[Event]) -> None:
+        """Append the header (once) and ``new_events`` as compact JSONL lines."""
+
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        lines: list[str] = []
+        if not self._header_written:
+            lines.append(json.dumps(self._header_record(), ensure_ascii=False))
+        lines.extend(
+            json.dumps(json_safe(event_record(event)), ensure_ascii=False)
+            for event in new_events
+        )
+        if not lines:
+            return
+        payload = "".join(f"{line}\n" for line in lines)
+        # Append mode once the header exists so the stream only ever grows;
+        # truncate-write on the first flush establishes a clean file.
+        mode = "a" if self._header_written else "w"
+        with self._path.open(mode, encoding="utf-8") as f:
+            f.write(payload)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except OSError:
+                # fsync is best-effort; e.g. on tmpfs it may not be supported.
+                pass
+        self._header_written = True
+
+    def _header_record(self) -> dict[str, Any]:
+        task = getattr(self._state, "task", "")
+        task_text = task if isinstance(task, str) else text_of(normalize_content(task))
+        meta: Mapping[str, Any] | None
+        try:
+            meta = self._meta_fn() if self._meta_fn is not None else None
+        except Exception as exc:  # pragma: no cover - defensive
+            self._report_error(exc)
+            meta = None
+        return trace_header_record(
+            trace_id=self._trace_id,
+            producer=self._producer,
+            task=task_text,
+            meta=meta,
+        )
 
     def _run(self) -> None:
         while not self._stop_event.is_set():
@@ -236,10 +313,12 @@ def write_canonical_trace(
 class LiveTraceSession:
     """Context manager for incremental trace export while an agent runs.
 
-    The trace file uses the same single-record JSONL shape as a finished run;
-    only the write cadence differs. Call :meth:`stop` with ``final_flush=False``
-    when the caller will write the canonical final record separately (typical
-    for eval harnesses that enrich ``state`` after the event loop).
+    While the run is in flight the trace file is the append-only event stream
+    (header line + one event per line); on exit it is materialized into the
+    single canonical record. Call :meth:`stop` with ``final_flush=False`` when
+    the caller will write the canonical final record separately (typical for
+    eval harnesses that enrich ``state`` after the event loop) — the stream is
+    left in place for that caller to overwrite.
     """
 
     def __init__(
