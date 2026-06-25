@@ -211,6 +211,8 @@ def _overlay_source_version(
             continue
         target = base_tree / rel
         target.parent.mkdir(parents=True, exist_ok=True)
+        if target.is_symlink():
+            target.unlink()
         target.write_text(read(path), encoding="utf-8")
 
 

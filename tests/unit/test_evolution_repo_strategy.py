@@ -198,6 +198,47 @@ class RepoStrategyTest(unittest.TestCase):
         )
         self.assertEqual(validations, [(fake_agent.base_tree, dict(proposal.edits))])
 
+    def test_source_tree_agent_overlay_replaces_symlink_without_writing_through(
+        self,
+    ) -> None:
+        outside = self.root / "outside_core.py"
+        outside.write_text("OUTSIDE = 1\n")
+        repo_core = self.base / SOURCE_ROOT / "core.py"
+        repo_core.unlink()
+        try:
+            repo_core.symlink_to(outside)
+        except (NotImplementedError, OSError) as exc:
+            self.skipTest(f"symlinks are not supported here: {exc}")
+
+        exp = Experiment(
+            self.root / "symlink-evolution",
+            rollout=lambda _version, _slice: [],
+            seed={
+                SOURCE_ROOT + "/core.py": "def run() -> str:\n    return 'version'\n"
+            },
+        )
+        fake_agent = FakeAgent(expected_before="version")
+
+        def agent_builder(**kwargs):
+            fake_agent.cwd = Path(kwargs["cwd"])
+            return fake_agent
+
+        current = exp.current()
+        ctx = Context(
+            runs=(), current=current, workspace=self.root / "symlink-evolution"
+        )
+        strategy = source_tree_agent_strategy(
+            provider=object(),
+            repo_root=self.base,
+            agent_builder=agent_builder,
+            validation=lambda _repo_root, _files: None,
+        )
+
+        proposal = strategy(ctx)
+
+        self.assertIsNotNone(proposal)
+        self.assertEqual(outside.read_text(), "OUTSIDE = 1\n")
+
     def test_source_tree_agent_registry_accepts_config_compatibility_kwargs(
         self,
     ) -> None:
