@@ -263,6 +263,7 @@ class RunSpec:
     max_turns: int
     provider: str  # "openai" | "fake"
     api_kind: str
+    pythonpath: tuple[str, ...] = ()
     provider_env: Mapping[str, str] = field(default_factory=dict)
     install: bool = True
     package_extras: tuple[str, ...] = ()

@@ -73,12 +73,20 @@ def _install_line(wheelhouse_mount: str | None, package_extras: tuple[str, ...])
     )
 
 
+def _pythonpath_line(extra_pythonpath: tuple[str, ...]) -> str:
+    if not extra_pythonpath:
+        return ""
+    joined = ":".join(shlex.quote(part) for part in extra_pythonpath)
+    return f'export PYTHONPATH="{joined}${{PYTHONPATH:+:$PYTHONPATH}}"'
+
+
 def bootstrap_script(
     *,
     runner_argv: tuple[str, ...],
     install: bool = True,
     wheelhouse_mount: str | None = None,
     package_extras: tuple[str, ...] = (),
+    extra_pythonpath: tuple[str, ...] = (),
 ) -> str:
     """Return the shell script run as the container's main process.
 
@@ -90,6 +98,8 @@ def bootstrap_script(
     parts = [_PYTHON_SETUP]
     if install:
         parts.append(_install_line(wheelhouse_mount, package_extras))
+    if line := _pythonpath_line(extra_pythonpath):
+        parts.append(line)
     quoted = " ".join(shlex.quote(part) for part in runner_argv)
     parts.append(f'"$AGENT_PYTHON" {quoted}')
     return "\n".join(parts)

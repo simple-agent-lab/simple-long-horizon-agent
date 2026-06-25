@@ -142,6 +142,7 @@ def build_command(spec: RunSpec) -> tuple[str, ...]:
         install=spec.install,
         wheelhouse_mount=spec.wheelhouse_mount,
         package_extras=spec.package_extras,
+        extra_pythonpath=spec.pythonpath,
     )
     return tuple(spec.launch_spec.shell) + (script,)
 
@@ -161,6 +162,7 @@ def run_suite_instance(
     install: bool = True,
     package_extras: tuple[str, ...] = (),
     wheelhouse_mount: str | None = None,
+    pythonpath: tuple[str, ...] = (),
     name: str | None = None,
     mcp_config: Mapping[str, Any] | None = None,
     extra_artifacts: Mapping[str, bytes] | None = None,
@@ -205,6 +207,7 @@ def run_suite_instance(
         max_turns=max_turns,
         provider=provider,
         api_kind=api_kind,
+        pythonpath=tuple(pythonpath),
         provider_env=dict(provider_env or {}),
         install=install,
         package_extras=package_extras,

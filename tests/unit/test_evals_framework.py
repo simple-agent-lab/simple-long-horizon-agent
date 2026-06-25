@@ -184,6 +184,26 @@ class OrchestrationTest(unittest.TestCase):
 
         self.assertIn("simple-agent-lab[mcp]", cmd[-1])
 
+    def test_build_command_threads_candidate_pythonpath(self) -> None:
+        spec = RunSpec(
+            suite_name="demo",
+            container_module="demo.container",
+            instance_id="i1",
+            launch_spec=LaunchSpec(image="demo:latest", workdir="/work"),
+            max_turns=3,
+            provider="fake",
+            api_kind="fake",
+            pythonpath=("/agent/run/input/source_tree/src",),
+        )
+
+        command = build_command(spec)
+        script = command[-1]
+
+        self.assertIn(
+            'export PYTHONPATH="/agent/run/input/source_tree/src${PYTHONPATH:+:$PYTHONPATH}"',
+            script,
+        )
+
 
 class HostHttpStoreTest(unittest.TestCase):
     def test_http_client_round_trip(self) -> None:
