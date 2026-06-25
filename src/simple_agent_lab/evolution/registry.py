@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from simple_agent_lab.evolution.components import repo_strategy as _repo_strategy
 from simple_agent_lab.evolution.components import criterion as _criterion
 from simple_agent_lab.evolution.components import reward as _reward
 
@@ -31,7 +32,9 @@ REWARDS: dict[str, Callable[..., Any]] = {
     "result_key": lambda: _reward.result_key,
     "cost_tokens": lambda: _reward.cost_tokens,
 }
-STRATEGIES: dict[str, Callable[..., Any]] = {}
+STRATEGIES: dict[str, Callable[..., Any]] = {
+    "source_tree_agent": _repo_strategy.source_tree_agent_strategy,
+}
 CRITERIA: dict[str, Callable[..., Any]] = {
     "improve": _criterion.improve,
     "not_worse": _criterion.not_worse,
