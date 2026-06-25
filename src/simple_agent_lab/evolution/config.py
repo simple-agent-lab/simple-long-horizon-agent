@@ -22,8 +22,13 @@ from simple_agent_lab.evolution import registry
 from simple_agent_lab.evolution.components.rollout import Rollout, rollout_from_suite
 from simple_agent_lab.evolution.experiment import Experiment
 from simple_agent_lab.evolution.registry import Use
+from simple_agent_lab.evolution.source_tree import (
+    CANDIDATE_SOURCE_CONTAINER_SRC,
+    SOURCE_ROOT,
+    candidate_source_artifacts,
+)
 from simple_agent_lab.evolution.surface import AgentSurface
-from simple_agent_lab.evolution.types import RewardFn
+from simple_agent_lab.evolution.types import RewardFn, Version
 from simple_agent_lab.llm.provider import ApiKind, Provider
 
 
@@ -228,6 +233,24 @@ def build_self_evolving_run(config: SelfEvolvingConfig) -> SelfEvolvingRun:
             **config.execution.store.args,
         ),
     )
+    source_tree_repo_root = (
+        _source_tree_repo_root(config) if surface.id == "source_tree" else None
+    )
+    version_artifacts = None
+    candidate_pythonpath: tuple[str, ...] = ()
+    if source_tree_repo_root is not None:
+        repo_root = source_tree_repo_root
+
+        def source_tree_version_artifacts(version: Version) -> Mapping[str, bytes]:
+            files = {
+                name: version.read(name)
+                for name in version.files()
+                if name.startswith(f"{SOURCE_ROOT}/")
+            }
+            return candidate_source_artifacts(repo_root, files)
+
+        version_artifacts = source_tree_version_artifacts
+        candidate_pythonpath = (CANDIDATE_SOURCE_CONTAINER_SRC,)
     rollout = rollout_from_suite(
         suite=suite,
         surface=surface,
@@ -239,6 +262,8 @@ def build_self_evolving_run(config: SelfEvolvingConfig) -> SelfEvolvingRun:
             "max_turns": config.execution.max_turns,
             **dict(config.execution.run_kwargs),
         },
+        version_artifacts=version_artifacts,
+        candidate_pythonpath=candidate_pythonpath,
     )
     strategy_args: dict[str, object] = {
         "provider": provider,
@@ -246,6 +271,8 @@ def build_self_evolving_run(config: SelfEvolvingConfig) -> SelfEvolvingRun:
         "editable_components": config.surface.editable_components,
     }
     strategy_args.update(config.strategy.args)
+    if surface.id == "source_tree" and "repo_root" not in strategy_args:
+        strategy_args["repo_root"] = source_tree_repo_root or Path.cwd()
     strategy = registry.build(
         "strategy",
         Use(config.strategy.name, **strategy_args),
@@ -364,6 +391,11 @@ def _validate_algorithm(config: SelfEvolvingConfig) -> None:
             "unsupported evolution algorithm "
             f"{config.evolution.algorithm!r}; this builder supports only 'simple'"
         )
+
+
+def _source_tree_repo_root(config: SelfEvolvingConfig) -> Path:
+    raw = config.strategy.args.get("repo_root")
+    return Path(str(raw)).resolve(strict=False) if raw is not None else Path.cwd()
 
 
 def _provider(config: SelfEvolvingConfig) -> Provider:

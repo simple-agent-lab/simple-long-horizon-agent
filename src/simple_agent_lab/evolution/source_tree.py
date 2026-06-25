@@ -8,11 +8,14 @@ import tempfile
 from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 
+from simple_agent_lab.evolution.surface import AgentSurface, SurfaceComponent
+
 
 SOURCE_ROOT = "src/simple_agent_lab"
 CANDIDATE_TREE = "source_tree"
 CANDIDATE_SRC = "source_tree/src"
 CANDIDATE_PACKAGE = "source_tree/src/simple_agent_lab"
+CANDIDATE_SOURCE_CONTAINER_SRC = "/agent/run/input/source_tree/src"
 
 _SURFACE_EXTENSIONS = {".py", ".md", ".txt", ".toml", ".yaml", ".yml", ".json"}
 _EDIT_EXTENSIONS = {".py"}
@@ -58,6 +61,42 @@ def source_tree_surface(repo_root: Path) -> str:
         lines.append(data.decode("utf-8", errors="replace").rstrip())
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def source_tree_agent_surface(
+    repo_root: Path,
+    *,
+    artifact_key: str = CANDIDATE_TREE,
+    **_args: object,
+) -> AgentSurface:
+    """Return the config-facing surface for evolving the package source tree."""
+
+    source_root = repo_root / SOURCE_ROOT
+    if not source_root.exists():
+        raise ValueError(f"source root does not exist: {SOURCE_ROOT}")
+
+    default_files = {
+        path.relative_to(repo_root).as_posix(): path.read_text(encoding="utf-8")
+        for path in _walk_candidate_files(source_root)
+        if path.suffix == ".py"
+    }
+    return AgentSurface(
+        id="source_tree",
+        name="Simple Agent Lab source tree",
+        description="The framework source under src/simple_agent_lab/.",
+        entrypoint=f"{SOURCE_ROOT}/__init__.py",
+        default_files=default_files,
+        artifact_key=artifact_key,
+        components=(
+            SurfaceComponent(
+                id="everything",
+                name="Whole framework source tree",
+                description="All Python source files under src/simple_agent_lab/.",
+                paths=(f"{SOURCE_ROOT}/**",),
+                validators=("path_allowed", "python_syntax"),
+            ),
+        ),
+    )
 
 
 def validate_source_tree_edits(files: Mapping[str, str]) -> list[str]:

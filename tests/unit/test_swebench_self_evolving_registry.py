@@ -10,10 +10,10 @@ class SimpleRecipeRegistryTest(unittest.TestCase):
     def setUp(self) -> None:
         self._snapshots = {
             "swebench": registry.SUITES.get("swebench"),
-            "python_agent_package": registry.SURFACES.get("python_agent_package"),
+            "source_tree": registry.SURFACES.get("source_tree"),
             "local_docker": registry.BACKENDS.get("local_docker"),
             "local_dir": registry.STORES.get("local_dir"),
-            "model_program": registry.STRATEGIES.get("model_program"),
+            "source_tree_agent": registry.STRATEGIES.get("source_tree_agent"),
             "result_key": registry.REWARDS.get("result_key"),
         }
         self.addCleanup(self._restore_registries)
@@ -21,10 +21,10 @@ class SimpleRecipeRegistryTest(unittest.TestCase):
     def _restore_registries(self) -> None:
         targets = (
             (registry.SUITES, "swebench"),
-            (registry.SURFACES, "python_agent_package"),
+            (registry.SURFACES, "source_tree"),
             (registry.BACKENDS, "local_docker"),
             (registry.STORES, "local_dir"),
-            (registry.STRATEGIES, "model_program"),
+            (registry.STRATEGIES, "source_tree_agent"),
             (registry.REWARDS, "result_key"),
         )
         for table, name in targets:
@@ -40,10 +40,12 @@ class SimpleRecipeRegistryTest(unittest.TestCase):
         register_recipe_factories()
 
         self.assertIn("swebench", registry.SUITES)
-        self.assertIn("python_agent_package", registry.SURFACES)
+        self.assertIn("source_tree", registry.SURFACES)
+        self.assertNotIn("python_agent_package", registry.SURFACES)
         self.assertIn("local_docker", registry.BACKENDS)
         self.assertIn("local_dir", registry.STORES)
-        self.assertIn("model_program", registry.STRATEGIES)
+        self.assertIn("source_tree_agent", registry.STRATEGIES)
+        self.assertNotIn("model_program", registry.STRATEGIES)
         self.assertEqual(
             registry.SUITES["swebench"]().container_module,
             "simple_agent_lab.evals.suites.swebench.evolving",

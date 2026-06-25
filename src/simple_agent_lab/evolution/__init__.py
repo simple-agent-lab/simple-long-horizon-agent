@@ -16,11 +16,13 @@ from simple_agent_lab.evolution.experiment import Experiment
 from simple_agent_lab.evolution.registry import Use
 from simple_agent_lab.evolution.source_tree import (
     CANDIDATE_PACKAGE,
+    CANDIDATE_SOURCE_CONTAINER_SRC,
     CANDIDATE_SRC,
     CANDIDATE_TREE,
     SOURCE_ROOT,
     candidate_source_artifacts,
     cheap_validate_source_tree,
+    source_tree_agent_surface,
     source_tree_surface,
     validate_source_tree_edits,
 )
@@ -48,7 +50,9 @@ __all__ = [
     "CANDIDATE_TREE",
     "CANDIDATE_SRC",
     "CANDIDATE_PACKAGE",
+    "CANDIDATE_SOURCE_CONTAINER_SRC",
     "source_tree_surface",
+    "source_tree_agent_surface",
     "validate_source_tree_edits",
     "candidate_source_artifacts",
     "cheap_validate_source_tree",

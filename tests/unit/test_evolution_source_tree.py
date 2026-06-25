@@ -6,10 +6,12 @@ from pathlib import Path
 
 from simple_agent_lab.evolution.source_tree import (
     CANDIDATE_PACKAGE,
+    CANDIDATE_SOURCE_CONTAINER_SRC,
     CANDIDATE_SRC,
     SOURCE_ROOT,
     candidate_source_artifacts,
     cheap_validate_source_tree,
+    source_tree_agent_surface,
     source_tree_surface,
     validate_source_tree_edits,
 )
@@ -53,6 +55,24 @@ class SourceTreeEvolutionTest(unittest.TestCase):
         self.assertNotIn(
             CANDIDATE_PACKAGE + "/__pycache__/core.cpython-314.pyc", artifacts
         )
+
+    def test_agent_surface_seeds_python_source_files(self) -> None:
+        surface = source_tree_agent_surface(self.repo_root)
+
+        self.assertEqual(surface.id, "source_tree")
+        self.assertEqual(surface.artifact_key, "source_tree")
+        self.assertEqual(
+            CANDIDATE_SOURCE_CONTAINER_SRC,
+            "/agent/run/input/source_tree/src",
+        )
+        self.assertEqual(
+            surface.default_files[SOURCE_ROOT + "/__init__.py"], "VALUE = 1\n"
+        )
+        self.assertEqual(
+            surface.default_files[SOURCE_ROOT + "/core.py"],
+            "def run() -> str:\n    return 'ok'\n",
+        )
+        self.assertNotIn(SOURCE_ROOT + "/README.md", surface.default_files)
 
     def test_candidate_artifacts_and_surface_skip_symlinked_files(self) -> None:
         outside = self.repo_root / "outside_secret.py"

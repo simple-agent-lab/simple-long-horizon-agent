@@ -9,10 +9,10 @@ suite:
   args:
     in_env_scoring: true
 surface:
-  name: python_agent_package
+  name: source_tree
   editable_components: [everything]
-  artifact_key: input/agent_package.json
-  default: simple_agent_package
+  artifact_key: source_tree
+  default: current_source_tree
 instances:
   train:
     id: train
@@ -38,16 +38,14 @@ model:
   api_key_env: OPENAI_AUTH_TOKEN
   base_url_env: OPENAI_BASE_URL
 strategy:
-  name: model_program
+  name: source_tree_agent
   args:
     system_prompt: |
       You are a meta-agent evolving a SWE-bench coding agent.
 
-      The agent is a Python package. Make one focused whole-program change
+      The agent is the Simple Agent Lab source tree. Make one focused source change
       likely to raise the measured resolve rate. Return only the JSON edit
-      payload requested by the meta-strategy. At least one edit must change
-      the current package; do not return empty edits or unchanged copies of
-      existing files.
+      payload requested by the meta-strategy. Keep edits under src/simple_agent_lab/.
 evolution:
   algorithm: simple
   rounds: 4

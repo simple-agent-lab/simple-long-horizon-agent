@@ -165,10 +165,10 @@ run:
 suite:
   name: swebench
 surface:
-  name: python_agent_package
+  name: source_tree
   editable_components: [everything]
-  artifact_key: input/agent_package.json
-  default: simple_agent_package
+  artifact_key: source_tree
+  default: current_source_tree
 instances:
   train:
     id: train
@@ -185,7 +185,7 @@ model:
   model_env: OPENAI_MODEL
   api_key_env: OPENAI_AUTH_TOKEN
 strategy:
-  name: model_program
+  name: source_tree_agent
   args:
     system_prompt: demo
 evolution:
@@ -224,7 +224,7 @@ evaluation:
         self.assertIn("dry-run", result.stdout)
         self.assertIn("run id: override-simple", result.stdout)
         self.assertIn("suite: swebench", result.stdout)
-        self.assertIn("surface: python_agent_package", result.stdout)
+        self.assertIn("surface: source_tree", result.stdout)
         self.assertIn("editable components: everything", result.stdout)
 
     def test_simple_recipe_default_config_runs_dry_run(self):

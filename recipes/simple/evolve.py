@@ -27,9 +27,10 @@ def register_recipe_factories(config_path: str | Path | None = None) -> None:
     from evals.swebench.suite import SwebenchSuite
     from simple_agent_lab.evals import LocalDirStore, LocalDockerBackend
     from simple_agent_lab.evolution import registry
-    from simple_agent_lab.evolution import agent_package
-    from simple_agent_lab.evolution.components.strategy import model_program_strategy
-    from simple_agent_lab.evolution.surface import python_agent_surface
+    from simple_agent_lab.evolution.components.repo_strategy import (
+        source_tree_agent_strategy,
+    )
+    from simple_agent_lab.evolution.source_tree import source_tree_agent_surface
 
     def swebench_suite(**args):
         suite = SwebenchSuite(**args)
@@ -38,18 +39,17 @@ def register_recipe_factories(config_path: str | Path | None = None) -> None:
 
     registry.SUITES.setdefault("swebench", swebench_suite)
     registry.SURFACES.setdefault(
-        "python_agent_package",
-        lambda *, artifact_key, version_root="agent/", **_args: python_agent_surface(
-            default_files=agent_package.default_agent_package(),
+        "source_tree",
+        lambda *, artifact_key, **_args: source_tree_agent_surface(
+            repo_root=ROOT,
             artifact_key=artifact_key,
-            version_root=version_root,
         ),
     )
     registry.BACKENDS.setdefault(
         "local_docker", lambda **args: LocalDockerBackend(**args)
     )
     registry.STORES.setdefault("local_dir", lambda root, **_args: LocalDirStore(root))
-    registry.STRATEGIES.setdefault("model_program", model_program_strategy)
+    registry.STRATEGIES.setdefault("source_tree_agent", source_tree_agent_strategy)
     if config_path is not None:
         reward = _swebench_reward_from_config(config_path)
         registry.REWARDS["result_key"] = lambda reward=reward: reward
