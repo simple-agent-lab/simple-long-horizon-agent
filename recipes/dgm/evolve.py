@@ -134,15 +134,21 @@ def run_workflow(args: argparse.Namespace) -> None:
             base_url=os.environ.get(er.OPENAI_BASE_URL_ENV, "").strip(),
         ),
     )
-    baseline_test = run_heldout_scoring(
-        args,
-        layout,
-        test_records,
-        exp.current(),
-        base_rollout,
-        label="baseline",
-        record_generation=False,
-    )
+    if args.skip_baseline_heldout:
+        print("\nskipping baseline held-out test rollout (--skip-baseline-heldout)")
+        baseline_test = skipped_heldout_record(
+            exp.current(), test_records, label="baseline"
+        )
+    else:
+        baseline_test = run_heldout_scoring(
+            args,
+            layout,
+            test_records,
+            exp.current(),
+            base_rollout,
+            label="baseline",
+            record_generation=False,
+        )
     strategy = model_program_strategy(
         provider=provider,
         prefix="agent/",
@@ -264,6 +270,7 @@ def configure_args(args: argparse.Namespace) -> argparse.Namespace:
         execute=bool(args.execute or config.run.execute),
         reset=bool(args.reset or config.run.reset),
         monitor=bool(args.monitor),
+        skip_baseline_heldout=bool(args.skip_baseline_heldout),
         _configured=True,
     )
     validate_schedule_capacity(
@@ -410,6 +417,7 @@ def print_plan(
     print(f"model: {args.model_name}")
     print(f"api kind: {args.api_kind}")
     print(f"max turns: {args.max_turns}")
+    print(f"skip baseline held-out: {args.skip_baseline_heldout}")
 
 
 def run_heldout_scoring(
@@ -516,6 +524,23 @@ def record_heldout_generation(
     return record
 
 
+def skipped_heldout_record(
+    version: Version,
+    test_records: Sequence[Mapping[str, Any]],
+    *,
+    label: str,
+) -> dict[str, Any]:
+    return {
+        "label": label,
+        "version": version.hash,
+        "parent": version.parent or "",
+        "skipped": True,
+        "resolved": None,
+        "total": len(test_records),
+        "resolved_rate": None,
+    }
+
+
 def write_test_summary(
     layout: er.PerformanceLayout,
     *,
@@ -526,11 +551,14 @@ def write_test_summary(
     final_resolved = _as_int(final.get("resolved"))
     baseline_rate = _as_float(baseline.get("resolved_rate"))
     final_rate = _as_float(final.get("resolved_rate"))
+    baseline_skipped = bool(baseline.get("skipped"))
     summary = {
         "baseline": dict(baseline),
         "final": dict(final),
-        "delta_resolved": final_resolved - baseline_resolved,
-        "delta_resolved_rate": final_rate - baseline_rate,
+        "delta_resolved": None
+        if baseline_skipped
+        else final_resolved - baseline_resolved,
+        "delta_resolved_rate": None if baseline_skipped else final_rate - baseline_rate,
     }
     path = layout.run_root / "test_summary.json"
     path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
@@ -540,11 +568,17 @@ def write_test_summary(
 def print_test_summary(path: Path) -> None:
     summary = json.loads(path.read_text(encoding="utf-8"))
     print("\nheld-out test summary:")
-    print_score_line("baseline", summary["baseline"])
+    if bool(summary["baseline"].get("skipped")):
+        print("baseline test: skipped")
+    else:
+        print_score_line("baseline", summary["baseline"])
     print_score_line("final", summary["final"])
-    delta_resolved = int(summary.get("delta_resolved", 0))
-    delta_rate = float(summary.get("delta_resolved_rate", 0.0))
-    print(f"delta: {delta_resolved:+d} / {delta_rate:+.3f}")
+    if summary.get("delta_resolved") is None:
+        print("delta: skipped (no baseline)")
+    else:
+        delta_resolved = int(summary.get("delta_resolved", 0))
+        delta_rate = float(summary.get("delta_resolved_rate", 0.0))
+        print(f"delta: {delta_resolved:+d} / {delta_rate:+.3f}")
     print(f"summary: {path}")
 
 
@@ -677,6 +711,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--reset", action="store_true")
     parser.add_argument("--monitor", action="store_true")
+    parser.add_argument(
+        "--skip-baseline-heldout",
+        action="store_true",
+        help="Skip the initial seed held-out test rollout; final held-out still runs.",
+    )
     return parser
 
 

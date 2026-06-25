@@ -630,6 +630,13 @@ dgm:
         self.assertEqual(ns.branches, 3)
         self.assertEqual(ns.parallel, 3)
 
+    def test_parser_exposes_skip_baseline_heldout(self):
+        ns = self.mod.configure_args(
+            self.mod.build_parser().parse_args(["--skip-baseline-heldout"])
+        )
+
+        self.assertTrue(ns.skip_baseline_heldout)
+
     def test_pick_best_node_selects_highest_valid(self):
         from recipes.dgm.algorithm import archive
 
@@ -747,6 +754,36 @@ dgm:
             )
             rid = self.mod.heldout_run_id(Version(vd), ({"instance_id": "test-1"},))
         self.assertTrue(rid.startswith("abc123-"))
+
+    def test_skipped_baseline_summary_omits_delta(self):
+        from simple_agent_lab.evolution.types import Version
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            layout = self.mod.er.PerformanceLayout(root, "run")
+            layout.create()
+            vd = root / "version" / "abc123"
+            vd.mkdir(parents=True)
+            baseline = self.mod.skipped_heldout_record(
+                Version(vd), [{"instance_id": "i1"}], label="baseline"
+            )
+
+            path = self.mod.write_test_summary(
+                layout,
+                baseline=baseline,
+                final={
+                    "label": "final",
+                    "resolved": 1,
+                    "total": 1,
+                    "resolved_rate": 1.0,
+                },
+            )
+
+            summary = json.loads(path.read_text(encoding="utf-8"))
+
+        self.assertTrue(summary["baseline"]["skipped"])
+        self.assertIsNone(summary["delta_resolved"])
+        self.assertIsNone(summary["delta_resolved_rate"])
 
     def test_run_workflow_rejects_unsafe_run_id_before_dataset_read(self):
         with tempfile.TemporaryDirectory() as tmp:
