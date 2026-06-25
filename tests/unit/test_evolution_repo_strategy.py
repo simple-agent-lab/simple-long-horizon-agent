@@ -239,6 +239,56 @@ class RepoStrategyTest(unittest.TestCase):
         self.assertIsNotNone(proposal)
         self.assertEqual(outside.read_text(), "OUTSIDE = 1\n")
 
+    def test_source_tree_agent_overlay_replaces_symlinked_ancestor(
+        self,
+    ) -> None:
+        outside = self.root / "outside_package"
+        outside.mkdir()
+        outside_core = outside / "core.py"
+        outside_core.write_text("OUTSIDE = 1\n")
+        linked = self.base / SOURCE_ROOT / "linked"
+        try:
+            linked.symlink_to(outside, target_is_directory=True)
+        except (NotImplementedError, OSError) as exc:
+            self.skipTest(f"symlinks are not supported here: {exc}")
+
+        exp = Experiment(
+            self.root / "ancestor-symlink-evolution",
+            rollout=lambda _version, _slice: [],
+            seed={
+                SOURCE_ROOT
+                + "/linked/core.py": "def run() -> str:\n    return 'version'\n"
+            },
+        )
+        fake_agent = FakeAgent(
+            expected_path=SOURCE_ROOT + "/linked/core.py",
+            expected_before="version",
+        )
+
+        def agent_builder(**kwargs):
+            fake_agent.cwd = Path(kwargs["cwd"])
+            return fake_agent
+
+        current = exp.current()
+        ctx = Context(
+            runs=(),
+            current=current,
+            workspace=self.root / "ancestor-symlink-evolution",
+        )
+        strategy = source_tree_agent_strategy(
+            provider=object(),
+            repo_root=self.base,
+            agent_builder=agent_builder,
+            validation=lambda _repo_root, _files: None,
+        )
+
+        proposal = strategy(ctx)
+
+        self.assertIsNotNone(proposal)
+        assert proposal is not None
+        self.assertIn(SOURCE_ROOT + "/linked/core.py", proposal.edits)
+        self.assertEqual(outside_core.read_text(), "OUTSIDE = 1\n")
+
     def test_source_tree_agent_registry_accepts_config_compatibility_kwargs(
         self,
     ) -> None:
@@ -267,11 +317,16 @@ class RepoStrategyTest(unittest.TestCase):
 
 
 class FakeAgent:
-    def __init__(self, expected_before: str | None = None) -> None:
+    def __init__(
+        self,
+        expected_before: str | None = None,
+        expected_path: str = SOURCE_ROOT + "/core.py",
+    ) -> None:
         self.cwd: Path | None = None
         self.base_tree: Path | None = None
         self.events_consumed = False
         self.expected_before = expected_before
+        self.expected_path = expected_path
 
     def run(self, task: str, *, max_turns: int) -> tuple[object, Iterator[object]]:
         self.task = task
@@ -281,9 +336,9 @@ class FakeAgent:
             assert self.cwd is not None
             self.base_tree = self.cwd.parent / "base"
             if self.expected_before is not None:
-                before = (self.cwd / SOURCE_ROOT / "core.py").read_text()
+                before = (self.cwd / self.expected_path).read_text()
                 self.assert_expected_before(before)
-            (self.cwd / SOURCE_ROOT / "core.py").write_text(
+            (self.cwd / self.expected_path).write_text(
                 "def run() -> str:\n    return 'agent'\n"
             )
             self.events_consumed = True

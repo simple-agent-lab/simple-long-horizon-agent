@@ -209,11 +209,23 @@ def _overlay_source_version(
         rel = Path(path)
         if not _is_under_source_root(rel):
             continue
-        target = base_tree / rel
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if target.is_symlink():
-            target.unlink()
+        target = _prepare_overlay_target(base_tree, rel)
         target.write_text(read(path), encoding="utf-8")
+
+
+def _prepare_overlay_target(base_tree: Path, rel: Path) -> Path:
+    current = base_tree
+    for part in rel.parts[:-1]:
+        current = current / part
+        if current.is_symlink():
+            current.unlink()
+        current.mkdir(exist_ok=True)
+
+    target = current / rel.name
+    if target.is_symlink():
+        target.unlink()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    return target
 
 
 def _changed_paths(base_tree: Path, changed_tree: Path) -> list[Path]:
