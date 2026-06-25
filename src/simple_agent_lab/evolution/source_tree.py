@@ -134,6 +134,8 @@ def _walk_surface_files(source_root: Path) -> list[Path]:
 def _walk_candidate_files(source_root: Path) -> list[Path]:
     files: list[Path] = []
     for path in source_root.rglob("*"):
+        if path.is_symlink():
+            continue
         if not path.is_file():
             continue
         rel = path.relative_to(source_root).as_posix()

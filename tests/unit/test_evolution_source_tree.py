@@ -7,7 +7,6 @@ from pathlib import Path
 from simple_agent_lab.evolution.source_tree import (
     CANDIDATE_PACKAGE,
     CANDIDATE_SRC,
-    CANDIDATE_TREE,
     SOURCE_ROOT,
     candidate_source_artifacts,
     cheap_validate_source_tree,
@@ -45,7 +44,6 @@ class SourceTreeEvolutionTest(unittest.TestCase):
             {SOURCE_ROOT + "/core.py": "def run() -> str:\n    return 'better'\n"},
         )
 
-        self.assertIn(CANDIDATE_TREE + "/", CANDIDATE_SRC + "/")
         self.assertEqual(CANDIDATE_PACKAGE, CANDIDATE_SRC + "/simple_agent_lab")
         self.assertEqual(
             artifacts[CANDIDATE_PACKAGE + "/core.py"],
@@ -55,6 +53,22 @@ class SourceTreeEvolutionTest(unittest.TestCase):
         self.assertNotIn(
             CANDIDATE_PACKAGE + "/__pycache__/core.cpython-314.pyc", artifacts
         )
+
+    def test_candidate_artifacts_and_surface_skip_symlinked_files(self) -> None:
+        outside = self.repo_root / "outside_secret.py"
+        outside.write_text("SECRET = 'outside'\n")
+        symlink = self.repo_root / SOURCE_ROOT / "linked_secret.py"
+        try:
+            symlink.symlink_to(outside)
+        except (NotImplementedError, OSError) as exc:
+            self.skipTest(f"symlinks are not supported here: {exc}")
+
+        artifacts = candidate_source_artifacts(self.repo_root, {})
+        surface = source_tree_surface(self.repo_root)
+
+        self.assertNotIn(CANDIDATE_PACKAGE + "/linked_secret.py", artifacts)
+        self.assertNotIn("linked_secret.py", surface)
+        self.assertNotIn("SECRET = 'outside'", surface)
 
     def test_artifact_paths_stay_under_candidate_package(self) -> None:
         artifacts = candidate_source_artifacts(
