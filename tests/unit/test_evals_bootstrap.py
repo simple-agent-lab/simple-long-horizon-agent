@@ -24,10 +24,34 @@ class EvalBootstrapTest(unittest.TestCase):
         )
 
         assert (
-            'export PYTHONPATH="/agent/run/input/source_tree/src${PYTHONPATH:+:$PYTHONPATH}"'
+            'export PYTHONPATH=/agent/run/input/source_tree/src"${PYTHONPATH:+:$PYTHONPATH}"'
             in script
         )
         assert script.index("export PYTHONPATH=") < script.index('"$AGENT_PYTHON" -m')
+
+    def test_bootstrap_shell_quotes_candidate_pythonpath_segment(self) -> None:
+        script = bootstrap_script(
+            runner_argv=("-m", "simple_agent_lab.evals.in_container"),
+            install=False,
+            extra_pythonpath=("/tmp/a $(touch nope)",),
+        )
+
+        assert (
+            "export PYTHONPATH='/tmp/a $(touch nope)'\"${PYTHONPATH:+:$PYTHONPATH}\""
+            in script
+        )
+
+    def test_bootstrap_joins_candidate_pythonpath_entries(self) -> None:
+        script = bootstrap_script(
+            runner_argv=("-m", "simple_agent_lab.evals.in_container"),
+            install=False,
+            extra_pythonpath=("/candidate/src", "/agent/src"),
+        )
+
+        assert (
+            'export PYTHONPATH=/candidate/src:/agent/src"${PYTHONPATH:+:$PYTHONPATH}"'
+            in script
+        )
 
 
 if __name__ == "__main__":

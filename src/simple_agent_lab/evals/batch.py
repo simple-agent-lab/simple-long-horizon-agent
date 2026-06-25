@@ -89,6 +89,7 @@ def submit_dataset(
     provider_env: Mapping[str, str] | None = None,
     install: bool = True,
     wheelhouse_mount: str | None = None,
+    pythonpath: tuple[str, ...] = (),
 ) -> list[RunHandle]:
     """Start every instance's run (without waiting) and persist a batch manifest.
 
@@ -137,6 +138,7 @@ def submit_dataset(
             max_turns=max_turns,
             provider=provider,
             api_kind=api_kind,
+            pythonpath=tuple(pythonpath),
             provider_env=dict(provider_env or {}),
             install=install,
             wheelhouse_mount=wheelhouse_mount,

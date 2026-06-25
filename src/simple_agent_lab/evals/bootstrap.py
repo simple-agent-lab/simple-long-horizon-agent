@@ -76,8 +76,8 @@ def _install_line(wheelhouse_mount: str | None, package_extras: tuple[str, ...])
 def _pythonpath_line(extra_pythonpath: tuple[str, ...]) -> str:
     if not extra_pythonpath:
         return ""
-    joined = ":".join(shlex.quote(part) for part in extra_pythonpath)
-    return f'export PYTHONPATH="{joined}${{PYTHONPATH:+:$PYTHONPATH}}"'
+    joined = ":".join(extra_pythonpath)
+    return f'export PYTHONPATH={shlex.quote(joined)}"${{PYTHONPATH:+:$PYTHONPATH}}"'
 
 
 def bootstrap_script(

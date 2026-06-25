@@ -200,7 +200,7 @@ class OrchestrationTest(unittest.TestCase):
         script = command[-1]
 
         self.assertIn(
-            'export PYTHONPATH="/agent/run/input/source_tree/src${PYTHONPATH:+:$PYTHONPATH}"',
+            'export PYTHONPATH=/agent/run/input/source_tree/src"${PYTHONPATH:+:$PYTHONPATH}"',
             script,
         )
 
@@ -640,6 +640,25 @@ class RunDatasetTest(unittest.TestCase):
 
 class SubmitReconcileTest(unittest.TestCase):
     """Host-reentrant batch: submit, drop all memory, reconcile from disk only."""
+
+    def test_submit_dataset_threads_candidate_pythonpath(self) -> None:
+        from simple_agent_lab.evals import submit_dataset
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            backend = FakeBackend()
+            submit_dataset(
+                suite=_DemoSuite(),
+                instances=[{"instance_id": "i-1", "problem": "p"}],
+                backend=backend,
+                store=LocalDirStore(root),
+                run_root=root,
+                run_id="batch",
+                provider="fake",
+                pythonpath=("/candidate/src",),
+            )
+
+        self.assertEqual(backend.runs[0].pythonpath, ("/candidate/src",))
 
     def test_submit_then_reconcile_from_fresh_process(self) -> None:
         from simple_agent_lab.evals import reconcile_dataset, submit_dataset
