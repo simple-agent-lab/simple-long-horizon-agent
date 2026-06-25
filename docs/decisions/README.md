@@ -42,6 +42,7 @@ product direction, especially if future contributors may wonder why it was chose
 - [Consolidate Agent Presets behind one AgentSession + Toolsets](20260604-consolidate-agent-presets.md)
 - [A Pluggable State Initializer Makes Skills a Bare-Agent Capability](20260605-pluggable-state-init-hook.md)
 - [Recipes Are The Self-Evolving Surface; Infra Stays Benchmark-Agnostic](20260617-recipes-as-the-self-evolving-surface.md) — builds on `faithful-hyperagents-recipe` and `retarget-recipe-to-dgm`
+- [Source-Tree Self-Evolution Replaces Wrapper-Package Simple Runs](20260625-source-tree-self-evolution.md)
 
 ## Proposed
 
