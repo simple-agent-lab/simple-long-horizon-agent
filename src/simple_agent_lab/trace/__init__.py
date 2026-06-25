@@ -12,8 +12,9 @@ splits the work by concern so each piece stays small and readable:
 - ``jsonl`` — JSON-safe coercion + (atomic) JSONL read/write.
 - ``spans`` — ``Span`` model and the event → span tree extraction.
 - ``training`` — ``ModelTurn`` model and provider-neutral training pairs.
-- ``openai_export`` — OpenAI Chat fine-tuning JSONL export (the package's
-  one provider-specific module).
+- ``openai_export`` — OpenAI Chat fine-tuning JSONL export.
+- ``claude_code_export`` — Claude Code session-transcript JSONL export
+  (compaction splits sessions; sub-agents become sidechains).
 - ``run_trace`` — ``RunTrace`` value plus the canonical record schema.
 - ``live`` — the IO/concurrency-heavy incremental ("live") export edge.
 
@@ -40,6 +41,11 @@ from .live import (
     run_agent_with_live_trace,
     trace_meta_from_run_trace,
     write_canonical_trace,
+)
+from .claude_code_export import (
+    ClaudeCodeSession,
+    claude_code_sessions,
+    write_claude_code_sessions,
 )
 from .openai_export import (
     append_openai_training_record,
@@ -74,12 +80,14 @@ __all__ = [
     "LIVE_TRACE_PATH_ENV",
     "LiveTraceSession",
     "ModelTurn",
+    "ClaudeCodeSession",
     "RunTrace",
     "SCHEMA",
     "Span",
     "TRACE_HEADER_TYPE",
     "TraceMeta",
     "append_openai_training_record",
+    "claude_code_sessions",
     "default_stderr_flush_error",
     "event_from_record",
     "event_record",
@@ -100,6 +108,7 @@ __all__ = [
     "trace_record",
     "trace_record_from_jsonl",
     "write_canonical_trace",
+    "write_claude_code_sessions",
     "write_jsonl",
     "write_jsonl_atomic",
 ]
