@@ -161,6 +161,28 @@ class RolloutTest(unittest.TestCase):
         self.assertEqual(staged["i1"], b"VALUE = 'candidate'\n")
         self.assertEqual(staged["i2"], b"VALUE = 'candidate'\n")
 
+    def test_candidate_pythonpath_is_prepended_to_legacy_run_kwargs(self) -> None:
+        seen_pythonpath: dict[str, tuple[str, ...]] = {}
+
+        def on_run(spec: RunSpec, bound) -> None:
+            seen_pythonpath[spec.instance_id] = spec.pythonpath
+            bound.put(TRACE_KEY, b'{"events": []}\n')
+            bound.put(RESULT_KEY, b'{"reward": 0.5}\n')
+
+        rollout = dataset_rollout(
+            suite=_DemoSuite(),
+            backend=FakeBackend(on_run=on_run),
+            store=LocalDirStore(self.ws / "runs"),
+            runs_root=self.ws / "runs",
+            run_kwargs={"pythonpath": ("/legacy/src",)},
+            candidate_pythonpath=("/candidate/src",),
+        )
+        slice_ = Slice("demo", ({"instance_id": "i1"},))
+
+        rollout(self.version, slice_)
+
+        self.assertEqual(seen_pythonpath["i1"], ("/candidate/src", "/legacy/src"))
+
     def test_raises_dataset_errors_instead_of_hiding_missing_artifacts(self) -> None:
         def fail_run(spec: RunSpec, bound) -> None:
             raise RuntimeError(f"container failed for {spec.instance_id}")

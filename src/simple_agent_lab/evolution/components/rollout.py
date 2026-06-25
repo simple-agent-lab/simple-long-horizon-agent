@@ -92,7 +92,7 @@ def dataset_rollout(
             extra = dict(run_kwargs or {})
             api_kind = extra.pop("api_kind", _api_kind(provider_env))
             legacy_pythonpath = tuple(extra.pop("pythonpath", ()))
-            pythonpath = candidate_pythonpath or legacy_pythonpath
+            pythonpath = candidate_pythonpath + legacy_pythonpath
             if version_artifacts is not None:
                 staged = version_artifacts(version)
                 if staged:
