@@ -105,12 +105,17 @@ parents are explored and *how many* candidates run at once.
   promotion), `not_worse(dim, tol=)` (a guard), `valid_when(dim)` (open-ended
   admission — accept any child that produced gradable runs), and
   `guarded(objective, guards)` ("optimize X subject to Y").
+- `source_tree_agent_strategy(*, provider, repo_root, ...)`
+  (`evolution/components/repo_strategy.py`) — the source-tree meta-strategy used
+  by the simple recipe: it copies the repo, overlays the parent version's
+  `src/simple_agent_lab/**` files, lets a bash-capable meta-agent inspect and edit
+  the temporary copy, and converts changed Python source files into a `Proposal`.
 - `model_program_strategy(*, provider, prefix="agent/", system_prompt, parent_selection="current", parent_selector=None)`
-  (`evolution/components/strategy.py`) — the model-driven meta-strategy: an LLM
-  rewrites whole files under a path prefix (Python is AST-validated), returning a
-  `Proposal`. Benchmark-agnostic; the recipe injects the domain prompt. Any
-  non-current parent-selection policy must be supplied by the recipe through
-  `parent_selector`.
+  (`evolution/components/strategy.py`) — a lower-level model-driven wrapper
+  strategy: an LLM rewrites whole files under a path prefix (Python is
+  AST-validated), returning a `Proposal`. Benchmark-agnostic; recipes or tests
+  inject the domain prompt. Any non-current parent-selection policy must be
+  supplied by the recipe through `parent_selector`.
 - `recipes.dgm.algorithm.archive.nodes(workspace)` and
   `recipes.dgm.algorithm.archive.select_parent(nodes, method=)` — the DGM parent-selection
   policies (`latest`, `best`, `score_prop`, `score_child_prop`, `random`)
@@ -123,11 +128,11 @@ parents are explored and *how many* candidates run at once.
 | [`recipes/simple/`](../../recipes/simple/README.md) | Config-backed generic `algorithm: simple` train-slice evolution with optional heldout before/final reporting | Sequential `Experiment.step` loop | YAML config — train/heldout paths, rounds, evaluation flags, execution settings |
 | [`recipes/dgm/`](../../recipes/dgm/README.md) | Config-backed DGM-style archive mechanics with recipe-local held-out scoring; full self-reference is not complete yet | `recipes.dgm.algorithm.open_ended.run_evolution` (parallel) | YAML config plus CLI overrides — branches, parent selection, meta-concurrency, parallelism |
 
-Both evolve the **whole agent program** under `agent/`: the model rewrites the
-agent's Python package, each candidate is graded on a train slice in a SWE-bench
-Docker sandbox, and helper modules beside `agent_program.py` are part of the
-supported surface. The simple recipe runs through the generic config-backed
-runner and supports dry-runs plus generic heldout before/final reports when
+The simple recipe now evolves the framework source under `src/simple_agent_lab/**`
+through the `source_tree` surface and `source_tree_agent` strategy. Each
+candidate is staged as a source tree and graded on a train slice in a SWE-bench
+Docker sandbox. The simple recipe runs through the generic config-backed runner
+and supports dry-runs plus generic heldout before/final reports when
 `instances.heldout` and `evaluation.*` are enabled. The DGM recipe is also
 YAML-backed through `configs/dgm_swebench.yaml` and `recipes/dgm/config.py`, but
 owns the open-ended archive policy and its archive-specific held-out official
@@ -147,7 +152,8 @@ For the simple path, choose these pieces:
 - `Suite` — the benchmark or task runner. For SWE-bench, recipes use the existing
   `evals/swebench/suite.py` `SwebenchSuite`.
 - `AgentSurface` — the editable agent shape: default files, valid editable
-  components, and how a version is staged into each run.
+  components, and how a version is staged into each run. The simple recipe's
+  `source_tree` surface seeds current `src/simple_agent_lab/**/*.py` files.
 - editable components — the surface slices the strategy may change, such as
   `agent_program`, `prompts`, `tool_policy`, `memory_policy`, or `everything`.
 - `InstanceSet` — the frozen train slice loaded from the JSONL path named in
@@ -162,18 +168,21 @@ criterion, and rounds). Python supplies the behavior behind those names:
 `AgentSurface` validation/staging, `rollout_from_suite`, suite host/container
 halves, strategy factories, reward, and criterion. SWE-bench simple runs compose
 through `recipes/simple/evolve.py` factory registration, `SwebenchSuite`,
-`AgentSurface`, and `rollout_from_suite`; DGM uses `recipes/dgm/config.py` for
-its recipe-local YAML schema and `recipes/dgm/swebench.py` for its rollout and
-official-scoring workflow.
+`source_tree_agent_surface`, `source_tree_agent_strategy`, and
+`rollout_from_suite`; DGM uses `recipes/dgm/config.py` for its recipe-local YAML
+schema and `recipes/dgm/swebench.py` for its rollout and official-scoring
+workflow.
 
 ## Write your own recipe
 
 A recipe is just the four components plus a slice. The smallest possible shape:
 
 ```python
+from pathlib import Path
+
 from simple_agent_lab.evolution import Experiment
 from simple_agent_lab.evolution.components.criterion import improve
-from simple_agent_lab.evolution.components.strategy import model_program_strategy
+from simple_agent_lab.evolution.components.repo_strategy import source_tree_agent_strategy
 
 exp = Experiment(
     workspace,
@@ -185,7 +194,7 @@ exp = Experiment(
     seed=seed_files,             # the initial agent's files
 )
 
-strategy = model_program_strategy(provider=provider, prefix="agent/")
+strategy = source_tree_agent_strategy(provider=provider, repo_root=Path("."))
 decisions = exp.run(strategy, n=4)   # sequential
 ```
 
@@ -199,13 +208,12 @@ stepping stones. See `recipes/dgm/evolve.py` for the fully wired version.
 The benchmark-specific piece is the suite plus whatever rollout/reward support
 the recipe chooses to add. For SWE-bench, the benchmark interface is
 `SwebenchSuite`; the in-wheel
-`simple_agent_lab.evals.suites.swebench.evolving` module only teaches the
-container half how to load the generic `input/agent_package.json` artifact. DGM's
-extra run/scoring helpers live in `recipes/dgm/swebench.py` because they are DGM
-workflow support, not universal benchmark API. A new benchmark adds its own
-suite and, only if it needs evolvable in-container code, a small container hook
-that consumes the same generic agent-package artifact without touching the
-substrate.
+`simple_agent_lab.evals.suites.swebench.evolving` module can run against the
+staged source tree for the simple recipe. DGM's extra run/scoring helpers live
+in `recipes/dgm/swebench.py` because they are DGM workflow support, not universal
+benchmark API. A new benchmark adds its own suite and, only if it needs
+evolvable in-container code, a small container hook that consumes the recipe's
+chosen artifact without touching the substrate.
 
 ## Where things live
 
@@ -213,10 +221,11 @@ substrate.
 src/simple_agent_lab/evolution/    # substrate (benchmark-agnostic)
   kernel/        store, log, loop   # versions, decision log, the loop + guarantees
   components/    reward, criterion, rollout, strategy
-  surface.py, agent_package.py      # editable surfaces + generic Python-agent package
+  surface.py, source_tree.py        # editable surfaces + source-tree staging
+  agent_package.py                  # lower-level wrapper-package test support
 evals/swebench/suite.py             # SWE-bench benchmark interface
 src/simple_agent_lab/evals/suites/swebench/evolving.py
-                                    # SWE-bench container hook for staged agent packages
+                                    # SWE-bench container hook for staged candidates
 recipes/                            # runnable recipes + ops scripts
   simple/evolve.py
   runtime.py

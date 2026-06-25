@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any, cast
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
@@ -62,10 +66,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not _has_option(args, "--config") and not _asks_for_help(args):
         args = ["--config", str(DEFAULT_CONFIG), *args]
     config_path = None if _asks_for_help(args) else _option_value(args, "--config")
-    register_recipe_factories(config_path)
+    normalized_config = None
     if config_path is not None:
-        _preflight_if_execute(args, config_path)
-    return run_main(args)
+        args, config_path, normalized_config = _normalize_config_args(args, config_path)
+    try:
+        register_recipe_factories(config_path)
+        if config_path is not None:
+            _preflight_if_execute(args, config_path)
+        return run_main(args)
+    finally:
+        if normalized_config is not None:
+            normalized_config.cleanup()
 
 
 def _has_option(args: Sequence[str], option: str) -> bool:
@@ -83,6 +94,109 @@ def _option_value(args: Sequence[str], option: str) -> str | None:
         if arg.startswith(f"{option}="):
             return arg.split("=", 1)[1]
     return None
+
+
+def _normalize_config_args(
+    args: Sequence[str], config_path: str
+) -> tuple[list[str], str, tempfile.TemporaryDirectory[str]]:
+    path = Path(config_path)
+    if not path.is_absolute():
+        path = (Path.cwd() / path).resolve(strict=False)
+    else:
+        path = path.resolve(strict=False)
+    base = ROOT if path == DEFAULT_CONFIG.resolve(strict=False) else path.parent
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("config must be a YAML mapping")
+    config_data = cast("dict[str, Any]", data)
+
+    _normalize_instance_paths(config_data, base=base)
+    _normalize_source_tree_repo_root(config_data)
+    _normalize_repo_relative_backend_paths(config_data)
+
+    temp = tempfile.TemporaryDirectory(prefix="sal-simple-config-")
+    normalized = Path(temp.name) / path.name
+    normalized.write_text(
+        yaml.safe_dump(config_data, sort_keys=False), encoding="utf-8"
+    )
+    return (
+        _replace_option_value(args, "--config", str(normalized)),
+        str(normalized),
+        temp,
+    )
+
+
+def _replace_option_value(args: Sequence[str], option: str, value: str) -> list[str]:
+    out = list(args)
+    for i, arg in enumerate(out):
+        if arg == option and i + 1 < len(out):
+            out[i + 1] = value
+            return out
+        if arg.startswith(f"{option}="):
+            out[i] = f"{option}={value}"
+            return out
+    return [option, value, *out]
+
+
+def _normalize_instance_paths(data: dict[str, Any], *, base: Path) -> None:
+    instances = data.get("instances")
+    if not isinstance(instances, dict):
+        return
+    instances = cast("dict[str, Any]", instances)
+    for name in ("train", "heldout"):
+        item = instances.get(name)
+        if not isinstance(item, dict):
+            continue
+        item = cast("dict[str, Any]", item)
+        raw_path = item.get("path")
+        if isinstance(raw_path, str):
+            item["path"] = _absolute_path(raw_path, base=base)
+
+
+def _normalize_source_tree_repo_root(data: dict[str, Any]) -> None:
+    surface = data.get("surface")
+    if not isinstance(surface, dict):
+        return
+    surface = cast("dict[str, Any]", surface)
+    if surface.get("name") != "source_tree":
+        return
+    strategy = data.setdefault("strategy", {})
+    if not isinstance(strategy, dict):
+        return
+    strategy = cast("dict[str, Any]", strategy)
+    args = strategy.setdefault("args", {})
+    if not isinstance(args, dict):
+        return
+    args = cast("dict[str, Any]", args)
+    raw = args.get("repo_root", ".")
+    if isinstance(raw, str):
+        args["repo_root"] = _absolute_path(raw, base=ROOT)
+
+
+def _normalize_repo_relative_backend_paths(data: dict[str, Any]) -> None:
+    execution = data.get("execution")
+    if not isinstance(execution, dict):
+        return
+    execution = cast("dict[str, Any]", execution)
+    backend = execution.get("backend")
+    if not isinstance(backend, dict):
+        return
+    backend = cast("dict[str, Any]", backend)
+    args = backend.get("args")
+    if not isinstance(args, dict):
+        return
+    args = cast("dict[str, Any]", args)
+    for key in ("wheelhouse", "uv_binary"):
+        raw = args.get(key)
+        if isinstance(raw, str):
+            args[key] = _absolute_path(raw, base=ROOT)
+
+
+def _absolute_path(path: str, *, base: Path) -> str:
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        candidate = base / candidate
+    return str(candidate.resolve(strict=False))
 
 
 def _swebench_reward_from_config(config_path: str | Path):

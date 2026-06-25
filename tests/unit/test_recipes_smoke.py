@@ -246,6 +246,27 @@ evaluation:
         self.assertIn("dry-run", result.stdout)
         self.assertIn("run id: default-simple-smoke", result.stdout)
 
+    def test_simple_recipe_default_config_runs_from_non_root_cwd(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "recipes" / "simple" / "evolve.py"),
+                    "--run-id",
+                    "outside-cwd-simple-smoke",
+                ],
+                cwd=tmp,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("dry-run", result.stdout)
+        self.assertIn("run id: outside-cwd-simple-smoke", result.stdout)
+        self.assertIn("surface: source_tree", result.stdout)
+
 
 class AheRecipeSmokeTest(unittest.TestCase):
     def test_ahe_execute_writes_round_ledger_artifacts(self):

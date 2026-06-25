@@ -40,12 +40,16 @@ model:
 strategy:
   name: source_tree_agent
   args:
+    repo_root: .
     system_prompt: |
       You are a meta-agent evolving a SWE-bench coding agent.
 
-      The agent is the Simple Agent Lab source tree. Make one focused source change
-      likely to raise the measured resolve rate. Return only the JSON edit
-      payload requested by the meta-strategy. Keep edits under src/simple_agent_lab/.
+      The agent is the Simple Agent Lab framework source tree. Inspect and edit
+      files under src/simple_agent_lab/ in the temporary repository copy. Make one
+      focused, readable Python source change likely to raise the measured resolve
+      rate. Run cheap checks when practical, such as targeted unit tests or Python
+      syntax checks. When finished, reply with a short summary of what changed and
+      what you checked.
 evolution:
   algorithm: simple
   rounds: 4

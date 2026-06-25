@@ -145,10 +145,10 @@ suite:
     in_env_scoring: true
 
 surface:
-  name: python_agent_package
+  name: source_tree
   editable_components: [everything]
-  artifact_key: input/agent_package.json
-  default: simple_agent_package
+  artifact_key: source_tree
+  default: current_source_tree
 
 instances:
   train:
@@ -173,9 +173,15 @@ model:
   base_url_env: OPENAI_BASE_URL
 
 strategy:
-  name: model_program
+  name: source_tree_agent
   args:
-    system_prompt: "You are a meta-agent evolving a SWE-bench coding agent."
+    repo_root: .
+    system_prompt: |
+      You are a meta-agent evolving a SWE-bench coding agent.
+
+      Inspect and edit files under src/simple_agent_lab/ in the temporary
+      repository copy. Run cheap checks when practical, then finish with a short
+      summary.
 
 evolution:
   algorithm: simple
@@ -216,11 +222,16 @@ the model writes." A surface defines:
 - validators such as path safety, Python syntax, and required entrypoint checks
 - how a `Version` becomes per-run input artifacts
 
-The built-in `python_agent_surface(...)` stores files under `agent/`, requires
-`agent/agent_program.py:build_agent`, and packages the selected version files
-as `input/agent_package.json` for the eval container. The neutral seed program
-and import-time loader live in `evolution.agent_package`; benchmark suites only
-decide whether and how that artifact is consumed.
+The built-in `source_tree_agent_surface(...)` seeds Python files from
+`src/simple_agent_lab/` into the initial `Version`. Config-built source-tree
+runs stage the selected version under `input/source_tree/src/simple_agent_lab/`
+and prepend `/agent/run/input/source_tree/src` to the candidate run's
+`PYTHONPATH`, so the suite exercises the evolved framework source.
+
+The lower-level `python_agent_surface(...)` remains available for tests and
+custom wrapper-package experiments. It stores files under `agent/`, requires
+`agent/agent_program.py:build_agent`, and packages the selected version files as
+`input/agent_package.json` for eval containers that opt into that artifact.
 
 ## Benchmark Execution
 
@@ -237,16 +248,20 @@ It reuses the eval framework:
 For SWE-bench, the normal benchmark interface is `evals/swebench/suite.py`
 `SwebenchSuite`. The simple recipe registers it under the name `swebench` and
 points the suite at the in-wheel `simple_agent_lab.evals.suites.swebench.evolving`
-container hook so the staged generic agent package can be loaded. DGM adds
-recipe-local helpers for archive-specific official scoring.
+container hook. Source-tree runs stage the evolved framework source as a
+candidate source tree; DGM adds recipe-local helpers for archive-specific
+official scoring.
 
 ## Strategies, Rewards, and Criteria
 
 Strategies return `Proposal | None`.
 
-- `model_program_strategy(...)` asks an LLM to rewrite full files under the
-  selected surface. It validates JSON, filters invalid edits, and returns a
-  `Proposal`.
+- `source_tree_agent_strategy(...)` lets a bash-capable meta-agent edit a
+  temporary repo copy, then derives a `Proposal` from filesystem diffs under
+  `src/simple_agent_lab/`.
+- `model_program_strategy(...)` is a lower-level wrapper-program strategy that
+  asks an LLM to rewrite full files under the selected surface. It validates
+  JSON, filters invalid edits, and returns a `Proposal`.
 - Custom strategies can be ordinary Python functions. This is useful for tests,
   ablations, or hand-written evolution steps.
 

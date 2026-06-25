@@ -12,13 +12,13 @@ recipe-local under [`../dgm/`](../dgm/).
 ## Default config
 
 The default config is [`../../configs/simple_swebench.yaml`](../../configs/simple_swebench.yaml).
-It uses registry names for the SWE-bench suite and Python-agent surface:
+It uses registry names for the SWE-bench suite and source-tree surface:
 
 - suite: `swebench`
-- surface: `python_agent_package`
+- surface: `source_tree`
 - backend: `local_docker`
 - store: `local_dir`
-- strategy: `model_program`
+- strategy: `source_tree_agent`
 - algorithm: `simple`
 
 The default train and heldout slices point at the generated SWE-bench demo
@@ -29,7 +29,8 @@ split:
 
 For a real run, copy the config or pass your own with `--config`, then edit the
 `instances.train.path`, `instances.heldout.path`, model settings, output root,
-and execution settings when you want a different split or runtime shape.
+`strategy.args.repo_root`, and execution settings when you want a different
+split, source checkout, or runtime shape.
 
 ## Run it
 
