@@ -22,7 +22,7 @@ def register_recipe_factories(config_path: str | Path | None = None) -> None:
     """Register the YAML-named factories used by the AHE recipe."""
 
     from evals.swebench.suite import SwebenchSuite
-    from recipes.ahe.strategy import ahe_model_strategy
+    from recipes.ahe.strategy import ahe_agent_strategy
     from recipes.ahe.surface import ahe_harness_surface
     from simple_agent_lab.evals import LocalDirStore, LocalDockerBackend
     from simple_agent_lab.evolution import registry
@@ -41,7 +41,8 @@ def register_recipe_factories(config_path: str | Path | None = None) -> None:
         "local_docker", lambda **args: LocalDockerBackend(**args)
     )
     registry.STORES.setdefault("local_dir", lambda root, **_args: LocalDirStore(root))
-    registry.STRATEGIES.setdefault("ahe_model", ahe_model_strategy)
+    registry.STRATEGIES.setdefault("ahe_agent", ahe_agent_strategy)
+    registry.STRATEGIES.setdefault("ahe_model", ahe_agent_strategy)
     if config_path is not None:
         reward = _swebench_reward_from_config(config_path)
         registry.REWARDS["result_key"] = lambda reward=reward: reward

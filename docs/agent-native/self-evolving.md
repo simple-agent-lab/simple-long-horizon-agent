@@ -108,8 +108,17 @@ parents are explored and *how many* candidates run at once.
 - `source_tree_agent_strategy(*, provider, repo_root, ...)`
   (`evolution/components/repo_strategy.py`) — the source-tree meta-strategy used
   by the simple recipe: it copies the repo, overlays the parent version's
-  `src/simple_agent_lab/**` files, lets a bash-capable meta-agent inspect and edit
-  the temporary copy, and converts changed Python source files into a `Proposal`.
+  `src/simple_agent_lab/**` files, writes a compact `SELF_EVOLUTION_CONTEXT.md`
+  briefing, lets a bash-capable meta-agent inspect and edit the temporary copy,
+  and converts changed Python source files into a `Proposal`.
+- `recipes.dgm.evolve.dgm_agentic_strategy(...)` — the DGM recipe's agentic
+  self-improvement strategy: select a parent from the archive, materialize its
+  `agent/` package, load that package as a SAL agent, run it on a
+  self-improvement task, and turn `agent/` diffs into a child proposal.
+- `recipes.ahe.strategy.ahe_agent_strategy(...)` — the AHE recipe's
+  role-separated evolve-agent strategy: run analysis, stage the analysis and
+  harness files into a workspace, let a SAL evolve agent edit `harness/`, and
+  write `change_manifest.json`.
 - `model_program_strategy(*, provider, prefix="agent/", system_prompt, parent_selection="current", parent_selector=None)`
   (`evolution/components/strategy.py`) — a lower-level model-driven wrapper
   strategy: an LLM rewrites whole files under a path prefix (Python is
@@ -121,25 +130,26 @@ parents are explored and *how many* candidates run at once.
   policies (`latest`, `best`, `score_prop`, `score_child_prop`, `random`)
   derived from the decision log.
 
-## The two recipes
+## The three recipes
 
 | Recipe | What it shows | Loop | Knobs |
 | --- | --- | --- | --- |
 | [`recipes/simple/`](../../recipes/simple/README.md) | Config-backed generic `algorithm: simple` train-slice evolution with optional heldout before/final reporting | Sequential `Experiment.step` loop | YAML config — train/heldout paths, rounds, evaluation flags, execution settings |
-| [`recipes/dgm/`](../../recipes/dgm/README.md) | Config-backed DGM-style archive mechanics with recipe-local held-out scoring; full self-reference is not complete yet | `recipes.dgm.algorithm.open_ended.run_evolution` (parallel) | YAML config plus CLI overrides — branches, parent selection, meta-concurrency, parallelism |
+| [`recipes/ahe/`](../../recipes/ahe/README.md) | AHE-style analysis, evolve-agent workspace, component manifest, and ledgering on SWE-bench | Sequential `Experiment.step` loop | YAML config — train/heldout paths, rounds, evaluation flags, execution settings |
+| [`recipes/dgm/`](../../recipes/dgm/README.md) | Config-backed DGM-style archive mechanics with parent-agent self-improvement and recipe-local held-out scoring | `recipes.dgm.algorithm.open_ended.run_evolution` (parallel) | YAML config plus CLI overrides — branches, parent selection, meta-concurrency, parallelism |
 
 The simple recipe now evolves the framework source under `src/simple_agent_lab/**`
 through the `source_tree` surface and `source_tree_agent` strategy. Each
 candidate is staged as a source tree and graded on a train slice in a SWE-bench
 Docker sandbox. The simple recipe runs through the generic config-backed runner
 and supports dry-runs plus generic heldout before/final reports when
-`instances.heldout` and `evaluation.*` are enabled. The DGM recipe is also
+`instances.heldout` and `evaluation.*` are enabled. The AHE recipe adds a
+model-backed analyzer, stages its artifacts for a role-separated SAL evolve
+agent, and records a change manifest plus ledger. The DGM recipe is also
 YAML-backed through `configs/dgm_swebench.yaml` and `recipes/dgm/config.py`, but
-owns the open-ended archive policy and its archive-specific held-out official
-scoring workflow. It currently reproduces the archive/open-ended mechanics; the
-Gödel/self-reference milestone, where the evolved coding agent improves its own
-improver, remains future work. Start with `recipes/` for prerequisites and
-quick-starts.
+owns the open-ended archive policy, parent-agent self-improvement strategy, and
+archive-specific held-out official scoring workflow. Start with `recipes/` for
+prerequisites and quick-starts.
 
 ## Writing a self-evolving run
 

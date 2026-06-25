@@ -7,18 +7,18 @@ benchmark glue live; the substrate itself stays generic.
 | Recipe | Role | Loop | When to read |
 | --- | --- | --- | --- |
 | [`simple/`](simple/README.md) | Ergonomics showcase — minimal user code, maximal agent freedom | Sequential step loop | "How little does it take to start a real self-evolving run?" |
-| [`ahe/`](ahe/README.md) | AHE observability showcase on SWE-bench; uses SAL `AgentSurface`, pre-proposal analysis, and recipe-local ledgering | Sequential step loop with analyzer-before-proposal and AHE round ledger | "How does AHE-style component, experience, and decision observability map onto SAL?" |
-| [`dgm/`](dgm/README.md) | DGM-style archive showcase with every operational knob exposed; full self-reference is pending | Parallel open-ended archive-admission loop | "How do I study DGM mechanics and tune the archive loop?" |
+| [`ahe/`](ahe/README.md) | AHE observability showcase on SWE-bench; uses SAL `AgentSurface`, pre-proposal analysis, an agentic evolve-agent workspace, and recipe-local ledgering | Sequential step loop with analyzer-before-proposal and AHE round ledger | "How does AHE-style component, experience, and decision observability map onto SAL?" |
+| [`dgm/`](dgm/README.md) | DGM-style archive showcase with parent agents running their own self-improvement steps and every operational knob exposed | Parallel open-ended archive-admission loop | "How do I study DGM mechanics and tune the archive loop?" |
 
 The simple recipe evolves the real framework source under
 `src/simple_agent_lab/**`: a bash-capable meta-agent edits a temporary source
-tree, the framework stages the candidate source under `input/source_tree/`, and
-SWE-bench runs import that source tree first. The AHE recipe keeps the same
-simple sequential loop but adds analyzer-before-proposal and a richer
-recipe-local ledger. The DGM recipe is also YAML-backed, but currently owns its
-archive-specific wrapper-program path, official scoring workflow, and
-before/after delta. The current DGM recipe reproduces archive admission and
-parent-selection mechanics, not the final self-referential Gödel step.
+tree, reads a compact `SELF_EVOLUTION_CONTEXT.md` briefing, the framework stages
+the candidate source under `input/source_tree/`, and SWE-bench runs import that
+source tree first. The AHE recipe keeps the same simple sequential loop but adds
+analyzer-before-proposal, a role-separated SAL evolve agent, and a richer
+recipe-local ledger. The DGM recipe is also YAML-backed, but owns its
+archive-specific parent-agent self-improvement path, official scoring workflow,
+and before/after delta.
 
 ## How the layers fit together
 

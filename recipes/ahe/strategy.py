@@ -1,9 +1,19 @@
 from __future__ import annotations
 
+import json
+import shutil
+import tempfile
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
+from simple_agent_lab.agents.starter import make_bash_agent
+from simple_agent_lab.evolution.components.agentic import (
+    RunnableAgent,
+    consume_agent_run,
+    materialize_version_files,
+    surface_proposal_from_trees,
+)
 from simple_agent_lab.evolution.components.strategy import (
     content_changing_edits,
     parse_model_json,
@@ -25,6 +35,14 @@ MAX_ANALYSIS_INDEX_CHARS = 1800
 MAX_PRIOR_DECISIONS = 5
 MAX_DECISION_CHARS = 240
 MAX_EVIDENCE_CHARS = 320
+
+AHE_EVOLVE_TASK = """Improve this AHE harness.
+
+Read runs/iteration_001/input/analysis/overview.md and index.json first, then
+make one focused edit under harness/. Write change_manifest.json at the workspace
+root describing the component-level change. Do not edit files outside harness/
+except change_manifest.json.
+"""
 
 
 def ahe_model_strategy(
@@ -130,6 +148,141 @@ def ahe_model_strategy(
     return strategy
 
 
+def ahe_agent_strategy(
+    *,
+    provider: Provider,
+    surface: AgentSurface,
+    editable_components: Sequence[str],
+    knowledge_paths: Sequence[str] = (),
+    agent_builder: Callable[..., RunnableAgent] | None = None,
+    analyzer_fn: Callable[..., AnalysisResult] = analyze_runs,
+    max_turns: int = 20,
+    task: str = AHE_EVOLVE_TASK,
+) -> Callable[[Context], Proposal | None]:
+    """Run an AHE-style evolve agent over a materialized harness workspace."""
+
+    build_agent = agent_builder or make_bash_agent
+
+    def strategy(ctx: Context) -> Proposal | None:
+        run_root = ctx.workspace.parent
+        round_index = _next_round_index(run_root, preferred=len(ctx.decisions) + 1)
+        round_path = ledger.round_dir(run_root, round_index)
+        analysis_dir = round_path / "analysis"
+        knowledge_texts = _read_knowledge(knowledge_paths)
+        run_scores = score(ctx.runs, ctx.reward)
+        analysis = analyzer_fn(
+            provider,
+            ctx.runs,
+            ctx.current,
+            ctx.decisions,
+            analysis_dir,
+            knowledge=knowledge_texts,
+            run_scores=run_scores,
+        )
+
+        with tempfile.TemporaryDirectory(prefix="sal-ahe-agentic-") as tmp:
+            root = Path(tmp)
+            base_tree = root / "base"
+            candidate = root / "candidate"
+            materialize_version_files(ctx.current, base_tree)
+            shutil.copytree(base_tree, candidate)
+            _stage_ahe_evidence_workspace(
+                candidate,
+                ctx=ctx,
+                analysis=analysis,
+                knowledge=knowledge_texts,
+                round_index=round_index,
+            )
+            agent = build_agent(
+                provider=provider,
+                cwd=candidate,
+                name="ahe_evolve_agent",
+                system_prompt=_ahe_evolve_system_prompt(surface, editable_components),
+            )
+            consume_agent_run(agent, task, max_turns=max_turns)
+            manifest = _manifest_from_payload(
+                _read_agent_manifest(candidate / "change_manifest.json"),
+                ctx.current.hash,
+                round_index,
+            )
+            ledger.write_json(round_path / "change_manifest.json", manifest)
+            evidence = (
+                "ahe-evolve-agent-ran",
+                f"manifest:{(round_path / 'change_manifest.json').relative_to(run_root).as_posix()}",
+            )
+            proposal = surface_proposal_from_trees(
+                base_version=ctx.current,
+                base_tree=base_tree,
+                changed_tree=candidate,
+                surface=surface,
+                editable_components=editable_components,
+                base_hash=ctx.current.hash,
+                note="AHE evolve agent harness edit",
+                evidence=evidence,
+                kind="ahe_harness",
+            )
+            if not proposal.edits:
+                return None
+            return proposal
+
+    return strategy
+
+
+def _stage_ahe_evidence_workspace(
+    workspace: Path,
+    *,
+    ctx: Context,
+    analysis: AnalysisResult,
+    knowledge: Sequence[str],
+    round_index: int,
+) -> None:
+    analysis_input = workspace / "runs" / "iteration_001" / "input" / "analysis"
+    analysis_input.mkdir(parents=True, exist_ok=True)
+    if analysis.overview_path.is_file():
+        shutil.copy2(analysis.overview_path, analysis_input / "overview.md")
+    if analysis.index_path.is_file():
+        shutil.copy2(analysis.index_path, analysis_input / "index.json")
+    context_lines = [
+        "# AHE Evolve Context",
+        "",
+        f"- Round: {round_index}",
+        f"- Current version: {ctx.current.hash}",
+        f"- Baseline runs: {len(ctx.runs)}",
+        f"- Prior decisions: {len(ctx.decisions)}",
+        "",
+        "Only edits under harness/ become candidate changes.",
+    ]
+    (workspace / "AHE_CONTEXT.md").write_text(
+        "\n".join(context_lines) + "\n", encoding="utf-8"
+    )
+    if knowledge:
+        knowledge_dir = workspace / "knowledge"
+        knowledge_dir.mkdir(exist_ok=True)
+        for index, text in enumerate(knowledge, start=1):
+            (knowledge_dir / f"knowledge_{index:02d}.md").write_text(
+                text, encoding="utf-8"
+            )
+
+
+def _ahe_evolve_system_prompt(
+    surface: AgentSurface, editable_components: Sequence[str]
+) -> str:
+    return (
+        "You are an AHE Evolve Agent. Use bash to inspect the evidence workspace, "
+        "edit the harness, and write change_manifest.json.\n\n"
+        + surface.prompt_brief(components=editable_components)
+    )
+
+
+def _read_agent_manifest(path: Path) -> object:
+    if not path.is_file():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+
+
 def _next_round_index(run_root: Path, *, preferred: int) -> int:
     round_index = max(1, preferred)
     while (ledger.ahe_root(run_root) / "rounds" / f"round_{round_index:03d}").exists():
@@ -139,7 +292,7 @@ def _next_round_index(run_root: Path, *, preferred: int) -> int:
 
 def _read_knowledge(knowledge_paths: Sequence[str]) -> tuple[str, ...]:
     texts: list[str] = []
-    for raw_path in sorted(knowledge_paths, key=str):
+    for raw_path in sorted(str(path) for path in knowledge_paths):
         path = Path(raw_path)
         if path.is_file():
             texts.append(
@@ -259,7 +412,9 @@ def _normalize_manifest_changes(raw_changes: object) -> list[dict[str, object]]:
     for index, raw_change in enumerate(raw_changes, start=1):
         if not isinstance(raw_change, Mapping):
             continue
-        changes.append(_normalize_manifest_change(raw_change, index))
+        changes.append(
+            _normalize_manifest_change(cast("Mapping[str, object]", raw_change), index)
+        )
     return changes
 
 

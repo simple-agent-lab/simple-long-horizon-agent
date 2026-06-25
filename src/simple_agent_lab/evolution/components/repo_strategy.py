@@ -26,6 +26,7 @@ this task.
 
 DEFAULT_SOURCE_TREE_AGENT_TASK = """Improve the source tree in this temporary copy.
 
+Read SELF_EVOLUTION_CONTEXT.md first.
 Only changes under src/simple_agent_lab/ can become a proposal. Prefer small,
 readable Python edits. When finished, reply with a short summary.
 """
@@ -147,6 +148,13 @@ def source_tree_agent_strategy(
             )
             _overlay_source_version(base_tree, base_version.files(), base_version.read)
             shutil.copytree(base_tree, candidate, symlinks=True)
+            briefing = _context_briefing(ctx, base_version.hash)
+            (base_tree / "SELF_EVOLUTION_CONTEXT.md").write_text(
+                briefing, encoding="utf-8"
+            )
+            (candidate / "SELF_EVOLUTION_CONTEXT.md").write_text(
+                briefing, encoding="utf-8"
+            )
 
             agent = build_agent(
                 provider=provider,
@@ -183,6 +191,38 @@ def source_tree_agent_strategy(
             return proposal
 
     return strategy
+
+
+def _context_briefing(ctx: Context, parent_hash: str) -> str:
+    lines = [
+        "# Self Evolution Context",
+        "",
+        f"- Parent version: {parent_hash}",
+        f"- Current version: {ctx.current.hash}",
+        "- Editable scope: src/simple_agent_lab/",
+        f"- Baseline runs: {len(ctx.runs)}",
+        f"- Prior decisions: {len(ctx.decisions)}",
+        "",
+        "## Recent Decisions",
+    ]
+    if not ctx.decisions:
+        lines.append("- none")
+    for decision in ctx.decisions[-5:]:
+        lines.append(f"- {decision.id}: {decision.outcome}; {decision.reason}")
+    lines.extend(["", "## Baseline Runs"])
+    if not ctx.runs:
+        lines.append("- none")
+    for run in ctx.runs[:8]:
+        lines.append(f"- {run.instance_id}: reward={run.reward}")
+    lines.extend(
+        [
+            "",
+            "Inspect deeper only when these summaries are insufficient.",
+            "Do not edit files outside src/simple_agent_lab/ for the proposal.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def _select_parent(

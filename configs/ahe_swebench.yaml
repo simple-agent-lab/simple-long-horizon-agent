@@ -38,7 +38,7 @@ model:
   api_key_env: OPENAI_AUTH_TOKEN
   base_url_env: OPENAI_BASE_URL
 strategy:
-  name: ahe_model
+  name: ahe_agent
   args:
     knowledge_paths:
       - recipes/ahe/knowledge/sal-framework-guide.md

@@ -156,6 +156,40 @@ class RepoStrategyTest(unittest.TestCase):
         )
         self.assertEqual(validations, [(fake_agent.base_tree, dict(proposal.edits))])
 
+    def test_source_tree_agent_strategy_writes_context_briefing(self) -> None:
+        fake_agent = FakeAgent(expect_context=True)
+
+        def agent_builder(**kwargs):
+            fake_agent.cwd = Path(kwargs["cwd"])
+            return fake_agent
+
+        exp = Experiment(
+            self.root / "context-workspace",
+            rollout=lambda _version, _slice: [],
+            seed={SOURCE_ROOT + "/core.py": "def run() -> str:\n    return 'old'\n"},
+        )
+        current = exp.current()
+        ctx = Context(
+            runs=(),
+            current=current,
+            workspace=self.root / "context-workspace",
+            decisions=(),
+        )
+        strategy = source_tree_agent_strategy(
+            provider=object(),
+            repo_root=self.base,
+            agent_builder=agent_builder,
+            validation=lambda _repo_root, _files: None,
+        )
+
+        proposal = strategy(ctx)
+
+        self.assertIsNotNone(proposal)
+        self.assertTrue(fake_agent.context_seen)
+        assert fake_agent.context_text is not None
+        self.assertIn(current.hash, fake_agent.context_text)
+        self.assertIn("Editable scope: src/simple_agent_lab/", fake_agent.context_text)
+
     def test_source_tree_agent_strategy_overlays_current_version_before_agent(
         self,
     ) -> None:
@@ -321,12 +355,16 @@ class FakeAgent:
         self,
         expected_before: str | None = None,
         expected_path: str = SOURCE_ROOT + "/core.py",
+        expect_context: bool = False,
     ) -> None:
         self.cwd: Path | None = None
         self.base_tree: Path | None = None
         self.events_consumed = False
         self.expected_before = expected_before
         self.expected_path = expected_path
+        self.expect_context = expect_context
+        self.context_seen = False
+        self.context_text: str | None = None
 
     def run(self, task: str, *, max_turns: int) -> tuple[object, Iterator[object]]:
         self.task = task
@@ -338,6 +376,12 @@ class FakeAgent:
             if self.expected_before is not None:
                 before = (self.cwd / self.expected_path).read_text()
                 self.assert_expected_before(before)
+            context = self.cwd / "SELF_EVOLUTION_CONTEXT.md"
+            if self.expect_context:
+                if not context.is_file():
+                    raise AssertionError("missing SELF_EVOLUTION_CONTEXT.md")
+                self.context_text = context.read_text(encoding="utf-8")
+                self.context_seen = True
             (self.cwd / self.expected_path).write_text(
                 "def run() -> str:\n    return 'agent'\n"
             )

@@ -1,15 +1,17 @@
 # DGM-style self-evolving recipe
 
-This recipe reproduces the SWE-bench-facing DGM archive mechanics: a
-model-driven meta-agent rewrites the whole agent package under `agent/`; the
-evolution kernel runs a **parallel open-ended archive-admission loop** (branches
-per round, best-valid promotion, archive parent selection); and the seed and
-best-on-train agents are scored on a held-out test split so the run reports a
-before/after delta. Every archive-loop knob is exposed.
+This recipe reproduces the SWE-bench-facing DGM archive mechanics: the selected
+parent agent package under `agent/` is materialized as a SAL agent and run as
+the meta-agent for its own self-improvement step; the evolution kernel runs a
+**parallel open-ended archive-admission loop** (branches per round, best-valid
+promotion, archive parent selection); and the seed and best-on-train agents are
+scored on a held-out test split so the run reports a before/after delta. Every
+archive-loop knob is exposed.
 
-It is not yet a complete Darwin Gödel Machine: the self-reference milestone,
-where the evolved coding agent performs its own improver step, remains future
-work. Treat this as the DGM-style archive showcase — the counterpart to the
+The implementation is intentionally still a compact teaching version of DGM:
+it keeps the parent-as-meta-agent self-reference and archive admission shape,
+while leaving broader DGM engineering details outside this recipe. Treat this as
+the DGM-style archive showcase — the counterpart to the
 [`simple`](../simple/README.md) recipe's minimalism.
 
 ## Layout
@@ -122,7 +124,7 @@ Most run shape lives in YAML now:
 | `dataset.train_path` / `dataset.test_path` | `configs/swebench/demo-*.jsonl` | Train and held-out before/final scoring JSONL slices. |
 | `dgm.rounds` | `4` | Sequential evolution rounds. Total candidates = `rounds × branches`. |
 | `dgm.branches` | `3` | Candidate branches evaluated concurrently per round. |
-| `dgm.meta_concurrency` | `0` (= branches) | Concurrent meta-agent LLM calls per round. |
+| `dgm.meta_concurrency` | `0` (= branches) | Concurrent parent-agent self-improvement runs per round. |
 | `dgm.parent_selection` | `score_child_prop` | `latest` \| `best` \| `score_prop` \| `score_child_prop`. |
 | `dgm.skip_baseline_heldout` | `false` | Skip the initial seed held-out test rollout; final held-out scoring still runs. |
 | `execution.parallel` | `3` | Global Docker worker cap. Must be at least `dgm.branches`. |

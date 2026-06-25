@@ -265,8 +265,16 @@ official scoring.
 Strategies return `Proposal | None`.
 
 - `source_tree_agent_strategy(...)` lets a bash-capable meta-agent edit a
-  temporary repo copy, then derives a `Proposal` from filesystem diffs under
-  `src/simple_agent_lab/`.
+  temporary repo copy after reading `SELF_EVOLUTION_CONTEXT.md`, then derives a
+  `Proposal` from filesystem diffs under `src/simple_agent_lab/`.
+- `recipes.dgm.evolve.dgm_agentic_strategy(...)` is recipe-local DGM policy: it
+  materializes the selected parent `agent/` package, loads that package as a SAL
+  agent, lets it perform its own self-improvement step, and converts `agent/`
+  diffs into a `Proposal`.
+- `recipes.ahe.strategy.ahe_agent_strategy(...)` is recipe-local AHE policy: it
+  runs the analyzer, stages the analysis into a harness workspace, lets a
+  role-separated SAL evolve agent edit `harness/`, and records
+  `change_manifest.json`.
 - `model_program_strategy(...)` is a lower-level wrapper-program strategy that
   asks an LLM to rewrite full files under the selected surface. It validates
   JSON, filters invalid edits, and returns a `Proposal`.
@@ -295,14 +303,15 @@ Both recipes share the same substrate guarantees.
 | Recipe | Purpose | Loop policy | Performance report |
 | --- | --- | --- | --- |
 | `recipes/simple/` | Minimal framework use | Sequential current-version evolution | Generic suite-scored heldout `evaluation/summary.json` |
-| `recipes/dgm/` | DGM-style archive/open-ended mechanics; full self-reference is pending | Parallel branches, open-ended archive admission, parent selection | Archive-specific official before/final artifacts and `test_summary.json` |
+| `recipes/dgm/` | DGM-style archive/open-ended mechanics with parent-agent self-improvement | Parallel branches, open-ended archive admission, parent selection | Archive-specific official before/final artifacts and `test_summary.json` |
 
-DGM's archive, parent selection, branch scheduling, and official heldout workflow
-are recipe policy. Its YAML schema lives in `recipes/dgm/config.py` and
-`configs/dgm_swebench.yaml`, not in the generic `evolution.config` builder, so
-the user experience stays consistent without promoting DGM semantics into the
-substrate. Do not describe the recipe as a complete Darwin Gödel Machine until
-the evolved coding agent can perform the self-improvement task itself.
+DGM's parent-agent self-improvement, archive selection, branch scheduling, and
+official heldout workflow are recipe policy. Its YAML schema lives in
+`recipes/dgm/config.py` and `configs/dgm_swebench.yaml`, not in the generic
+`evolution.config` builder, so the user experience stays consistent without
+promoting DGM semantics into the substrate. Describe it as a compact DGM-style
+teaching recipe unless a run report also establishes the broader research
+claims.
 
 ## Writing a New Recipe
 
