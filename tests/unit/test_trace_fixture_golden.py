@@ -127,18 +127,31 @@ RAW_BLOB = {
 }
 
 
-def _stamp(events: list[Event]) -> list[Event]:
-    """Assign deterministic, monotonically increasing index/elapsed."""
-    return [
-        dataclasses.replace(e, index=i, elapsed=round(i * 0.25, 3))
-        for i, e in enumerate(events)
-    ]
+def _stamp(events: list[Event], *, uuid_prefix: str = "main") -> list[Event]:
+    """Assign deterministic index/elapsed, and uuid/parent_uuid on messages.
+
+    Mirrors what `State.record_event` stamps at runtime: each `MessageEvent`
+    gets a stable `uuid` and a `parent_uuid` linking to the previous message in
+    the list (None for the first), so the generated sample exercises the message
+    parent chain the viewer and the Claude-Code export read.
+    """
+    stamped: list[Event] = []
+    last_message_uuid: str | None = None
+    for i, event in enumerate(events):
+        fields: dict = {"index": i, "elapsed": round(i * 0.25, 3)}
+        if isinstance(event, MessageEvent):
+            this_uuid = f"{uuid_prefix}.m{i}"
+            fields["uuid"] = this_uuid
+            fields["parent_uuid"] = last_message_uuid
+            last_message_uuid = this_uuid
+        stamped.append(dataclasses.replace(event, **fields))
+    return stamped
 
 
 def _sub_events() -> list[Event]:
     """The search sub-agent's own trace, nested under the task tool result."""
     return _stamp(
-        [
+        [  # uuid_prefix below keeps sub-agent message ids distinct from the parent's
             MessageEvent(
                 message=UserMessage(
                     content=(TextBlock("Search the repo for wc_lines callers."),),
@@ -226,7 +239,8 @@ def _sub_events() -> list[Event]:
                 )
             ),
             AgentEndEvent(reason="final"),
-        ]
+        ],
+        uuid_prefix="sub",
     )
 
 

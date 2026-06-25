@@ -6,6 +6,7 @@ import dataclasses
 import time
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
+from uuid import uuid4
 
 from .messages import (
     AgentName,
@@ -35,17 +36,15 @@ class StateSnapshot:
     # so all messages are active. (A later visibility filter in
     # `build_context_view` narrows this to the *visible* context the model
     # actually sees -- active is the compression stage, visible the next.)
-    #
-    # INVARIANT relied on by `compression.runtime._active_context_tokens`: the
-    # only thing that makes a higher index precede a lower one in this list is a
-    # compaction splicing its replacement back at an earlier slot (the
-    # replacement is appended, so it always has the highest index). That sizing
-    # code infers compaction boundaries from exactly this ordering. If you ever
-    # re-point these indices non-monotonically for a NON-compaction reason
-    # (reorder, re-insert a dropped message at its original index, pin-to-top,
-    # merge transcripts), update `_active_context_tokens` too or it will trust a
-    # stale usage baseline and mis-size the context.
     active_context_indices: list[int] | None = None
+    # Indices into `messages` that are compaction outputs (an N->1 summary or a
+    # 1->1 rewrite spliced back at an earlier slot). The explicit record of
+    # "where a compaction happened" that `compression.runtime._active_context_tokens`
+    # reads to decide whether a usage baseline predates the newest fold -- a
+    # message recorded before a compaction boundary carries a stale window size.
+    # Tracked here rather than inferred from index ordering so re-pointing the
+    # active context for any reason can never confuse the sizing.
+    compaction_indices: set[int] = field(default_factory=set)
 
     def apply(self, event: Event) -> None:
         if isinstance(event, MessageEvent):
@@ -58,6 +57,7 @@ class StateSnapshot:
             # Copy: the snapshot mutates this list as new messages arrive;
             # the event's field must stay a stable historical record.
             self.active_context_indices = list(event.active_context_indices)
+            self.compaction_indices.add(event.summary_message_index)
 
     def active_context_items(self) -> list[tuple[int, Message]]:
         indices = self.active_context_indices
@@ -89,11 +89,25 @@ class State:
     # writes it -- it's an extension point, not part of the message loop.
     # (Distinct from a message's typed `MessageSidecar`.)
     data: dict[str, Any] = field(default_factory=dict)
+    # Per-run seed for message identity. Deterministic message `uuid`s are
+    # derived from it plus message order (`run_id.m{index}`), so a run is
+    # reproducible end to end when a fixed `run_id` is supplied (tests, golden
+    # fixtures) while distinct runs stay globally unique by default.
+    run_id: str = field(default_factory=lambda: uuid4().hex)
     _monotonic_origin: float = field(default_factory=time.monotonic, repr=False)
 
     def __post_init__(self) -> None:
         if self.events and not self.snapshot.messages:
             self.rebuild_snapshot()
+
+    def message_uuid(self, message_index: int) -> str:
+        """Deterministic identity for the message at `message_index`."""
+        return f"{self.run_id}.m{message_index}"
+
+    @property
+    def compaction_indices(self) -> set[int]:
+        """Message indices that are compaction outputs (see `StateSnapshot`)."""
+        return self.snapshot.compaction_indices
 
     def _elapsed(self) -> float:
         return time.monotonic() - self._monotonic_origin
@@ -124,9 +138,17 @@ class State:
         replaced here so every event in `state.events` carries the same
         chronological metadata.
         """
-        stamped = dataclasses.replace(
-            event, index=len(self.events), elapsed=self._elapsed()
-        )
+        fields: dict[str, Any] = {"index": len(self.events), "elapsed": self._elapsed()}
+        # Stamp message identity from run_id + position, leaving any value a
+        # replayed/loaded event already carries untouched. `parent_uuid` links
+        # to the message recorded just before this one (None for the first).
+        if isinstance(event, MessageEvent) and not event.uuid:
+            message_index = len(self.snapshot.messages)
+            fields["uuid"] = self.message_uuid(message_index)
+            fields["parent_uuid"] = (
+                self.message_uuid(message_index - 1) if message_index > 0 else None
+            )
+        stamped = dataclasses.replace(event, **fields)
         self.events.append(stamped)
         self.snapshot.apply(stamped)
         return stamped

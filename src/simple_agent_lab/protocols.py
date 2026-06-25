@@ -51,6 +51,16 @@ class _BaseEvent:
 class MessageEvent(_BaseEvent):
     kind: Literal[EventKind.MESSAGE] = field(default=EventKind.MESSAGE, init=False)
     message: Message
+    # Stable identity for this message and a link to the message recorded
+    # before it, forming an explicit parent chain over the transcript.
+    # `State.record_event` stamps both when they are left at their defaults
+    # (deterministic from `State.run_id` + message order); an event replayed
+    # from a persisted trace keeps the values it was loaded with. `parent_uuid`
+    # is None only for the first message of a run. Consumers (the Claude-Code
+    # transcript export, viewers) key off these instead of positional indices,
+    # so re-pointing the active context never orphans a reference.
+    uuid: str = ""
+    parent_uuid: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)

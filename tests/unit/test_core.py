@@ -935,7 +935,9 @@ class CoreTest(unittest.TestCase):
 
         # The stale baseline would report ~6120; the true post-rewrite size is
         # tiny (the kept assistant at its exact 120 output_tokens + short texts).
-        size = _active_context_tokens(state.active_context_items())
+        size = _active_context_tokens(
+            state.active_context_items(), state.compaction_indices
+        )
         self.assertLess(size, 1000)
 
     def test_rewrite_rejects_structure_changing_replacement(self) -> None:

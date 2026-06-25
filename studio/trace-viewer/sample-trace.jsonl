@@ -16,7 +16,9 @@
         "sender": "user",
         "sidecar": {},
         "target": "obs_agent"
-      }
+      },
+      "parent_uuid": null,
+      "uuid": "main.m0"
     },
     {
       "elapsed": 0.25,
@@ -162,7 +164,9 @@
           "input_tokens": 612,
           "output_tokens": 88
         }
-      }
+      },
+      "parent_uuid": "main.m0",
+      "uuid": "main.m5"
     },
     {
       "elapsed": 1.5,
@@ -204,7 +208,9 @@
         "sender": "tool",
         "sidecar": {},
         "target": "obs_agent"
-      }
+      },
+      "parent_uuid": "main.m5",
+      "uuid": "main.m8"
     },
     {
       "agent": "obs_agent",
@@ -281,7 +287,9 @@
           "input_tokens": 894,
           "output_tokens": 120
         }
-      }
+      },
+      "parent_uuid": "main.m8",
+      "uuid": "main.m13"
     },
     {
       "elapsed": 3.5,
@@ -341,7 +349,9 @@
                     "sender": "obs_agent",
                     "sidecar": {},
                     "target": "search_agent"
-                  }
+                  },
+                  "parent_uuid": null,
+                  "uuid": "sub.m0"
                 },
                 {
                   "elapsed": 0.25,
@@ -414,7 +424,9 @@
                     "sidecar": {},
                     "target": "search_agent",
                     "usage": null
-                  }
+                  },
+                  "parent_uuid": "sub.m0",
+                  "uuid": "sub.m5"
                 },
                 {
                   "elapsed": 1.5,
@@ -456,7 +468,9 @@
                     "sender": "tool",
                     "sidecar": {},
                     "target": "search_agent"
-                  }
+                  },
+                  "parent_uuid": "sub.m5",
+                  "uuid": "sub.m8"
                 },
                 {
                   "agent": "search_agent",
@@ -499,7 +513,9 @@
                     "sidecar": {},
                     "target": "obs_agent",
                     "usage": null
-                  }
+                  },
+                  "parent_uuid": "sub.m8",
+                  "uuid": "sub.m11"
                 },
                 {
                   "elapsed": 3.0,
@@ -512,7 +528,9 @@
           }
         },
         "target": "obs_agent"
-      }
+      },
+      "parent_uuid": "main.m13",
+      "uuid": "main.m16"
     },
     {
       "agent": "obs_agent",
@@ -588,7 +606,9 @@
           "input_tokens": 1842,
           "output_tokens": 96
         }
-      }
+      },
+      "parent_uuid": "main.m16",
+      "uuid": "main.m21"
     },
     {
       "elapsed": 5.5,
@@ -630,7 +650,9 @@
         "sender": "tool",
         "sidecar": {},
         "target": "obs_agent"
-      }
+      },
+      "parent_uuid": "main.m21",
+      "uuid": "main.m24"
     },
     {
       "agent": "obs_agent",
@@ -719,7 +741,9 @@
           "input_tokens": 1812,
           "output_tokens": 76
         }
-      }
+      },
+      "parent_uuid": "main.m24",
+      "uuid": "main.m30"
     },
     {
       "agent": "obs_agent",
@@ -919,7 +943,9 @@
                   "sender": "obs_agent",
                   "sidecar": {},
                   "target": "search_agent"
-                }
+                },
+                "parent_uuid": null,
+                "uuid": "sub.m0"
               },
               {
                 "elapsed": 0.25,
@@ -992,7 +1018,9 @@
                   "sidecar": {},
                   "target": "search_agent",
                   "usage": null
-                }
+                },
+                "parent_uuid": "sub.m0",
+                "uuid": "sub.m5"
               },
               {
                 "elapsed": 1.5,
@@ -1034,7 +1062,9 @@
                   "sender": "tool",
                   "sidecar": {},
                   "target": "search_agent"
-                }
+                },
+                "parent_uuid": "sub.m5",
+                "uuid": "sub.m8"
               },
               {
                 "agent": "search_agent",
@@ -1077,7 +1107,9 @@
                   "sidecar": {},
                   "target": "obs_agent",
                   "usage": null
-                }
+                },
+                "parent_uuid": "sub.m8",
+                "uuid": "sub.m11"
               },
               {
                 "elapsed": 3.0,

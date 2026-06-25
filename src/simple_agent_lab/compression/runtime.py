@@ -38,7 +38,10 @@ if TYPE_CHECKING:
     from ..state import State
 
 
-def _active_context_tokens(active: list[tuple[int, Message]]) -> int:
+def _active_context_tokens(
+    active: list[tuple[int, Message]],
+    compaction_indices: set[int] | None = None,
+) -> int:
     """Size the active context, distrusting baselines older than the last compression.
 
     A usage baseline (`AssistantMessage.usage.context_tokens`) is the full
@@ -47,27 +50,18 @@ def _active_context_tokens(active: list[tuple[int, Message]]) -> int:
     baseline that still counts content no longer present — trusting it reports
     a freshly compressed context as barely smaller than before.
 
-    We read the answer off the append-only index order itself, with no marker
-    on the messages. Because the transcript is append-only, a message's index
-    rises with its position; the *only* thing that places a higher index before
-    a lower one in the active view is a compaction splicing its replacement back
-    at an earlier slot — true for both an N->1 fold (the summary) and a 1->1
-    rewrite (the in-place replacement). So an index that has any smaller index
-    after it is a compaction output, and a usage baseline is trustworthy only if
-    it outranks every such boundary. Until the next model turn appends a fresh
-    assistant (a new highest index, in order), fall back to the per-message sum
-    (which still uses each assistant's exact `output_tokens`).
+    `compaction_indices` is the explicit set of message indices that are
+    compaction outputs (`State.compaction_indices`); the newest one present in
+    the active view is the boundary. A usage baseline is trustworthy only if the
+    last usage-bearing assistant outranks that boundary. Until the next model
+    turn appends a fresh assistant, fall back to the per-message sum (which still
+    uses each assistant's exact `output_tokens`). Passing no set (or an empty
+    one) means "no known compaction" — every baseline is eligible.
     """
-    indices = [index for index, _ in active]
-    # Newest compaction boundary == the largest index that sits before a
-    # smaller one. Walk right-to-left tracking the min index seen *after* the
-    # current position; an index above that min was spliced in (out of order).
-    last_compaction = -1
-    suffix_min: int | None = None
-    for index in reversed(indices):
-        if suffix_min is not None and index > suffix_min:
-            last_compaction = max(last_compaction, index)
-        suffix_min = index if suffix_min is None else min(suffix_min, index)
+    boundaries = compaction_indices or set()
+    last_compaction = max(
+        (index for index, _ in active if index in boundaries), default=-1
+    )
     last_usage_assistant = max(
         (
             index
@@ -132,9 +126,11 @@ def _apply_decision(
     ]
     kept_messages = [message for index, message in active if index not in compress_set]
 
-    # `before` uses the append-only-aware sizing so a prior compaction's stale
-    # usage baseline doesn't inflate the reported size.
-    before_tokens = _active_context_tokens(active)
+    # `before` uses the explicit compaction boundaries so a prior compaction's
+    # stale usage baseline doesn't inflate the reported size. Only PRIOR folds
+    # are recorded yet -- this decision's summary is appended below -- which is
+    # exactly the boundary set that should invalidate older baselines here.
+    before_tokens = _active_context_tokens(active, state.compaction_indices)
     # `after` is post-compaction: the replacement is the newest content and no
     # usage-bearing assistant outranks it, so the baseline is never valid here —
     # sum per-message (still exact per-assistant `output_tokens`).
