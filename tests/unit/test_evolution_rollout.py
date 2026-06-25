@@ -9,6 +9,7 @@ from typing import Any, Mapping
 from simple_agent_lab.evals import RESULT_KEY, TRACE_KEY, FakeBackend, LocalDirStore
 from simple_agent_lab.evals.protocols import LaunchSpec, RunSpec
 from simple_agent_lab.evolution.components.rollout import dataset_rollout
+from simple_agent_lab.evolution.source_tree import candidate_source_artifacts
 from simple_agent_lab.evolution.kernel import store
 from simple_agent_lab.evolution.types import Slice
 
@@ -105,6 +106,60 @@ class RolloutTest(unittest.TestCase):
         rollout(self.version, slice_)
         self.assertEqual(staged["i1"], b'{"x": 1}')
         self.assertEqual(staged["i2"], b'{"x": 1}')
+
+    def test_source_tree_artifacts_and_pythonpath_are_threaded_to_runs(self) -> None:
+        repo_root = self.ws / "repo"
+        package_dir = repo_root / "src" / "simple_agent_lab"
+        package_dir.mkdir(parents=True)
+        (package_dir / "__init__.py").write_text("", encoding="utf-8")
+
+        version = store.stage(
+            self.ws,
+            base=None,
+            edits={
+                "src/simple_agent_lab/candidate.py": "VALUE = 'candidate'\n",
+            },
+        )
+        seen_pythonpath: dict[str, tuple[str, ...]] = {}
+        staged: dict[str, bytes] = {}
+
+        def source_artifacts(v):
+            files = {
+                name: v.read(name)
+                for name in v.files()
+                if name.startswith("src/simple_agent_lab/")
+            }
+            return candidate_source_artifacts(repo_root, files)
+
+        def on_run(spec: RunSpec, bound) -> None:
+            seen_pythonpath[spec.instance_id] = spec.pythonpath
+            staged[spec.instance_id] = bound.get(
+                "input/source_tree/src/simple_agent_lab/candidate.py"
+            )
+            bound.put(TRACE_KEY, b'{"events": []}\n')
+            bound.put(RESULT_KEY, b'{"reward": 0.5}\n')
+
+        rollout = dataset_rollout(
+            suite=_DemoSuite(),
+            backend=FakeBackend(on_run=on_run),
+            store=LocalDirStore(self.ws / "runs"),
+            runs_root=self.ws / "runs",
+            version_artifacts=source_artifacts,
+            candidate_pythonpath=("/agent/run/input/source_tree/src",),
+        )
+        slice_ = Slice("demo", ({"instance_id": "i1"}, {"instance_id": "i2"}))
+
+        rollout(version, slice_)
+
+        self.assertEqual(
+            seen_pythonpath,
+            {
+                "i1": ("/agent/run/input/source_tree/src",),
+                "i2": ("/agent/run/input/source_tree/src",),
+            },
+        )
+        self.assertEqual(staged["i1"], b"VALUE = 'candidate'\n")
+        self.assertEqual(staged["i2"], b"VALUE = 'candidate'\n")
 
     def test_raises_dataset_errors_instead_of_hiding_missing_artifacts(self) -> None:
         def fail_run(spec: RunSpec, bound) -> None:

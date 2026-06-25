@@ -65,6 +65,7 @@ def dataset_rollout(
     concurrency: int = 1,
     run_kwargs: Mapping[str, Any] | None = None,
     version_artifacts: Callable[[Version], Mapping[str, bytes]] | None = None,
+    candidate_pythonpath: Sequence[str] = (),
 ) -> Rollout:
     """Bind deployment concerns (suite/backend/store/runs_root) into a ``Rollout``.
 
@@ -74,12 +75,14 @@ def dataset_rollout(
 
     ``version_artifacts`` is an optional, suite-agnostic hook: given the version
     being rolled, it returns ``{artifact_key: bytes}`` staged into every run's
-    ``input/`` dir. The evolution recipe uses it to make a version's evolved
-    files (e.g. an agent scaffold) available in the container; the generic runner
-    stays free of any suite knowledge.
+    ``input/`` dir. Keys that already start with ``input/`` are preserved. The
+    evolution recipe uses it to make a version's evolved files (e.g. an agent
+    scaffold or candidate source tree) available in the container; the generic
+    runner stays free of any suite knowledge.
     """
 
     runs_root = Path(runs_root).resolve()
+    candidate_pythonpath = tuple(candidate_pythonpath)
 
     def rollout(version: Version, slice_: InstanceSet) -> Sequence[Run]:
         run_id = f"{version.hash}-{slice_.sha}"
@@ -88,10 +91,12 @@ def dataset_rollout(
             provider, provider_env = _provider_args(version)
             extra = dict(run_kwargs or {})
             api_kind = extra.pop("api_kind", _api_kind(provider_env))
+            legacy_pythonpath = tuple(extra.pop("pythonpath", ()))
+            pythonpath = candidate_pythonpath or legacy_pythonpath
             if version_artifacts is not None:
                 staged = version_artifacts(version)
                 if staged:
-                    extra["extra_artifacts"] = dict(staged)
+                    extra["extra_artifacts"] = _input_artifacts(staged)
             report = run_dataset(
                 suite=suite,
                 instances=slice_.instances,
@@ -100,6 +105,7 @@ def dataset_rollout(
                 run_root=runs_root,
                 run_id=run_id,
                 concurrency=concurrency,
+                pythonpath=pythonpath,
                 provider=provider,
                 provider_env=provider_env,
                 api_kind=api_kind,
@@ -132,6 +138,8 @@ def rollout_from_suite(
     runs_root: Path,
     concurrency: int = 1,
     run_kwargs: Mapping[str, Any] | None = None,
+    version_artifacts: Callable[[Version], Mapping[str, bytes]] | None = None,
+    candidate_pythonpath: Sequence[str] = (),
 ) -> Rollout:
     return dataset_rollout(
         suite=suite,
@@ -140,7 +148,8 @@ def rollout_from_suite(
         runs_root=runs_root,
         concurrency=concurrency,
         run_kwargs=run_kwargs,
-        version_artifacts=surface.artifacts_from_version,
+        version_artifacts=version_artifacts or surface.artifacts_from_version,
+        candidate_pythonpath=candidate_pythonpath,
     )
 
 
@@ -148,6 +157,13 @@ def _api_kind(provider_env: Mapping[str, str]) -> str:
     """The in-container API kind, mirroring the env the provider was built with."""
 
     return provider_env.get(API_KIND_ENV, "openai-chat")
+
+
+def _input_artifacts(artifacts: Mapping[str, bytes]) -> dict[str, bytes]:
+    return {
+        key if key.startswith("input/") else f"input/{key}": data
+        for key, data in artifacts.items()
+    }
 
 
 def _already_measured(run_dir: Path, slice_: InstanceSet) -> bool:

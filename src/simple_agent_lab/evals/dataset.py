@@ -112,6 +112,7 @@ def run_dataset(
     concurrency: int = 1,
     max_attempts: int = 1,
     on_result: Callable[[InstanceResult], None] | None = None,
+    pythonpath: tuple[str, ...] = (),
     **run_kwargs: Any,
 ) -> DatasetReport:
     """Run a whole dataset by calling `run_suite_instance` once per instance.
@@ -134,6 +135,7 @@ def run_dataset(
     """
 
     items = list(instances)
+    run_kwargs = {**run_kwargs, "pythonpath": tuple(pythonpath)}
     results: list[InstanceResult] = []
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
         futures = {
