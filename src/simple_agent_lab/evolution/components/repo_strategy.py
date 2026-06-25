@@ -89,7 +89,11 @@ def proposal_from_candidate_tree(
         if not changed_path.is_file():
             continue
 
-        content = changed_path.read_text(encoding="utf-8")
+        try:
+            content = changed_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            proposal_evidence.append(f"discarded-non-utf8-source:{rel_text}")
+            continue
         errors = validate_source_tree_edits({rel_text: content})
         if errors:
             joined = "; ".join(errors)
@@ -118,24 +122,31 @@ def source_tree_agent_strategy(
     system_prompt: str = DEFAULT_SOURCE_TREE_AGENT_PROMPT,
     task: str = DEFAULT_SOURCE_TREE_AGENT_TASK,
     name: str = "source_tree_meta_agent",
+    surface: object | None = None,
+    editable_components: Sequence[str] = (),
 ) -> Callable[[Context], Proposal | None]:
     """Return a strategy that lets a bash-capable meta-agent edit a repo copy."""
 
     root = Path(repo_root)
     build_agent = agent_builder or make_bash_agent
+    _ = (surface, editable_components)
 
     def strategy(ctx: Context) -> Proposal | None:
         parent = _select_parent(
             ctx, parent_selection=parent_selection, parent_selector=parent_selector
         )
+        base_version = ctx.version(parent)
         with tempfile.TemporaryDirectory(prefix="sal-source-tree-") as tmp:
+            base_tree = Path(tmp) / "base"
             candidate = Path(tmp) / "candidate"
             shutil.copytree(
                 root,
-                candidate,
+                base_tree,
                 symlinks=True,
                 ignore=_copy_ignore,
             )
+            _overlay_source_version(base_tree, base_version.files(), base_version.read)
+            shutil.copytree(base_tree, candidate, symlinks=True)
 
             agent = build_agent(
                 provider=provider,
@@ -148,7 +159,7 @@ def source_tree_agent_strategy(
                 pass
 
             proposal = proposal_from_candidate_tree(
-                root,
+                base_tree,
                 candidate,
                 base_hash=parent,
                 note="source-tree meta-agent edit",
@@ -166,7 +177,7 @@ def source_tree_agent_strategy(
             if not files:
                 return None
             try:
-                validation(root, files)
+                validation(base_tree, files)
             except Exception:
                 return None
             return proposal
@@ -187,6 +198,20 @@ def _select_parent(
             "non-current parent selection requires a recipe-provided parent_selector"
         )
     return parent_selector(ctx, parent_selection) or ctx.current.hash
+
+
+def _overlay_source_version(
+    base_tree: Path,
+    files: Sequence[str],
+    read: Callable[[str], str],
+) -> None:
+    for path in files:
+        rel = Path(path)
+        if not _is_under_source_root(rel):
+            continue
+        target = base_tree / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(read(path), encoding="utf-8")
 
 
 def _changed_paths(base_tree: Path, changed_tree: Path) -> list[Path]:
