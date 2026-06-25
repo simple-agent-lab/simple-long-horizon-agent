@@ -127,9 +127,11 @@ objects whose `out/result.json` can be scored.
 
 ## Configured Simple Runs
 
-Use the YAML path when you want a small runnable recipe. A config names concrete
-factories; recipe code registers those names before calling
-`simple_agent_lab.evolution.run`.
+Use the YAML path when you want a small runnable recipe. The fastest entry point
+is [`recipes/simple/README.md`](../../../recipes/simple/README.md), which shows
+the dry-run, real run, train-only smoke, and artifact map. At the framework
+level, a config names concrete factories; recipe code registers those names
+before calling `simple_agent_lab.evolution.run`.
 
 ```yaml
 run:
@@ -210,6 +212,12 @@ Dry-runs print the resolved plan. Executed simple runs train on
 `instances.train`, optionally evaluate `instances.heldout` before/final or every
 N rounds, and write `evaluation/summary.json` with reward means, resolved counts
 when the suite reports them, and before/final deltas.
+
+For a cheap train-only smoke, copy `configs/simple_swebench.yaml`, point
+`instances.train.path` at a tiny JSONL split, set `instances.heldout: null`,
+disable `evaluation.baseline_heldout` and `evaluation.final_heldout`, set
+`evolution.rounds` to `3` or `4`, and set `execution.parallel` to the number of
+train instances to run concurrently.
 
 ## Agent Surfaces
 

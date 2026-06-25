@@ -71,3 +71,22 @@ Both recipes are real — they call a model and run Docker:
 
 Every recipe is a **dry plan by default**; pass `--execute` to run the real model
 and Docker.
+
+## Fast path: simple source-tree evolution
+
+Start with the simple recipe when you want to evolve the actual Simple Agent Lab
+agent framework:
+
+```bash
+bash runs/run_self_evolving_simple.sh --run-id simple-smoke
+bash runs/run_self_evolving_simple.sh --run-id simple-real --execute
+```
+
+The simple recipe uses `configs/simple_swebench.yaml`, the `source_tree` surface,
+and the `source_tree_agent` strategy. The editable target is
+`src/simple_agent_lab/**/*.py`. To run a cheap real smoke, copy the config, point
+`instances.train.path` at a tiny train JSONL file, set `evolution.rounds` to
+`3` or `4`, set `execution.parallel` to the number of instances you want to run
+at once, and disable heldout evaluation until the training loop is healthy. See
+[`simple/README.md`](simple/README.md) for the full copy-paste workflow and
+artifact map.

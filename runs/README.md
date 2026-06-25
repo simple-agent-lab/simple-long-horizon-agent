@@ -77,6 +77,16 @@ enabled. It expects `.env` or the shell environment to provide
 archive variant with all knobs exposed, see the DGM recipe below. Both recipes are
 documented under `recipes/`.
 
+For the simple recipe, `surface.name: source_tree` and
+`strategy.name: source_tree_agent` mean the meta-agent edits the real
+`src/simple_agent_lab/**/*.py` framework source. For a cheap train-only smoke,
+copy `configs/simple_swebench.yaml`, point `instances.train.path` at a tiny
+JSONL file, set `instances.heldout: null`, set `evaluation.baseline_heldout` and
+`evaluation.final_heldout` to `false`, choose `evolution.rounds: 3`, and raise
+`execution.parallel` to match the number of train instances your machine can
+run. The detailed quick start and artifact map live in
+`recipes/simple/README.md`.
+
 Build a custom headroom split with `recipes/dgm/ops/baseline.py` when the
 tracked `configs/swebench/demo-*.jsonl` split is not the shape you want. The
 helper can fetch SWE-bench Verified, select a repo-balanced pool, measure seed

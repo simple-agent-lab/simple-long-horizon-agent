@@ -21,6 +21,11 @@ It uses registry names for the SWE-bench suite and source-tree surface:
 - strategy: `source_tree_agent`
 - algorithm: `simple`
 
+That means the meta-agent edits the real framework source under
+`src/simple_agent_lab/**/*.py`, not a lightweight wrapper package. Each
+candidate version is staged under `input/source_tree/src/simple_agent_lab/`, and
+SWE-bench imports that candidate source before the installed package.
+
 The default train and heldout slices point at the generated SWE-bench demo
 split:
 
@@ -32,7 +37,34 @@ For a real run, copy the config or pass your own with `--config`, then edit the
 `strategy.args.repo_root`, and execution settings when you want a different
 split, source checkout, or runtime shape.
 
-## Run it
+## Quick start
+
+From the repo root:
+
+```bash
+uv sync --group dev --extra swebench
+```
+
+Put provider settings in `.env` or export them in the shell. The checked-in
+simple config reads:
+
+```bash
+OPENAI_AUTH_TOKEN=...
+OPENAI_MODEL=...
+OPENAI_BASE_URL=...   # optional for compatible providers
+```
+
+Docker must be reachable before `--execute`. Docker Desktop works as-is; for
+Colima, start it first. If Python cannot discover the daemon even though the
+Docker CLI works, export the Colima socket:
+
+```bash
+colima start
+export DOCKER_HOST=unix://$HOME/.colima/default/docker.sock
+```
+
+The run wrapper prepares the Linux `uv` helper and SWE-bench wheelhouse on the
+first real run.
 
 Dry-run the default config without Docker or credentials:
 
@@ -46,12 +78,44 @@ Run the configured model + Docker loop with the default config:
 bash runs/run_self_evolving_simple.sh --run-id simple-real --execute
 ```
 
-Copy the config when you want to change the split, model, output root, or
-execution settings:
+For a smaller real smoke, copy the config and point train at a tiny JSONL split,
+then disable heldout if you only want to test the training loop:
 
 ```bash
 cp configs/simple_swebench.yaml configs/my_simple_swebench.yaml
+```
 
+Edit `configs/my_simple_swebench.yaml`:
+
+```yaml
+instances:
+  train:
+    path: configs/swebench/my-train-3.jsonl
+  heldout: null
+execution:
+  parallel: 3
+  max_turns: 75
+evolution:
+  rounds: 3
+evaluation:
+  baseline_heldout: false
+  final_heldout: false
+```
+
+Then run it:
+
+```bash
+nohup bash runs/run_self_evolving_simple.sh \
+  --config configs/my_simple_swebench.yaml \
+  --run-id simple-real-custom \
+  --execute \
+  > simple-real.log 2>&1 &
+```
+
+For an interactive foreground run, use the same command without `nohup` and
+redirection:
+
+```bash
 bash runs/run_self_evolving_simple.sh \
   --config configs/my_simple_swebench.yaml \
   --run-id simple-real-custom \
@@ -84,6 +148,25 @@ components, train slice, heldout slice when configured, counts, and rounds.
 Executed runs write the generic evolution workspace under
 `<output_root>/<run-id>/evolution` plus suite run artifacts under
 `<output_root>/<run-id>/runs`.
+
+For the default config, the most useful paths are:
+
+- `evals/out/self_evolving/simple/<run-id>/evolution/versions/`: immutable
+  candidate source-tree versions.
+- `evals/out/self_evolving/simple/<run-id>/evolution/decisions.jsonl`: one
+  baseline-vs-candidate record per proposed generation.
+- `evals/out/self_evolving/simple/<run-id>/runs/`: per-version, per-instance
+  SWE-bench artifacts.
+- `evals/out/self_evolving/simple/<run-id>/evaluation/summary.json`: optional
+  heldout before/final summary.
+
+During a background run, monitor:
+
+```bash
+tail -f simple-real.log
+find evals/out/self_evolving/simple/simple-real-custom -name result.json | wc -l
+tail -n 20 evals/out/self_evolving/simple/simple-real-custom/evolution/decisions.jsonl
+```
 
 When `evaluation.baseline_heldout` or `evaluation.final_heldout` is enabled,
 the simple runner evaluates the current agent on `instances.heldout` before

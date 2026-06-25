@@ -115,6 +115,10 @@ mechanics on SWE-bench). See
 [docs/agent-native/self-evolving.md](docs/agent-native/self-evolving.md) for the
 agent-facing concept guide.
 
+To start with the current source-tree evolution path, use
+[`recipes/simple/README.md`](recipes/simple/README.md): it shows the dry-run,
+real model + Docker run, train-only smoke setup, and output artifact map.
+
 ## Non-Goals
 
 - This is not intended to be a production agent platform at the start.
