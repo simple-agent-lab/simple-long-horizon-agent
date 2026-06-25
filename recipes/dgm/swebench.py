@@ -20,7 +20,6 @@ from typing import Any
 
 from recipes import swebench_reward as shared_reward
 from simple_agent_lab.evals.protocols import AGENT_PACKAGE_KEY
-from simple_agent_lab.evolution import agent_package as agent_pkg
 from simple_agent_lab.evolution.types import Run, Slice, Version
 from simple_agent_lab.trace.jsonl import read_jsonl, write_jsonl
 
@@ -30,6 +29,107 @@ AGENT_PREFIX = "agent/"
 EVOLVING_CONTAINER_MODULE = "simple_agent_lab.evals.suites.swebench.evolving"
 OPENAI_AUTH_ENV = "OPENAI_AUTH_TOKEN"
 OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
+DIAGNOSTIC_STATUSES = (
+    "completed",
+    "agent_load_failed",
+    "agent_build_failed",
+    "container_failed",
+    "missing_result",
+    "scoring_failed",
+)
+
+_AGENT_PROGRAM = '''\
+"""DGM SWE-bench coding agent scaffold.
+
+This package is intentionally small: evolve prompts, patch-review heuristics,
+and tool guidance before changing the agent construction path.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from prompts import build_system_prompt
+from review import review_patch
+from simple_agent_lab.agents.starter import make_bash_agent
+from simple_agent_lab.core import Agent
+from simple_agent_lab.llm import Provider
+from tools import tool_guidance
+
+
+def build_agent(*, provider: Provider, cwd: Path, base_system_prompt: str) -> Agent:
+    system_prompt = build_system_prompt(
+        base_system_prompt,
+        review_guidance=review_patch(),
+        tool_guidance=tool_guidance(),
+    )
+    return make_bash_agent(
+        provider=provider,
+        cwd=cwd,
+        name="dgm_swebench_agent",
+        system_prompt=system_prompt,
+    )
+'''
+
+_PROMPTS = '''\
+"""Prompt helpers for the DGM SWE-bench agent."""
+
+from __future__ import annotations
+
+
+PATCH_DISCIPLINE = """\\
+Work like a careful maintainer:
+- reproduce or inspect the failing behavior first when possible;
+- make the smallest code change that addresses the root cause;
+- avoid broad rewrites, generated files, and unrelated style churn;
+- run targeted tests or explain why they are unavailable;
+- leave the final answer focused on changed files and verification.
+"""
+
+
+def build_system_prompt(
+    base_system_prompt: str,
+    *,
+    review_guidance: str,
+    tool_guidance: str,
+) -> str:
+    sections = [
+        base_system_prompt.strip(),
+        PATCH_DISCIPLINE.strip(),
+        review_guidance.strip(),
+        tool_guidance.strip(),
+    ]
+    return "\\n\\n".join(section for section in sections if section)
+'''
+
+_REVIEW = '''\
+"""Lightweight patch-review guidance for the DGM SWE-bench agent."""
+
+from __future__ import annotations
+
+
+def review_patch() -> str:
+    return """\\
+Before finishing, review the diff for:
+- whether the patch touches only files needed for the reported bug;
+- whether the changed behavior is covered by a focused test or smoke check;
+- whether import errors, syntax errors, and missing dependencies are likely.
+"""
+'''
+
+_TOOLS = '''\
+"""Tool-use guidance for the DGM SWE-bench agent."""
+
+from __future__ import annotations
+
+
+def tool_guidance() -> str:
+    return """\\
+Use shell commands to inspect files and run narrow tests. Prefer search and
+small file reads over dumping large logs. When a test is expensive, run the
+smallest command that exercises the suspected behavior.
+"""
+'''
 
 
 @dataclass(frozen=True)
@@ -327,6 +427,111 @@ def _describe_incomplete(runs: Sequence[Run]) -> list[str]:
     return lines
 
 
+def run_diagnostic(run: Run) -> dict[str, Any]:
+    """Return DGM-local health metadata for one SWE-bench rollout run."""
+
+    result_path = run.dir / "out" / "result.json"
+    if not result_path.is_file():
+        return {
+            "status": "missing_result",
+            "reward": 0.0,
+            "message": _failure_message(run),
+        }
+
+    result = run.result
+    if result.get("scoring_error"):
+        return {
+            "status": "scoring_failed",
+            "reward": 0.0,
+            "message": str(result.get("scoring_error") or ""),
+        }
+
+    agent_status = result.get("agent_package", {})
+    agent_status = agent_status if isinstance(agent_status, Mapping) else {}
+    if bool(agent_status.get("used_fallback")):
+        error = str(agent_status.get("error") or "")
+        loaded = bool(agent_status.get("loaded"))
+        if "container exited" in error or "before writing a result" in error:
+            status = "container_failed"
+        elif loaded:
+            status = "agent_build_failed"
+        else:
+            status = "agent_load_failed"
+        return {
+            "status": status,
+            "reward": reward_from_result(result),
+            "message": error,
+        }
+
+    return {
+        "status": "completed",
+        "reward": reward_from_result(result),
+        "message": "",
+    }
+
+
+def candidate_diagnostics(
+    runs: Sequence[Run], *, min_complete_fraction: float = 0.5
+) -> dict[str, Any]:
+    """Summarize DGM-local validity and health for a candidate rollout."""
+
+    summary: dict[str, Any] = {status: 0 for status in DIAGNOSTIC_STATUSES}
+    total = len(runs)
+    result_artifacts = sum(1 for run in runs if run.ok)
+    resolved = 0
+    for run in runs:
+        diagnostic = run_diagnostic(run)
+        status = str(diagnostic["status"])
+        summary[status] = int(summary.get(status, 0)) + 1
+        if float(diagnostic.get("reward", 0.0) or 0.0) > 0.0:
+            resolved += 1
+
+    completion_rate = result_artifacts / total if total else 0.0
+    invalid_agent = (
+        int(summary["agent_load_failed"]) > 0 or int(summary["agent_build_failed"]) > 0
+    )
+    valid_parent = (
+        bool(total) and not invalid_agent and (completion_rate >= min_complete_fraction)
+    )
+    summary.update(
+        {
+            "total": total,
+            "result_artifacts": result_artifacts,
+            "completion_rate": completion_rate,
+            "resolved": resolved,
+            "valid_parent": valid_parent,
+        }
+    )
+    return summary
+
+
+def _failure_message(run: Run) -> str:
+    failure_path = run.dir / "out" / "failure.json"
+    if not failure_path.is_file():
+        return "missing result.json"
+    try:
+        diagnostic = json.loads(failure_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return "unreadable failure.json"
+    return str(
+        diagnostic.get("likely_reason")
+        or diagnostic.get("error")
+        or diagnostic.get("message")
+        or "missing result.json"
+    )
+
+
+def dgm_default_agent_package() -> dict[str, str]:
+    """Return DGM's moderate evolvable agent package scaffold."""
+
+    return {
+        "agent_program.py": _AGENT_PROGRAM,
+        "prompts.py": _PROMPTS,
+        "review.py": _REVIEW,
+        "tools.py": _TOOLS,
+    }
+
+
 def seed_files(*, model: str, api_kind: str, base_url: str = "") -> dict[str, str]:
     """Return DGM's seed version files for an evolvable SWE-bench agent package."""
 
@@ -341,7 +546,7 @@ def seed_files(*, model: str, api_kind: str, base_url: str = "") -> dict[str, st
         "README.md": "# Real SWE-bench self-evolving agent\n",
         "provider.json": json.dumps(provider, indent=2, sort_keys=True) + "\n",
     }
-    for name, text in agent_pkg.default_agent_package().items():
+    for name, text in dgm_default_agent_package().items():
         files[AGENT_PREFIX + name] = text
     return files
 
@@ -353,7 +558,7 @@ def package_files(version: Version) -> dict[str, str]:
     for name in version.files():
         if name.startswith(AGENT_PREFIX):
             out[name[len(AGENT_PREFIX) :]] = version.read(name)
-    return out or agent_pkg.default_agent_package()
+    return out or dgm_default_agent_package()
 
 
 def version_package_artifacts(version: Version) -> dict[str, bytes]:
@@ -369,10 +574,17 @@ def reward_from_result(result: Mapping[str, Any]) -> float:
     return shared_reward.reward_from_result(result)
 
 
-def swebench_reward(run: Run) -> float:
-    """Return DGM's scalar reward for one SWE-bench rollout run."""
+def swebench_reward(run: Run) -> dict[str, float]:
+    """Return DGM's reward plus recipe-local diagnostic dimensions."""
 
-    return reward_from_result(run.result)
+    diagnostic = run_diagnostic(run)
+    status = str(diagnostic["status"])
+    scores = {name: 1.0 if name == status else 0.0 for name in DIAGNOSTIC_STATUSES}
+    scores["reward"] = float(diagnostic.get("reward", 0.0) or 0.0)
+    scores["valid_parent"] = (
+        0.0 if status in {"agent_load_failed", "agent_build_failed"} else 1.0
+    )
+    return scores
 
 
 def apply_eval_score(run: Run, eval_row: Mapping[str, Any]) -> None:

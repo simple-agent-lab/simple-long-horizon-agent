@@ -26,12 +26,16 @@ class SwebenchRewardTest(unittest.TestCase):
         self.assertEqual(swebench_reward.reward_from_result({"reward": 0.75}), 0.75)
         self.assertEqual(swebench_reward.reward_from_result({}), 0.0)
 
-    def test_reward_from_result_penalizes_agent_package_fallback(self):
+    def test_reward_from_result_keeps_scalar_reward_for_agent_package_fallback(self):
         self.assertEqual(
             swebench_reward.reward_from_result(
-                {"resolved": True, "agent_package": {"used_fallback": True}}
+                {
+                    "resolved": True,
+                    "score": 1.0,
+                    "agent_package": {"used_fallback": True},
+                }
             ),
-            -1.0,
+            1.0,
         )
 
     def test_apply_eval_score_updates_result_json(self):

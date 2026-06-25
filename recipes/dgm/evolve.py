@@ -43,11 +43,14 @@ from simple_agent_lab.trace.jsonl import read_jsonl  # noqa: E402
 DEFAULT_CONFIG = Path("configs/dgm_swebench.yaml")
 
 SYSTEM_PROMPT = """You are a meta-agent evolving a SWE-bench coding agent.
-The agent is a Python package under `agent/`; `agent/agent_program.py` defines
-`build_agent(*, provider, cwd, base_system_prompt) -> Agent`. Edit any file under
-`agent/` (full file contents, AST-valid). Keep build_agent present. Return ONLY
-JSON: {"note":"...","evidence":["..."],"edits":{"agent/<path>":"FULL"|null}}.
-Make one focused change likely to raise the resolve rate.
+The agent is a Python package under `agent/`. `agent/agent_program.py` defines
+`build_agent(*, provider, cwd, base_system_prompt) -> Agent`; `agent/prompts.py`,
+`agent/review.py`, and `agent/tools.py` are deliberately moderate, bounded
+extension points for prompt discipline, patch review, and tool-use guidance.
+Edit any file under `agent/` (full file contents, AST-valid). Keep build_agent
+present, preserve the package loadability, and prefer one focused change likely
+to raise the resolve rate over broad rewrites. Return ONLY JSON:
+{"note":"...","evidence":["..."],"edits":{"agent/<path>":"FULL"|null}}.
 """
 
 
@@ -152,6 +155,7 @@ def run_workflow(args: argparse.Namespace) -> None:
         reward=er.swebench_reward,
         strategy=strategy,
         criterion=dgm_admission_criterion("reward"),
+        candidate_metadata=er.candidate_diagnostics,
     )
 
     def announce(decision: Any) -> None:
@@ -330,18 +334,26 @@ def select_archive_parent(ctx: Any, method: str) -> str:
 
 
 def dgm_admission_criterion(dim: str = "reward"):
-    """Admit worse-but-valid children, but reject evolved-agent fallback runs."""
+    """Admit worse-but-valid children, but reject broken agent packages."""
 
     base_criterion = valid_when(dim)
 
     def judge(baseline: RunScores, candidate: RunScores) -> Verdict:
         verdict = base_criterion(baseline, candidate)
-        if any(float(scores.get(dim, 0.0)) < 0.0 for scores in candidate.values()):
+        invalid_runs = sum(
+            1
+            for scores in candidate.values()
+            if float(scores.get("agent_load_failed", 0.0)) > 0.0
+            or float(scores.get("agent_build_failed", 0.0)) > 0.0
+            or float(scores.get("valid_parent", 1.0)) <= 0.0
+        )
+        if invalid_runs:
             deltas = dict(verdict.deltas)
             deltas["valid_parent"] = 0.0
             return Verdict(
                 False,
-                f"admission invalid (negative {dim}; likely evolved-agent fallback)",
+                "admission invalid "
+                f"({invalid_runs} run(s) used a broken evolved-agent package)",
                 deltas,
             )
         return verdict

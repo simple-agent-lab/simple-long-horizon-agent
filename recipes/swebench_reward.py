@@ -33,9 +33,6 @@ def load_instances(paths: Sequence[str | Path]) -> list[dict[str, Any]]:
 def reward_from_result(result: Mapping[str, Any]) -> float:
     """Return the scalar SWE-bench reward encoded in one ``result.json``."""
 
-    agent_package = result.get("agent_package", {})
-    if isinstance(agent_package, Mapping) and agent_package.get("used_fallback"):
-        return -1.0
     if "resolved" in result:
         return 1.0 if bool(result.get("resolved")) else 0.0
     if "score" in result:

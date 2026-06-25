@@ -9,7 +9,7 @@ from typing import Any
 
 from simple_agent_lab.evolution.kernel import log, store
 from simple_agent_lab.evolution.kernel.loop import means, score
-from simple_agent_lab.evolution.types import Context, Manifest, Slice, Version
+from simple_agent_lab.evolution.types import Context, Manifest, Slice, Verdict, Version
 
 
 def run_evolution(
@@ -142,18 +142,30 @@ def run_round(
             base_scores = scores_by_hash[base.hash]
             cand_scores = score(cand_runs, components.reward)
             verdict = components.criterion(base_scores, cand_scores)
+            metadata = _candidate_metadata(components, cand_runs)
+            if metadata and not bool(metadata.get("valid_parent", True)):
+                deltas = dict(verdict.deltas)
+                deltas["valid_parent"] = 0.0
+                verdict = Verdict(
+                    False,
+                    f"{verdict.reason}; candidate diagnostics invalid",
+                    deltas,
+                )
             valid = bool(verdict.deltas.get("valid_parent", 1.0))
+            candidate_record = {
+                "hash": cand.hash,
+                "parent": cand.parent,
+                "scores": means(cand_scores),
+                "note": cand.manifest.note,
+                "evidence": list(cand.manifest.evidence),
+                "valid_parent": valid,
+            }
+            if metadata:
+                candidate_record["diagnostics"] = metadata
             decision = log.append(
                 workspace,
                 baseline={"hash": base.hash, "scores": means(base_scores)},
-                candidate={
-                    "hash": cand.hash,
-                    "parent": cand.parent,
-                    "scores": means(cand_scores),
-                    "note": cand.manifest.note,
-                    "evidence": list(cand.manifest.evidence),
-                    "valid_parent": valid,
-                },
+                candidate=candidate_record,
                 slice_=slice_,
                 verdict=verdict,
                 kind=proposal.kind,
@@ -171,3 +183,11 @@ def run_round(
 
 def _run_id(runs) -> str:
     return runs[0].run_id if runs else ""
+
+
+def _candidate_metadata(components: Any, runs: Any) -> dict[str, Any]:
+    fn = getattr(components, "candidate_metadata", None)
+    if not callable(fn):
+        return {}
+    metadata = fn(runs)
+    return dict(metadata) if metadata else {}

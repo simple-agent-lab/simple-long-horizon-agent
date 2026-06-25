@@ -651,15 +651,39 @@ dgm:
         self.assertEqual(self.mod._score({}), 0.0)
         self.assertEqual(self.mod._score({"scores": "bad"}), 0.0)
 
-    def test_dgm_admission_rejects_agent_package_fallback_reward(self):
+    def test_dgm_prompt_exposes_moderate_agent_package_surface(self):
+        self.assertIn("agent/prompts.py", self.mod.SYSTEM_PROMPT)
+        self.assertIn("agent/review.py", self.mod.SYSTEM_PROMPT)
+        self.assertIn("agent/tools.py", self.mod.SYSTEM_PROMPT)
+        self.assertIn("bounded", self.mod.SYSTEM_PROMPT.lower())
+
+    def test_dgm_admission_rejects_agent_package_failure_diagnostics(self):
         criterion = self.mod.dgm_admission_criterion("reward")
-        verdict = criterion({"i1": {"reward": 1.0}}, {"i1": {"reward": -1.0}})
+        verdict = criterion(
+            {"i1": {"reward": 1.0, "valid_parent": 1.0}},
+            {"i1": {"reward": 0.0, "agent_build_failed": 1.0, "valid_parent": 0.0}},
+        )
         self.assertFalse(verdict.accepted)
         self.assertEqual(verdict.deltas["valid_parent"], 0.0)
 
+    def test_dgm_admission_accepts_isolated_container_failure_diagnostics(self):
+        criterion = self.mod.dgm_admission_criterion("reward")
+        verdict = criterion(
+            {"i1": {"reward": 1.0, "valid_parent": 1.0}},
+            {
+                "i1": {"reward": 0.0, "completed": 1.0, "valid_parent": 1.0},
+                "i2": {"reward": 0.0, "container_failed": 1.0, "valid_parent": 1.0},
+            },
+        )
+        self.assertTrue(verdict.accepted)
+        self.assertEqual(verdict.deltas["valid_parent"], 1.0)
+
     def test_dgm_admission_accepts_worse_but_valid_zero_reward(self):
         criterion = self.mod.dgm_admission_criterion("reward")
-        verdict = criterion({"i1": {"reward": 1.0}}, {"i1": {"reward": 0.0}})
+        verdict = criterion(
+            {"i1": {"reward": 1.0, "valid_parent": 1.0}},
+            {"i1": {"reward": 0.0, "completed": 1.0, "valid_parent": 1.0}},
+        )
         self.assertTrue(verdict.accepted)
         self.assertEqual(verdict.deltas["valid_parent"], 1.0)
 

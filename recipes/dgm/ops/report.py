@@ -14,6 +14,15 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from simple_agent_lab.trace.jsonl import read_jsonl  # noqa: E402
 
+DIAGNOSTIC_FIELDS = (
+    "completed",
+    "agent_load_failed",
+    "agent_build_failed",
+    "container_failed",
+    "missing_result",
+    "scoring_failed",
+)
+
 
 def summarize(
     run_root: str | Path, *, test_dataset: str | Path | None = None
@@ -85,12 +94,24 @@ def monitor_summary(
         "accepted": len(accepted),
         "rejected": len(decisions) - len(accepted),
         **_archive_child_counts(decisions),
+        **_diagnostic_counts(decisions),
         "promoted_child": current_version,
         "current_version": current_version,
         "best_train_score": best_train_score,
         "latest_test_score": latest_test_score,
         "test_touched_before_final_scoring": _test_touched(decisions, test_dataset),
     }
+
+
+def _diagnostic_counts(decisions: list[dict[str, Any]]) -> dict[str, int]:
+    counts = {f"diagnostic_{field}": 0 for field in DIAGNOSTIC_FIELDS}
+    for row in decisions:
+        diagnostics = _nested(row, "candidate", "diagnostics")
+        if not isinstance(diagnostics, dict):
+            continue
+        for field in DIAGNOSTIC_FIELDS:
+            counts[f"diagnostic_{field}"] += int(diagnostics.get(field, 0) or 0)
+    return counts
 
 
 def _archive_child_counts(decisions: list[dict[str, Any]]) -> dict[str, int]:

@@ -285,6 +285,57 @@ class ReportSummarizeTest(unittest.TestCase):
         self.assertEqual(monitor["invalid_children"], 1)
         self.assertEqual(monitor["promoted_child"], "regressed")
 
+    def test_monitor_counts_diagnostic_categories(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_root = Path(tmp)
+            (run_root / "decisions.jsonl").write_text(
+                json.dumps(
+                    {
+                        "id": "d-000001",
+                        "accepted": False,
+                        "deltas": {"reward": 0.0, "valid_parent": 0.0},
+                        "candidate": {
+                            "hash": "bad",
+                            "scores": {"reward": 0.0},
+                            "valid_parent": False,
+                            "diagnostics": {
+                                "completed": 1,
+                                "agent_build_failed": 2,
+                                "container_failed": 0,
+                                "missing_result": 1,
+                            },
+                        },
+                    }
+                )
+                + "\n"
+                + json.dumps(
+                    {
+                        "id": "d-000002",
+                        "accepted": True,
+                        "deltas": {"reward": 0.0, "valid_parent": 1.0},
+                        "candidate": {
+                            "hash": "valid",
+                            "scores": {"reward": 0.0},
+                            "valid_parent": True,
+                            "diagnostics": {
+                                "completed": 2,
+                                "container_failed": 1,
+                            },
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            summary = self.mod.summarize(run_root)
+
+        monitor = summary["monitor"]
+        self.assertEqual(monitor["diagnostic_completed"], 3)
+        self.assertEqual(monitor["diagnostic_agent_build_failed"], 2)
+        self.assertEqual(monitor["diagnostic_container_failed"], 1)
+        self.assertEqual(monitor["diagnostic_missing_result"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

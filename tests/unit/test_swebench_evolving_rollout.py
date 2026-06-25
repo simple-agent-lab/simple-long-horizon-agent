@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from simple_agent_lab.evals.protocols import AGENT_PACKAGE_KEY
+from simple_agent_lab.evolution.agent_package import load_agent_package_result
 from recipes.dgm import swebench as er
 from simple_agent_lab.evolution.kernel import store
 from simple_agent_lab.evolution.types import Manifest, Run, Version
@@ -17,12 +18,12 @@ class EvolvingRolloutTest(unittest.TestCase):
         self.assertEqual(er.reward_from_result({"reward": 0.5}), 0.5)
         self.assertEqual(er.reward_from_result({}), 0.0)
 
-    def test_reward_from_result_penalizes_agent_package_fallback(self):
+    def test_reward_from_result_keeps_scalar_reward_for_agent_package_fallback(self):
         self.assertEqual(
             er.reward_from_result(
                 {"resolved": True, "agent_package": {"used_fallback": True}}
             ),
-            -1.0,
+            1.0,
         )
 
     def test_performance_layout_paths(self):
@@ -93,7 +94,11 @@ class EvolvingRolloutTest(unittest.TestCase):
             base_url="https://example.test/v1",
         )
         self.assertIn("agent/agent_program.py", seed)
+        self.assertIn("agent/prompts.py", seed)
+        self.assertIn("agent/review.py", seed)
+        self.assertIn("agent/tools.py", seed)
         self.assertIn("build_agent", seed["agent/agent_program.py"])
+        self.assertIn("review_patch", seed["agent/agent_program.py"])
         self.assertIn("provider.json", seed)
         self.assertIn("README.md", seed)
         provider = json.loads(seed["provider.json"])
@@ -101,6 +106,15 @@ class EvolvingRolloutTest(unittest.TestCase):
         self.assertEqual(provider["api"], "openai-chat")
         self.assertEqual(provider["base_url"], "https://example.test/v1")
         self.assertEqual(provider["api_key_env"], er.OPENAI_AUTH_ENV)
+
+    def test_dgm_default_agent_package_loads(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = load_agent_package_result(
+                er.dgm_default_agent_package(), root=Path(tmp)
+            )
+
+        self.assertTrue(result.loaded, result.error)
+        self.assertTrue(callable(result.builder))
 
     def test_version_package_artifacts_contains_default(self):
         with tempfile.TemporaryDirectory() as tmp:

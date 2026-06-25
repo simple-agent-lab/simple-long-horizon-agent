@@ -173,6 +173,47 @@ class OpenEndedDriverTest(unittest.TestCase):
         candidate_hash = decisions[0].candidate["hash"]
         self.assertEqual(rollout_counts[candidate_hash], 1)
 
+    def test_driver_records_candidate_metadata_and_uses_valid_parent(self):
+        _seed(self.ws)
+
+        def rollout(version, _slice):
+            run_dir = self.ws / "runs" / version.hash / "i1"
+            (run_dir / "out").mkdir(parents=True, exist_ok=True)
+            (run_dir / "out" / "result.json").write_text(
+                '{"reward": 0.0}', encoding="utf-8"
+            )
+            return [Run(run_dir)]
+
+        def strategy(_ctx):
+            return Proposal(
+                edits={"agent/agent_program.py": "x=22\n"},
+                note="metadata",
+                kind="code",
+            )
+
+        components = SimpleNamespace(
+            rollout=rollout,
+            reward=lambda _run: {"reward": 0.0, "valid_parent": 1.0},
+            strategy=strategy,
+            criterion=valid_when(),
+            candidate_metadata=lambda _runs: {
+                "valid_parent": False,
+                "agent_build_failed": 1,
+                "completed": 0,
+            },
+        )
+
+        decisions = open_ended.run_round(
+            self.ws,
+            components,
+            Slice("s", ({"instance_id": "i1"},)),
+            branches=1,
+        )
+
+        self.assertFalse(decisions[0].accepted)
+        self.assertFalse(decisions[0].candidate["valid_parent"])
+        self.assertEqual(decisions[0].candidate["diagnostics"]["agent_build_failed"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()
