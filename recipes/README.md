@@ -10,16 +10,15 @@ benchmark glue live; the substrate itself stays generic.
 | [`ahe/`](ahe/README.md) | AHE observability showcase on SWE-bench; uses SAL `AgentSurface`, pre-proposal analysis, and recipe-local ledgering | Sequential step loop with analyzer-before-proposal and AHE round ledger | "How does AHE-style component, experience, and decision observability map onto SAL?" |
 | [`dgm/`](dgm/README.md) | DGM-style archive showcase with every operational knob exposed; full self-reference is pending | Parallel open-ended archive-admission loop | "How do I study DGM mechanics and tune the archive loop?" |
 
-Both recipes evolve the **whole agent program** under `agent/`: a model rewrites
-the agent's Python package, including helper modules beside `agent_program.py`,
-and each candidate is graded on a train slice inside a SWE-bench Docker sandbox.
-The simple recipe is the config-backed generic runner path with optional
-suite-scored heldout before/final reporting; the AHE recipe keeps the same
+The simple recipe evolves the real framework source under
+`src/simple_agent_lab/**`: a bash-capable meta-agent edits a temporary source
+tree, the framework stages the candidate source under `input/source_tree/`, and
+SWE-bench runs import that source tree first. The AHE recipe keeps the same
 simple sequential loop but adds analyzer-before-proposal and a richer
-recipe-local ledger; the DGM recipe is also YAML-backed, but owns its
-archive-specific official scoring workflow and before/after delta. The current
-DGM recipe reproduces archive admission and parent-selection mechanics, not the
-final self-referential Gödel step.
+recipe-local ledger. The DGM recipe is also YAML-backed, but currently owns its
+archive-specific wrapper-program path, official scoring workflow, and
+before/after delta. The current DGM recipe reproduces archive admission and
+parent-selection mechanics, not the final self-referential Gödel step.
 
 ## How the layers fit together
 
