@@ -124,6 +124,7 @@ Most run shape lives in YAML now:
 | `dgm.branches` | `3` | Candidate branches evaluated concurrently per round. |
 | `dgm.meta_concurrency` | `0` (= branches) | Concurrent meta-agent LLM calls per round. |
 | `dgm.parent_selection` | `score_child_prop` | `latest` \| `best` \| `score_prop` \| `score_child_prop`. |
+| `dgm.skip_baseline_heldout` | `false` | Skip the initial seed held-out test rollout; final held-out scoring still runs. |
 | `execution.parallel` | `3` | Global Docker worker cap. Must be at least `dgm.branches`. |
 | `execution.max_turns` | `75` | Per-instance agent turn budget. |
 | `execution.wheelhouse` | `evals/out/swebench/wheelhouse/cp311-manylinux` | Container wheelhouse. |

@@ -270,7 +270,9 @@ def configure_args(args: argparse.Namespace) -> argparse.Namespace:
         execute=bool(args.execute or config.run.execute),
         reset=bool(args.reset or config.run.reset),
         monitor=bool(args.monitor),
-        skip_baseline_heldout=bool(args.skip_baseline_heldout),
+        skip_baseline_heldout=bool(
+            args.skip_baseline_heldout or config.dgm.skip_baseline_heldout
+        ),
         _configured=True,
     )
     validate_schedule_capacity(

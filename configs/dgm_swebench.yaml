@@ -22,3 +22,4 @@ dgm:
   branches: 3
   meta_concurrency: 0
   parent_selection: score_child_prop
+  skip_baseline_heldout: false

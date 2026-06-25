@@ -49,6 +49,7 @@ class DgmAlgorithmConfig:
     branches: int = 3
     meta_concurrency: int = 0
     parent_selection: str = "score_child_prop"
+    skip_baseline_heldout: bool = False
 
 
 @dataclass(frozen=True)
@@ -144,6 +145,7 @@ def _dgm_config(raw: Mapping[str, Any]) -> DgmAlgorithmConfig:
             raw.get("meta_concurrency", 0), "dgm.meta_concurrency"
         ),
         parent_selection=parent_selection,
+        skip_baseline_heldout=bool(raw.get("skip_baseline_heldout", False)),
     )
 
 

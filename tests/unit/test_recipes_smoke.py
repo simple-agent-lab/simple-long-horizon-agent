@@ -537,6 +537,7 @@ dgm:
   branches: 3
   meta_concurrency: 0
   parent_selection: score_child_prop
+  skip_baseline_heldout: true
 """.lstrip(),
             encoding="utf-8",
         )
@@ -554,6 +555,7 @@ dgm:
         self.assertEqual(config.dataset.name, "demo-dataset")
         self.assertEqual(config.execution.parallel, 3)
         self.assertEqual(config.dgm.branches, 3)
+        self.assertTrue(config.dgm.skip_baseline_heldout)
 
     def test_configure_args_uses_yaml_defaults_and_cli_overrides(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -587,6 +589,7 @@ dgm:
         self.assertEqual(configured.parallel, 4)
         self.assertEqual(configured.train_dataset.endswith("train.jsonl"), True)
         self.assertEqual(configured.model_name, "yaml-model")
+        self.assertTrue(configured.skip_baseline_heldout)
 
     def test_configure_args_loads_config_dotenv_before_model_name(self):
         with tempfile.TemporaryDirectory() as tmp:
