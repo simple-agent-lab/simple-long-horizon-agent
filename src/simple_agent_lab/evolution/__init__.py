@@ -14,6 +14,16 @@ framework guide.
 from simple_agent_lab.evals.instances import InstanceSet
 from simple_agent_lab.evolution.experiment import Experiment
 from simple_agent_lab.evolution.registry import Use
+from simple_agent_lab.evolution.source_tree import (
+    CANDIDATE_PACKAGE,
+    CANDIDATE_SRC,
+    CANDIDATE_TREE,
+    SOURCE_ROOT,
+    candidate_source_artifacts,
+    cheap_validate_source_tree,
+    source_tree_surface,
+    validate_source_tree_edits,
+)
 from simple_agent_lab.evolution.surface import (
     AgentSurface,
     SurfaceComponent,
@@ -34,6 +44,14 @@ __all__ = [
     "Experiment",
     "InstanceSet",
     "Use",
+    "SOURCE_ROOT",
+    "CANDIDATE_TREE",
+    "CANDIDATE_SRC",
+    "CANDIDATE_PACKAGE",
+    "source_tree_surface",
+    "validate_source_tree_edits",
+    "candidate_source_artifacts",
+    "cheap_validate_source_tree",
     "AgentSurface",
     "SurfaceComponent",
     "ValidatedEdits",
