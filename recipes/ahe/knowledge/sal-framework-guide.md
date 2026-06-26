@@ -26,6 +26,8 @@ keeping AHE-specific observability in recipe-local code and artifacts.
   express the change.
 - When adding files, make sure they land inside the selected surface under
   `src/simple_agent_lab/`.
+- Keep protected source-tree paths in YAML `surface.args.exclude`; do not bury
+  recipe-specific protections inside strategy code.
 - Preserve the syntax, path, and component validators.
 
 ## Analyzer guidance

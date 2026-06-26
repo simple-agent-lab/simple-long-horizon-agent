@@ -6,7 +6,7 @@ import fnmatch
 import subprocess
 import sys
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
 
 from simple_agent_lab.evolution.surface import AgentSurface, SurfaceComponent
@@ -124,8 +124,8 @@ def source_tree_agent_surface(
     repo_root: Path,
     *,
     artifact_key: str = CANDIDATE_TREE,
-    include: tuple[str, ...] = (f"{SOURCE_ROOT}/**",),
-    exclude: tuple[str, ...] = (),
+    include: Sequence[str] = (f"{SOURCE_ROOT}/**",),
+    exclude: Sequence[str] = (),
     components: tuple[SurfaceComponent, ...] = DEFAULT_SOURCE_COMPONENTS,
     **_args: object,
 ) -> AgentSurface:
@@ -135,12 +135,16 @@ def source_tree_agent_surface(
     if not source_root.exists():
         raise ValueError(f"source root does not exist: {SOURCE_ROOT}")
 
+    include_patterns = _patterns(include)
+    exclude_patterns = _patterns(exclude)
     default_files = {
         path.relative_to(repo_root).as_posix(): path.read_text(encoding="utf-8")
         for path in _walk_candidate_files(source_root)
         if path.suffix == ".py"
         and _included_for_surface(
-            path.relative_to(repo_root).as_posix(), include, exclude
+            path.relative_to(repo_root).as_posix(),
+            include_patterns,
+            exclude_patterns,
         )
     }
     return AgentSurface(
@@ -151,7 +155,7 @@ def source_tree_agent_surface(
         default_files=default_files,
         artifact_key=artifact_key,
         components=components,
-        excluded_paths=exclude,
+        excluded_paths=exclude_patterns,
     )
 
 
@@ -287,3 +291,9 @@ def _included_for_surface(
     if exclude and any(fnmatch.fnmatch(path, pattern) for pattern in exclude):
         return False
     return any(fnmatch.fnmatch(path, pattern) for pattern in include)
+
+
+def _patterns(value: Sequence[str] | str) -> tuple[str, ...]:
+    if isinstance(value, str):
+        return (value,)
+    return tuple(str(pattern) for pattern in value)

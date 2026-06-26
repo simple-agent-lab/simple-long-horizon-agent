@@ -25,6 +25,8 @@ The recipe is explicit about the boundary choices:
 - It runs a SAL evolve agent to inspect `analysis/`, edit the selected
   source-tree surface under `src/simple_agent_lab/`, and write
   `change_manifest.json`.
+- Its editable boundary is configured in YAML with `surface.args.exclude`, using
+  the same default protected paths as the simple recipe.
 - It stores the AHE ledger under the run root's `ahe/` directory.
 - It does not add Best-of-N search, live external exploration, a
   Terminal-Bench adapter, or a NexAU runtime dependency.

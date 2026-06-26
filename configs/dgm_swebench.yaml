@@ -17,6 +17,14 @@ model:
   api_kind: openai-chat
   model_env: OPENAI_MODEL
   default_model: dgm-swebench
+surface:
+  editable_components: [everything]
+  exclude:
+    - src/simple_agent_lab/evolution/**
+    - src/simple_agent_lab/evals/**
+    - src/simple_agent_lab/mcp/**
+    - src/simple_agent_lab/llm/**
+    - src/simple_agent_lab/trace/**
 dgm:
   rounds: 4
   branches: 3

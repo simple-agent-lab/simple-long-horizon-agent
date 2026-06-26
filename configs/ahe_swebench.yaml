@@ -13,6 +13,13 @@ surface:
   editable_components: [everything]
   artifact_key: source_tree
   default: current_source_tree
+  args:
+    exclude:
+      - src/simple_agent_lab/evolution/**
+      - src/simple_agent_lab/evals/**
+      - src/simple_agent_lab/mcp/**
+      - src/simple_agent_lab/llm/**
+      - src/simple_agent_lab/trace/**
 instances:
   train:
     id: train

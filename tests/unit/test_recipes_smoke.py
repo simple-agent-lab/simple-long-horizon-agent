@@ -113,6 +113,14 @@ class RecipeLayoutTest(unittest.TestCase):
 
 
 class DefaultConfigDatasetPathTest(unittest.TestCase):
+    SAFE_SOURCE_EXCLUDES = (
+        "src/simple_agent_lab/evolution/**",
+        "src/simple_agent_lab/evals/**",
+        "src/simple_agent_lab/mcp/**",
+        "src/simple_agent_lab/llm/**",
+        "src/simple_agent_lab/trace/**",
+    )
+
     def _assert_real_jsonl(self, path: str):
         data_path = Path(path)
         if not data_path.is_absolute():
@@ -128,6 +136,9 @@ class DefaultConfigDatasetPathTest(unittest.TestCase):
         self._assert_real_jsonl(config.instances.train.path)
         self.assertIsNotNone(config.instances.heldout)
         self._assert_real_jsonl(config.instances.heldout.path)
+        self.assertEqual(
+            config.surface.args["exclude"], list(self.SAFE_SOURCE_EXCLUDES)
+        )
 
     def test_dgm_default_config_uses_real_dataset_paths(self):
         from recipes.dgm.config import load_dgm_config
@@ -136,6 +147,7 @@ class DefaultConfigDatasetPathTest(unittest.TestCase):
 
         self._assert_real_jsonl(config.dataset.train_path)
         self._assert_real_jsonl(config.dataset.test_path)
+        self.assertEqual(config.surface.exclude, self.SAFE_SOURCE_EXCLUDES)
 
     def test_ahe_default_config_uses_real_dataset_paths(self):
         from simple_agent_lab.evolution.config import load_self_evolving_config
@@ -145,6 +157,9 @@ class DefaultConfigDatasetPathTest(unittest.TestCase):
         self._assert_real_jsonl(config.instances.train.path)
         self.assertIsNotNone(config.instances.heldout)
         self._assert_real_jsonl(config.instances.heldout.path)
+        self.assertEqual(
+            config.surface.args["exclude"], list(self.SAFE_SOURCE_EXCLUDES)
+        )
 
 
 class SimpleRecipeSmokeTest(unittest.TestCase):
@@ -553,6 +568,10 @@ model:
   api_kind: openai-chat
   model_env: OPENAI_MODEL
   default_model: yaml-model
+surface:
+  editable_components: [everything]
+  exclude:
+    - src/simple_agent_lab/evolution/**
 dgm:
   rounds: 4
   branches: 3
@@ -576,6 +595,7 @@ dgm:
         self.assertEqual(config.dataset.name, "demo-dataset")
         self.assertEqual(config.execution.parallel, 3)
         self.assertEqual(config.dgm.branches, 3)
+        self.assertEqual(config.surface.exclude, ("src/simple_agent_lab/evolution/**",))
         self.assertTrue(config.dgm.skip_baseline_heldout)
 
     def test_configure_args_uses_yaml_defaults_and_cli_overrides(self):

@@ -96,7 +96,7 @@ class RunConfigTest(unittest.TestCase):
                 return None
 
         registry.SUITES["demo_suite"] = lambda **_args: DemoSuite()
-        registry.SURFACES["demo_source"] = lambda *, default, artifact_key, **_args: (
+        registry.SURFACES["demo_source"] = lambda *, default, artifact_key, **args: (
             AgentSurface(
                 id="demo_source",
                 name="Demo source",
@@ -113,6 +113,7 @@ class RunConfigTest(unittest.TestCase):
                         validators=("path_allowed", "python_source", "python_syntax"),
                     ),
                 ),
+                excluded_paths=tuple(args.get("exclude", ())),
             )
         )
         registry.BACKENDS["fake"] = lambda **_args: FakeBackend(on_run=None)
@@ -148,6 +149,24 @@ class RunConfigTest(unittest.TestCase):
             config = load_self_evolving_config(path)
 
         self.assertEqual(config.execution.parallel, 1)
+
+    def test_load_self_evolving_config_keeps_surface_args(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.yaml"
+            path.write_text(
+                CONFIG.replace(
+                    "  default: demo_source\n",
+                    "  default: demo_source\n"
+                    "  args:\n"
+                    "    exclude:\n"
+                    "      - src/demo/evolution/**\n",
+                ),
+                encoding="utf-8",
+            )
+
+            config = load_self_evolving_config(path)
+
+        self.assertEqual(config.surface.args, {"exclude": ["src/demo/evolution/**"]})
 
     def test_load_self_evolving_config_keeps_run_kwargs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -225,6 +244,27 @@ class RunConfigTest(unittest.TestCase):
                 built.experiment.current().files(),
                 ("provider.json", "src/demo/agent_program.py"),
             )
+
+    def test_build_self_evolving_run_passes_surface_args_to_factory(self) -> None:
+        from simple_agent_lab.evolution.config import build_self_evolving_run
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = self._write_demo_config(
+                root,
+                CONFIG.replace(
+                    "  default: demo_source\n",
+                    "  default: demo_source\n"
+                    "  args:\n"
+                    "    exclude:\n"
+                    "      - src/demo/evolution/**\n",
+                ),
+            )
+            self._register_demo_factories(lambda **_args: lambda _ctx: None)
+
+            built = build_self_evolving_run(load_self_evolving_config(path))
+
+        self.assertEqual(built.surface.excluded_paths, ("src/demo/evolution/**",))
 
     def test_build_self_evolving_run_with_model_program_strategy(self) -> None:
         from simple_agent_lab.evolution.components.strategy import (

@@ -154,6 +154,13 @@ surface:
   editable_components: [everything]
   artifact_key: source_tree
   default: current_source_tree
+  args:
+    exclude:
+      - src/simple_agent_lab/evolution/**
+      - src/simple_agent_lab/evals/**
+      - src/simple_agent_lab/mcp/**
+      - src/simple_agent_lab/llm/**
+      - src/simple_agent_lab/trace/**
 
 instances:
   train:
@@ -240,6 +247,14 @@ and prepend `/agent/run/input/source_tree/src` to the candidate run's
 `PYTHONPATH`, so the suite exercises the evolved framework source. This is the
 recommended evolution surface for `simple`, `ahe`, `dgm`, and future
 source-tree recipes.
+
+Use `surface.args.include` and `surface.args.exclude` to define the editable
+source-tree boundary in YAML. The checked-in SWE-bench configs keep the
+meta-agent away from framework evolution machinery, eval adapters, MCP, model
+provider code, and trace infrastructure by excluding
+`src/simple_agent_lab/evolution/**`, `src/simple_agent_lab/evals/**`,
+`src/simple_agent_lab/mcp/**`, `src/simple_agent_lab/llm/**`, and
+`src/simple_agent_lab/trace/**`.
 
 `agent_package.py` remains as a legacy wrapper-package loader for container
 fallbacks and focused compatibility tests. It is not the recommended editable

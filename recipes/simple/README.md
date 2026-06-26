@@ -26,6 +26,14 @@ That means the meta-agent edits the real framework source under
 candidate version is staged under `input/source_tree/src/simple_agent_lab/`, and
 SWE-bench imports that candidate source before the installed package.
 
+The default config keeps the editable boundary in YAML under
+`surface.args.exclude`. It protects `src/simple_agent_lab/evolution/**`,
+`src/simple_agent_lab/evals/**`, `src/simple_agent_lab/mcp/**`,
+`src/simple_agent_lab/llm/**`, and `src/simple_agent_lab/trace/**`, so the
+meta-agent focuses on the agent runtime and supporting behavior instead of
+rewriting the evolution framework, eval harness, provider boundary, or trace
+infrastructure.
+
 The default train and heldout slices point at the generated SWE-bench demo
 split:
 

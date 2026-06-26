@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -44,6 +44,13 @@ class ModelConfig:
 
 
 @dataclass(frozen=True)
+class SurfaceConfig:
+    editable_components: tuple[str, ...] = ("everything",)
+    include: tuple[str, ...] = ("src/simple_agent_lab/**",)
+    exclude: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class DgmAlgorithmConfig:
     rounds: int = 4
     branches: int = 3
@@ -58,6 +65,7 @@ class DgmConfig:
     dataset: DatasetConfig
     execution: ExecutionConfig
     model: ModelConfig
+    surface: SurfaceConfig
     dgm: DgmAlgorithmConfig
 
 
@@ -71,6 +79,7 @@ def load_dgm_config(path: str | Path) -> DgmConfig:
         dataset=_dataset_config(_mapping(data["dataset"], "dataset")),
         execution=_execution_config(_mapping(data["execution"], "execution")),
         model=_model_config(_mapping(data["model"], "model")),
+        surface=_surface_config(_mapping(data.get("surface", {}), "surface")),
         dgm=_dgm_config(_mapping(data["dgm"], "dgm")),
     )
 
@@ -84,7 +93,7 @@ def _require(mapping: Mapping[str, Any], *keys: str) -> None:
 def _mapping(value: object, field: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise ValueError(f"DGM config section {field!r} must be a mapping")
-    return value
+    return cast(Mapping[str, Any], value)
 
 
 def _run_config(raw: Mapping[str, Any]) -> RunConfig:
@@ -127,6 +136,16 @@ def _model_config(raw: Mapping[str, Any]) -> ModelConfig:
     )
 
 
+def _surface_config(raw: Mapping[str, Any]) -> SurfaceConfig:
+    return SurfaceConfig(
+        editable_components=_string_tuple(
+            raw.get("editable_components", ("everything",))
+        ),
+        include=_string_tuple(raw.get("include", ("src/simple_agent_lab/**",))),
+        exclude=_string_tuple(raw.get("exclude", ())),
+    )
+
+
 def _dgm_config(raw: Mapping[str, Any]) -> DgmAlgorithmConfig:
     parent_selection = str(raw.get("parent_selection", "score_child_prop"))
     if parent_selection not in PARENT_SELECTIONS:
@@ -157,6 +176,16 @@ def _positive_int(value: object, field: str) -> int:
     if parsed < 1:
         raise ValueError(f"{field} must be >= 1; got {value!r}")
     return parsed
+
+
+def _string_tuple(value: object) -> tuple[str, ...]:
+    if isinstance(value, str):
+        return (value,)
+    if value is None:
+        return ()
+    if not isinstance(value, Sequence):
+        raise ValueError(f"expected a string or sequence of strings; got {value!r}")
+    return tuple(str(item) for item in value)
 
 
 def _nonnegative_int(value: object, field: str) -> int:

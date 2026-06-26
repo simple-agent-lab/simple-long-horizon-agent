@@ -52,6 +52,7 @@ class SurfaceConfig:
     editable_components: tuple[str, ...]
     default: str
     artifact_key: str
+    args: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -206,6 +207,7 @@ def build_self_evolving_run(config: SelfEvolvingConfig) -> SelfEvolvingRun:
             config.surface.name,
             default=config.surface.default,
             artifact_key=config.surface.artifact_key,
+            **config.surface.args,
         ),
     )
     train = InstanceSet(
@@ -328,6 +330,7 @@ def _surface_config(raw: Mapping[str, Any]) -> SurfaceConfig:
         editable_components=components,
         default=str(raw["default"]),
         artifact_key=str(raw["artifact_key"]),
+        args=dict(raw.get("args", {})),
     )
 
 

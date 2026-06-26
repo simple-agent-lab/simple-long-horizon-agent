@@ -133,6 +133,7 @@ Most run shape lives in YAML now:
 | `model.default_model` | `dgm-swebench` | Provider model written into `provider.json` when `OPENAI_MODEL` is unset. |
 | `model.api_kind` | `openai-chat` | `openai-chat` \| `openai-responses`. |
 | `dataset.name` | `princeton-nlp/SWE-bench_Verified` | Source dataset for official scoring. |
+| `surface.exclude` | evolution/evals/mcp/llm/trace paths | YAML-owned source-tree protection for DGM meta-agent edits. |
 
 CLI flags are overrides for quick experiments. The common ones are `--config`,
 `--run-id`, `--execute`, `--reset`, and `--monitor`; lower-level flags such as

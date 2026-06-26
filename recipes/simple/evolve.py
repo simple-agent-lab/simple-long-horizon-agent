@@ -44,9 +44,10 @@ def register_recipe_factories(config_path: str | Path | None = None) -> None:
     registry.SUITES.setdefault("swebench", swebench_suite)
     registry.SURFACES.setdefault(
         "source_tree",
-        lambda *, artifact_key, **_args: source_tree_agent_surface(
+        lambda *, artifact_key, **args: source_tree_agent_surface(
             repo_root=ROOT,
             artifact_key=artifact_key,
+            **args,
         ),
     )
     registry.BACKENDS.setdefault(

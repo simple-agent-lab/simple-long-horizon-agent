@@ -168,6 +168,10 @@ For the simple path, choose these pieces:
 - editable components — the surface slices the strategy may change, such as
   `agent_runtime`, `tools`, `skills`, `memory`, `compression`, `llm_boundary`,
   or `everything`.
+- source-tree include/exclude patterns — `surface.args.include` and
+  `surface.args.exclude` keep the editable boundary in YAML. The checked-in
+  SWE-bench configs exclude `evolution/**`, `evals/**`, `mcp/**`, `llm/**`, and
+  `trace/**` under `src/simple_agent_lab/`.
 - `InstanceSet` — the frozen train slice loaded from the JSONL path named in
   config.
 - `evolution.algorithm` — currently `simple` in the generic builder. DGM's

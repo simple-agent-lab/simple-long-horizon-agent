@@ -106,7 +106,11 @@ def run_workflow(args: argparse.Namespace) -> None:
         f"(<= {global_workers} containers total; memory is the hard cap)"
     )
     args.parallel = global_workers
-    source_surface = source_tree_agent_surface(ROOT)
+    source_surface = source_tree_agent_surface(
+        ROOT,
+        include=args.surface_include,
+        exclude=args.surface_exclude,
+    )
     base_rollout = er.build_swebench_rollout(
         layout,
         dataset_name=args.dataset_name,
@@ -164,7 +168,7 @@ def run_workflow(args: argparse.Namespace) -> None:
         provider=provider,
         repo_root=ROOT,
         surface=source_surface,
-        editable_components=("everything",),
+        editable_components=args.surface_editable_components,
         parent_selection=args.parent_selection,
         parent_selector=select_archive_parent,
     )
@@ -285,6 +289,9 @@ def configure_args(args: argparse.Namespace) -> argparse.Namespace:
         skip_baseline_heldout=bool(
             args.skip_baseline_heldout or config.dgm.skip_baseline_heldout
         ),
+        surface_include=config.surface.include,
+        surface_exclude=config.surface.exclude,
+        surface_editable_components=config.surface.editable_components,
         _configured=True,
     )
     validate_schedule_capacity(
