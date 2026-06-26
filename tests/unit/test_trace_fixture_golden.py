@@ -46,12 +46,10 @@ from simple_agent_lab.protocols import (
 )
 from simple_agent_lab.state import State
 from simple_agent_lab.trace import (
-    TraceMeta,
     run_trace_from_state,
     trace_record,
-    write_canonical_trace,
 )
-from simple_agent_lab.trace.jsonl import read_jsonl
+from simple_agent_lab.trace.jsonl import read_jsonl, write_jsonl
 
 _VIEWER_DIR = Path(__file__).resolve().parents[2] / "studio" / "trace-viewer"
 SAMPLE_PATH = _VIEWER_DIR / "sample-trace.jsonl"
@@ -530,13 +528,10 @@ class TraceFixtureGoldenTest(unittest.TestCase):
     def test_sample_trace_matches_real_serializer(self) -> None:
         record = build_sample_record()
         if os.environ.get("UPDATE_GOLDEN"):
-            write_canonical_trace(
-                SAMPLE_PATH,
-                state=_build_state(),
-                trace_meta=TraceMeta(
-                    trace_id=TRACE_ID, producer=PRODUCER, meta_fn=lambda: META
-                ),
-            )
+            # Write the same unslimmed record the assertion compares against.
+            # write_canonical_trace would externalize raw blobs to a `.raw.jsonl`
+            # sidecar, so the regenerated file would never match build_sample_record().
+            write_jsonl(SAMPLE_PATH, [record])
             self.skipTest(f"regenerated {SAMPLE_PATH.name}")
         committed = read_jsonl(SAMPLE_PATH)
         self.assertEqual(
