@@ -266,7 +266,11 @@ def list_traces(scan_dir: Path, project_root: Path) -> list[dict]:
         path_key = str(path)
         seen_paths.add(path_key)
         cached = _SCAN_CACHE.get(path_key)
-        if cached is not None and cached[0] == stat.st_mtime and cached[1] == stat.st_size:
+        if (
+            cached is not None
+            and cached[0] == stat.st_mtime
+            and cached[1] == stat.st_size
+        ):
             results.append(cached[2])
             continue
         first, fingerprint, peek_error = peek_first_record(path)
