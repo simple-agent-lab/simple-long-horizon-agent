@@ -285,7 +285,11 @@ class SummarizeStrategy:
                 llm_message("system", self.compressor.system_prompt),
                 *llm_payload,
             ]
-        record_model_events = _agent_records_model_events(self.compressor)
+        # Imported lazily: `core` imports this module at load time, so a
+        # top-level `from ..core import ...` would be a circular import.
+        from ..core import records_model_events
+
+        record_model_events = records_model_events(self.compressor)
         trace_events: tuple[ModelRequestEvent | ModelResponseEvent, ...] = ()
         if record_model_events:
             request_event = ModelRequestEvent(
@@ -334,11 +338,6 @@ class SummarizeStrategy:
             label="summarize",
             trace_events=trace_events,
         )
-
-
-def _agent_records_model_events(agent: "Agent") -> bool:
-    provider = getattr(agent, "llm_provider", None)
-    return provider is not None and provider.api != "fake"
 
 
 def _compression_sidecar(output: Message) -> MessageSidecar:
