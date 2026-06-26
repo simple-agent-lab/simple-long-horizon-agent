@@ -9,6 +9,7 @@ from typing import Any, cast
 
 import yaml
 
+ROOT = Path(__file__).resolve().parents[2]
 PARENT_SELECTIONS = {"latest", "best", "score_prop", "score_child_prop"}
 
 
@@ -70,7 +71,8 @@ class DgmConfig:
 
 
 def load_dgm_config(path: str | Path) -> DgmConfig:
-    data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    config_path = _repo_path(path)
+    data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise ValueError("DGM config must be a YAML mapping")
     _require(data, "run", "dataset", "execution", "model", "dgm")
@@ -96,21 +98,28 @@ def _mapping(value: object, field: str) -> Mapping[str, Any]:
     return cast(Mapping[str, Any], value)
 
 
+def _repo_path(path: str | Path) -> Path:
+    candidate = Path(path)
+    if candidate.is_absolute():
+        return candidate.resolve(strict=False)
+    return (ROOT / candidate).resolve(strict=False)
+
+
 def _run_config(raw: Mapping[str, Any]) -> RunConfig:
     return RunConfig(
         id=str(raw["id"]),
         output_root=str(raw.get("output_root", "evals/out/dgm_swebench")),
         execute=bool(raw.get("execute", False)),
         reset=bool(raw.get("reset", False)),
-        dotenv=str(raw.get("dotenv", ".env")),
+        dotenv=str(_repo_path(str(raw.get("dotenv", ".env")))),
     )
 
 
 def _dataset_config(raw: Mapping[str, Any]) -> DatasetConfig:
     return DatasetConfig(
         name=str(raw.get("name", "princeton-nlp/SWE-bench_Verified")),
-        train_path=str(raw["train_path"]),
-        test_path=str(raw["test_path"]),
+        train_path=str(_repo_path(str(raw["train_path"]))),
+        test_path=str(_repo_path(str(raw["test_path"]))),
     )
 
 
@@ -119,9 +128,20 @@ def _execution_config(raw: Mapping[str, Any]) -> ExecutionConfig:
         parallel=_positive_int(raw.get("parallel", 3), "execution.parallel"),
         max_turns=_positive_int(raw.get("max_turns", 75), "execution.max_turns"),
         wheelhouse=str(
-            raw.get("wheelhouse", "evals/out/swebench/wheelhouse/cp311-manylinux")
+            _repo_path(
+                str(
+                    raw.get(
+                        "wheelhouse",
+                        "evals/out/swebench/wheelhouse/cp311-manylinux",
+                    )
+                )
+            )
         ),
-        uv_binary=str(raw.get("uv_binary", "")),
+        uv_binary=(
+            str(_repo_path(str(raw.get("uv_binary", ""))))
+            if raw.get("uv_binary")
+            else ""
+        ),
     )
 
 

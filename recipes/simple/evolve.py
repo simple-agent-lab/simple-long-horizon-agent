@@ -105,7 +105,7 @@ def _normalize_config_args(
         path = (Path.cwd() / path).resolve(strict=False)
     else:
         path = path.resolve(strict=False)
-    base = ROOT if path == DEFAULT_CONFIG.resolve(strict=False) else path.parent
+    base = ROOT
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise ValueError("config must be a YAML mapping")

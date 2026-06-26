@@ -282,6 +282,83 @@ evaluation:
         self.assertIn("run id: outside-cwd-simple-smoke", result.stdout)
         self.assertIn("surface: source_tree", result.stdout)
 
+    def test_simple_recipe_copied_config_uses_repo_relative_instance_paths(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / "configs") as tmp:
+            config = Path(tmp) / "my_simple_swebench.yaml"
+            config.write_text(
+                """
+run:
+  id: copied-simple
+  output_root: evals/out/self_evolving/simple
+  execute: false
+  reset: false
+  dotenv: .env
+suite:
+  name: swebench
+  args:
+    in_env_scoring: true
+surface:
+  name: source_tree
+  editable_components: [everything]
+  artifact_key: source_tree
+  default: current_source_tree
+instances:
+  train:
+    id: train
+    path: configs/swebench/demo-train-60.jsonl
+  heldout: null
+execution:
+  backend:
+    name: local_docker
+  store:
+    name: local_dir
+  parallel: 1
+  max_turns: 3
+model:
+  api_kind: openai-chat
+  model_env: OPENAI_MODEL
+  api_key_env: OPENAI_AUTH_TOKEN
+strategy:
+  name: source_tree_agent
+  args:
+    system_prompt: demo
+evolution:
+  algorithm: simple
+  rounds: 1
+  criterion:
+    name: promote_not_worse
+    args:
+      dim: reward
+evaluation:
+  baseline_heldout: false
+  final_heldout: false
+  heldout_every_rounds: 0
+  repeats: 1
+  official_scoring: false
+""".lstrip(),
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "recipes/simple/evolve.py",
+                    "--config",
+                    str(config.relative_to(ROOT)),
+                    "--run-id",
+                    "copied-simple-smoke",
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("dry-run", result.stdout)
+        self.assertIn("run id: copied-simple-smoke", result.stdout)
+        self.assertNotIn("configs/configs", result.stderr)
+
 
 class AheRecipeSmokeTest(unittest.TestCase):
     def test_ahe_execute_writes_round_ledger_artifacts(self):
@@ -782,6 +859,54 @@ dgm:
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("dry run only", result.stdout)
         self.assertIn("run root:", result.stdout)
+
+    def test_default_config_runs_from_non_root_cwd(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "recipes" / "dgm" / "evolve.py"),
+                    "--run-id",
+                    "outside-cwd-dgm-smoke",
+                ],
+                cwd=tmp,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("dry run only", result.stdout)
+        self.assertIn("run root:", result.stdout)
+
+    def test_copied_config_uses_repo_relative_dataset_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = Path(tmp) / "my_dgm_swebench.yaml"
+            config.write_text(
+                (ROOT / "configs" / "dgm_swebench.yaml").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "recipes/dgm/evolve.py",
+                    "--config",
+                    str(config),
+                    "--run-id",
+                    "copied-dgm-smoke",
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("dry run only", result.stdout)
+        self.assertIn("run root:", result.stdout)
+        self.assertNotIn("configs/configs", result.stderr)
 
     def test_validate_schedule_capacity_rejects_more_branches_than_workers(self):
         with self.assertRaisesRegex(SystemExit, "--parallel.*--branches"):
