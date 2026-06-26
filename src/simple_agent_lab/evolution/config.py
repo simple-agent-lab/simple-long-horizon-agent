@@ -21,6 +21,7 @@ from simple_agent_lab.evals.instances import InstanceSet, load_jsonl_instances
 from simple_agent_lab.evolution import registry
 from simple_agent_lab.evolution.components.rollout import Rollout, rollout_from_suite
 from simple_agent_lab.evolution.experiment import Experiment
+from simple_agent_lab.evolution.progress import ProgressReporter
 from simple_agent_lab.evolution.registry import Use
 from simple_agent_lab.evolution.source_tree import (
     CANDIDATE_SOURCE_CONTAINER_SRC,
@@ -194,7 +195,9 @@ def load_self_evolving_config(path: str | Path) -> SelfEvolvingConfig:
     )
 
 
-def build_self_evolving_run(config: SelfEvolvingConfig) -> SelfEvolvingRun:
+def build_self_evolving_run(
+    config: SelfEvolvingConfig, *, progress: ProgressReporter | None = None
+) -> SelfEvolvingRun:
     run_root = safe_run_root(config.run.output_root, config.run.id)
     _validate_algorithm(config)
     provider = _provider(config)
@@ -261,6 +264,7 @@ def build_self_evolving_run(config: SelfEvolvingConfig) -> SelfEvolvingRun:
         },
         version_artifacts=version_artifacts,
         candidate_pythonpath=candidate_pythonpath,
+        progress=progress,
     )
     strategy_args: dict[str, object] = {
         "provider": provider,

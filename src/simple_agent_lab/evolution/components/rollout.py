@@ -14,7 +14,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Callable
 
-from simple_agent_lab.evals.dataset import run_dataset
+from simple_agent_lab.evals.dataset import InstanceResult, run_dataset
 from simple_agent_lab.evals.in_container import (
     API_KIND_CHOICES,
     API_KIND_ENV,
@@ -24,6 +24,7 @@ from simple_agent_lab.evals.in_container import (
 )
 from simple_agent_lab.evals.instances import InstanceSet
 from simple_agent_lab.evals.protocols import ArtifactStore, ContainerBackend, Suite
+from simple_agent_lab.evolution.progress import ProgressReporter
 from simple_agent_lab.evolution.surface import AgentSurface
 from simple_agent_lab.evolution.types import PROVIDER_NAME, Run, Version
 
@@ -66,6 +67,7 @@ def dataset_rollout(
     run_kwargs: Mapping[str, Any] | None = None,
     version_artifacts: Callable[[Version], Mapping[str, bytes]] | None = None,
     candidate_pythonpath: Sequence[str] = (),
+    progress: ProgressReporter | None = None,
 ) -> Rollout:
     """Bind deployment concerns (suite/backend/store/runs_root) into a ``Rollout``.
 
@@ -88,6 +90,15 @@ def dataset_rollout(
         run_id = f"{version.hash}-{slice_.sha}"
         run_dir = runs_root / run_id
         if not _already_measured(run_dir, slice_):
+            if progress is not None:
+                progress.line(
+                    "rollout",
+                    "start",
+                    version=version.hash,
+                    slice=slice_.id,
+                    instances=slice_.n,
+                    run=run_id,
+                )
             provider, provider_env = _provider_args(version)
             extra = dict(run_kwargs or {})
             api_kind = extra.pop("api_kind", _api_kind(provider_env))
@@ -109,6 +120,9 @@ def dataset_rollout(
                 provider=provider,
                 provider_env=provider_env,
                 api_kind=api_kind,
+                on_result=_on_result(progress, run_dir, slice_)
+                if progress is not None
+                else None,
                 **extra,
             )
             if report.failed:
@@ -123,6 +137,16 @@ def dataset_rollout(
                     {"version": version.hash, "slice": slice_.id, "sha": slice_.sha}
                 ),
                 encoding="utf-8",
+            )
+            if progress is not None:
+                progress.line("rollout", "complete", run=run_id, instances=slice_.n)
+        elif progress is not None:
+            progress.line(
+                "rollout",
+                "reuse",
+                version=version.hash,
+                slice=slice_.id,
+                run=run_id,
             )
         return [Run(p) for p in sorted(run_dir.iterdir()) if p.is_dir()]
 
@@ -140,6 +164,7 @@ def rollout_from_suite(
     run_kwargs: Mapping[str, Any] | None = None,
     version_artifacts: Callable[[Version], Mapping[str, bytes]] | None = None,
     candidate_pythonpath: Sequence[str] = (),
+    progress: ProgressReporter | None = None,
 ) -> Rollout:
     return dataset_rollout(
         suite=suite,
@@ -150,6 +175,7 @@ def rollout_from_suite(
         run_kwargs=run_kwargs,
         version_artifacts=version_artifacts or surface.artifacts_from_version,
         candidate_pythonpath=candidate_pythonpath,
+        progress=progress,
     )
 
 
@@ -176,3 +202,36 @@ def _already_measured(run_dir: Path, slice_: InstanceSet) -> bool:
         return False
     want = {str(inst.get("instance_id", n)) for n, inst in enumerate(slice_.instances)}
     return all((run_dir / iid / "out" / "result.json").is_file() for iid in want)
+
+
+def _on_result(
+    progress: ProgressReporter, run_dir: Path, slice_: InstanceSet
+) -> Callable[[InstanceResult], None]:
+    state = {"done": 0}
+
+    def callback(result: InstanceResult) -> None:
+        state["done"] += 1
+        done = state["done"]
+        artifacts = result.artifacts
+        if artifacts is not None:
+            status = artifacts.status_code
+            result_path = artifacts.run_dir / "out" / "result.json"
+            trace_path = artifacts.trajectory_path
+        else:
+            status = None
+            result_path = run_dir / result.instance_id / "out" / "result.json"
+            trace_path = run_dir / result.instance_id / "out" / "trajectory.jsonl"
+        progress.line(
+            "rollout",
+            "instance",
+            f"{done:02d}/{slice_.n:02d}",
+            "ok" if result.ok else "error",
+            id=result.instance_id,
+            attempt=result.attempts,
+            status=status,
+            result=result_path,
+            trace=trace_path,
+            error=result.error,
+        )
+
+    return callback

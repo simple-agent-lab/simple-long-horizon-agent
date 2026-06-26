@@ -365,6 +365,20 @@ class EvolutionRunCliTest(unittest.TestCase):
         self.assertIn("heldout baseline: reward=0.000 resolved=0/2", output)
         self.assertIn("heldout final: reward=1.000 resolved=2/2", output)
         self.assertIn("heldout delta: reward=+1.000 resolved=+2", output)
+        self.assertIn("[progress] run start id=measured-demo", output)
+        self.assertIn("rounds=1", output)
+        self.assertIn("train=1", output)
+        self.assertIn("heldout=2", output)
+        self.assertIn("[progress] round start index=1 total=1", output)
+        self.assertIn("[progress] decision accepted", output)
+        self.assertIn("baseline_reward=0.000", output)
+        self.assertIn("candidate_reward=1.000", output)
+        self.assertIn("delta=+1.000", output)
+        self.assertIn("[progress] heldout complete label=baseline", output)
+        self.assertIn("[progress] heldout complete label=final", output)
+        self.assertIn("[progress] run complete id=measured-demo", output)
+        self.assertIn("decisions=1", output)
+        self.assertIn("accepted=1", output)
 
     def test_execute_requires_heldout_when_evaluation_is_enabled(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

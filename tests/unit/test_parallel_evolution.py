@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from io import StringIO
 import tempfile
 import threading
 import time
@@ -9,6 +10,7 @@ from types import SimpleNamespace
 
 from recipes.dgm.algorithm import open_ended
 from simple_agent_lab.evolution.kernel import log, store
+from simple_agent_lab.evolution.progress import ProgressReporter
 from simple_agent_lab.evolution.types import Proposal, Slice, Verdict
 
 
@@ -129,6 +131,32 @@ class RunRoundTest(unittest.TestCase):
             self.ws, self._components(), self.slice_, rounds=2, branches=2
         )
         self.assertEqual(len(decisions), 4)
+
+    def test_progress_reports_proposal_failure_and_empty_round(self) -> None:
+        components = self._components()
+
+        def strategy(_ctx):
+            raise ValueError("bad model response")
+
+        components.strategy = strategy
+        stream = StringIO()
+        progress = ProgressReporter(stream=stream)
+
+        decisions = open_ended.run_round(
+            self.ws,
+            components,
+            self.slice_,
+            branches=2,
+            on_proposal_error=lambda _error: None,
+            progress=progress,
+        )
+
+        self.assertEqual(decisions, [])
+        output = stream.getvalue()
+        self.assertIn("[progress] dgm proposal_failed branch=1", output)
+        self.assertIn('error="ValueError: bad model response"', output)
+        self.assertIn("[progress] dgm no_proposals branches=2", output)
+        self.assertIn("[progress] dgm round complete index=1 decisions=0", output)
 
 
 if __name__ == "__main__":

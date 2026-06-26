@@ -235,6 +235,7 @@ def build_swebench_rollout(
     version_artifacts: Any = None,
     candidate_pythonpath: Sequence[str] = (),
     container_module: str | None = None,
+    progress: Any = None,
 ):
     """Build the DGM rollout on the mature SWE-bench Suite path.
 
@@ -269,6 +270,7 @@ def build_swebench_rollout(
         run_kwargs=extra_kwargs,
         version_artifacts=version_artifacts,
         candidate_pythonpath=candidate_pythonpath,
+        progress=progress,
     )
 
 

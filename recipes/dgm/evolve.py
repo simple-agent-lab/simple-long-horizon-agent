@@ -36,6 +36,7 @@ from simple_agent_lab.evolution.components.repo_strategy import (  # noqa: E402
 )
 from simple_agent_lab.evolution.kernel import store as evo_store  # noqa: E402
 from simple_agent_lab.evolution.config import safe_run_root  # noqa: E402
+from simple_agent_lab.evolution.progress import ProgressReporter  # noqa: E402
 from simple_agent_lab.evolution.source_tree import (  # noqa: E402
     CANDIDATE_SOURCE_CONTAINER_SRC,
     candidate_source_artifacts,
@@ -46,7 +47,7 @@ from simple_agent_lab.evolution.types import RunScores, Slice, Verdict, Version 
 from simple_agent_lab.llm import Provider  # noqa: E402
 from simple_agent_lab.trace.jsonl import read_jsonl  # noqa: E402
 
-DEFAULT_CONFIG = Path("configs/dgm_swebench.yaml")
+DEFAULT_CONFIG = ROOT / "configs" / "dgm_swebench.yaml"
 
 SYSTEM_PROMPT = """You are a meta-agent evolving Simple Agent Lab itself.
 
@@ -85,18 +86,62 @@ def run_workflow(args: argparse.Namespace) -> None:
         print("\ndry run only; pass --execute to run model + Docker evolution")
         return
 
-    prepare_execution_assets(args)
-    preflight_execution_images(args, train_records, test_records)
+    progress = ProgressReporter()
     rounds, branches, meta_workers = resolve_schedule(args)
     resolution = recipe_runtime.resolve_parallel_workers(
         args.parallel, len(train_records)
     )
     global_workers = resolution.workers
     validate_schedule_capacity(branches=branches, global_workers=global_workers)
+    _print_progress_run_start(
+        progress,
+        args,
+        rounds=rounds,
+        branches=branches,
+        meta_workers=meta_workers,
+        global_workers=global_workers,
+        train_count=len(train_records),
+        heldout_count=len(test_records),
+    )
+    try:
+        _execute_workflow(
+            args,
+            layout,
+            workspace,
+            train_records,
+            test_records,
+            rounds=rounds,
+            branches=branches,
+            meta_workers=meta_workers,
+            global_workers=global_workers,
+            resolution_detail=resolution.detail,
+            progress=progress,
+        )
+    except Exception as exc:
+        _print_progress_run_error(progress, args, layout.run_root, exc)
+        raise
+
+
+def _execute_workflow(
+    args: argparse.Namespace,
+    layout: er.PerformanceLayout,
+    workspace: Path,
+    train_records: Sequence[Mapping[str, Any]],
+    test_records: Sequence[Mapping[str, Any]],
+    *,
+    rounds: int,
+    branches: int,
+    meta_workers: int,
+    global_workers: int,
+    resolution_detail: str,
+    progress: ProgressReporter,
+) -> None:
+    prepare_execution_assets(args)
+    preflight_execution_images(args, train_records, test_records)
     per_branch = recipe_runtime.branch_concurrency(
         global_workers=global_workers, branches=branches
     )
-    print(f"global workers: {global_workers} ({resolution.detail})")
+    print(f"global workers: {global_workers} ({resolution_detail})")
     print(
         f"schedule: {rounds} rounds x {branches} branches "
         f"= {rounds * branches} candidates; meta-concurrency {meta_workers}"
@@ -127,6 +172,7 @@ def run_workflow(args: argparse.Namespace) -> None:
         ),
         candidate_pythonpath=(CANDIDATE_SOURCE_CONTAINER_SRC,),
         container_module=er.EVOLVING_CONTAINER_MODULE,
+        progress=progress,
     )
     graded_rollout = er.make_scaffold_rollout(
         base_rollout,
@@ -154,6 +200,9 @@ def run_workflow(args: argparse.Namespace) -> None:
         baseline_test = skipped_heldout_record(
             exp.current(), test_records, label="baseline"
         )
+        _print_progress_heldout_skipped(
+            progress, baseline_test, reason="skip_baseline_heldout"
+        )
     else:
         baseline_test = run_heldout_scoring(
             args,
@@ -163,6 +212,7 @@ def run_workflow(args: argparse.Namespace) -> None:
             base_rollout,
             label="baseline",
             record_generation=False,
+            progress=progress,
         )
     strategy = dgm_agentic_strategy(
         provider=provider,
@@ -187,7 +237,7 @@ def run_workflow(args: argparse.Namespace) -> None:
             f"train_reward={_score(decision.candidate):.4g} reason={decision.reason}"
         )
 
-    open_ended.run_evolution(
+    decisions = open_ended.run_evolution(
         workspace,
         components,
         exp.slice,
@@ -195,6 +245,7 @@ def run_workflow(args: argparse.Namespace) -> None:
         branches=branches,
         meta_workers=meta_workers,
         on_decision=announce,
+        progress=progress,
     )
 
     best = best_archive_version(workspace) or exp.current()
@@ -207,8 +258,16 @@ def run_workflow(args: argparse.Namespace) -> None:
         base_rollout,
         label="final",
         record_generation=True,
+        progress=progress,
     )
     summary_path = write_test_summary(layout, baseline=baseline_test, final=final_test)
+    _print_progress_run_complete(
+        progress,
+        args,
+        decisions=decisions,
+        best=best,
+        summary_path=summary_path,
+    )
     print_test_summary(summary_path)
 
 
@@ -481,9 +540,16 @@ def run_heldout_scoring(
     *,
     label: str,
     record_generation: bool = True,
+    progress: ProgressReporter | None = None,
 ) -> dict[str, Any]:
     artifacts = er.official_artifacts(layout, label)
     print(f"\nheld-out test rollout ({label}):")
+    _print_progress_heldout_start(
+        progress,
+        label=label,
+        version=version,
+        count=len(test_records),
+    )
     test_slice = heldout_slice(version, test_records)
     base_rollout(version, test_slice)
     source_run_id = heldout_run_id(version, test_records)
@@ -522,6 +588,11 @@ def run_heldout_scoring(
         **summary,
     }
     print_score_line(label, record)
+    _print_progress_heldout_complete(
+        progress,
+        record,
+        summary_path=artifacts.eval_results,
+    )
     if record_generation:
         record_heldout_generation(
             layout,
@@ -639,6 +710,125 @@ def print_score_line(label: str, record: Mapping[str, Any]) -> None:
     total = _as_int(record.get("total"))
     rate = _as_float(record.get("resolved_rate"))
     print(f"{label} test: {resolved}/{total} = {rate:.3f}")
+
+
+def _print_progress_run_start(
+    progress: ProgressReporter,
+    args: argparse.Namespace,
+    *,
+    rounds: int,
+    branches: int,
+    meta_workers: int,
+    global_workers: int,
+    train_count: int,
+    heldout_count: int,
+) -> None:
+    progress.line(
+        "run",
+        "start",
+        id=args.run_id,
+        root=safe_run_root(args.output_root, args.run_id),
+        config=Path(args.config),
+        rounds=rounds,
+        branches=branches,
+        meta_workers=meta_workers,
+        parallel=global_workers,
+        train=train_count,
+        heldout=heldout_count,
+        parent_selection=args.parent_selection,
+        model=args.api_kind,
+        model_name=args.model_name,
+    )
+
+
+def _print_progress_run_error(
+    progress: ProgressReporter,
+    args: argparse.Namespace,
+    run_root: Path,
+    exc: Exception,
+) -> None:
+    progress.line(
+        "run",
+        "error",
+        id=args.run_id,
+        root=run_root,
+        error=f"{type(exc).__name__}: {exc}",
+    )
+
+
+def _print_progress_heldout_start(
+    progress: ProgressReporter | None,
+    *,
+    label: str,
+    version: Version,
+    count: int,
+) -> None:
+    if progress is None:
+        return
+    progress.line(
+        "heldout",
+        "start",
+        label=label,
+        version=version.hash,
+        count=count,
+    )
+
+
+def _print_progress_heldout_skipped(
+    progress: ProgressReporter | None,
+    record: Mapping[str, Any],
+    *,
+    reason: str,
+) -> None:
+    if progress is None:
+        return
+    progress.line(
+        "heldout",
+        "skipped",
+        label=record.get("label"),
+        reason=reason,
+        version=record.get("version"),
+        count=record.get("total"),
+    )
+
+
+def _print_progress_heldout_complete(
+    progress: ProgressReporter | None,
+    record: Mapping[str, Any],
+    *,
+    summary_path: Path,
+) -> None:
+    if progress is None:
+        return
+    resolved = f"{_as_int(record.get('resolved'))}/{_as_int(record.get('total'))}"
+    progress.line(
+        "heldout",
+        "complete",
+        label=record.get("label"),
+        version=record.get("version"),
+        resolved=resolved,
+        rate=_as_float(record.get("resolved_rate")),
+        summary=summary_path,
+    )
+
+
+def _print_progress_run_complete(
+    progress: ProgressReporter,
+    args: argparse.Namespace,
+    *,
+    decisions: Sequence[Any],
+    best: Version,
+    summary_path: Path,
+) -> None:
+    progress.line(
+        "run",
+        "complete",
+        id=args.run_id,
+        decisions=len(decisions),
+        accepted=sum(1 for decision in decisions if decision.accepted),
+        best=best.hash,
+        summary=summary_path,
+    )
 
 
 def _as_int(value: object) -> int:

@@ -9,6 +9,11 @@ from typing import Any
 
 from simple_agent_lab.evolution.kernel import log, store
 from simple_agent_lab.evolution.kernel.loop import means, score
+from simple_agent_lab.evolution.progress import (
+    ProgressReporter,
+    mean_score,
+    signed_delta,
+)
 from simple_agent_lab.evolution.types import Context, Manifest, Slice, Verdict, Version
 
 
@@ -22,11 +27,13 @@ def run_evolution(
     meta_workers: int | None = None,
     on_decision: Any = None,
     on_proposal_error: Any = None,
+    progress: ProgressReporter | None = None,
 ) -> list:
     tail_lock = threading.Lock()
     out: list = []
-    for _ in range(max(1, rounds)):
-        for decision in run_round(
+    total_rounds = max(1, rounds)
+    for index in range(1, total_rounds + 1):
+        decisions = run_round(
             workspace,
             components,
             slice_,
@@ -34,7 +41,11 @@ def run_evolution(
             meta_workers=meta_workers,
             tail_lock=tail_lock,
             on_proposal_error=on_proposal_error,
-        ):
+            progress=progress,
+            round_index=index,
+            total_rounds=total_rounds,
+        )
+        for decision in decisions:
             out.append(decision)
             if on_decision is not None:
                 on_decision(decision)
@@ -50,10 +61,24 @@ def run_round(
     meta_workers=None,
     tail_lock=None,
     on_proposal_error=None,
+    progress: ProgressReporter | None = None,
+    round_index: int = 1,
+    total_rounds: int | None = None,
 ) -> list:
     branches = max(1, int(branches))
     meta_workers = meta_workers or branches
     tail_lock = tail_lock or threading.Lock()
+    total_rounds = total_rounds or round_index
+
+    if progress is not None:
+        progress.line(
+            "dgm",
+            "round",
+            "start",
+            index=round_index,
+            total=total_rounds,
+            branches=branches,
+        )
 
     current = store.current(workspace)
     current_runs = components.rollout(current, slice_)
@@ -61,8 +86,9 @@ def run_round(
     scores_by_hash = {current.hash: score(current_runs, components.reward)}
 
     def propose(i):
+        branch = i + 1
         try:
-            return components.strategy(
+            proposal = components.strategy(
                 Context(
                     runs=tuple(current_runs),
                     current=current,
@@ -71,7 +97,11 @@ def run_round(
                     reward=components.reward,
                 )
             )
+            if proposal is None:
+                return None
+            return branch, proposal
         except Exception as exc:
+            _print_progress_proposal_failed(progress, branch, exc)
             if on_proposal_error is not None:
                 on_proposal_error(exc)
             else:
@@ -84,11 +114,18 @@ def run_round(
     with ThreadPoolExecutor(max_workers=max(1, meta_workers)) as pool:
         proposals = [p for p in pool.map(propose, range(branches)) if p is not None]
     if not proposals:
+        _print_progress_no_proposals(progress, branches)
+        _print_progress_round_complete(
+            progress,
+            workspace,
+            round_index=round_index,
+            decisions=[],
+        )
         return []
 
     staged_by_hash = {}
     with tail_lock:
-        for proposal in proposals:
+        for branch, proposal in proposals:
             try:
                 base = (
                     store.version(workspace, proposal.base)
@@ -96,16 +133,17 @@ def run_round(
                     else current
                 )
             except ValueError as exc:
+                _print_progress_proposal_failed(progress, branch, exc)
                 if on_proposal_error is not None:
                     on_proposal_error(exc)
                 continue
             if not base.dir.is_dir():
+                exc = ValueError(
+                    f"proposal.base {proposal.base!r} is not a known version"
+                )
+                _print_progress_proposal_failed(progress, branch, exc)
                 if on_proposal_error is not None:
-                    on_proposal_error(
-                        ValueError(
-                            f"proposal.base {proposal.base!r} is not a known version"
-                        )
-                    )
+                    on_proposal_error(exc)
                 continue
             cand = store.stage(
                 workspace,
@@ -118,14 +156,23 @@ def run_round(
                     note=proposal.note,
                 ),
             )
-            staged_by_hash.setdefault(cand.hash, (proposal, base, cand))
+            if cand.hash not in staged_by_hash:
+                _print_progress_candidate_staged(progress, branch, base, cand)
+            staged_by_hash.setdefault(cand.hash, (branch, proposal, base, cand))
     staged = list(staged_by_hash.values())
     if not staged:
+        _print_progress_no_proposals(progress, branches)
+        _print_progress_round_complete(
+            progress,
+            workspace,
+            round_index=round_index,
+            decisions=[],
+        )
         return []
 
     def roll(item):
-        proposal, base, cand = item
-        return proposal, base, cand, components.rollout(cand, slice_)
+        branch, proposal, base, cand = item
+        return branch, proposal, base, cand, components.rollout(cand, slice_)
 
     with ThreadPoolExecutor(max_workers=branches) as pool:
         rolled = list(pool.map(roll, staged))
@@ -133,7 +180,7 @@ def run_round(
     decisions = []
     best_valid: tuple[float, Version] | None = None
     with tail_lock:
-        for proposal, base, cand, cand_runs in rolled:
+        for _branch, proposal, base, cand, cand_runs in rolled:
             if base.hash not in runs_by_hash:
                 base_runs = components.rollout(base, slice_)
                 runs_by_hash[base.hash] = base_runs
@@ -172,12 +219,26 @@ def run_round(
                 runs={"baseline": _run_id(base_runs), "candidate": _run_id(cand_runs)},
             )
             decisions.append(decision)
+            _print_progress_decision(progress, decision, base_scores, cand_scores)
             if valid:
                 reward = means(cand_scores).get("reward", 0.0)
                 if best_valid is None or reward > best_valid[0]:
                     best_valid = (reward, cand)
         if best_valid is not None:
             store.promote(workspace, best_valid[1])
+            if progress is not None:
+                progress.line(
+                    "dgm",
+                    "promote",
+                    version=best_valid[1].hash,
+                    reward=best_valid[0],
+                )
+    _print_progress_round_complete(
+        progress,
+        workspace,
+        round_index=round_index,
+        decisions=decisions,
+    )
     return decisions
 
 
@@ -191,3 +252,83 @@ def _candidate_metadata(components: Any, runs: Any) -> dict[str, Any]:
         return {}
     metadata = fn(runs)
     return dict(metadata) if metadata else {}
+
+
+def _print_progress_proposal_failed(
+    progress: ProgressReporter | None, branch: int, exc: Exception
+) -> None:
+    if progress is None:
+        return
+    progress.line(
+        "dgm",
+        "proposal_failed",
+        branch=branch,
+        error=f"{type(exc).__name__}: {exc}",
+    )
+
+
+def _print_progress_no_proposals(
+    progress: ProgressReporter | None, branches: int
+) -> None:
+    if progress is None:
+        return
+    progress.line("dgm", "no_proposals", branches=branches)
+
+
+def _print_progress_candidate_staged(
+    progress: ProgressReporter | None, branch: int, base: Version, cand: Version
+) -> None:
+    if progress is None:
+        return
+    progress.line(
+        "dgm",
+        "candidate",
+        "staged",
+        branch=branch,
+        parent=base.hash,
+        candidate=cand.hash,
+    )
+
+
+def _print_progress_decision(
+    progress: ProgressReporter | None,
+    decision: Any,
+    base_scores: Any,
+    cand_scores: Any,
+) -> None:
+    if progress is None:
+        return
+    baseline_reward = mean_score(base_scores)
+    candidate_reward = mean_score(cand_scores)
+    progress.line(
+        "decision",
+        decision.outcome,
+        candidate=decision.candidate.get("hash"),
+        baseline=decision.baseline.get("hash"),
+        candidate_reward=candidate_reward,
+        delta=decision.deltas.get("reward")
+        if "reward" in decision.deltas
+        else signed_delta(baseline_reward, candidate_reward),
+        valid_parent=decision.candidate.get("valid_parent"),
+        reason=decision.reason,
+    )
+
+
+def _print_progress_round_complete(
+    progress: ProgressReporter | None,
+    workspace: Path,
+    *,
+    round_index: int,
+    decisions: list,
+) -> None:
+    if progress is None:
+        return
+    progress.line(
+        "dgm",
+        "round",
+        "complete",
+        index=round_index,
+        decisions=len(decisions),
+        accepted=sum(1 for decision in decisions if decision.accepted),
+        current=store.current(workspace).hash,
+    )

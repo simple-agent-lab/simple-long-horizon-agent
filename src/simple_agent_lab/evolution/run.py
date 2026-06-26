@@ -20,6 +20,7 @@ from simple_agent_lab.evolution.config import (
 )
 from simple_agent_lab.evolution.experiment import Strategy
 from simple_agent_lab.evolution.kernel.loop import means, score
+from simple_agent_lab.evolution.progress import ProgressReporter, signed_delta
 from simple_agent_lab.evolution.types import Decision, Run, RunScores, Version
 
 EvaluationRow = dict[str, Any]
@@ -62,10 +63,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"monitor: {run_root}")
         return 0
 
-    built = build_self_evolving_run(config)
-
     if config.run.execute:
-        decisions, report_path = _execute(config, built)
+        progress = ProgressReporter()
+        try:
+            _print_progress_run_start(progress, config, args.config)
+            built = build_self_evolving_run(config, progress=progress)
+            decisions, report_path = _execute(config, built, progress)
+        except Exception as exc:
+            _print_progress_run_error(progress, config, run_root, exc)
+            raise
         print(
             "completed: "
             f"run_id={config.run.id} "
@@ -76,6 +82,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"evaluation report: {report_path}")
         return 0
 
+    build_self_evolving_run(config)
     _print_dry_run_plan(config)
     return 0
 
@@ -110,7 +117,9 @@ def _load_dotenv(path: str | Path) -> None:
 
 
 def _execute(
-    config: SelfEvolvingConfig, built: SelfEvolvingRun
+    config: SelfEvolvingConfig,
+    built: SelfEvolvingRun,
+    progress: ProgressReporter | None = None,
 ) -> tuple[list[Decision], Path | None]:
     _validate_evaluation_config(config, built.heldout)
     strategy = cast(Strategy, built.strategy)
@@ -120,12 +129,24 @@ def _execute(
         row = _evaluate_heldout(built, "baseline", built.experiment.current())
         evaluations.append(row)
         _print_evaluation(row)
+        _print_progress_heldout(progress, row)
 
     decisions: list[Decision] = []
     for round_index in range(1, config.evolution.rounds + 1):
+        if progress is not None:
+            progress.line(
+                "round",
+                "start",
+                index=round_index,
+                total=config.evolution.rounds,
+            )
         decision = built.experiment.step(strategy)
-        if decision is not None:
+        if decision is None:
+            if progress is not None:
+                progress.line("round", "no_proposal", index=round_index)
+        else:
             decisions.append(decision)
+            _print_progress_decision(progress, decision)
         every = config.evaluation.heldout_every_rounds
         if every and round_index % every == 0:
             row = _evaluate_heldout(
@@ -135,18 +156,23 @@ def _execute(
             )
             evaluations.append(row)
             _print_evaluation(row)
+            _print_progress_heldout(progress, row)
 
     if config.evaluation.final_heldout:
         row = _evaluate_heldout(built, "final", built.experiment.current())
         evaluations.append(row)
         _print_evaluation(row)
+        _print_progress_heldout(progress, row)
 
+    report_path = None
     if not evaluations:
-        return decisions, None
+        _print_progress_run_complete(progress, config, built, decisions, report_path)
+        return decisions, report_path
 
     summary = _evaluation_summary(config, evaluations)
     _print_delta(summary["delta"])
     report_path = _write_evaluation_summary(config, summary)
+    _print_progress_run_complete(progress, config, built, decisions, report_path)
     return decisions, report_path
 
 
@@ -315,6 +341,114 @@ def _print_delta(delta: dict[str, float | int]) -> None:
         parts.append(f"resolved={int(delta['resolved']):+d}")
     if parts:
         print("heldout delta: " + " ".join(parts))
+
+
+def _print_progress_run_start(
+    progress: ProgressReporter, config: SelfEvolvingConfig, config_path: str | Path
+) -> None:
+    progress.line(
+        "run",
+        "start",
+        id=config.run.id,
+        root=safe_run_root(config.run.output_root, config.run.id),
+        config=Path(config_path),
+        rounds=config.evolution.rounds,
+        parallel=config.execution.parallel,
+        train=_count_jsonl_rows(config.instances.train.path),
+        heldout=_count_jsonl_rows(config.instances.heldout.path)
+        if config.instances.heldout is not None
+        else None,
+        model=config.model.api_kind,
+    )
+
+
+def _print_progress_decision(
+    progress: ProgressReporter | None, decision: Decision
+) -> None:
+    if progress is None:
+        return
+    baseline_reward = _score_field(decision.baseline.get("scores"), "reward")
+    candidate_reward = _score_field(decision.candidate.get("scores"), "reward")
+    delta = _score_field(decision.deltas, "reward")
+    progress.line(
+        "decision",
+        decision.outcome,
+        id=decision.id,
+        baseline=decision.baseline.get("hash"),
+        candidate=decision.candidate.get("hash"),
+        baseline_reward=baseline_reward,
+        candidate_reward=candidate_reward,
+        delta=delta
+        if delta is not None
+        else signed_delta(baseline_reward, candidate_reward),
+        reason=decision.reason,
+    )
+
+
+def _print_progress_heldout(
+    progress: ProgressReporter | None, row: EvaluationRow
+) -> None:
+    if progress is None:
+        return
+    metrics = row["metrics"]
+    resolved = None
+    if "resolved" in metrics:
+        resolved = f"{int(metrics['resolved'])}/{int(metrics['resolved_total'])}"
+    slice_info = row["slice"]
+    progress.line(
+        "heldout",
+        "complete",
+        label=row["label"],
+        version=row["version"],
+        slice=slice_info["id"],
+        count=slice_info["count"],
+        reward=metrics.get("reward_mean"),
+        resolved=resolved,
+    )
+
+
+def _print_progress_run_complete(
+    progress: ProgressReporter | None,
+    config: SelfEvolvingConfig,
+    built: SelfEvolvingRun,
+    decisions: Sequence[Decision],
+    report_path: Path | None,
+) -> None:
+    if progress is None:
+        return
+    progress.line(
+        "run",
+        "complete",
+        id=config.run.id,
+        decisions=len(decisions),
+        accepted=sum(1 for decision in decisions if decision.accepted),
+        current=built.experiment.current().hash,
+        report=report_path,
+    )
+
+
+def _print_progress_run_error(
+    progress: ProgressReporter,
+    config: SelfEvolvingConfig,
+    run_root: Path,
+    exc: Exception,
+) -> None:
+    progress.line(
+        "run",
+        "error",
+        id=config.run.id,
+        root=run_root,
+        error=f"{type(exc).__name__}: {exc}",
+    )
+
+
+def _score_field(value: object, dim: str) -> float | None:
+    if not isinstance(value, Mapping):
+        return None
+    score_value = value.get(dim)
+    if not isinstance(score_value, (int, float)):
+        return None
+    return float(score_value)
 
 
 def _print_dry_run_plan(config: SelfEvolvingConfig) -> None:

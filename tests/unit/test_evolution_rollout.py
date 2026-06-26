@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +10,7 @@ from typing import Any, Mapping
 from simple_agent_lab.evals import RESULT_KEY, TRACE_KEY, FakeBackend, LocalDirStore
 from simple_agent_lab.evals.protocols import LaunchSpec, RunSpec
 from simple_agent_lab.evolution.components.rollout import dataset_rollout
+from simple_agent_lab.evolution.progress import ProgressReporter
 from simple_agent_lab.evolution.source_tree import candidate_source_artifacts
 from simple_agent_lab.evolution.kernel import store
 from simple_agent_lab.evolution.types import Slice
@@ -57,18 +59,52 @@ class RolloutTest(unittest.TestCase):
         self.assertTrue(all(r.reward == 0.5 for r in runs))
 
     def test_reuses_existing_run_dir(self) -> None:
+        stream = io.StringIO()
+        reporter = ProgressReporter(stream=stream)
         backend = FakeBackend(on_run=_simulate(0.5))
         rollout = dataset_rollout(
             suite=_DemoSuite(),
             backend=backend,
             store=LocalDirStore(self.ws / "runs"),
             runs_root=self.ws / "runs",
+            progress=reporter,
         )
         slice_ = Slice("demo", ({"instance_id": "i1"},))
         first = rollout(self.version, slice_)
         run_id = first[0].run_id
         again = rollout(self.version, slice_)  # same (version, slice) -> reuse
         self.assertEqual(again[0].run_id, run_id)
+        output = stream.getvalue()
+        self.assertIn("[progress] rollout reuse", output)
+        self.assertIn(f"version={self.version.hash}", output)
+        self.assertIn("slice=demo", output)
+        self.assertIn(f"run={run_id}", output)
+
+    def test_progress_reports_rollout_and_instance_completion(self) -> None:
+        stream = io.StringIO()
+        reporter = ProgressReporter(stream=stream)
+        rollout = dataset_rollout(
+            suite=_DemoSuite(),
+            backend=FakeBackend(on_run=_simulate(0.5)),
+            store=LocalDirStore(self.ws / "runs"),
+            runs_root=self.ws / "runs",
+            progress=reporter,
+        )
+        slice_ = Slice("demo", ({"instance_id": "i1"}, {"instance_id": "i2"}))
+
+        rollout(self.version, slice_)
+
+        output = stream.getvalue()
+        self.assertIn("[progress] rollout start", output)
+        self.assertIn(f"version={self.version.hash}", output)
+        self.assertIn("slice=demo", output)
+        self.assertIn("instances=2", output)
+        self.assertIn("[progress] rollout instance 01/02 ok id=i", output)
+        self.assertIn("attempt=1", output)
+        self.assertIn("status=0", output)
+        self.assertIn("result=", output)
+        self.assertIn("trace=", output)
+        self.assertIn("[progress] rollout complete", output)
 
     def test_partial_prior_run_is_rerolled(self) -> None:
         slice_ = Slice("demo", ({"instance_id": "i1"},))

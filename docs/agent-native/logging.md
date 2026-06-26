@@ -16,6 +16,24 @@ log files captured by `tee`, `screen`, launchd, SSH, or shell redirection.
 The near-term design is terminal progress lines, not a dashboard and not a new
 persistent event-log system.
 
+## Implemented Status
+
+The first terminal-line implementation is in place:
+
+- `src/simple_agent_lab/evolution/progress.py` owns shared one-line formatting.
+- `src/simple_agent_lab/evolution/components/rollout.py` emits rollout start,
+  per-instance completion, reuse, and complete lines through `run_dataset`.
+- `src/simple_agent_lab/evolution/run.py` emits generic simple-recipe execute
+  progress for run start/error/complete, rounds, decisions, and heldout scoring.
+- `recipes/ahe/evolve.py` adds AHE ledger/round progress while reusing the
+  generic runner helpers.
+- `recipes/dgm/evolve.py`, `recipes/dgm/swebench.py`, and
+  `recipes/dgm/algorithm/open_ended.py` emit DGM run, heldout, round, candidate,
+  decision, archive promotion, and rollout progress.
+
+This implementation is still intentionally terminal-only. Do not add persistent
+progress events or a viewer contract without updating this doc first.
+
 ## Reader Routing
 
 Load this doc when work touches:
@@ -227,7 +245,7 @@ viewer should consume run artifacts and progress lines outside the candidate
 workspace; it should not depend on files that exist only inside a temporary
 meta-agent workspace.
 
-## Proposed Code Shape
+## Code Shape
 
 Use a tiny stdout helper, for example:
 
@@ -235,9 +253,9 @@ Use a tiny stdout helper, for example:
 src/simple_agent_lab/evolution/progress.py
 ```
 
-The helper may expose a small `ProgressReporter` or plain functions that wrap
-`print(..., flush=True)`. It should format common events and normalize values,
-but it should not own experiment state.
+The helper exposes a small `ProgressReporter` that wraps `print(...,
+flush=True)`. It formats common event lines and normalizes values, but it does
+not own experiment state.
 
 Primary call sites:
 

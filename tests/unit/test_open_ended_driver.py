@@ -1,14 +1,24 @@
 import random
+from io import StringIO
 import tempfile
 import unittest
 from pathlib import Path
 import threading
 from types import SimpleNamespace
 
+from recipes.dgm import evolve as dgm_evolve
 from recipes.dgm.algorithm import archive, open_ended
 from simple_agent_lab.evolution.components.criterion import valid_when
 from simple_agent_lab.evolution.kernel import store
-from simple_agent_lab.evolution.types import Manifest, Proposal, Run, Slice, Verdict
+from simple_agent_lab.evolution.progress import ProgressReporter
+from simple_agent_lab.evolution.types import (
+    Manifest,
+    Proposal,
+    Run,
+    Slice,
+    Verdict,
+    Version,
+)
 
 
 def _seed(ws: Path) -> None:
@@ -213,6 +223,87 @@ class OpenEndedDriverTest(unittest.TestCase):
         self.assertFalse(decisions[0].accepted)
         self.assertFalse(decisions[0].candidate["valid_parent"])
         self.assertEqual(decisions[0].candidate["diagnostics"]["agent_build_failed"], 1)
+
+    def test_progress_reports_round_candidate_decision_and_promotion(self):
+        _seed(self.ws)
+        stream = StringIO()
+        progress = ProgressReporter(stream=stream)
+
+        decisions = open_ended.run_evolution(
+            self.ws,
+            _fake_components(self.ws, runs_by_hash={}),
+            Slice("s", ({"instance_id": "i1"},)),
+            rounds=1,
+            branches=1,
+            progress=progress,
+        )
+
+        self.assertEqual(len(decisions), 1)
+        output = stream.getvalue()
+        self.assertIn("[progress] dgm round start index=1 total=1 branches=1", output)
+        self.assertIn("[progress] dgm candidate staged branch=1", output)
+        self.assertIn("[progress] decision accepted", output)
+        self.assertIn("valid_parent=true", output)
+        self.assertIn("[progress] dgm promote", output)
+        self.assertIn("[progress] dgm round complete index=1 decisions=1", output)
+
+
+class DgmRecipeProgressTest(unittest.TestCase):
+    def test_run_start_progress_includes_dgm_configuration(self):
+        stream = StringIO()
+        progress = ProgressReporter(stream=stream)
+        args = SimpleNamespace(
+            run_id="dgm-real",
+            output_root="/tmp/dgm-out",
+            config="configs/dgm_swebench.yaml",
+            parent_selection="best",
+            api_kind="openai-chat",
+            model_name="gpt-test",
+        )
+
+        dgm_evolve._print_progress_run_start(
+            progress,
+            args,
+            rounds=4,
+            branches=3,
+            meta_workers=2,
+            global_workers=6,
+            train_count=60,
+            heldout_count=12,
+        )
+
+        output = stream.getvalue()
+        self.assertIn("[progress] run start id=dgm-real", output)
+        self.assertIn("rounds=4", output)
+        self.assertIn("branches=3", output)
+        self.assertIn("meta_workers=2", output)
+        self.assertIn("parallel=6", output)
+        self.assertIn("train=60", output)
+        self.assertIn("heldout=12", output)
+        self.assertIn("parent_selection=best", output)
+        self.assertIn("model=openai-chat", output)
+
+    def test_skipped_baseline_heldout_progress_names_reason_and_count(self):
+        stream = StringIO()
+        progress = ProgressReporter(stream=stream)
+        with tempfile.TemporaryDirectory() as tmp:
+            version_dir = Path(tmp) / "abc123"
+            version_dir.mkdir()
+            record = dgm_evolve.skipped_heldout_record(
+                Version(version_dir),
+                [{"instance_id": "i1"}, {"instance_id": "i2"}],
+                label="baseline",
+            )
+
+        dgm_evolve._print_progress_heldout_skipped(
+            progress, record, reason="skip_baseline_heldout"
+        )
+
+        self.assertIn(
+            "[progress] heldout skipped label=baseline "
+            "reason=skip_baseline_heldout version=abc123 count=2",
+            stream.getvalue(),
+        )
 
 
 if __name__ == "__main__":

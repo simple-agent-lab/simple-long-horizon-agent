@@ -62,6 +62,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         build_self_evolving_run,
         load_self_evolving_config,
     )
+    from simple_agent_lab.evolution.progress import ProgressReporter
 
     args = list(sys.argv[1:] if argv is None else argv)
     if not _has_option(args, "--config") and _asks_for_help(args):
@@ -70,8 +71,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         args = ["--config", str(DEFAULT_CONFIG), *args]
     config_path = None if _asks_for_help(args) else _option_value(args, "--config")
     register_recipe_factories(config_path)
-    if config_path is not None:
-        _preflight_if_execute(args, config_path)
     if _asks_for_help(args):
         return run_main(args)
 
@@ -83,8 +82,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     if parsed.monitor or not config.run.execute:
         return run_main(args)
 
-    built = build_self_evolving_run(config)
-    decisions, report_path = _run_ahe_execute(config, built)
+    progress = ProgressReporter()
+    run_root = generic_run.safe_run_root(config.run.output_root, config.run.id)
+    try:
+        generic_run._print_progress_run_start(progress, config, parsed.config)
+        _preflight_if_execute(args, parsed.config)
+        built = build_self_evolving_run(config, progress=progress)
+        decisions, report_path = _run_ahe_execute(config, built, progress)
+    except Exception as exc:
+        generic_run._print_progress_run_error(progress, config, run_root, exc)
+        raise
     print(
         "completed: "
         f"run_id={config.run.id} "
@@ -162,7 +169,7 @@ def _preflight_if_execute(args: Sequence[str], config_path: str | Path) -> None:
         )
 
 
-def _run_ahe_execute(config, built) -> tuple[list[Any], Path | None]:
+def _run_ahe_execute(config, built, progress=None) -> tuple[list[Any], Path | None]:
     from recipes.ahe import ledger
     from simple_agent_lab.evolution import run as generic_run
     from simple_agent_lab.evolution.experiment import Strategy
@@ -178,15 +185,42 @@ def _run_ahe_execute(config, built) -> tuple[list[Any], Path | None]:
         )
         evaluations.append(row)
         generic_run._print_evaluation(row)
+        generic_run._print_progress_heldout(progress, row)
 
     decisions = []
     for round_index in range(1, config.evolution.rounds + 1):
+        if progress is not None:
+            progress.line(
+                "round",
+                "start",
+                index=round_index,
+                total=config.evolution.rounds,
+            )
         decision = built.experiment.step(strategy)
         if decision is None:
             ledger.append_history(run_root, f"- round {round_index}: no proposal")
+            if progress is not None:
+                progress.line("round", "no_proposal", index=round_index)
+                progress.line(
+                    "ledger",
+                    "updated",
+                    round=round_index,
+                    outcome="no_proposal",
+                    root=run_root / "ahe",
+                )
             continue
         decisions.append(decision)
         _write_round_ledger(run_root, round_index, decision, built.reward)
+        generic_run._print_progress_decision(progress, decision)
+        if progress is not None:
+            progress.line(
+                "ledger",
+                "updated",
+                round=round_index,
+                outcome=decision.outcome,
+                candidate=decision.candidate.get("hash"),
+                root=run_root / "ahe",
+            )
         every = config.evaluation.heldout_every_rounds
         if every and round_index % every == 0:
             row = generic_run._evaluate_heldout(
@@ -196,18 +230,27 @@ def _run_ahe_execute(config, built) -> tuple[list[Any], Path | None]:
             )
             evaluations.append(row)
             generic_run._print_evaluation(row)
+            generic_run._print_progress_heldout(progress, row)
 
     if config.evaluation.final_heldout:
         row = generic_run._evaluate_heldout(built, "final", built.experiment.current())
         evaluations.append(row)
         generic_run._print_evaluation(row)
+        generic_run._print_progress_heldout(progress, row)
 
+    report_path = None
     if not evaluations:
-        return decisions, None
+        generic_run._print_progress_run_complete(
+            progress, config, built, decisions, report_path
+        )
+        return decisions, report_path
 
     summary = generic_run._evaluation_summary(config, evaluations)
     generic_run._print_delta(summary["delta"])
     report_path = generic_run._write_evaluation_summary(config, summary)
+    generic_run._print_progress_run_complete(
+        progress, config, built, decisions, report_path
+    )
     return decisions, report_path
 
 
