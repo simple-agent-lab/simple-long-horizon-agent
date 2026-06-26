@@ -32,8 +32,6 @@ __all__ = [
     "tool_result_text",
     "make_read_tool",
     "make_edit_tool",
-    "make_apply_patch_tool",
-    "spawn_agents_tool",
     "make_recall_tool",
 ]
 
@@ -151,8 +149,6 @@ def coerce_int(name: str, value: Any, *, minimum: int) -> int:
 
 # Re-export after the common tool shapes are defined; `task` imports them.
 from .task import task_tool  # noqa: E402
-from .spawn_agents import spawn_agents_tool  # noqa: E402
 from .read import make_read_tool  # noqa: E402
 from .edit import make_edit_tool  # noqa: E402
-from .apply_patch import make_apply_patch_tool  # noqa: E402
 from .recall import make_recall_tool  # noqa: E402

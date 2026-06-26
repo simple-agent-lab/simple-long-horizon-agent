@@ -108,14 +108,12 @@ from .tools import (
     ToolExecutionMode,
     ToolResult,
     ToolUpdateFn,
-    spawn_agents_tool,
     task_tool,
     text_result,
     tool_result_text,
 )
 from .tools.read import make_read_tool
 from .tools.edit import make_edit_tool
-from .tools.apply_patch import make_apply_patch_tool
 from .tools.recall import make_recall_tool
 from .skills import (
     SkillMetadata,
@@ -204,7 +202,6 @@ __all__ = [
     "usage_cost",
     "runtime_message",
     "task_tool",
-    "spawn_agents_tool",
     "tool_result_message",
     "tool_results_message",
     "user_message",
@@ -218,7 +215,6 @@ __all__ = [
     "tool_result_text",
     "make_read_tool",
     "make_edit_tool",
-    "make_apply_patch_tool",
     "make_recall_tool",
     "SkillMetadata",
     "SkillRoot",
