@@ -19,7 +19,7 @@ the rest of the batch.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from simple_agent_lab.messages import message_text, text_of
 
@@ -99,6 +99,7 @@ def spawn_agents_tool(
                     "and prompt.",
                     is_error=True,
                 )
+            spec = cast(dict[str, Any], spec)
             subagent_type = str(spec.get("subagent_type", "")).strip()
             prompt = str(spec.get("prompt", "")).strip()
             if not prompt:

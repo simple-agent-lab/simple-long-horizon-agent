@@ -50,7 +50,10 @@ class SplitRawFromRecordTest(unittest.TestCase):
         record = {
             "messages": [{"raw": _raw(0)}, {"raw": _raw(1)}],
             "events": [{"raw": _raw(0)}, {"raw": _raw(1)}],
-            "model_turns": [{"sidecar": {"raw": _raw(0)}}, {"sidecar": {"raw": _raw(1)}}],
+            "model_turns": [
+                {"sidecar": {"raw": _raw(0)}},
+                {"sidecar": {"raw": _raw(1)}},
+            ],
         }
         slim, pool = split_raw_from_record(record)
         # 6 occurrences (2 turns x 3 views) collapse to 2 distinct blobs.

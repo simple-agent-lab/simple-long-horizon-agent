@@ -328,7 +328,9 @@ class LocalProcessBackendTest(unittest.TestCase):
             trace = json.loads(store.bind(artifacts.run_dir).get(TRACE_KEY))
             self.assertEqual(trace["model_turns"], [])
             self.assertTrue(
-                any(event["kind"] == "tool_execution_start" for event in trace["events"])
+                any(
+                    event["kind"] == "tool_execution_start" for event in trace["events"]
+                )
             )
 
     def test_oracle_run_reproduces_gold_patch(self) -> None:

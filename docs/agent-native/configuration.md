@@ -114,9 +114,9 @@ the workflow/compression knobs: `src/simple_agent_lab/agents/flavors.py`.
 
 | Variable | Owner | Default | Purpose |
 | --- | --- | --- | --- |
-| `SWE_REPO_LANGUAGE` | `evals/suites/swebench/container.py` | unset | Repo language hint for the SWE-bench container. |
-| `PROGRAMBENCH_REQUIRE_NET_ISOLATION` | `evals/suites/programbench/container.py` | on | Require per-command network isolation (`unshare --net`). |
-| `OMB_WORKFLOW` | `evals/suites/onemillion/workflow_container.py` | `single` | OneMillion workflow selector. |
+| `SWE_REPO_LANGUAGE` | `src/simple_agent_lab/evals/suites/swebench/container.py` | unset | Repo language hint for the SWE-bench container. |
+| `PROGRAMBENCH_REQUIRE_NET_ISOLATION` | `src/simple_agent_lab/evals/suites/programbench/container.py` | on | Require per-command network isolation (`unshare --net`). |
+| `OMB_WORKFLOW` | `src/simple_agent_lab/evals/suites/onemillion/workflow_container.py` | `single` | OneMillion workflow selector. |
 | `OMB_REFLECTION_ROUNDS` | same | — | Reflection rounds. |
 | `OMB_PARALLEL_WORKERS` | same | — | Parallel workers. |
 | `OMB_PDR_ROUNDS` | same | — | PDR rounds for the OneMillion arm. |

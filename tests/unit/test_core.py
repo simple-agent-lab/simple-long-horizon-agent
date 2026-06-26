@@ -64,7 +64,9 @@ class CoreTest(unittest.TestCase):
         state = State("write one sentence")
         state.send("task", "user", "writer", state.task)
         for _ in run(
-            Agent("writer", writer, role="Write one sentence.", llm_provider=REAL_PROVIDER),
+            Agent(
+                "writer", writer, role="Write one sentence.", llm_provider=REAL_PROVIDER
+            ),
             state,
         ):
             pass
@@ -692,8 +694,7 @@ class CoreTest(unittest.TestCase):
         compressor_request = next(
             event
             for event in state.events
-            if isinstance(event, ModelRequestEvent)
-            and event.agent == "compressor"
+            if isinstance(event, ModelRequestEvent) and event.agent == "compressor"
         )
         self.assertEqual(
             compressor_request.context_view["agent"],
@@ -702,8 +703,7 @@ class CoreTest(unittest.TestCase):
         compressor_response = next(
             event
             for event in state.events
-            if isinstance(event, ModelResponseEvent)
-            and event.agent == "compressor"
+            if isinstance(event, ModelResponseEvent) and event.agent == "compressor"
         )
         self.assertEqual(compressor_response.model, "compressor-model")
         self.assertEqual(compressor_response.usage.input_tokens, 123)
@@ -714,8 +714,7 @@ class CoreTest(unittest.TestCase):
         writer_request = next(
             event
             for event in state.events
-            if isinstance(event, ModelRequestEvent)
-            and event.agent == "writer"
+            if isinstance(event, ModelRequestEvent) and event.agent == "writer"
         )
         summary_payloads = [
             payload
@@ -734,7 +733,8 @@ class CoreTest(unittest.TestCase):
         )
         self.assertLess(compression.start_elapsed, compression.elapsed)
         compression_span = next(
-            span for span in spans_from_events("trace", state.events)
+            span
+            for span in spans_from_events("trace", state.events)
             if span.kind == "compression"
         )
         self.assertLess(compression_span.start, compression_span.end)
@@ -795,7 +795,8 @@ class CoreTest(unittest.TestCase):
         ]
 
         compression_span = next(
-            span for span in spans_from_events("trace", events)
+            span
+            for span in spans_from_events("trace", events)
             if span.kind == "compression"
         )
         self.assertEqual(compression_span.start, 1.0)

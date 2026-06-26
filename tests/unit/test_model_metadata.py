@@ -294,7 +294,9 @@ class RunCostFromCallsTest(unittest.TestCase):
         self.assertEqual(run_cost.by_model[0].tokens.input_tokens, 1500)
 
     def test_unpriced_model_counted_but_zero_dollars(self) -> None:
-        calls = [("no-such-model-xyz", TokenUsage(input_tokens=1000, output_tokens=1000))]
+        calls = [
+            ("no-such-model-xyz", TokenUsage(input_tokens=1000, output_tokens=1000))
+        ]
         run_cost = RunCost.from_calls(calls, PriceBook(DEFAULT_PRICES))
         self.assertEqual(run_cost.total_usd, 0.0)
         self.assertEqual(run_cost.unpriced_models, ("no-such-model-xyz",))

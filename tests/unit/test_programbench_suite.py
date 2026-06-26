@@ -44,7 +44,7 @@ from simple_agent_lab.evals import (
 from simple_agent_lab.evals.suites.programbench import container
 from simple_agent_lab.hooks import HookContext, HookPoint
 from simple_agent_lab.llm import Provider
-from simple_agent_lab.messages import ToolCallBlock, message_text
+from simple_agent_lab.messages import ToolCallBlock
 from simple_agent_lab.protocols import ModelResponseEvent
 from simple_agent_lab.state import State
 
@@ -189,7 +189,9 @@ class ProgrambenchContainerHalfTest(unittest.TestCase):
 
     def test_build_agent_installs_runtime_reminder_hook(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            with mock.patch.object(container, "_detect_network_isolation", return_value=True):
+            with mock.patch.object(
+                container, "_detect_network_isolation", return_value=True
+            ):
                 agent = container.build_agent(
                     provider=FAKE_PROVIDER,
                     cwd=Path(tmp),

@@ -40,6 +40,9 @@ Role: TypeAlias = Literal["system", "user", "assistant"]
 #               (typically because it issued tool calls). Pairs with
 #               "final". Note: this is the *turn* kind, distinct from a
 #               `ThinkingBlock` (reasoning content carried inside a turn).
+#   "thought" — an assistant turn rendered as a reasoning/exploration node
+#               rather than a plain step (used by composed workflow traces and
+#               surfaced as a model response's `output_kind`).
 #   "final"   — agent's terminal message; the runtime loop stops on this
 #   "tool_result" — return value of a tool execution
 #   "summary" — context compression summary
@@ -49,6 +52,7 @@ MessageKind: TypeAlias = Literal[
     "system",
     "task",
     "step",
+    "thought",
     "final",
     "tool_result",
     "summary",

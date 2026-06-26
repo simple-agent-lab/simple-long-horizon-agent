@@ -21,6 +21,7 @@ UV_CONTAINER_PATH = "/tmp/uv"
 # venv (incl. certifi's CA bundle) and crash the next in-container model call.
 AGENT_VENV = "/opt/agent-venv"
 
+
 def _python_setup(wheelhouse_mount: str | None) -> str:
     """Render the Python-discovery preamble, offline-3.11 aware.
 

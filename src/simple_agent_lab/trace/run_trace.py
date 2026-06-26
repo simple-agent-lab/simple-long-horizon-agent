@@ -103,7 +103,7 @@ RAW_REF_KEY = "raw_ref"
 
 
 def split_raw_from_record(
-    record: dict[str, Any],
+    record: Mapping[str, Any],
 ) -> tuple[dict[str, Any], list[Any]]:
     """Externalize provider ``raw`` snapshots from a serialized trace record.
 
@@ -146,7 +146,11 @@ def split_raw_from_record(
     def walk(node: Any) -> Any:
         if isinstance(node, dict):
             return {
-                key: (ref_for(value) if key == "raw" and is_raw_blob(value) else walk(value))
+                key: (
+                    ref_for(value)
+                    if key == "raw" and is_raw_blob(value)
+                    else walk(value)
+                )
                 for key, value in node.items()
             }
         if isinstance(node, list):

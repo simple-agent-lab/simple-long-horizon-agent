@@ -240,7 +240,7 @@ def spans_from_events(
                         span
                         for span in reversed(spans)
                         if span.kind == "model_call"
-                        and span.attributes.get("agent") == "context_compressor"
+                        and (span.attributes or {}).get("agent") == "context_compressor"
                         and span.end <= event.elapsed
                     ),
                     None,

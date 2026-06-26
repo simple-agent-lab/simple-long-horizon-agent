@@ -96,7 +96,7 @@ Hook = Callable[[HookContext], "HookDecision | None"]
 # The registry: a bare map from point to its ordered hooks. An empty map (the
 # `Agent.hooks` default) is a zero-cost no-op, which is what keeps hooks fully
 # backward compatible. Build one as a dict literal:
-    #     {HookPoint.PRE_TOOL_USE: [my_hook]}
+#     {HookPoint.PRE_TOOL_USE: [my_hook]}
 HookMap: TypeAlias = Mapping[HookPoint, Sequence[Hook]]
 
 

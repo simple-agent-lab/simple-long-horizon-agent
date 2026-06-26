@@ -443,9 +443,7 @@ def run_in_container(
             raw_bytes = "".join(
                 json.dumps(blob, ensure_ascii=False) + "\n" for blob in raw_pool
             ).encode("utf-8")
-        return (json.dumps(slim, ensure_ascii=False) + "\n").encode(
-            "utf-8"
-        ), raw_bytes
+        return (json.dumps(slim, ensure_ascii=False) + "\n").encode("utf-8"), raw_bytes
 
     def put_trace(*, in_progress: bool, trace_state: State | None = None) -> None:
         trace_data, raw_data = trace_artifacts(

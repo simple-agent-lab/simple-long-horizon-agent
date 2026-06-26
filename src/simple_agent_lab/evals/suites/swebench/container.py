@@ -236,9 +236,7 @@ def extract_result(
     record = dict(instance)
     language = str(context.get("language") or instance_language(record))
     commit = context.get("baseline_commit") or instance_base_commit(record)
-    return {
-        "model_patch": git_diff(Path(workspace), language=language, commit=commit)
-    }
+    return {"model_patch": git_diff(Path(workspace), language=language, commit=commit)}
 
 
 def evaluate(

@@ -334,7 +334,9 @@ def make_submit_tool() -> AgentTool:
     )
 
 
-def _runtime_reminder_hooks(context: Mapping[str, Any]) -> dict[HookPoint, tuple[Any, ...]]:
+def _runtime_reminder_hooks(
+    context: Mapping[str, Any],
+) -> dict[HookPoint, tuple[Any, ...]]:
     runtime = context.get("runtime")
     if not isinstance(runtime, Mapping):
         return {}
@@ -389,7 +391,7 @@ def _step_limit_warning(ctx: HookContext, runtime: Mapping[str, Any]) -> str:
         "or solving and focus on the big picture. Please make sure that\n"
         "1. Your solution compiles and produces an executable (it's ok if it is "
         "still missing functionality)\n"
-        '2. If there are any steps left to do, or limitations that you are aware '
+        "2. If there are any steps left to do, or limitations that you are aware "
         'of, please write them to a document "AGENT_REPORT.md". Focus on handing '
         "off to the next agent, i.e., focus on clearly describing the problems "
         "and any todo items that are left over.\n"
@@ -413,7 +415,7 @@ def _wall_time_warning(runtime: Mapping[str, Any]) -> str:
         "Please wrap up your work now:\n"
         "1. Ensure your solution compiles and produces an executable (it's ok if "
         "it is still missing functionality)\n"
-        '2. If there are any steps left to do, or limitations that you are aware '
+        "2. If there are any steps left to do, or limitations that you are aware "
         'of, please write them to a document "AGENT_REPORT.md". Focus on handing '
         "off to the next agent, i.e., focus on clearly describing the problems "
         "and any todo items that are left over.\n"
@@ -596,7 +598,7 @@ def build_task(instance: Mapping[str, Any], *, workdir: str) -> str:
             "```bash",
             "cat <<'EOF' > newfile.py",
             "import numpy as np",
-            "hello = \"world\"",
+            'hello = "world"',
             "print(hello)",
             "EOF",
             "```",

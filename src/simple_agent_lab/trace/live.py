@@ -246,7 +246,7 @@ def raw_trace_path(path: str | Path) -> Path:
     return trace_path.with_name(f"{trace_path.name}.raw.jsonl")
 
 
-def write_trace_record_atomic(path: str | Path, record: dict[str, Any]) -> None:
+def write_trace_record_atomic(path: str | Path, record: Mapping[str, Any]) -> None:
     """Write a slim trace record plus a sibling raw-provider sidecar when needed."""
 
     trace_path = Path(path)

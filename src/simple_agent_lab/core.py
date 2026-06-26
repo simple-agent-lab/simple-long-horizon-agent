@@ -306,7 +306,9 @@ def run(
                     output_kind=output.kind,
                     target=output.target,
                     tool_call_count=len(output_tool_calls),
-                    usage=output.usage if isinstance(output, AssistantMessage) else None,
+                    usage=output.usage
+                    if isinstance(output, AssistantMessage)
+                    else None,
                     model=output.model if isinstance(output, AssistantMessage) else "",
                 )
             )

@@ -398,9 +398,11 @@ class SwebenchHarnessTest(unittest.TestCase):
         # Even on a macOS host (the common dev setup), the provisioned interpreter
         # targets the FIXED container platform (Linux x86_64 glibc), so the
         # wheelhouse carries the Python the Linux containers actually run.
-        with tempfile.TemporaryDirectory() as tmp, mock.patch(
-            "evals.swebench.harness.shutil.which", return_value="/fake/uv"
-        ), mock.patch("evals.swebench.harness.sys.platform", "darwin"):
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch("evals.swebench.harness.shutil.which", return_value="/fake/uv"),
+            mock.patch("evals.swebench.harness.sys.platform", "darwin"),
+        ):
             prepare_wheelhouse(Path(tmp), runner=runner)
             uv_python = str(Path(tmp) / "uv-python")
         self.assertEqual(
@@ -423,8 +425,9 @@ class SwebenchHarnessTest(unittest.TestCase):
 
         # No uv on PATH: nothing to provision with (the bootstrap then falls back
         # to the container's own download path).
-        with tempfile.TemporaryDirectory() as tmp, mock.patch(
-            "evals.swebench.harness.shutil.which", return_value=None
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch("evals.swebench.harness.shutil.which", return_value=None),
         ):
             prepare_wheelhouse(Path(tmp), runner=runner)
         self.assertFalse(any("install" in c and "python" in c for c in calls))
