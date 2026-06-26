@@ -25,7 +25,13 @@ from typing import TYPE_CHECKING, Any, Callable
 from ..messages import ContentInput
 from ..protocols import Event
 from .jsonl import write_jsonl_atomic
-from .run_trace import SCHEMA, RunTrace, run_trace_from_state, trace_record
+from .run_trace import (
+    SCHEMA,
+    RunTrace,
+    run_trace_from_state,
+    split_raw_from_record,
+    trace_record,
+)
 
 if TYPE_CHECKING:
     from ..core import Agent
@@ -184,7 +190,7 @@ class IncrementalTraceWriter:
                 meta=meta,
             )
             try:
-                write_jsonl_atomic(self._path, [trace_record(trace)])
+                write_trace_record_atomic(self._path, trace_record(trace))
             except Exception as exc:
                 self._report_error(exc)
                 return False
@@ -230,7 +236,30 @@ def write_canonical_trace(
             meta=_resolve_meta(trace_meta.meta_fn),
         )
         record = trace_record(trace)
-    write_jsonl_atomic(path, [record])
+    write_trace_record_atomic(path, record)
+
+
+def raw_trace_path(path: str | Path) -> Path:
+    """Return the provider-raw sidecar path for a trajectory JSONL file."""
+
+    trace_path = Path(path)
+    return trace_path.with_name(f"{trace_path.name}.raw.jsonl")
+
+
+def write_trace_record_atomic(path: str | Path, record: dict[str, Any]) -> None:
+    """Write a slim trace record plus a sibling raw-provider sidecar when needed."""
+
+    trace_path = Path(path)
+    slim, raw_pool = split_raw_from_record(record)
+    write_jsonl_atomic(trace_path, [slim])
+    sidecar = raw_trace_path(trace_path)
+    if raw_pool:
+        write_jsonl_atomic(sidecar, raw_pool)
+    else:
+        try:
+            sidecar.unlink()
+        except FileNotFoundError:
+            pass
 
 
 class LiveTraceSession:

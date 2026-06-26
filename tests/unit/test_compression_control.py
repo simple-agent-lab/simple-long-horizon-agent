@@ -332,6 +332,7 @@ class CompactControlTest(unittest.TestCase):
         decision = control.strategy(items, "worker")
         assert decision is not None
         self.assertIn("first call", text_of(decision.replacement.content))
+        self.assertEqual(decision.replacement.role, "user")
 
     def test_request_is_not_reapplied_once_a_newer_summary_exists(self) -> None:
         # Exactly-once via the high-water mark: once a fold has spliced a summary
@@ -351,7 +352,7 @@ class CompactControlTest(unittest.TestCase):
         # The applied fold splices a summary at a higher transcript index (4)
         # than the request (3); the request must now be treated as consumed.
         summary = make_message(
-            "system",
+            "user",
             "running summary",
             sender="runtime",
             target="worker",

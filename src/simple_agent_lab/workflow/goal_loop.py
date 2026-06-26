@@ -21,12 +21,17 @@ from dataclasses import dataclass, field
 from typing import Callable, Literal
 
 from simple_agent_lab.core import Agent
-from simple_agent_lab.messages import AssistantMessage
 from simple_agent_lab.protocols import GoalLifecycleStatus, GoalStatusEvent
 from simple_agent_lab.state import State
 from simple_agent_lab.tools import AbortFlag
 
-from .base import StepResult, as_text, final_output, never_abort
+from .base import (
+    StepResult,
+    as_text,
+    final_output,
+    never_abort,
+    state_output_tokens,
+)
 
 # Terminal subset of `GoalLifecycleStatus` (drops "active"): the statuses a
 # finished goal loop can return.
@@ -128,18 +133,6 @@ def _continuation_prompt(objective: str) -> str:
     )
 
 
-def _output_tokens(state: State) -> int:
-    """Cumulative output tokens across all assistant messages on `state`.
-
-    Tolerates `usage is None` turns (older/fake messages) without crashing.
-    """
-    total = 0
-    for message in state.messages:
-        if isinstance(message, AssistantMessage) and message.usage is not None:
-            total += message.usage.output_tokens
-    return total
-
-
 def _record_goal_event(
     state: State,
     *,
@@ -200,6 +193,8 @@ def run_goal_loop(
     budgets: GoalBudgets = GoalBudgets(),
     abort: AbortFlag = never_abort,
     inner_max_turns: int = 20,
+    initial_prompt: Callable[[str], str] | None = None,
+    continuation_prompt: Callable[[str], str] | None = None,
 ) -> GoalResult:
     """Drive `agent` toward `objective`, continuing until `check` reports done.
 
@@ -213,23 +208,35 @@ def run_goal_loop(
     loop (so a single continuation can't run forever); `budgets.max_turns`
     bounds how many continuation turns the goal loop itself takes.
 
+    `initial_prompt` / `continuation_prompt` build the first-turn and the
+    per-continuation messages from the objective text. They default to
+    `_goal_prompt` / `_continuation_prompt` — which wrap the objective as
+    *untrusted data* with an injection-safety preamble, the right default for
+    arbitrary `/goal` objectives. A caller whose objective is already trusted
+    (e.g. a benchmark task that should reach the agent verbatim, identical to a
+    non-loop run) passes its own builders to skip that wrapping.
+
     Wall-clock deadlines (via `budgets.wall_clock_seconds`) and explicit caller
     `abort` both surface as `status="aborted"`. Turns/token exhaustion surfaces
     as `status="budget_exhausted"`. The same blocker reported ≥3 consecutive
     turns surfaces as `status="blocked"`.
     """
     objective_text = as_text(objective)
+    make_initial = initial_prompt or _goal_prompt
+    make_continuation = continuation_prompt or _continuation_prompt
     steps: list[StepResult] = []
 
     # Compose the caller's abort with the wall-clock deadline (if any).
     effective_abort = _wall_clock_abort(abort, budgets.wall_clock_seconds)
 
     state, events = agent.run(
-        _goal_prompt(objective_text), max_turns=inner_max_turns, abort=effective_abort
+        make_initial(objective_text),
+        max_turns=inner_max_turns,
+        abort=effective_abort,
     )
     _drain(events, effective_abort)
     turns_used = 0
-    tokens_used = _output_tokens(state)
+    tokens_used = state_output_tokens(state)
     steps.append(
         StepResult(
             name=agent.name,
@@ -338,20 +345,21 @@ def run_goal_loop(
             )
 
         segment_start = len(state.messages)
+        continuation = make_continuation(objective_text)
         state, events = agent.resume(
             state,
-            _continuation_prompt(objective_text),
+            continuation,
             max_turns=inner_max_turns,
             abort=effective_abort,
         )
         _drain(events, effective_abort)
         turns_used += 1
-        tokens_used = _output_tokens(state)
+        tokens_used = state_output_tokens(state)
         steps.append(
             StepResult(
                 name=agent.name,
                 role=agent.role,
-                task=_continuation_prompt(objective_text),
+                task=continuation,
                 output=final_output(
                     state, agent.name, after_message_index=segment_start
                 ),

@@ -36,19 +36,29 @@ one `strategy` slot.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from ..context_view import CompressionDecision, CompressionStrategy
+from ..context_view import (
+    CompressionDecision,
+    CompressionStrategy,
+    build_context_view,
+)
+from ..llm.bridge import messages_to_llm_messages
+from ..llm.types import llm_message
 from ..messages import (
     AssistantMessage,
     Message,
+    MessageSidecar,
     MessageKind,
     make_message,
     text_of,
+    tool_calls_of,
     tool_results_of,
 )
+from ..protocols import ModelRequestEvent, ModelResponseEvent
 from .runtime import _active_context_tokens, _tool_partners
 
 if TYPE_CHECKING:
@@ -148,7 +158,7 @@ class ToolCompactStrategy:
         return CompressionDecision(
             compress_indices=compress_indices,
             replacement=make_message(
-                "system",
+                "user",
                 _format_compact_summary(active, old, self.preview_chars)
                 + "\n"
                 + source_note(compress_indices),
@@ -261,9 +271,52 @@ class SummarizeStrategy:
             target=self.compressor.name,
             kind="task",
         )
-        output = self.compressor.generate(
-            [message for _, message in to_compress] + [instruction]
+        compressor_messages = [message for _, message in to_compress] + [instruction]
+        compressor_context = build_context_view(
+            self.compressor.name,
+            compressor_messages,
         )
+        llm_payload = messages_to_llm_messages(
+            list(compressor_context.messages),
+            with_header=False,
+        )
+        if self.compressor.system_prompt:
+            llm_payload = [
+                llm_message("system", self.compressor.system_prompt),
+                *llm_payload,
+            ]
+        record_model_events = _agent_records_model_events(self.compressor)
+        trace_events: tuple[ModelRequestEvent | ModelResponseEvent, ...] = ()
+        if record_model_events:
+            request_event = ModelRequestEvent(
+                agent=self.compressor.name,
+                visible_count=len(compressor_context.messages),
+                llm_message_count=len(llm_payload),
+                context_view=compressor_context.as_dict(),
+                tools=[
+                    {
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": tool.parameters,
+                    }
+                    for tool in self.compressor.tools
+                ],
+                llm_payload=llm_payload,
+            )
+        started = time.monotonic()
+        output = self.compressor.generate(compressor_messages)
+        elapsed = time.monotonic() - started
+        if record_model_events:
+            response_event = ModelResponseEvent(
+                agent=self.compressor.name,
+                output_kind=output.kind,
+                target=output.target,
+                tool_call_count=len(tool_calls_of(output.content)),
+                usage=output.usage if isinstance(output, AssistantMessage) else None,
+                model=output.model if isinstance(output, AssistantMessage) else "",
+                elapsed=elapsed,
+            )
+            trace_events = (request_event, response_event)
         summary_text = _output_text(output).strip() or (
             "Context was compressed, but the compressor returned no text."
         )
@@ -271,14 +324,41 @@ class SummarizeStrategy:
         return CompressionDecision(
             compress_indices=compress_indices,
             replacement=make_message(
-                "system",
+                "user",
                 summary_text + "\n\n" + source_note(compress_indices),
                 sender="runtime",
                 target=agent_name,
                 kind="summary",
+                sidecar=_compression_sidecar(output),
             ),
             label="summarize",
+            trace_events=trace_events,
         )
+
+
+def _agent_records_model_events(agent: "Agent") -> bool:
+    provider = getattr(agent, "llm_provider", None)
+    return provider is not None and provider.api != "fake"
+
+
+def _compression_sidecar(output: Message) -> MessageSidecar:
+    sidecar: MessageSidecar = {}
+    raw = output.sidecar.get("raw")
+    if raw:
+        sidecar["raw"] = raw
+    if isinstance(output, AssistantMessage):
+        metadata: dict[str, object] = {"compressor": output.sender}
+        if output.model:
+            metadata["model"] = output.model
+        if output.usage is not None:
+            metadata["usage"] = {
+                "input_tokens": output.usage.input_tokens,
+                "output_tokens": output.usage.output_tokens,
+                "cache_read_tokens": output.usage.cache_read_tokens,
+                "cache_write_tokens": output.usage.cache_write_tokens,
+            }
+        sidecar["compression"] = metadata
+    return sidecar
 
 
 def _output_text(message: Message) -> str:

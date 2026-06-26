@@ -389,6 +389,46 @@ class SwebenchHarnessTest(unittest.TestCase):
         ]
         self.assertEqual(download_platforms, ["manylinux2014_x86_64"])
 
+    def test_prepare_wheelhouse_provisions_offline_linux_cpython_311(self) -> None:
+        calls: list[list[str]] = []
+
+        def runner(command: list[str]) -> None:
+            calls.append(command)
+
+        # Even on a macOS host (the common dev setup), the provisioned interpreter
+        # targets the FIXED container platform (Linux x86_64 glibc), so the
+        # wheelhouse carries the Python the Linux containers actually run.
+        with tempfile.TemporaryDirectory() as tmp, mock.patch(
+            "evals.swebench.harness.shutil.which", return_value="/fake/uv"
+        ), mock.patch("evals.swebench.harness.sys.platform", "darwin"):
+            prepare_wheelhouse(Path(tmp), runner=runner)
+            uv_python = str(Path(tmp) / "uv-python")
+        self.assertEqual(
+            calls[-1],
+            [
+                "/fake/uv",
+                "python",
+                "install",
+                "--install-dir",
+                uv_python,
+                "cpython-3.11-linux-x86_64-gnu",
+            ],
+        )
+
+    def test_prepare_wheelhouse_skips_python_provision_without_uv(self) -> None:
+        calls: list[list[str]] = []
+
+        def runner(command: list[str]) -> None:
+            calls.append(command)
+
+        # No uv on PATH: nothing to provision with (the bootstrap then falls back
+        # to the container's own download path).
+        with tempfile.TemporaryDirectory() as tmp, mock.patch(
+            "evals.swebench.harness.shutil.which", return_value=None
+        ):
+            prepare_wheelhouse(Path(tmp), runner=runner)
+        self.assertFalse(any("install" in c and "python" in c for c in calls))
+
     def test_locked_requirements_pin_core_runtime_and_exclude_extra(self) -> None:
         uv = shutil.which("uv")
         if uv is None:

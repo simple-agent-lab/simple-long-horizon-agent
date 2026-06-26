@@ -13,6 +13,7 @@ from simple_agent_lab import (
     EventKind,
     Message,
     ModelRequestEvent,
+    ModelResponseEvent,
     State,
     TextBlock,
     TokenUsage,
@@ -22,12 +23,14 @@ from simple_agent_lab import (
     make_message,
     message_text,
     run,
+    spans_from_events,
     tool_result_message,
 )
 from simple_agent_lab.compression import (
     _active_context_tokens,
     maybe_compress_context,
 )
+from simple_agent_lab.llm import Provider
 from simple_agent_lab.tools import (
     AbortFlag,
     AgentTool,
@@ -37,6 +40,8 @@ from simple_agent_lab.tools import (
     text_result,
     tool_result_text,
 )
+
+REAL_PROVIDER = Provider(id="test", api="openai-chat", model="test-model")
 
 
 def _idle_writer(visible: list[Message]) -> Message:
@@ -59,7 +64,7 @@ class CoreTest(unittest.TestCase):
         state = State("write one sentence")
         state.send("task", "user", "writer", state.task)
         for _ in run(
-            Agent("writer", writer, role="Write one sentence."),
+            Agent("writer", writer, role="Write one sentence.", llm_provider=REAL_PROVIDER),
             state,
         ):
             pass
@@ -73,6 +78,45 @@ class CoreTest(unittest.TestCase):
         self.assertIn("model_request", [event.kind for event in state.events])
         self.assertIn("model_response", [event.kind for event in state.events])
         self.assertEqual(state.events[-1].kind, "agent_end")
+
+    def test_programmatic_agent_does_not_emit_model_events(self) -> None:
+        def writer(visible: list[Message]) -> Message:
+            del visible
+            return assistant_message(
+                "done",
+                sender="writer",
+                target="user",
+                kind="final",
+            )
+
+        state = State("write one sentence")
+        state.send("task", "user", "writer", state.task)
+        for _ in run(Agent("writer", writer), state):
+            pass
+
+        kinds = [event.kind for event in state.events]
+        self.assertNotIn("model_request", kinds)
+        self.assertNotIn("model_response", kinds)
+
+    def test_fake_provider_agent_does_not_emit_model_events(self) -> None:
+        def writer(visible: list[Message]) -> Message:
+            del visible
+            return assistant_message(
+                "done",
+                sender="writer",
+                target="user",
+                kind="final",
+            )
+
+        fake_provider = Provider(id="fake", api="fake", model="fake-model")
+        state = State("write one sentence")
+        state.send("task", "user", "writer", state.task)
+        for _ in run(Agent("writer", writer, llm_provider=fake_provider), state):
+            pass
+
+        kinds = [event.kind for event in state.events]
+        self.assertNotIn("model_request", kinds)
+        self.assertNotIn("model_response", kinds)
 
     def test_run_accepts_a_multimodal_content_list_task(self) -> None:
         """`Agent.run` takes `str` or content blocks; a text+image task is
@@ -429,6 +473,8 @@ class CoreTest(unittest.TestCase):
             "ContextCompressionEvent",
             "ContextPolicy",
             "ContextView",
+            "ContextWindowBook",
+            "CostBreakdown",
             "Event",
             "EventKind",
             "HookContext",
@@ -441,10 +487,14 @@ class CoreTest(unittest.TestCase):
             "MessageEvent",
             "MessageKind",
             "MessageSidecar",
+            "ModelCost",
+            "ModelPrice",
             "ModelRequestEvent",
             "ModelResponseEvent",
             "ModelTurn",
+            "PriceBook",
             "Role",
+            "RunCost",
             "RunTrace",
             "SkillMetadata",
             "SkillRoot",
@@ -472,6 +522,8 @@ class CoreTest(unittest.TestCase):
             "append_openai_training_record",
             "assistant_message",
             "build_context_view",
+            "default_context_window_book",
+            "default_price_book",
             "discover_skills",
             "effective_token_budget",
             "estimate_context_tokens",
@@ -479,6 +531,7 @@ class CoreTest(unittest.TestCase):
             "estimate_message_tokens",
             "event_record",
             "is_tool_result_message",
+            "make_apply_patch_tool",
             "make_compact_control",
             "make_edit_tool",
             "make_llm_agent",
@@ -495,6 +548,7 @@ class CoreTest(unittest.TestCase):
             "run_with_skills",
             "spans_from_events",
             "runtime_message",
+            "spawn_agents_tool",
             "task_tool",
             "text_of",
             "text_result",
@@ -502,6 +556,7 @@ class CoreTest(unittest.TestCase):
             "tool_result_text",
             "tool_results_message",
             "tool_results_of",
+            "usage_cost",
             "user_message",
         }
         self.assertEqual(set(simple_agent_lab.__all__), expected)
@@ -548,7 +603,7 @@ class CoreTest(unittest.TestCase):
         state.send("message", "user", "writer", "first note")
         state.send("message", "user", "writer", "second note")
         for _ in run(
-            Agent("writer", writer, role="Write."),
+            Agent("writer", writer, role="Write.", llm_provider=REAL_PROVIDER),
             state,
         ):
             pass
@@ -584,6 +639,9 @@ class CoreTest(unittest.TestCase):
                 sender="compressor",
                 target="runtime",
                 kind="final",
+                usage=TokenUsage(input_tokens=123, output_tokens=7),
+                model="compressor-model",
+                sidecar={"raw": {"request": {"model": "compressor-model"}}},
             )
 
         state = State("compress context")
@@ -592,7 +650,11 @@ class CoreTest(unittest.TestCase):
         state.send("message", "user", "writer", "recent note")
         compression_policy = ContextPolicy(
             strategy=simple_agent_lab.SummarizeStrategy(
-                compressor=Agent("compressor", compressor),
+                compressor=Agent(
+                    "compressor",
+                    compressor,
+                    llm_provider=REAL_PROVIDER,
+                ),
                 threshold_tokens=1,
                 keep_recent=1,
             ),
@@ -604,6 +666,7 @@ class CoreTest(unittest.TestCase):
                 writer,
                 role="Write.",
                 context_policy=compression_policy,
+                llm_provider=REAL_PROVIDER,
             ),
             state,
         ):
@@ -611,8 +674,56 @@ class CoreTest(unittest.TestCase):
 
         summaries = [message for message in state.messages if message.kind == "summary"]
         self.assertEqual(len(summaries), 1)
+        self.assertEqual(summaries[0].role, "user")
         summary_text = message_text(summaries[0])
         self.assertTrue(summary_text.startswith("compressed old context"))
+        self.assertEqual(
+            summaries[0].sidecar["compression"]["model"],
+            "compressor-model",
+        )
+        self.assertEqual(
+            summaries[0].sidecar["compression"]["usage"]["input_tokens"],
+            123,
+        )
+        self.assertEqual(
+            summaries[0].sidecar["raw"]["request"]["model"],
+            "compressor-model",
+        )
+        compressor_request = next(
+            event
+            for event in state.events
+            if isinstance(event, ModelRequestEvent)
+            and event.agent == "compressor"
+        )
+        self.assertEqual(
+            compressor_request.context_view["agent"],
+            "compressor",
+        )
+        compressor_response = next(
+            event
+            for event in state.events
+            if isinstance(event, ModelResponseEvent)
+            and event.agent == "compressor"
+        )
+        self.assertEqual(compressor_response.model, "compressor-model")
+        self.assertEqual(compressor_response.usage.input_tokens, 123)
+        self.assertGreater(
+            compressor_response.elapsed,
+            compressor_request.elapsed,
+        )
+        writer_request = next(
+            event
+            for event in state.events
+            if isinstance(event, ModelRequestEvent)
+            and event.agent == "writer"
+        )
+        summary_payloads = [
+            payload
+            for payload in writer_request.llm_payload
+            if "compressed old context" in simple_agent_lab.text_of(payload.content)
+        ]
+        self.assertEqual(len(summary_payloads), 1)
+        self.assertEqual(summary_payloads[0].role, "user")
         # Every summary cites the transcript indices it folded so a recall
         # tool can fetch the originals back.
         self.assertIn("[Compressed from transcript messages 1.", summary_text)
@@ -621,6 +732,12 @@ class CoreTest(unittest.TestCase):
             for event in state.events
             if isinstance(event, ContextCompressionEvent)
         )
+        self.assertLess(compression.start_elapsed, compression.elapsed)
+        compression_span = next(
+            span for span in spans_from_events("trace", state.events)
+            if span.kind == "compression"
+        )
+        self.assertLess(compression_span.start, compression_span.end)
         self.assertEqual(compression.compressed_message_indices, [1])
         self.assertEqual(
             state.snapshot.active_context_indices,
@@ -643,6 +760,47 @@ class CoreTest(unittest.TestCase):
             state.snapshot.active_context_indices,
         )
 
+    def test_compression_span_falls_back_to_prior_compressor_call(self) -> None:
+        events = [
+            ModelRequestEvent(
+                index=0,
+                elapsed=1.0,
+                agent="context_compressor",
+                visible_count=1,
+                llm_message_count=1,
+                context_view={},
+                tools=[],
+                llm_payload=[],
+            ),
+            ModelResponseEvent(
+                index=1,
+                elapsed=4.0,
+                agent="context_compressor",
+                output_kind="final",
+                target="runtime",
+                tool_call_count=0,
+                model="compressor-model",
+            ),
+            ContextCompressionEvent(
+                index=2,
+                elapsed=4.1,
+                agent="writer",
+                summary_message_index=3,
+                compressed_message_indices=[1, 2],
+                active_context_indices=[0, 3],
+                before_tokens=4000,
+                after_tokens=2000,
+                strategy="summarize",
+            ),
+        ]
+
+        compression_span = next(
+            span for span in spans_from_events("trace", events)
+            if span.kind == "compression"
+        )
+        self.assertEqual(compression_span.start, 1.0)
+        self.assertEqual(compression_span.end, 4.1)
+
     def test_tiered_strategy_returns_first_applicable_decision(self) -> None:
         # TieredStrategy restores tiering as a single strategy: stages are
         # tried in order, the first to return a decision wins, and later stages
@@ -659,7 +817,7 @@ class CoreTest(unittest.TestCase):
 
         decision = CompressionDecision(
             compress_indices=(0,),
-            replacement=make_message("system", "x", kind="summary"),
+            replacement=make_message("user", "x", kind="summary"),
         )
 
         # First declines, second fires -> second's decision; both consulted.
@@ -740,6 +898,7 @@ class CoreTest(unittest.TestCase):
         self.assertEqual(len(compression.compressed_message_indices), 4)
         replacement = state.messages[compression.summary_message_index]
         self.assertEqual(replacement.kind, "summary")
+        self.assertEqual(replacement.role, "user")
         replacement_text = message_text(replacement)
         self.assertIn("Compacted 2 older tool exchange(s)", replacement_text)
         self.assertIn("alpha result", replacement_text)

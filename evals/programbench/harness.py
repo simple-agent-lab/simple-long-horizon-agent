@@ -39,10 +39,32 @@ from evals.swebench.harness import (  # noqa: E402
     prepare_wheelhouse_for_run,
     resolve_api_kind,
 )
+from simple_agent_lab.agent_flavors import (  # noqa: E402
+    AGENT_COMPRESSION_KEEP_RECENT_ENV,
+    AGENT_COMPRESSION_THRESHOLD_ENV,
+    AGENT_COMPRESSION_WINDOW_RATIO_ENV,
+    AGENT_FLAVOR_ENV,
+    DEFAULT_AGENT_FLAVOR,
+)
+
+# Provider / reasoning env-var names are owned by `simple_agent_lab.llm.env`
+# (single source of truth, see ADR consolidate-provider-env). This host-side
+# harness only forwards them into the container.
+from simple_agent_lab.llm.env import (  # noqa: E402
+    API_KIND_ENV,
+    OPENAI_AUTH_ENV,
+    OPENAI_BASE_URL_ENV,
+    OPENAI_LOG_ID_ENV,
+    OPENAI_MODEL_ENV,
+    OPENAI_REASONING_EFFORT_ENV,
+    OPENAI_SESSION_ID_ENV,
+    REASONING_EFFORT_ENV,
+)
 
 __all__ = [
     "API_KIND_CHOICES",
     "API_KIND_ENV",
+    "AGENT_FLAVOR_ENV",
     "DEFAULT_AGENT_FLAVOR",
     "DEFAULT_IMAGE_TAG",
     "DEFAULT_RUN_ROOT",
@@ -76,19 +98,9 @@ DEFAULT_WHEELHOUSE = ROOT / "evals/out/programbench/wheelhouse/cp311-manylinux"
 DEFAULT_WHEELHOUSE_MOUNT = "/agent/wheelhouse"
 DEFAULT_UV_BINARY = shutil.which("uv") or ""
 
-OPENAI_MODEL_ENV = "OPENAI_MODEL"
-OPENAI_AUTH_ENV = "OPENAI_AUTH_TOKEN"
-OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
-OPENAI_SESSION_ID_ENV = "OPENAI_SESSION_ID"
-OPENAI_LOG_ID_ENV = "OPENAI_LOG_ID"
-API_KIND_ENV = "API_KIND"
-# Reasoning depth knob read by the in-container provider. Without forwarding
-# these, the agent silently runs at the endpoint's default (no/low reasoning)
-# even when the operator set OPENAI_REASONING_EFFORT=high in .env.
-REASONING_EFFORT_ENV = "REASONING_EFFORT"
-OPENAI_REASONING_EFFORT_ENV = "OPENAI_REASONING_EFFORT"
+# This suite intentionally accepts only the OpenAI-protocol adapters (not the
+# broader set in `llm.env.API_KIND_CHOICES`), so it is declared locally.
 API_KIND_CHOICES = ("openai-chat", "openai-responses")
-DEFAULT_AGENT_FLAVOR = "bash"
 OPENAI_PASSTHROUGH_ENVS = (
     OPENAI_MODEL_ENV,
     OPENAI_AUTH_ENV,
@@ -98,6 +110,10 @@ OPENAI_PASSTHROUGH_ENVS = (
     API_KIND_ENV,
     REASONING_EFFORT_ENV,
     OPENAI_REASONING_EFFORT_ENV,
+    AGENT_FLAVOR_ENV,
+    AGENT_COMPRESSION_THRESHOLD_ENV,
+    AGENT_COMPRESSION_WINDOW_RATIO_ENV,
+    AGENT_COMPRESSION_KEEP_RECENT_ENV,
 )
 
 # Gold / project-identity fields kept out of the agent-visible instance. The

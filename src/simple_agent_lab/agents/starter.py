@@ -311,6 +311,8 @@ def _assemble_static_tools(
     explorer: bool,
     tools: Sequence[AgentTool],
     request_extra: Mapping[str, Any] | None,
+    explorer_context_policy: ContextPolicy | None = None,
+    bash_exec_prefix: tuple[str, ...] = (),
 ) -> list[AgentTool]:
     """Build the resource-free tool list shared by `make_agent`/`agent_session`.
 
@@ -321,7 +323,7 @@ def _assemble_static_tools(
 
     assembled: list[AgentTool] = []
     if bash:
-        assembled.append(make_bash_tool(cwd=cwd))
+        assembled.append(make_bash_tool(cwd=cwd, exec_prefix=bash_exec_prefix))
     if read:
         assembled.append(make_read_tool(cwd=cwd))
     if explorer:
@@ -331,7 +333,9 @@ def _assemble_static_tools(
             name=EXPLORER_AGENT_DEFAULT_NAME,
             role=EXPLORER_AGENT_DEFAULT_ROLE,
             system_prompt=EXPLORER_AGENT_SYSTEM_PROMPT,
+            context_policy=explorer_context_policy,
             request_extra=request_extra,
+            bash_exec_prefix=bash_exec_prefix,
         )
         assembled.append(task_tool([explorer_agent], max_turns=DEFAULT_TASK_MAX_TURNS))
     assembled.extend(tools)
@@ -353,6 +357,7 @@ def make_agent(
     request_extra: Mapping[str, Any] | None = None,
     init_state: StateInitFn | None = None,
     hooks: HookMap | None = None,
+    bash_exec_prefix: tuple[str, ...] = (),
 ) -> Agent:
     """Build a stateless `Agent` by composing resource-free capabilities.
 
@@ -374,6 +379,8 @@ def make_agent(
         explorer=explorer,
         tools=tools,
         request_extra=request_extra,
+        explorer_context_policy=context_policy,
+        bash_exec_prefix=bash_exec_prefix,
     )
     if system_prompt is None:
         system_prompt = compose_agent_system_prompt(
@@ -409,6 +416,7 @@ def make_skill_agent(
     context_policy: ContextPolicy | None = None,
     request_extra: Mapping[str, Any] | None = None,
     hooks: HookMap | None = None,
+    bash_exec_prefix: tuple[str, ...] = (),
 ) -> Agent:
     """Build a bare, skills-aware `Agent` — the skills twin of `make_bash_agent`.
 
@@ -448,6 +456,7 @@ def make_skill_agent(
         request_extra=request_extra,
         init_state=_skills_init_state(config),
         hooks=hooks,
+        bash_exec_prefix=bash_exec_prefix,
     )
 
 
@@ -470,6 +479,7 @@ def agent_session(
     hooks: HookMap | None = None,
     request_extra: Mapping[str, Any] | None = None,
     max_turns: int = 10,
+    bash_exec_prefix: tuple[str, ...] = (),
 ) -> AgentSession:
     """Build one `AgentSession` by composing capabilities additively.
 
@@ -506,6 +516,8 @@ def agent_session(
         explorer=explorer,
         tools=tools,
         request_extra=request_extra,
+        explorer_context_policy=context_policy,
+        bash_exec_prefix=bash_exec_prefix,
     )
 
     toolsets: list[Toolset] = [
@@ -569,8 +581,10 @@ def make_bash_agent(
     name: str = BASH_AGENT_DEFAULT_NAME,
     role: str = BASH_AGENT_DEFAULT_ROLE,
     system_prompt: str = BASH_AGENT_SYSTEM_PROMPT,
+    context_policy: ContextPolicy | None = None,
     request_extra: Mapping[str, Any] | None = None,
     hooks: HookMap | None = None,
+    bash_exec_prefix: tuple[str, ...] = (),
 ) -> Agent:
     """Build a bash-using `Agent` — `make_agent` with the bash-agent defaults."""
 
@@ -581,8 +595,10 @@ def make_bash_agent(
         name=name,
         role=role,
         system_prompt=system_prompt,
+        context_policy=context_policy,
         request_extra=request_extra,
         hooks=hooks,
+        bash_exec_prefix=bash_exec_prefix,
     )
 
 
@@ -597,8 +613,10 @@ def make_bash_task_agent(
     explorer_role: str = EXPLORER_AGENT_DEFAULT_ROLE,
     explorer_system_prompt: str = EXPLORER_AGENT_SYSTEM_PROMPT,
     task_max_turns: int = DEFAULT_TASK_MAX_TURNS,
+    context_policy: ContextPolicy | None = None,
     request_extra: Mapping[str, Any] | None = None,
     hooks: HookMap | None = None,
+    bash_exec_prefix: tuple[str, ...] = (),
 ) -> Agent:
     """Build a parent `Agent` with bash + task(explorer) tools.
 
@@ -614,7 +632,9 @@ def make_bash_task_agent(
         name=explorer_name,
         role=explorer_role,
         system_prompt=explorer_system_prompt,
+        context_policy=context_policy,
         request_extra=request_extra,
+        bash_exec_prefix=bash_exec_prefix,
     )
     return make_agent(
         provider,
@@ -624,6 +644,8 @@ def make_bash_task_agent(
         name=name,
         role=role,
         system_prompt=system_prompt,
+        context_policy=context_policy,
         request_extra=request_extra,
         hooks=hooks,
+        bash_exec_prefix=bash_exec_prefix,
     )

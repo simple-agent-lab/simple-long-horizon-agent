@@ -125,7 +125,7 @@ class AgentCompactStrategy:
         return CompressionDecision(
             compress_indices=compress_indices,
             replacement=make_message(
-                "system",
+                "user",
                 request.summary + "\n\n" + source_note(compress_indices),
                 sender="runtime",
                 target=agent_name,

@@ -352,6 +352,8 @@ def _create_kwargs(
         "volumes": {k: dict(v) for k, v in binding.mounts.items()},
         "cap_add": list(spec.launch_spec.cap_add),
     }
+    if spec.launch_spec.security_opt:
+        kwargs["security_opt"] = list(spec.launch_spec.security_opt)
     if binding.add_hosts:
         kwargs["extra_hosts"] = dict(binding.add_hosts)
     if spec.launch_spec.entrypoint is not None:

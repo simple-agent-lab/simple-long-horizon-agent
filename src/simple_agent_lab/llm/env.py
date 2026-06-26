@@ -39,6 +39,7 @@ from .provider import (
     ReasoningEffort,
     api_kind_defaults,
 )
+from ..model_metadata import default_context_window_book
 
 # --------------------------------------------------------------------------- #
 # Canonical env-var names (declared once; everyone else imports these)
@@ -251,6 +252,7 @@ def provider_from_env(
         default_max_tokens=api_kind_defaults(resolved_kind).default_max_tokens,
         default_temperature=default_temperature,
         default_reasoning=reasoning,
+        context_window=default_context_window_book().window_for(model),
     )
 
 

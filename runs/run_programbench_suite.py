@@ -38,6 +38,7 @@ from evals.programbench.suite import ProgrambenchSuite  # noqa: E402
 from simple_agent_lab.evals import (  # noqa: E402
     LocalDirStore,
     LocalDockerBackend,
+    parse_with_profile,
     run_suite_instance,
 )
 from simple_agent_lab.evals.suites.programbench import container  # noqa: E402
@@ -50,6 +51,15 @@ from simple_agent_lab.evals.runner import container_name  # noqa: E402
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("instance_id")
+    parser.add_argument(
+        "--profile",
+        default=None,
+        help=(
+            "Path to a JSON run-profile (its `env` fills env gaps, its `run` "
+            "flags are defaults overridable by explicit flags). See ADR "
+            "run-profile-file."
+        ),
+    )
     parser.add_argument("--max-turns", type=int, default=1000)
     parser.add_argument(
         "--wall-time-seconds",
@@ -87,6 +97,17 @@ def _build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_DOCKER_TIMEOUT_S,
         help="Docker SDK HTTP timeout in seconds for daemon calls.",
     )
+    parser.add_argument(
+        "--cpus",
+        type=int,
+        default=12,
+        help="Docker CPU limit for the inference container (default: 12).",
+    )
+    parser.add_argument(
+        "--mem-limit",
+        default="24g",
+        help="Docker memory and memory-swap limit for the inference container.",
+    )
     parser.add_argument("--prepare-wheelhouse", action="store_true")
     parser.add_argument("--keep-container", action="store_true")
     parser.add_argument(
@@ -106,7 +127,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    args = _build_parser().parse_args()
+    args = parse_with_profile(_build_parser())
 
     instance = harness.load_instance(args.instance_id)
 
@@ -133,6 +154,8 @@ def main() -> None:
         platform=args.platform,
         network_mode=args.network_mode,
         cap_add=() if args.no_network_isolation else ("SYS_ADMIN",),
+        cpus=args.cpus,
+        mem_limit=args.mem_limit or None,
     )
     backend = LocalDockerBackend(
         pull=args.pull,
@@ -153,6 +176,8 @@ def main() -> None:
     print(
         f"    wall-time:       {args.wall_time_seconds}s ({args.wall_time_seconds / 3600:.1f}h)"
     )
+    print(f"    docker cpus:     {args.cpus}")
+    print(f"    docker memory:   {args.mem_limit}")
     print(f"    run-id:          {args.run_id}")
     print(f"    image-tag:       {args.image_tag}")
     print(f"    cmd net-isolate: {isolation}")

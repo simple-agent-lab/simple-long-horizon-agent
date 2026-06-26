@@ -146,6 +146,11 @@ class ContextCompressionEvent(_BaseEvent):
     ``"agent-compact"``), so a fold is attributable without sniffing the summary
     text — including which `TieredStrategy` stage fired. Empty when the strategy
     set no label.
+
+    `start_elapsed` is the run-relative time when compression work began. The
+    event's inherited `elapsed` remains the completion time, so compression
+    spans can show real duration even when a strategy performs nested model
+    calls before the summary event is appended.
     """
 
     kind: Literal[EventKind.CONTEXT_COMPRESSION] = field(
@@ -158,6 +163,7 @@ class ContextCompressionEvent(_BaseEvent):
     before_tokens: int
     after_tokens: int
     strategy: str = ""
+    start_elapsed: float | None = None
 
 
 @dataclass(frozen=True, kw_only=True)

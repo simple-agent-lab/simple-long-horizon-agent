@@ -346,6 +346,67 @@ class GoalLoopChecksTest(unittest.TestCase):
         )
         self.assertEqual(result.status, "budget_exhausted")
 
+    def _goal_agent(self, *, verify_command: str):
+        """An agent that calls update_goal(complete, verify_command=...) each turn."""
+        from simple_agent_lab.workflow import update_goal_tool
+
+        def generate(messages):
+            return AssistantMessage(
+                content=(
+                    ToolCallBlock(
+                        id="call_ug",
+                        name="update_goal",
+                        arguments={
+                            "status": "complete",
+                            "reason": "claims done",
+                            "verify_command": verify_command,
+                        },
+                    ),
+                ),
+                sender="goal_agent",
+                target="goal_agent",
+                kind="step",
+            )
+
+        return Agent(name="goal_agent", generate=generate, tools=(update_goal_tool(),))
+
+    def test_executed_check_completes_when_verify_command_passes(self):
+        """A non-trivial verify_command that exits 0 → re-run passes → complete."""
+        from simple_agent_lab.workflow import executed_completion_check
+
+        result = run_goal_loop(
+            self._goal_agent(verify_command="test 1 -eq 1"),
+            "do the thing",
+            check=executed_completion_check(),
+            budgets=GoalBudgets(max_turns=3),
+        )
+        self.assertEqual(result.status, "complete")
+
+    def test_executed_check_rejects_when_verify_command_fails(self):
+        """A convincing claim whose verify_command exits nonzero never passes."""
+        from simple_agent_lab.workflow import executed_completion_check
+
+        result = run_goal_loop(
+            self._goal_agent(verify_command="false"),
+            "do the thing",
+            check=executed_completion_check(),
+            budgets=GoalBudgets(max_turns=2),
+        )
+        self.assertEqual(result.status, "budget_exhausted")
+
+    def test_executed_check_rejects_empty_verify_command(self):
+        """A declared completion with no verify_command is held open (an empty
+        command would `run_bash("")` to exit 0 and pass the gate for free)."""
+        from simple_agent_lab.workflow import executed_completion_check
+
+        result = run_goal_loop(
+            self._goal_agent(verify_command="  "),  # blank → empty after strip
+            "do the thing",
+            check=executed_completion_check(),
+            budgets=GoalBudgets(max_turns=2),
+        )
+        self.assertEqual(result.status, "budget_exhausted")
+
     def test_default_check_continues_when_verifier_vetoes(self):
         """model declares done but verifier returns not-done → loop continues."""
         from simple_agent_lab.workflow import (
@@ -384,6 +445,63 @@ class GoalLoopChecksTest(unittest.TestCase):
             budgets=GoalBudgets(max_turns=2),
         )
         # The verifier vetoes every claim → loop exhausts the budget
+        self.assertEqual(result.status, "budget_exhausted")
+
+    def _declaring_agent(self) -> Agent:
+        """Agent that calls update_goal(complete) every turn."""
+        from simple_agent_lab.workflow import update_goal_tool
+
+        def generate(messages):
+            return AssistantMessage(
+                content=(
+                    TextBlock("done"),
+                    ToolCallBlock(
+                        id="c",
+                        name="update_goal",
+                        arguments={"status": "complete", "reason": "x"},
+                    ),
+                ),
+                sender="goal_agent",
+                target="goal_agent",
+                kind="step",
+            )
+
+        return Agent(name="goal_agent", generate=generate, tools=(update_goal_tool(),))
+
+    def _judge(self, verdict_json: str) -> Agent:
+        def generate(messages):
+            return AssistantMessage(
+                content=(TextBlock(verdict_json),),
+                sender="j",
+                target="user",
+                kind="final",
+            )
+
+        return Agent(name="j", generate=generate)
+
+    def test_verified_completion_check_passes_when_judge_agrees(self):
+        from simple_agent_lab.workflow import verified_completion_check
+
+        result = run_goal_loop(
+            self._declaring_agent(),
+            "obj",
+            check=verified_completion_check(self._judge('{"done": true}'), "obj"),
+            budgets=GoalBudgets(max_turns=3),
+        )
+        self.assertEqual(result.status, "complete")
+
+    def test_verified_completion_check_vetoes_when_judge_disagrees(self):
+        from simple_agent_lab.workflow import verified_completion_check
+
+        result = run_goal_loop(
+            self._declaring_agent(),
+            "obj",
+            check=verified_completion_check(
+                self._judge('{"done": false, "reason": "no tests run"}'), "obj"
+            ),
+            budgets=GoalBudgets(max_turns=2),
+        )
+        # Model declares done every turn but the judge keeps vetoing → budget out.
         self.assertEqual(result.status, "budget_exhausted")
 
     def test_judge_agent_check_with_stub_judge(self):
@@ -454,6 +572,54 @@ class GoalLoopChecksTest(unittest.TestCase):
         )
         self.assertTrue(result.get("done"))
         self.assertEqual(result.get("reason"), "ok")
+
+
+class GoalLoopPromptInjectionTest(unittest.TestCase):
+    """Custom initial/continuation prompt builders (the prompt-alignment seam)."""
+
+    def _capturing_agent(self):
+        from simple_agent_lab.messages import text_of
+
+        seen: list[str] = []
+
+        def generate(messages):
+            # Record the latest task message this turn (resume re-shows the
+            # original task, so only the most recent one is this turn's prompt).
+            tasks = [m for m in messages if getattr(m, "kind", "") == "task"]
+            if tasks:
+                seen.append(text_of(tasks[-1].content))
+            return AssistantMessage(
+                content=(), sender="goal_agent", target="user", kind="final"
+            )
+
+        return Agent(name="goal_agent", generate=generate), seen
+
+    def test_custom_builders_replace_default_wrapping(self):
+        agent, seen = self._capturing_agent()
+        run_goal_loop(
+            agent,
+            "RAW-OBJECTIVE",
+            check=_fails_n_then_passes(1),  # one continuation, then done
+            budgets=GoalBudgets(max_turns=5),
+            initial_prompt=lambda o: o,
+            continuation_prompt=lambda o: "CUSTOM-CONT",
+        )
+        # Turn 1 is the objective verbatim (no <untrusted_objective> wrapper);
+        # the continuation is the caller's text.
+        self.assertEqual(seen[0], "RAW-OBJECTIVE")
+        self.assertEqual(seen[1], "CUSTOM-CONT")
+
+    def test_default_builders_still_wrap_objective(self):
+        agent, seen = self._capturing_agent()
+        run_goal_loop(
+            agent,
+            "RAW-OBJECTIVE",
+            check=_fails_n_then_passes(1),
+            budgets=GoalBudgets(max_turns=5),
+        )
+        # Default path keeps the injection-safety wrapping for /goal objectives.
+        self.assertIn("<untrusted_objective>", seen[0])
+        self.assertIn("RAW-OBJECTIVE", seen[0])
 
     def test_model_declared_check_returns_blocked_on_blocked_status(self):
         """model_declared_check correctly maps status=blocked to CompletionResult(blocked=True)."""

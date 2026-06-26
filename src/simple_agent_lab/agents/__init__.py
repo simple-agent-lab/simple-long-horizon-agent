@@ -24,6 +24,11 @@ auto-imported by the top-level ``simple_agent_lab`` namespace — importing them
 here keeps that surface focused on the protocol and runtime.
 """
 
+from .flavors import (
+    agent_session_for_flavor,
+    build_flavor_agent,
+    make_workflow_runner_for_flavor,
+)
 from .starter import (
     BASH_AGENT_DEFAULT_NAME,
     BASH_AGENT_DEFAULT_ROLE,
@@ -56,6 +61,9 @@ __all__ = [
     "SkillConfig",
     "Toolset",
     "MCPToolset",
+    "agent_session_for_flavor",
+    "build_flavor_agent",
+    "make_workflow_runner_for_flavor",
     "agent_session",
     "mcp_session",
     "compose_agent_system_prompt",

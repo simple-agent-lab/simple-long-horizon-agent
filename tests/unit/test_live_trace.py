@@ -77,6 +77,37 @@ class LiveTraceTest(unittest.TestCase):
             self.assertEqual(records[0]["trace_id"], "test.live.exit")
             self.assertFalse(path.with_name(f"{path.name}.part").exists())
 
+    def test_canonical_trace_externalizes_raw_sidecar(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "trajectory.jsonl"
+            write_canonical_trace(
+                path,
+                record={
+                    "trace_id": "raw",
+                    "messages": [
+                        {
+                            "sidecar": {
+                                "raw": {
+                                    "request": {"model": "m"},
+                                    "response": {"id": "r"},
+                                }
+                            }
+                        }
+                    ],
+                    "events": [],
+                    "model_turns": [],
+                },
+            )
+
+            record = read_jsonl(path)[0]
+            self.assertEqual(
+                record["messages"][0]["sidecar"]["raw"],
+                {"raw_ref": 0},
+            )
+            raw_path = path.with_name(f"{path.name}.raw.jsonl")
+            raw_records = read_jsonl(raw_path)
+            self.assertEqual(raw_records[0]["request"]["model"], "m")
+
 
 if __name__ == "__main__":
     unittest.main()

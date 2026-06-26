@@ -16,6 +16,9 @@ env/
 # Live model-config file (may hold an inline auth_token); commit models.example.json only.
 models.json
 *.local.json
+# Run-profiles may reference local paths/creds; commit only *.example.json.
+runs/profiles/*.json
+!runs/profiles/*.example.json
 
 # Tooling caches
 .pytest_cache/

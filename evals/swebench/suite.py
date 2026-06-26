@@ -41,6 +41,7 @@ class SwebenchSuite:
         dockerhub_username: str = harness.DEFAULT_PRO_DOCKERHUB_USERNAME,
         platform: str = "",
         network_mode: str = "",
+        security_opt: tuple[str, ...] = ("seccomp=unconfined",),
         in_env_scoring: bool = False,
     ) -> None:
         self.dataset_name = dataset_name
@@ -54,6 +55,10 @@ class SwebenchSuite:
         self.dockerhub_username = dockerhub_username
         self.platform = platform
         self.network_mode = network_mode
+        # Default seccomp=unconfined: SWE-bench eval containers are disposable
+        # sandboxes, and old daemons (≤18.09) block clone3 under their default
+        # profile, which glibc ≥2.34 needs for threads. Override via --security-opt.
+        self.security_opt = tuple(security_opt)
         # Where scoring runs (ADR collapse-scorer-seam-into-run-primitive). Default: score separately with the
         # official harness (`evaluate_predictions.py`) — re-scorable, parity by
         # definition. Set `in_env_scoring=True` to also stage the official eval
@@ -90,6 +95,7 @@ class SwebenchSuite:
             platform=self.platform or None,
             network_mode=self.network_mode or None,
             cap_add=self._cap_add(record),
+            security_opt=self.security_opt,
         )
 
     def _cap_add(self, record: dict[str, Any]) -> tuple[str, ...]:

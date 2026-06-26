@@ -95,6 +95,20 @@ def final_output(state: State, agent_name: str, *, after_message_index: int = 0)
     return ""
 
 
+def state_output_tokens(state: State) -> int:
+    """Cumulative output tokens across all assistant messages on `state`.
+
+    Tolerates `usage is None` turns (older/fake messages) without crashing. The
+    one place this fold lives — the goal loop's budget accounting and the
+    workflow trace breakdowns both call it.
+    """
+    total = 0
+    for message in state.messages:
+        if isinstance(message, AssistantMessage) and message.usage is not None:
+            total += message.usage.output_tokens
+    return total
+
+
 def as_text(task: ContentInput) -> str:
     """Best-effort plain text for a task (string passes through unchanged)."""
     if isinstance(task, str):
@@ -105,9 +119,9 @@ def as_text(task: ContentInput) -> str:
 def pick_index(text: str, n: int, *, default: int = 0) -> int:
     """Resolve a judge/selector's free text to a 0-based choice in ``[0, n)``.
 
-    The selection seam shared by workflows that ask an agent to *pick the best
-    of N candidates* (the tournament selector here, and future value-guided
-    picks). Candidates are presented to the model 1-based ("Candidate 1..N"),
+    The selection seam for workflows that ask an agent to *pick the best of N
+    candidates* (e.g. a selector or value-guided pick). Candidates are presented
+    to the model 1-based ("Candidate 1..N"),
     so this parses a 1-based answer and returns it 0-based. Mirrors the tolerant
     parsing of `routing.select_route` / `goal_checks._parse_judge_json`: try a
     JSON object (`{"best": k}`) first, then the first in-range integer, and fall

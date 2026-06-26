@@ -231,11 +231,15 @@ class MessageSidecar(TypedDict, total=False):
                  provider-level view.
         details: per-tool-call `ToolResult.details`, keyed by call id, on a
                  `tool_result` message (e.g. sub-agent events).
+        compression:
+                 metadata about an internal context-compression model call,
+                 stashed on the runtime summary message that call produced.
     """
 
     extra: Mapping[str, Any]
     raw: Any
     details: Mapping[str, Any]
+    compression: Mapping[str, Any]
 
 
 def _copy_sidecar(sidecar: MessageSidecar | None) -> MessageSidecar:
@@ -261,11 +265,11 @@ class UserMessage:
 class RuntimeMessage:
     """A message the runtime/harness injects into the transcript.
 
-    The third actor alongside user and assistant: context the runtime adds —
-    sub-agent preludes, skill menus, summaries, hook emissions — not the
-    model's persona. `role` stays `"system"`: that is only how it rides the
-    wire (providers offer no separate "runtime" slot); the type name reflects
-    *who* produced it. Distinct from `Agent.system_prompt`, the fixed
+    The third actor alongside user and assistant: policy or high-priority
+    context the runtime adds — sub-agent preludes, skill menus, hook emissions
+    — not the model's persona. `role` stays `"system"`: that is only how it
+    rides the wire (providers offer no separate "runtime" slot); the type name
+    reflects *who* produced it. Distinct from `Agent.system_prompt`, the fixed
     per-request preamble that never enters the transcript.
     """
 

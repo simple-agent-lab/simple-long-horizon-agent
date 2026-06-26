@@ -38,6 +38,7 @@ from .base import (
     never_abort,
     pick_index,
     run_agent,
+    state_output_tokens,
 )
 from .parallel import (
     AGGREGATOR_ROLE,
@@ -79,15 +80,6 @@ from .pdr import (
     make_distiller_agent,
     run_pdr,
 )
-from .tournament import (
-    SELECTOR_ROLE,
-    SELECTOR_SYSTEM_PROMPT,
-    SUMMARIZER_ROLE,
-    SUMMARIZER_SYSTEM_PROMPT,
-    make_selector_agent,
-    make_summarizer_agent,
-    run_rtv,
-)
 from .goal_loop import (
     CompletionCheck,
     CompletionResult,
@@ -97,12 +89,25 @@ from .goal_loop import (
     run_goal_loop,
 )
 from .goal_checks import (
+    COMPLETION_JUDGE_ROLE,
+    COMPLETION_JUDGE_SYSTEM_PROMPT,
     UPDATE_GOAL_TOOL_NAME,
+    VERIFY_BEFORE_DONE_ADDENDUM,
+    VERIFY_CONTINUATION,
     command_verifier_check,
     default_check,
+    executed_completion_check,
     judge_agent_check,
+    make_completion_judge,
     model_declared_check,
     update_goal_tool,
+    verified_completion_check,
+)
+from .trace import (
+    compose_workflow_trace_state,
+    workflow_overview_summary,
+    workflow_steps_breakdown,
+    write_workflow_subagent_traces,
 )
 
 __all__ = [
@@ -111,6 +116,7 @@ __all__ = [
     "WorkflowResult",
     "run_agent",
     "final_output",
+    "state_output_tokens",
     "as_text",
     "never_abort",
     "pick_index",
@@ -147,14 +153,6 @@ __all__ = [
     "make_aggregator_agent",
     "AGGREGATOR_ROLE",
     "AGGREGATOR_SYSTEM_PROMPT",
-    # tournament (RTV)
-    "run_rtv",
-    "make_selector_agent",
-    "make_summarizer_agent",
-    "SELECTOR_ROLE",
-    "SELECTOR_SYSTEM_PROMPT",
-    "SUMMARIZER_ROLE",
-    "SUMMARIZER_SYSTEM_PROMPT",
     # parallel-distill-refine (PDR)
     "run_pdr",
     "make_distiller_agent",
@@ -172,6 +170,19 @@ __all__ = [
     "UPDATE_GOAL_TOOL_NAME",
     "model_declared_check",
     "command_verifier_check",
+    "executed_completion_check",
     "judge_agent_check",
     "default_check",
+    # verified completion (the reusable judge-gate optimization)
+    "make_completion_judge",
+    "verified_completion_check",
+    "COMPLETION_JUDGE_ROLE",
+    "COMPLETION_JUDGE_SYSTEM_PROMPT",
+    "VERIFY_BEFORE_DONE_ADDENDUM",
+    "VERIFY_CONTINUATION",
+    # trace helpers
+    "compose_workflow_trace_state",
+    "workflow_overview_summary",
+    "workflow_steps_breakdown",
+    "write_workflow_subagent_traces",
 ]

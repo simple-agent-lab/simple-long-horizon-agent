@@ -33,6 +33,7 @@ from .messages import (
     ToolResultBlock,
     tool_results_of,
 )
+from .protocols import Event
 
 
 # Chars-per-token for the char-based fallback estimate — a rounded neutral
@@ -81,12 +82,18 @@ class CompressionDecision:
     policy a run used. A composite strategy (`TieredStrategy`) returns the
     firing stage's decision unchanged, so the stage's label rides through for
     free. Empty is allowed (an unlabeled custom strategy).
+
+    `trace_events` carries internal work the strategy performed to produce
+    the replacement, such as a compressor model request/response. The runtime
+    stamps and records these before it writes the summary, so trajectories show
+    every model access even when the call happens inside compression.
     """
 
     compress_indices: tuple[int, ...]
     replacement: Message
     rewrite: bool = False
     label: str = ""
+    trace_events: tuple[Event, ...] = ()
 
 
 class CompressionStrategy(Protocol):

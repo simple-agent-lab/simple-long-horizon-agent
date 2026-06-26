@@ -98,6 +98,11 @@ class State:
     def _elapsed(self) -> float:
         return time.monotonic() - self._monotonic_origin
 
+    def elapsed_seconds(self) -> float:
+        """Current run-relative monotonic time in seconds."""
+
+        return self._elapsed()
+
     @property
     def messages(self) -> list[Message]:
         # A fresh list each call, so a concurrent reader — e.g. the `recall`
@@ -126,6 +131,21 @@ class State:
         """
         stamped = dataclasses.replace(
             event, index=len(self.events), elapsed=self._elapsed()
+        )
+        self.events.append(stamped)
+        self.snapshot.apply(stamped)
+        return stamped
+
+    def record_event_at(self, event: EventT, *, elapsed: float) -> EventT:
+        """Append `event` with an explicit run-relative timestamp.
+
+        Most callers should use `record_event`; this is for nested operations
+        that can only attach their events to the parent state after they finish
+        but still need truthful start/end times in the trace.
+        """
+
+        stamped = dataclasses.replace(
+            event, index=len(self.events), elapsed=max(0.0, elapsed)
         )
         self.events.append(stamped)
         self.snapshot.apply(stamped)

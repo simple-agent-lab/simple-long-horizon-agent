@@ -28,6 +28,7 @@ from ..protocols import (
     INSTANCE_KEY,
     RESULT_KEY,
     TRACE_KEY,
+    TRACE_RAW_KEY,
     ArtifactStore,
     ContainerBinding,
     RunOutcome,
@@ -61,7 +62,7 @@ def pull_outputs(
     store: ArtifactStore,
     *,
     run_mount: str = RUN_MOUNT,
-    keys: tuple[str, ...] = (RESULT_KEY, TRACE_KEY),
+    keys: tuple[str, ...] = (RESULT_KEY, TRACE_KEY, TRACE_RAW_KEY),
 ) -> list[str]:
     """Copy ``out/`` artifacts from the container back into the host store.
 
@@ -166,7 +167,7 @@ class RemoteDockerBackend:
     ) -> threading.Thread:
         def loop() -> None:
             while not stop.wait(self.live_poll_interval_s):
-                pull_outputs(container, store, keys=(TRACE_KEY,))
+                pull_outputs(container, store, keys=(TRACE_KEY, TRACE_RAW_KEY))
 
         thread = threading.Thread(target=loop, daemon=True)
         thread.start()

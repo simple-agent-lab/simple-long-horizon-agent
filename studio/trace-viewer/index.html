@@ -1409,6 +1409,117 @@
     .row .meta-line .k { color: var(--ash); }
     .row.is-error .preview { color: var(--signal); }
 
+    /* ====== minimap: compact one-line message bars (messages mode) ====== */
+    .stream .row.mrow { contain-intrinsic-size: auto 28px; }
+    .row.mrow {
+      display: grid;
+      grid-template-columns: 16px minmax(52px, 150px) 1fr max-content max-content;
+      gap: 0 10px;
+      align-items: center;
+      padding: 4px 10px 4px 8px;
+      border-top: 0;
+      border-left: 2px solid var(--mrow-accent, var(--ash));
+      border-radius: 0 3px 3px 0;
+      margin: 2px 0;
+      background: var(--mrow-bg, rgba(255,255,255,0.015));
+      cursor: pointer;
+    }
+    .row.mrow:hover { filter: brightness(1.3); }
+    .row.mrow .mrow-glyph {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11px;
+      line-height: 1;
+      text-align: center;
+      color: var(--mrow-accent, var(--paper-dim));
+    }
+    .row.mrow .mrow-label {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 9.5px;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--mrow-accent, var(--paper-dim));
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .row.mrow .mrow-text {
+      font-family: "IBM Plex Sans", sans-serif;
+      font-size: 12.5px;
+      color: var(--paper-mid);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+    }
+    .row.mrow .mrow-text.mono {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11.5px;
+      color: var(--phosphor);
+    }
+    .row.mrow .mrow-text.is-empty { color: var(--ash); }
+    .row.mrow.is-dim .mrow-text { color: var(--paper-dim); }
+    .row.mrow.is-dim .mrow-text.mono { color: rgba(91, 230, 166, 0.6); }
+    .row.mrow.is-thinking .mrow-text { font-style: italic; }
+    .row.mrow .mrow-badge {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 9.5px;
+      letter-spacing: 0.03em;
+      color: var(--ash);
+      white-space: nowrap;
+      text-align: right;
+    }
+    .row.mrow .mrow-t {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 9.5px;
+      color: var(--ash);
+      white-space: nowrap;
+    }
+    /* tones — the user side is cool/teal, the agent side is warm
+       (assistant amber, tools neutral), echoing the two-tone reference. */
+    .row.mrow.tone-user {
+      --mrow-accent: var(--phosphor);
+      --mrow-bg: linear-gradient(90deg, rgba(91, 230, 166, 0.12), rgba(91, 230, 166, 0.03) 70%);
+    }
+    .row.mrow.tone-assistant {
+      --mrow-accent: var(--solar);
+      --mrow-bg: linear-gradient(90deg, rgba(242, 194, 75, 0.10), rgba(242, 194, 75, 0.02) 70%);
+    }
+    .row.mrow.tone-tool {
+      --mrow-accent: var(--paper-mid);
+      --mrow-bg: linear-gradient(90deg, rgba(184, 181, 171, 0.07), rgba(184, 181, 171, 0.015) 70%);
+    }
+    .row.mrow.tone-final {
+      --mrow-accent: var(--paper);
+      --mrow-bg: linear-gradient(90deg, rgba(236, 233, 222, 0.13), rgba(236, 233, 222, 0.03) 70%);
+    }
+    .row.mrow.tone-final .mrow-text { color: var(--paper); }
+    .row.mrow.tone-compression {
+      --mrow-accent: var(--solar);
+      --mrow-bg: linear-gradient(90deg, rgba(242, 194, 75, 0.16), rgba(242, 194, 75, 0.035) 70%);
+    }
+    .row.mrow.tone-compression .mrow-text {
+      color: var(--solar);
+    }
+    .row.mrow.is-error {
+      --mrow-accent: var(--signal);
+      --mrow-bg: linear-gradient(90deg, rgba(255, 77, 46, 0.14), rgba(255, 77, 46, 0.03) 70%);
+    }
+    .row.mrow.is-error .mrow-text { color: var(--signal); }
+    .row.mrow.is-sub {
+      margin-left: 20px;
+      --mrow-accent: var(--magenta);
+    }
+    .row.mrow.is-sub .mrow-glyph,
+    .row.mrow.is-sub .mrow-label { color: var(--magenta); }
+    /* selection wins over tone */
+    .row.mrow.selected {
+      --mrow-bg: rgba(255, 77, 46, 0.16);
+      --mrow-accent: var(--signal);
+      box-shadow: inset 0 0 0 1px rgba(255, 77, 46, 0.35);
+    }
+    .row.mrow.selected::before,
+    .row.mrow.selected::after { display: none; }
+
     /* nested sub-agent inset */
     .row.depth-1 {
       padding-left: 22px;
@@ -2918,7 +3029,7 @@
                 style="display:none !important"></span>
           <label class="btn">
             Open
-            <input type="file" id="file-input" accept=".jsonl,.json,application/json" />
+            <input type="file" id="file-input" accept=".jsonl,.json,application/json" multiple />
           </label>
           <button class="btn" id="sample-btn">Sample</button>
         </div>
@@ -3070,7 +3181,7 @@
                 <button type="button" class="center-collapse-btn" id="center-collapse"
                         title="Collapse stream column" aria-label="Collapse stream column">◂</button>
                 <div class="mode-toggle" id="mode-toggle">
-                  <button data-mode="messages" class="active">messages</button>
+                  <button data-mode="messages" class="active">minimap</button>
                   <button data-mode="events">events</button>
                   <button data-mode="model">model turns</button>
                 </div>
@@ -3103,7 +3214,7 @@
             </div>
 
             <div class="stream-head">
-              <span id="stream-label">messages · 0</span>
+              <span id="stream-label">minimap · 0</span>
               <span id="legend" style="color: var(--ash); letter-spacing: 0.06em;">
                 <span style="color:var(--lapis)">●</span> model
                 &nbsp; <span style="color:var(--phosphor)">●</span> tool
@@ -3156,7 +3267,7 @@
 
   <!-- ============ EMBEDDED SAMPLE (loaded on first paint) ============ -->
   <script type="application/json" id="embedded-sample">
-{"schema": "simple-agent-lab.trajectory.v3", "type": "trajectory", "trace_id": "demo.observatory.001", "producer": "demo:trace-viewer", "task": "Investigate the failing wc-line counter regression and ship a fix with a new test.", "events": [{"index": 0, "elapsed": 0.0, "kind": "message", "message": {"role": "user", "content": [{"text": "Investigate the failing wc-line counter regression and ship a fix with a new test.", "kind": "text"}], "sender": "user", "target": "obs_agent", "kind": "task", "sidecar": {}}}, {"index": 1, "elapsed": 0.25, "kind": "agent_start"}, {"index": 2, "elapsed": 0.5, "kind": "turn_start", "agent": "obs_agent"}, {"index": 3, "elapsed": 0.75, "kind": "model_request", "agent": "obs_agent", "visible_count": 1, "llm_message_count": 2, "context_view": {"input_tokens_estimate": 612, "messages": 2}, "tools": [{"name": "bash", "description": "Run a bash command."}, {"name": "task", "description": "Delegate a focused subtask."}], "llm_payload": [{"role": "system", "content": "You are obs_agent."}, {"role": "user", "content": "Investigate the failing wc-line counter regression and ship a fix with a new test."}]}, {"index": 4, "elapsed": 1.0, "kind": "model_response", "agent": "obs_agent", "output_kind": "thought", "target": "obs_agent", "tool_call_count": 1, "usage": {"input_tokens": 612, "output_tokens": 88, "cache_read_tokens": 0, "cache_write_tokens": 612}, "model": "demo/observatory-mini"}, {"index": 5, "elapsed": 1.25, "kind": "message", "message": {"role": "assistant", "content": [{"text": "Inspect the layout before editing.", "signature": null, "redacted": false, "source_field": null, "kind": "thinking"}, {"text": "Looking at the repo layout.", "kind": "text"}, {"id": "call_01", "name": "bash", "arguments": {"command": "ls src/simple_agent_lab"}, "kind": "tool_call"}], "sender": "obs_agent", "target": "obs_agent", "kind": "thought", "usage": {"input_tokens": 612, "output_tokens": 88, "cache_read_tokens": 0, "cache_write_tokens": 612}, "model": "demo/observatory-mini", "sidecar": {"raw": {"request": {"model": "demo/observatory-mini", "messages": [{"role": "system", "content": "You are obs_agent."}, {"role": "user", "content": [{"type": "text", "text": "Investigate the failing wc-line counter regression and ship a fix with a new test."}]}], "reasoning_effort": "high", "temperature": 1.0, "max_tokens": 400}, "response": {"id": "chatcmpl-demo-0001", "model": "demo/observatory-mini", "choices": [{"index": 0, "finish_reason": "tool_calls", "message": {"role": "assistant", "content": "Looking at the repo layout.", "reasoning": "Inspect the layout before touching files."}}], "usage": {"prompt_tokens": 612, "completion_tokens": 88, "total_tokens": 700, "completion_tokens_details": {"reasoning_tokens": 40}}}}}}}, {"index": 6, "elapsed": 1.5, "kind": "tool_execution_start", "tool_call_id": "call_01", "tool_name": "bash"}, {"index": 7, "elapsed": 1.75, "kind": "tool_execution_end", "tool_call_id": "call_01", "tool_name": "bash", "is_error": false, "terminate": false}, {"index": 8, "elapsed": 2.0, "kind": "message", "message": {"role": "user", "content": [{"tool_call_id": "call_01", "tool_name": "bash", "content": [{"text": "core.py\nmessages.py\nstate.py\ntools/", "kind": "text"}], "is_error": false, "kind": "tool_result"}], "sender": "tool", "target": "obs_agent", "kind": "tool_result", "sidecar": {}}}, {"index": 9, "elapsed": 2.25, "kind": "turn_end", "agent": "obs_agent", "terminated": false}, {"index": 10, "elapsed": 2.5, "kind": "turn_start", "agent": "obs_agent"}, {"index": 11, "elapsed": 2.75, "kind": "model_request", "agent": "obs_agent", "visible_count": 3, "llm_message_count": 4, "context_view": {"input_tokens_estimate": 894, "messages": 4}, "tools": [], "llm_payload": []}, {"index": 12, "elapsed": 3.0, "kind": "model_response", "agent": "obs_agent", "output_kind": "thought", "target": "obs_agent", "tool_call_count": 1, "usage": {"input_tokens": 894, "output_tokens": 120, "cache_read_tokens": 612, "cache_write_tokens": 282}, "model": "demo/observatory-mini"}, {"index": 13, "elapsed": 3.25, "kind": "message", "message": {"role": "assistant", "content": [{"text": "Dispatching a search sub-agent.", "kind": "text"}, {"id": "call_02_task", "name": "task", "arguments": {"agent": "search_agent", "task": "Search for wc_lines callers."}, "kind": "tool_call"}], "sender": "obs_agent", "target": "obs_agent", "kind": "thought", "usage": {"input_tokens": 894, "output_tokens": 120, "cache_read_tokens": 612, "cache_write_tokens": 282}, "model": "demo/observatory-mini", "sidecar": {}}}, {"index": 14, "elapsed": 3.5, "kind": "tool_execution_start", "tool_call_id": "call_02_task", "tool_name": "task"}, {"index": 15, "elapsed": 3.75, "kind": "tool_execution_end", "tool_call_id": "call_02_task", "tool_name": "task", "is_error": false, "terminate": false}, {"index": 16, "elapsed": 4.0, "kind": "message", "message": {"role": "user", "content": [{"tool_call_id": "call_02_task", "tool_name": "task", "content": [{"text": "Sub-agent: wc_lines has 1 caller, 1 test.", "kind": "text"}], "is_error": false, "kind": "tool_result"}], "sender": "tool", "target": "obs_agent", "kind": "tool_result", "sidecar": {"details": {"call_02_task": {"sub_events": [{"index": 0, "elapsed": 0.0, "kind": "message", "message": {"role": "user", "content": [{"text": "Search the repo for wc_lines callers.", "kind": "text"}], "sender": "obs_agent", "target": "search_agent", "kind": "task", "sidecar": {}}}, {"index": 1, "elapsed": 0.25, "kind": "agent_start"}, {"index": 2, "elapsed": 0.5, "kind": "turn_start", "agent": "search_agent"}, {"index": 3, "elapsed": 0.75, "kind": "model_request", "agent": "search_agent", "visible_count": 2, "llm_message_count": 2, "context_view": {"input_tokens_estimate": 188}, "tools": [{"name": "bash", "description": "Run a bash command."}], "llm_payload": []}, {"index": 4, "elapsed": 1.0, "kind": "model_response", "agent": "search_agent", "output_kind": "thought", "target": "search_agent", "tool_call_count": 1, "usage": {"input_tokens": 188, "output_tokens": 40, "cache_read_tokens": 0, "cache_write_tokens": 0}, "model": "demo/observatory-mini"}, {"index": 5, "elapsed": 1.25, "kind": "message", "message": {"role": "assistant", "content": [{"text": "Running ripgrep.", "kind": "text"}, {"id": "sub_call_01", "name": "bash", "arguments": {"command": "rg -n wc_lines"}, "kind": "tool_call"}], "sender": "search_agent", "target": "search_agent", "kind": "thought", "usage": null, "model": "", "sidecar": {}}}, {"index": 6, "elapsed": 1.5, "kind": "tool_execution_start", "tool_call_id": "sub_call_01", "tool_name": "bash"}, {"index": 7, "elapsed": 1.75, "kind": "tool_execution_end", "tool_call_id": "sub_call_01", "tool_name": "bash", "is_error": false, "terminate": false}, {"index": 8, "elapsed": 2.0, "kind": "message", "message": {"role": "user", "content": [{"tool_call_id": "sub_call_01", "tool_name": "bash", "content": [{"text": "src/simple_agent_lab/tools/wc.py:1:def wc_lines", "kind": "text"}], "is_error": false, "kind": "tool_result"}], "sender": "tool", "target": "search_agent", "kind": "tool_result", "sidecar": {}}}, {"index": 9, "elapsed": 2.25, "kind": "turn_end", "agent": "search_agent", "terminated": false}, {"index": 10, "elapsed": 2.5, "kind": "model_response", "agent": "search_agent", "output_kind": "final", "target": "obs_agent", "tool_call_count": 0, "usage": {"input_tokens": 264, "output_tokens": 52, "cache_read_tokens": 0, "cache_write_tokens": 0}, "model": "demo/observatory-mini"}, {"index": 11, "elapsed": 2.75, "kind": "message", "message": {"role": "assistant", "content": [{"text": "wc_lines: 1 caller, 1 test. Low blast radius.", "kind": "text"}], "sender": "search_agent", "target": "obs_agent", "kind": "final", "usage": null, "model": "", "sidecar": {}}}, {"index": 12, "elapsed": 3.0, "kind": "agent_end", "reason": "final"}]}}}}}, {"index": 17, "elapsed": 4.25, "kind": "turn_end", "agent": "obs_agent", "terminated": false}, {"index": 18, "elapsed": 4.5, "kind": "turn_start", "agent": "obs_agent"}, {"index": 19, "elapsed": 4.75, "kind": "model_request", "agent": "obs_agent", "visible_count": 5, "llm_message_count": 6, "context_view": {"input_tokens_estimate": 1842, "messages": 6}, "tools": [], "llm_payload": []}, {"index": 20, "elapsed": 5.0, "kind": "model_response", "agent": "obs_agent", "output_kind": "thought", "target": "obs_agent", "tool_call_count": 1, "usage": {"input_tokens": 1842, "output_tokens": 96, "cache_read_tokens": 894, "cache_write_tokens": 948}, "model": "demo/observatory-mini"}, {"index": 21, "elapsed": 5.25, "kind": "message", "message": {"role": "assistant", "content": [{"text": "Applying the fix.", "kind": "text"}, {"id": "call_03", "name": "bash", "arguments": {"command": "patch -p0 < /tmp/missing.patch"}, "kind": "tool_call"}], "sender": "obs_agent", "target": "obs_agent", "kind": "thought", "usage": {"input_tokens": 1842, "output_tokens": 96, "cache_read_tokens": 894, "cache_write_tokens": 948}, "model": "demo/observatory-mini", "sidecar": {}}}, {"index": 22, "elapsed": 5.5, "kind": "tool_execution_start", "tool_call_id": "call_03", "tool_name": "bash"}, {"index": 23, "elapsed": 5.75, "kind": "tool_execution_end", "tool_call_id": "call_03", "tool_name": "bash", "is_error": true, "terminate": false}, {"index": 24, "elapsed": 6.0, "kind": "message", "message": {"role": "user", "content": [{"tool_call_id": "call_03", "tool_name": "bash", "content": [{"text": "patch: /tmp/missing.patch: No such file", "kind": "text"}], "is_error": true, "kind": "tool_result"}], "sender": "tool", "target": "obs_agent", "kind": "tool_result", "sidecar": {}}}, {"index": 25, "elapsed": 6.25, "kind": "turn_end", "agent": "obs_agent", "terminated": false}, {"index": 26, "elapsed": 6.5, "kind": "context_compression", "agent": "obs_agent", "summary_message_index": 5, "compressed_message_indices": [1, 2, 3, 4], "active_context_indices": [0, 5, 6], "before_tokens": 4180, "after_tokens": 1432, "strategy": "tool-compact"}, {"index": 27, "elapsed": 6.75, "kind": "turn_start", "agent": "obs_agent"}, {"index": 28, "elapsed": 7.0, "kind": "model_request", "agent": "obs_agent", "visible_count": 5, "llm_message_count": 5, "context_view": {"input_tokens_estimate": 1432, "messages": 5}, "tools": [], "llm_payload": []}, {"index": 29, "elapsed": 7.25, "kind": "model_response", "agent": "obs_agent", "output_kind": "final", "target": "user", "tool_call_count": 0, "usage": {"input_tokens": 1812, "output_tokens": 76, "cache_read_tokens": 0, "cache_write_tokens": 1812}, "model": "demo/observatory-mini"}, {"index": 30, "elapsed": 7.5, "kind": "message", "message": {"role": "assistant", "content": [{"text": "Fixed the off-by-one in wc.py; the focused test passes.", "kind": "text"}], "sender": "obs_agent", "target": "user", "kind": "final", "usage": {"input_tokens": 1812, "output_tokens": 76, "cache_read_tokens": 0, "cache_write_tokens": 1812}, "model": "demo/observatory-mini", "sidecar": {}}}, {"index": 31, "elapsed": 7.75, "kind": "turn_end", "agent": "obs_agent", "terminated": true}, {"index": 32, "elapsed": 8.0, "kind": "agent_end", "reason": "done"}], "messages": [{"role": "user", "content": [{"text": "Investigate the failing wc-line counter regression and ship a fix with a new test.", "kind": "text"}], "sender": "user", "target": "obs_agent", "kind": "task", "sidecar": {}}, {"role": "assistant", "content": [{"text": "Inspect the layout before editing.", "signature": null, "redacted": false, "source_field": null, "kind": "thinking"}, {"text": "Looking at the repo layout.", "kind": "text"}, {"id": "call_01", "name": "bash", "arguments": {"command": "ls src/simple_agent_lab"}, "kind": "tool_call"}], "sender": "obs_agent", "target": "obs_agent", "kind": "thought", "usage": {"input_tokens": 612, "output_tokens": 88, "cache_read_tokens": 0, "cache_write_tokens": 612}, "model": "demo/observatory-mini", "sidecar": {"raw": {"request": {"model": "demo/observatory-mini", "messages": [{"role": "system", "content": "You are obs_agent."}, {"role": "user", "content": [{"type": "text", "text": "Investigate the failing wc-line counter regression and ship a fix with a new test."}]}], "reasoning_effort": "high", "temperature": 1.0, "max_tokens": 400}, "response": {"id": "chatcmpl-demo-0001", "model": "demo/observatory-mini", "choices": [{"index": 0, "finish_reason": "tool_calls", "message": {"role": "assistant", "content": "Looking at the repo layout.", "reasoning": "Inspect the layout before touching files."}}], "usage": {"prompt_tokens": 612, "completion_tokens": 88, "total_tokens": 700, "completion_tokens_details": {"reasoning_tokens": 40}}}}}}, {"role": "user", "content": [{"tool_call_id": "call_01", "tool_name": "bash", "content": [{"text": "core.py\nmessages.py\nstate.py\ntools/", "kind": "text"}], "is_error": false, "kind": "tool_result"}], "sender": "tool", "target": "obs_agent", "kind": "tool_result", "sidecar": {}}, {"role": "assistant", "content": [{"text": "Dispatching a search sub-agent.", "kind": "text"}, {"id": "call_02_task", "name": "task", "arguments": {"agent": "search_agent", "task": "Search for wc_lines callers."}, "kind": "tool_call"}], "sender": "obs_agent", "target": "obs_agent", "kind": "thought", "usage": {"input_tokens": 894, "output_tokens": 120, "cache_read_tokens": 612, "cache_write_tokens": 282}, "model": "demo/observatory-mini", "sidecar": {}}, {"role": "user", "content": [{"tool_call_id": "call_02_task", "tool_name": "task", "content": [{"text": "Sub-agent: wc_lines has 1 caller, 1 test.", "kind": "text"}], "is_error": false, "kind": "tool_result"}], "sender": "tool", "target": "obs_agent", "kind": "tool_result", "sidecar": {"details": {"call_02_task": {"sub_events": [{"index": 0, "elapsed": 0.0, "kind": "message", "message": {"role": "user", "content": [{"text": "Search the repo for wc_lines callers.", "kind": "text"}], "sender": "obs_agent", "target": "search_agent", "kind": "task", "sidecar": {}}}, {"index": 1, "elapsed": 0.25, "kind": "agent_start"}, {"index": 2, "elapsed": 0.5, "kind": "turn_start", "agent": "search_agent"}, {"index": 3, "elapsed": 0.75, "kind": "model_request", "agent": "search_agent", "visible_count": 2, "llm_message_count": 2, "context_view": {"input_tokens_estimate": 188}, "tools": [{"name": "bash", "description": "Run a bash command."}], "llm_payload": []}, {"index": 4, "elapsed": 1.0, "kind": "model_response", "agent": "search_agent", "output_kind": "thought", "target": "search_agent", "tool_call_count": 1, "usage": {"input_tokens": 188, "output_tokens": 40, "cache_read_tokens": 0, "cache_write_tokens": 0}, "model": "demo/observatory-mini"}, {"index": 5, "elapsed": 1.25, "kind": "message", "message": {"role": "assistant", "content": [{"text": "Running ripgrep.", "kind": "text"}, {"id": "sub_call_01", "name": "bash", "arguments": {"command": "rg -n wc_lines"}, "kind": "tool_call"}], "sender": "search_agent", "target": "search_agent", "kind": "thought", "usage": null, "model": "", "sidecar": {}}}, {"index": 6, "elapsed": 1.5, "kind": "tool_execution_start", "tool_call_id": "sub_call_01", "tool_name": "bash"}, {"index": 7, "elapsed": 1.75, "kind": "tool_execution_end", "tool_call_id": "sub_call_01", "tool_name": "bash", "is_error": false, "terminate": false}, {"index": 8, "elapsed": 2.0, "kind": "message", "message": {"role": "user", "content": [{"tool_call_id": "sub_call_01", "tool_name": "bash", "content": [{"text": "src/simple_agent_lab/tools/wc.py:1:def wc_lines", "kind": "text"}], "is_error": false, "kind": "tool_result"}], "sender": "tool", "target": "search_agent", "kind": "tool_result", "sidecar": {}}}, {"index": 9, "elapsed": 2.25, "kind": "turn_end", "agent": "search_agent", "terminated": false}, {"index": 10, "elapsed": 2.5, "kind": "model_response", "agent": "search_agent", "output_kind": "final", "target": "obs_agent", "tool_call_count": 0, "usage": {"input_tokens": 264, "output_tokens": 52, "cache_read_tokens": 0, "cache_write_tokens": 0}, "model": "demo/observatory-mini"}, {"index": 11, "elapsed": 2.75, "kind": "message", "message": {"role": "assistant", "content": [{"text": "wc_lines: 1 caller, 1 test. Low blast radius.", "kind": "text"}], "sender": "search_agent", "target": "obs_agent", "kind": "final", "usage": null, "model": "", "sidecar": {}}}, {"index": 12, "elapsed": 3.0, "kind": "agent_end", "reason": "final"}]}}}}, {"role": "assistant", "content": [{"text": "Applying the fix.", "kind": "text"}, {"id": "call_03", "name": "bash", "arguments": {"command": "patch -p0 < /tmp/missing.patch"}, "kind": "tool_call"}], "sender": "obs_agent", "target": "obs_agent", "kind": "thought", "usage": {"input_tokens": 1842, "output_tokens": 96, "cache_read_tokens": 894, "cache_write_tokens": 948}, "model": "demo/observatory-mini", "sidecar": {}}, {"role": "user", "content": [{"tool_call_id": "call_03", "tool_name": "bash", "content": [{"text": "patch: /tmp/missing.patch: No such file", "kind": "text"}], "is_error": true, "kind": "tool_result"}], "sender": "tool", "target": "obs_agent", "kind": "tool_result", "sidecar": {}}, {"role": "assistant", "content": [{"text": "Fixed the off-by-one in wc.py; the focused test passes.", "kind": "text"}], "sender": "obs_agent", "target": "user", "kind": "final", "usage": {"input_tokens": 1812, "output_tokens": 76, "cache_read_tokens": 0, "cache_write_tokens": 1812}, "model": "demo/observatory-mini", "sidecar": {}}], "spans": [{"id": "demo.observatory.001.run1", "parent_id": null, "kind": "agent_run", "start": 0.25, "end": 8.0, "attributes": {"reason": "done"}}, {"id": "demo.observatory.001.turn1", "parent_id": "demo.observatory.001.run1", "kind": "turn", "start": 0.5, "end": 2.25, "attributes": {"agent": "obs_agent", "terminated": false}}, {"id": "demo.observatory.001.call1", "parent_id": "demo.observatory.001.turn1", "kind": "model_call", "start": 0.75, "end": 1.0, "input": [{"role": "system", "content": "You are obs_agent."}, {"role": "user", "content": "Investigate the failing wc-line counter regression and ship a fix with a new test."}], "output": {"kind": "thought", "target": "obs_agent", "tool_call_count": 1, "model": "demo/observatory-mini", "usage": {"input_tokens": 612, "output_tokens": 88, "cache_read_tokens": 0, "cache_write_tokens": 612}}, "attributes": {"agent": "obs_agent", "visible_count": 1, "llm_message_count": 2, "tools": [{"name": "bash", "description": "Run a bash command."}, {"name": "task", "description": "Delegate a focused subtask."}]}}, {"id": "demo.observatory.001.tool1", "parent_id": "demo.observatory.001.turn1", "kind": "tool_call", "start": 1.5, "end": 1.75, "attributes": {"tool_call_id": "call_01", "tool_name": "bash", "is_error": false, "terminate": false}}, {"id": "demo.observatory.001.turn2", "parent_id": "demo.observatory.001.run1", "kind": "turn", "start": 2.5, "end": 4.25, "attributes": {"agent": "obs_agent", "terminated": false}}, {"id": "demo.observatory.001.call2", "parent_id": "demo.observatory.001.turn2", "kind": "model_call", "start": 2.75, "end": 3.0, "input": [], "output": {"kind": "thought", "target": "obs_agent", "tool_call_count": 1, "model": "demo/observatory-mini", "usage": {"input_tokens": 894, "output_tokens": 120, "cache_read_tokens": 612, "cache_write_tokens": 282}}, "attributes": {"agent": "obs_agent", "visible_count": 3, "llm_message_count": 4, "tools": []}}, {"id": "demo.observatory.001.tool2", "parent_id": "demo.observatory.001.turn2", "kind": "tool_call", "start": 3.5, "end": 3.75, "attributes": {"tool_call_id": "call_02_task", "tool_name": "task", "is_error": false, "terminate": false}}, {"id": "demo.observatory.001.turn3", "parent_id": "demo.observatory.001.run1", "kind": "turn", "start": 4.5, "end": 6.25, "attributes": {"agent": "obs_agent", "terminated": false}}, {"id": "demo.observatory.001.call3", "parent_id": "demo.observatory.001.turn3", "kind": "model_call", "start": 4.75, "end": 5.0, "input": [], "output": {"kind": "thought", "target": "obs_agent", "tool_call_count": 1, "model": "demo/observatory-mini", "usage": {"input_tokens": 1842, "output_tokens": 96, "cache_read_tokens": 894, "cache_write_tokens": 948}}, "attributes": {"agent": "obs_agent", "visible_count": 5, "llm_message_count": 6, "tools": []}}, {"id": "demo.observatory.001.tool3", "parent_id": "demo.observatory.001.turn3", "kind": "tool_call", "start": 5.5, "end": 5.75, "attributes": {"tool_call_id": "call_03", "tool_name": "bash", "is_error": true, "terminate": false}}, {"id": "demo.observatory.001.compression1", "parent_id": "demo.observatory.001.run1", "kind": "compression", "start": 6.5, "end": 6.5, "attributes": {"agent": "obs_agent", "strategy": "tool-compact", "before_tokens": 4180, "after_tokens": 1432, "summary_message_index": 5, "compressed_message_indices": [1, 2, 3, 4]}}, {"id": "demo.observatory.001.turn4", "parent_id": "demo.observatory.001.run1", "kind": "turn", "start": 6.75, "end": 7.75, "attributes": {"agent": "obs_agent", "terminated": true}}, {"id": "demo.observatory.001.call4", "parent_id": "demo.observatory.001.turn4", "kind": "model_call", "start": 7.0, "end": 7.25, "input": [], "output": {"kind": "final", "target": "user", "tool_call_count": 0, "model": "demo/observatory-mini", "usage": {"input_tokens": 1812, "output_tokens": 76, "cache_read_tokens": 0, "cache_write_tokens": 1812}}, "attributes": {"agent": "obs_agent", "visible_count": 5, "llm_message_count": 5, "tools": []}}], "model_turns": [{"step_id": "demo.observatory.001.model1", "agent": "obs_agent", "input_messages": [{"role": "system", "content": "You are obs_agent."}, {"role": "user", "content": "Investigate the failing wc-line counter regression and ship a fix with a new test."}], "output_message": {"role": "assistant", "content": [{"text": "Inspect the layout before editing.", "signature": null, "redacted": false, "source_field": null, "kind": "thinking"}, {"text": "Looking at the repo layout.", "kind": "text"}, {"id": "call_01", "name": "bash", "arguments": {"command": "ls src/simple_agent_lab"}, "kind": "tool_call"}], "sender": "obs_agent", "target": "obs_agent", "kind": "thought", "usage": {"input_tokens": 612, "output_tokens": 88, "cache_read_tokens": 0, "cache_write_tokens": 612}, "model": "demo/observatory-mini", "sidecar": {"raw": {"request": {"model": "demo/observatory-mini", "messages": [{"role": "system", "content": "You are obs_agent."}, {"role": "user", "content": [{"type": "text", "text": "Investigate the failing wc-line counter regression and ship a fix with a new test."}]}], "reasoning_effort": "high", "temperature": 1.0, "max_tokens": 400}, "response": {"id": "chatcmpl-demo-0001", "model": "demo/observatory-mini", "choices": [{"index": 0, "finish_reason": "tool_calls", "message": {"role": "assistant", "content": "Looking at the repo layout.", "reasoning": "Inspect the layout before touching files."}}], "usage": {"prompt_tokens": 612, "completion_tokens": 88, "total_tokens": 700, "completion_tokens_details": {"reasoning_tokens": 40}}}}}}, "tools": [{"name": "bash", "description": "Run a bash command."}, {"name": "task", "description": "Delegate a focused subtask."}], "meta": {"visible_count": 1, "model_message_count": 2, "request_event_index": 3, "message_event_index": 5}}, {"step_id": "demo.observatory.001.model2", "agent": "obs_agent", "input_messages": [], "output_message": {"role": "assistant", "content": [{"text": "Dispatching a search sub-agent.", "kind": "text"}, {"id": "call_02_task", "name": "task", "arguments": {"agent": "search_agent", "task": "Search for wc_lines callers."}, "kind": "tool_call"}], "sender": "obs_agent", "target": "obs_agent", "kind": "thought", "usage": {"input_tokens": 894, "output_tokens": 120, "cache_read_tokens": 612, "cache_write_tokens": 282}, "model": "demo/observatory-mini", "sidecar": {}}, "tools": [], "meta": {"visible_count": 3, "model_message_count": 4, "request_event_index": 11, "message_event_index": 13}}, {"step_id": "demo.observatory.001.model3", "agent": "obs_agent", "input_messages": [], "output_message": {"role": "assistant", "content": [{"text": "Applying the fix.", "kind": "text"}, {"id": "call_03", "name": "bash", "arguments": {"command": "patch -p0 < /tmp/missing.patch"}, "kind": "tool_call"}], "sender": "obs_agent", "target": "obs_agent", "kind": "thought", "usage": {"input_tokens": 1842, "output_tokens": 96, "cache_read_tokens": 894, "cache_write_tokens": 948}, "model": "demo/observatory-mini", "sidecar": {}}, "tools": [], "meta": {"visible_count": 5, "model_message_count": 6, "request_event_index": 19, "message_event_index": 21}}, {"step_id": "demo.observatory.001.model4", "agent": "obs_agent", "input_messages": [], "output_message": {"role": "assistant", "content": [{"text": "Fixed the off-by-one in wc.py; the focused test passes.", "kind": "text"}], "sender": "obs_agent", "target": "user", "kind": "final", "usage": {"input_tokens": 1812, "output_tokens": 76, "cache_read_tokens": 0, "cache_write_tokens": 1812}, "model": "demo/observatory-mini", "sidecar": {}}, "tools": [], "meta": {"visible_count": 5, "model_message_count": 5, "request_event_index": 28, "message_event_index": 30}}], "meta": {"model": "demo/observatory-mini", "provider": "fake", "run_label": "observatory-demo"}}
+{"schema": "simple-agent-lab.trajectory.v3", "type": "trajectory", "trace_id": "demo.observatory.001", "producer": "demo:trace-viewer", "task": "Investigate the failing wc-line counter regression and ship a fix with a new test.", "events": [{"index": 0, "elapsed": 0.0, "kind": "message", "message": {"role": "user", "content": [{"text": "Investigate the failing wc-line counter regression and ship a fix with a new test.", "kind": "text"}], "sender": "user", "target": "obs_agent", "kind": "task", "sidecar": {}}}, {"index": 1, "elapsed": 0.25, "kind": "agent_start"}, {"index": 2, "elapsed": 0.5, "kind": "turn_start", "agent": "obs_agent"}, {"index": 3, "elapsed": 0.75, "kind": "model_request", "agent": "obs_agent", "visible_count": 1, "llm_message_count": 2, "context_view": {"input_tokens_estimate": 612, "messages": 2}, "tools": [{"name": "bash", "description": "Run a bash command."}, {"name": "task", "description": "Delegate a focused subtask."}], "llm_payload": []}, {"index": 4, "elapsed": 1.0, "kind": "model_response", "agent": "obs_agent", "output_kind": "thought", "target": "obs_agent", "tool_call_count": 1, "usage": {"input_tokens": 612, "output_tokens": 88, "cache_read_tokens": 0, "cache_write_tokens": 612}, "model": "demo/observatory-mini"}, {"index": 5, "elapsed": 1.25, "kind": "message", "message": {"role": "assistant", "content": [{"text": "Inspect the layout before editing.", "signature": null, "redacted": false, "source_field": null, "kind": "thinking"}, {"text": "Looking at the repo layout.", "kind": "text"}, {"id": "call_01", "name": "bash", "arguments": {"command": "ls src/simple_agent_lab"}, "kind": "tool_call"}], "sender": "obs_agent", "target": "obs_agent", "kind": "thought", "usage": {"input_tokens": 612, "output_tokens": 88, "cache_read_tokens": 0, "cache_write_tokens": 612}, "model": "demo/observatory-mini", "sidecar": {"raw": {"request": {"model": "demo/observatory-mini", "messages": [{"role": "system", "content": "You are obs_agent."}, {"role": "user", "content": [{"type": "text", "text": "Investigate the failing wc-line counter regression and ship a fix with a new test."}]}], "reasoning_effort": "high", "temperature": 1.0, "max_tokens": 400}, "response": {"id": "chatcmpl-demo-0001", "model": "demo/observatory-mini", "choices": [{"index": 0, "finish_reason": "tool_calls", "message": {"role": "assistant", "content": "Looking at the repo layout.", "reasoning": "Inspect the layout before touching files."}}], "usage": {"prompt_tokens": 612, "completion_tokens": 88, "total_tokens": 700, "completion_tokens_details": {"reasoning_tokens": 40}}}}}}}, {"index": 6, "elapsed": 1.5, "kind": "tool_execution_start", "tool_call_id": "call_01", "tool_name": "bash"}, {"index": 7, "elapsed": 1.75, "kind": "tool_execution_end", "tool_call_id": "call_01", "tool_name": "bash", "is_error": false, "terminate": false}, {"index": 8, "elapsed": 2.0, "kind": "message", "message": {"role": "user", "content": [{"tool_call_id": "call_01", "tool_name": "bash", "content": [{"text": "core.py\nmessages.py\nstate.py\ntools/", "kind": "text"}], "is_error": false, "kind": "tool_result"}], "sender": "tool", "target": "obs_agent", "kind": "tool_result", "sidecar": {}}}, {"index": 9, "elapsed": 2.25, "kind": "turn_end", "agent": "obs_agent", "terminated": false}, {"index": 10, "elapsed": 2.5, "kind": "turn_start", "agent": "obs_agent"}, {"index": 11, "elapsed": 2.75, "kind": "model_request", "agent": "obs_agent", "visible_count": 3, "llm_message_count": 4, "context_view": {"input_tokens_estimate": 894, "messages": 4}, "tools": [], "llm_payload": []}, {"index": 12, "elapsed": 3.0, "kind": "model_response", "agent": "obs_agent", "output_kind": "thought", "target": "obs_agent", "tool_call_count": 1, "usage": {"input_tokens": 894, "output_tokens": 120, "cache_read_tokens": 612, "cache_write_tokens": 282}, "model": "demo/observatory-mini"}, {"index": 13, "elapsed": 3.25, "kind": "message", "message": {"role": "assistant", "content": [{"text": "Dispatching a search sub-agent.", "kind": "text"}, {"id": "call_02_task", "name": "task", "arguments": {"agent": "search_agent", "task": "Search for wc_lines callers."}, "kind": "tool_call"}], "sender": "obs_agent", "target": "obs_agent", "kind": "thought", "usage": {"input_tokens": 894, "output_tokens": 120, "cache_read_tokens": 612, "cache_write_tokens": 282}, "model": "demo/observatory-mini", "sidecar": {}}}, {"index": 14, "elapsed": 3.5, "kind": "tool_execution_start", "tool_call_id": "call_02_task", "tool_name": "task"}, {"index": 15, "elapsed": 3.75, "kind": "tool_execution_end", "tool_call_id": "call_02_task", "tool_name": "task", "is_error": false, "terminate": false}, {"index": 16, "elapsed": 4.0, "kind": "message", "message": {"role": "user", "content": [{"tool_call_id": "call_02_task", "tool_name": "task", "content": [{"text": "Sub-agent: wc_lines has 1 caller, 1 test.", "kind": "text"}], "is_error": false, "kind": "tool_result"}], "sender": "tool", "target": "obs_agent", "kind": "tool_result", "sidecar": {"details": {"call_02_task": {"sub_events": [{"index": 0, "elapsed": 0.0, "kind": "message", "message": {"role": "user", "content": [{"text": "Search the repo for wc_lines callers.", "kind": "text"}], "sender": "obs_agent", "target": "search_agent", "kind": "task", "sidecar": {}}}, {"index": 1, "elapsed": 0.25, "kind": "agent_start"}, {"index": 2, "elapsed": 0.5, "kind": "turn_start", "agent": "search_agent"}, {"index": 3, "elapsed": 0.75, "kind": "model_request", "agent": "search_agent", "visible_count": 2, "llm_message_count": 2, "context_view": {"input_tokens_estimate": 188}, "tools": [{"name": "bash", "description": "Run a bash command."}], "llm_payload": []}, {"index": 4, "elapsed": 1.0, "kind": "model_response", "agent": "search_agent", "output_kind": "thought", "target": "search_agent", "tool_call_count": 1, "usage": {"input_tokens": 188, "output_tokens": 40, "cache_read_tokens": 0, "cache_write_tokens": 0}, "model": "demo/observatory-mini"}, {"index": 5, "elapsed": 1.25, "kind": "message", "message": {"role": "assistant", "content": [{"text": "Running ripgrep.", "kind": "text"}, {"id": "sub_call_01", "name": "bash", "arguments": {"command": "rg -n wc_lines"}, "kind": "tool_call"}], "sender": "search_agent", "target": "search_agent", "kind": "thought", "usage": null, "model": "", "sidecar": {}}}, {"index": 6, "elapsed": 1.5, "kind": "tool_execution_start", "tool_call_id": "sub_call_01", "tool_name": "bash"}, {"index": 7, "elapsed": 1.75, "kind": "tool_execution_end", "tool_call_id": "sub_call_01", "tool_name": "bash", "is_error": false, "terminate": false}, {"index": 8, "elapsed": 2.0, "kind": "message", "message": {"role": "user", "content": [{"tool_call_id": "sub_call_01", "tool_name": "bash", "content": [{"text": "src/simple_agent_lab/tools/wc.py:1:def wc_lines", "kind": "text"}], "is_error": false, "kind": "tool_result"}], "sender": "tool", "target": "search_agent", "kind": "tool_result", "sidecar": {}}}, {"index": 9, "elapsed": 2.25, "kind": "turn_end", "agent": "search_agent", "terminated": false}, {"index": 10, "elapsed": 2.5, "kind": "model_response", "agent": "search_agent", "output_kind": "final", "target": "obs_agent", "tool_call_count": 0, "usage": {"input_tokens": 264, "output_tokens": 52, "cache_read_tokens": 0, "cache_write_tokens": 0}, "model": "demo/observatory-mini"}, {"index": 11, "elapsed": 2.75, "kind": "message", "message": {"role": "assistant", "content": [{"text": "wc_lines: 1 caller, 1 test. Low blast radius.", "kind": "text"}], "sender": "search_agent", "target": "obs_agent", "kind": "final", "usage": null, "model": "", "sidecar": {}}}, {"index": 12, "elapsed": 3.0, "kind": "agent_end", "reason": "final"}]}}}}}, {"index": 17, "elapsed": 4.25, "kind": "turn_end", "agent": "obs_agent", "terminated": false}, {"index": 18, "elapsed": 4.5, "kind": "turn_start", "agent": "obs_agent"}, {"index": 19, "elapsed": 4.75, "kind": "model_request", "agent": "obs_agent", "visible_count": 5, "llm_message_count": 6, "context_view": {"input_tokens_estimate": 1842, "messages": 6}, "tools": [], "llm_payload": []}, {"index": 20, "elapsed": 5.0, "kind": "model_response", "agent": "obs_agent", "output_kind": "thought", "target": "obs_agent", "tool_call_count": 1, "usage": {"input_tokens": 1842, "output_tokens": 96, "cache_read_tokens": 894, "cache_write_tokens": 948}, "model": "demo/observatory-mini"}, {"index": 21, "elapsed": 5.25, "kind": "message", "message": {"role": "assistant", "content": [{"text": "Applying the fix.", "kind": "text"}, {"id": "call_03", "name": "bash", "arguments": {"command": "patch -p0 < /tmp/missing.patch"}, "kind": "tool_call"}], "sender": "obs_agent", "target": "obs_agent", "kind": "thought", "usage": {"input_tokens": 1842, "output_tokens": 96, "cache_read_tokens": 894, "cache_write_tokens": 948}, "model": "demo/observatory-mini", "sidecar": {}}}, {"index": 22, "elapsed": 5.5, "kind": "tool_execution_start", "tool_call_id": "call_03", "tool_name": "bash"}, {"index": 23, "elapsed": 5.75, "kind": "tool_execution_end", "tool_call_id": "call_03", "tool_name": "bash", "is_error": true, "terminate": false}, {"index": 24, "elapsed": 6.0, "kind": "message", "message": {"role": "user", "content": [{"tool_call_id": "call_03", "tool_name": "bash", "content": [{"text": "patch: /tmp/missing.patch: No such file", "kind": "text"}], "is_error": true, "kind": "tool_result"}], "sender": "tool", "target": "obs_agent", "kind": "tool_result", "sidecar": {}}}, {"index": 25, "elapsed": 6.25, "kind": "turn_end", "agent": "obs_agent", "terminated": false}, {"index": 26, "elapsed": 6.5, "kind": "context_compression", "agent": "obs_agent", "summary_message_index": 5, "compressed_message_indices": [1, 2, 3, 4], "active_context_indices": [0, 5, 6], "before_tokens": 4180, "after_tokens": 1432, "strategy": "tool-compact", "start_elapsed": null}, {"index": 27, "elapsed": 6.75, "kind": "turn_start", "agent": "obs_agent"}, {"index": 28, "elapsed": 7.0, "kind": "model_request", "agent": "obs_agent", "visible_count": 5, "llm_message_count": 5, "context_view": {"input_tokens_estimate": 1432, "messages": 5}, "tools": [], "llm_payload": []}, {"index": 29, "elapsed": 7.25, "kind": "model_response", "agent": "obs_agent", "output_kind": "final", "target": "user", "tool_call_count": 0, "usage": {"input_tokens": 1812, "output_tokens": 76, "cache_read_tokens": 0, "cache_write_tokens": 1812}, "model": "demo/observatory-mini"}, {"index": 30, "elapsed": 7.5, "kind": "message", "message": {"role": "assistant", "content": [{"text": "Fixed the off-by-one in wc.py; the focused test passes.", "kind": "text"}], "sender": "obs_agent", "target": "user", "kind": "final", "usage": {"input_tokens": 1812, "output_tokens": 76, "cache_read_tokens": 0, "cache_write_tokens": 1812}, "model": "demo/observatory-mini", "sidecar": {}}}, {"index": 31, "elapsed": 7.75, "kind": "turn_end", "agent": "obs_agent", "terminated": true}, {"index": 32, "elapsed": 8.0, "kind": "agent_end", "reason": "done"}], "messages": [{"role": "user", "content": [{"text": "Investigate the failing wc-line counter regression and ship a fix with a new test.", "kind": "text"}], "sender": "user", "target": "obs_agent", "kind": "task", "sidecar": {}}, {"role": "assistant", "content": [{"text": "Inspect the layout before editing.", "signature": null, "redacted": false, "source_field": null, "kind": "thinking"}, {"text": "Looking at the repo layout.", "kind": "text"}, {"id": "call_01", "name": "bash", "arguments": {"command": "ls src/simple_agent_lab"}, "kind": "tool_call"}], "sender": "obs_agent", "target": "obs_agent", "kind": "thought", "usage": {"input_tokens": 612, "output_tokens": 88, "cache_read_tokens": 0, "cache_write_tokens": 612}, "model": "demo/observatory-mini", "sidecar": {"raw": {"request": {"model": "demo/observatory-mini", "messages": [{"role": "system", "content": "You are obs_agent."}, {"role": "user", "content": [{"type": "text", "text": "Investigate the failing wc-line counter regression and ship a fix with a new test."}]}], "reasoning_effort": "high", "temperature": 1.0, "max_tokens": 400}, "response": {"id": "chatcmpl-demo-0001", "model": "demo/observatory-mini", "choices": [{"index": 0, "finish_reason": "tool_calls", "message": {"role": "assistant", "content": "Looking at the repo layout.", "reasoning": "Inspect the layout before touching files."}}], "usage": {"prompt_tokens": 612, "completion_tokens": 88, "total_tokens": 700, "completion_tokens_details": {"reasoning_tokens": 40}}}}}}, {"role": "user", "content": [{"tool_call_id": "call_01", "tool_name": "bash", "content": [{"text": "core.py\nmessages.py\nstate.py\ntools/", "kind": "text"}], "is_error": false, "kind": "tool_result"}], "sender": "tool", "target": "obs_agent", "kind": "tool_result", "sidecar": {}}, {"role": "assistant", "content": [{"text": "Dispatching a search sub-agent.", "kind": "text"}, {"id": "call_02_task", "name": "task", "arguments": {"agent": "search_agent", "task": "Search for wc_lines callers."}, "kind": "tool_call"}], "sender": "obs_agent", "target": "obs_agent", "kind": "thought", "usage": {"input_tokens": 894, "output_tokens": 120, "cache_read_tokens": 612, "cache_write_tokens": 282}, "model": "demo/observatory-mini", "sidecar": {}}, {"role": "user", "content": [{"tool_call_id": "call_02_task", "tool_name": "task", "content": [{"text": "Sub-agent: wc_lines has 1 caller, 1 test.", "kind": "text"}], "is_error": false, "kind": "tool_result"}], "sender": "tool", "target": "obs_agent", "kind": "tool_result", "sidecar": {"details": {"call_02_task": {"sub_events": [{"index": 0, "elapsed": 0.0, "kind": "message", "message": {"role": "user", "content": [{"text": "Search the repo for wc_lines callers.", "kind": "text"}], "sender": "obs_agent", "target": "search_agent", "kind": "task", "sidecar": {}}}, {"index": 1, "elapsed": 0.25, "kind": "agent_start"}, {"index": 2, "elapsed": 0.5, "kind": "turn_start", "agent": "search_agent"}, {"index": 3, "elapsed": 0.75, "kind": "model_request", "agent": "search_agent", "visible_count": 2, "llm_message_count": 2, "context_view": {"input_tokens_estimate": 188}, "tools": [{"name": "bash", "description": "Run a bash command."}], "llm_payload": []}, {"index": 4, "elapsed": 1.0, "kind": "model_response", "agent": "search_agent", "output_kind": "thought", "target": "search_agent", "tool_call_count": 1, "usage": {"input_tokens": 188, "output_tokens": 40, "cache_read_tokens": 0, "cache_write_tokens": 0}, "model": "demo/observatory-mini"}, {"index": 5, "elapsed": 1.25, "kind": "message", "message": {"role": "assistant", "content": [{"text": "Running ripgrep.", "kind": "text"}, {"id": "sub_call_01", "name": "bash", "arguments": {"command": "rg -n wc_lines"}, "kind": "tool_call"}], "sender": "search_agent", "target": "search_agent", "kind": "thought", "usage": null, "model": "", "sidecar": {}}}, {"index": 6, "elapsed": 1.5, "kind": "tool_execution_start", "tool_call_id": "sub_call_01", "tool_name": "bash"}, {"index": 7, "elapsed": 1.75, "kind": "tool_execution_end", "tool_call_id": "sub_call_01", "tool_name": "bash", "is_error": false, "terminate": false}, {"index": 8, "elapsed": 2.0, "kind": "message", "message": {"role": "user", "content": [{"tool_call_id": "sub_call_01", "tool_name": "bash", "content": [{"text": "src/simple_agent_lab/tools/wc.py:1:def wc_lines", "kind": "text"}], "is_error": false, "kind": "tool_result"}], "sender": "tool", "target": "search_agent", "kind": "tool_result", "sidecar": {}}}, {"index": 9, "elapsed": 2.25, "kind": "turn_end", "agent": "search_agent", "terminated": false}, {"index": 10, "elapsed": 2.5, "kind": "model_response", "agent": "search_agent", "output_kind": "final", "target": "obs_agent", "tool_call_count": 0, "usage": {"input_tokens": 264, "output_tokens": 52, "cache_read_tokens": 0, "cache_write_tokens": 0}, "model": "demo/observatory-mini"}, {"index": 11, "elapsed": 2.75, "kind": "message", "message": {"role": "assistant", "content": [{"text": "wc_lines: 1 caller, 1 test. Low blast radius.", "kind": "text"}], "sender": "search_agent", "target": "obs_agent", "kind": "final", "usage": null, "model": "", "sidecar": {}}}, {"index": 12, "elapsed": 3.0, "kind": "agent_end", "reason": "final"}]}}}}, {"role": "assistant", "content": [{"text": "Applying the fix.", "kind": "text"}, {"id": "call_03", "name": "bash", "arguments": {"command": "patch -p0 < /tmp/missing.patch"}, "kind": "tool_call"}], "sender": "obs_agent", "target": "obs_agent", "kind": "thought", "usage": {"input_tokens": 1842, "output_tokens": 96, "cache_read_tokens": 894, "cache_write_tokens": 948}, "model": "demo/observatory-mini", "sidecar": {}}, {"role": "user", "content": [{"tool_call_id": "call_03", "tool_name": "bash", "content": [{"text": "patch: /tmp/missing.patch: No such file", "kind": "text"}], "is_error": true, "kind": "tool_result"}], "sender": "tool", "target": "obs_agent", "kind": "tool_result", "sidecar": {}}, {"role": "assistant", "content": [{"text": "Fixed the off-by-one in wc.py; the focused test passes.", "kind": "text"}], "sender": "obs_agent", "target": "user", "kind": "final", "usage": {"input_tokens": 1812, "output_tokens": 76, "cache_read_tokens": 0, "cache_write_tokens": 1812}, "model": "demo/observatory-mini", "sidecar": {}}], "spans": [{"id": "demo.observatory.001.run1", "parent_id": null, "kind": "agent_run", "start": 0.25, "end": 8.0, "attributes": {"reason": "done"}}, {"id": "demo.observatory.001.turn1", "parent_id": "demo.observatory.001.run1", "kind": "turn", "start": 0.5, "end": 2.25, "attributes": {"agent": "obs_agent", "terminated": false}}, {"id": "demo.observatory.001.call1", "parent_id": "demo.observatory.001.turn1", "kind": "model_call", "start": 0.75, "end": 1.0, "input": [], "output": {"kind": "thought", "target": "obs_agent", "tool_call_count": 1, "model": "demo/observatory-mini", "usage": {"input_tokens": 612, "output_tokens": 88, "cache_read_tokens": 0, "cache_write_tokens": 612}}, "attributes": {"agent": "obs_agent", "visible_count": 1, "llm_message_count": 2, "tools": [{"name": "bash", "description": "Run a bash command."}, {"name": "task", "description": "Delegate a focused subtask."}]}}, {"id": "demo.observatory.001.tool1", "parent_id": "demo.observatory.001.turn1", "kind": "tool_call", "start": 1.5, "end": 1.75, "attributes": {"tool_call_id": "call_01", "tool_name": "bash", "is_error": false, "terminate": false}}, {"id": "demo.observatory.001.turn2", "parent_id": "demo.observatory.001.run1", "kind": "turn", "start": 2.5, "end": 4.25, "attributes": {"agent": "obs_agent", "terminated": false}}, {"id": "demo.observatory.001.call2", "parent_id": "demo.observatory.001.turn2", "kind": "model_call", "start": 2.75, "end": 3.0, "input": [], "output": {"kind": "thought", "target": "obs_agent", "tool_call_count": 1, "model": "demo/observatory-mini", "usage": {"input_tokens": 894, "output_tokens": 120, "cache_read_tokens": 612, "cache_write_tokens": 282}}, "attributes": {"agent": "obs_agent", "visible_count": 3, "llm_message_count": 4, "tools": []}}, {"id": "demo.observatory.001.tool2", "parent_id": "demo.observatory.001.turn2", "kind": "tool_call", "start": 3.5, "end": 3.75, "attributes": {"tool_call_id": "call_02_task", "tool_name": "task", "is_error": false, "terminate": false}}, {"id": "demo.observatory.001.turn3", "parent_id": "demo.observatory.001.run1", "kind": "turn", "start": 4.5, "end": 6.25, "attributes": {"agent": "obs_agent", "terminated": false}}, {"id": "demo.observatory.001.call3", "parent_id": "demo.observatory.001.turn3", "kind": "model_call", "start": 4.75, "end": 5.0, "input": [], "output": {"kind": "thought", "target": "obs_agent", "tool_call_count": 1, "model": "demo/observatory-mini", "usage": {"input_tokens": 1842, "output_tokens": 96, "cache_read_tokens": 894, "cache_write_tokens": 948}}, "attributes": {"agent": "obs_agent", "visible_count": 5, "llm_message_count": 6, "tools": []}}, {"id": "demo.observatory.001.tool3", "parent_id": "demo.observatory.001.turn3", "kind": "tool_call", "start": 5.5, "end": 5.75, "attributes": {"tool_call_id": "call_03", "tool_name": "bash", "is_error": true, "terminate": false}}, {"id": "demo.observatory.001.compression1", "parent_id": "demo.observatory.001.run1", "kind": "compression", "start": 6.5, "end": 6.5, "attributes": {"agent": "obs_agent", "strategy": "tool-compact", "before_tokens": 4180, "after_tokens": 1432, "summary_message_index": 5, "compressed_message_indices": [1, 2, 3, 4]}}, {"id": "demo.observatory.001.turn4", "parent_id": "demo.observatory.001.run1", "kind": "turn", "start": 6.75, "end": 7.75, "attributes": {"agent": "obs_agent", "terminated": true}}, {"id": "demo.observatory.001.call4", "parent_id": "demo.observatory.001.turn4", "kind": "model_call", "start": 7.0, "end": 7.25, "input": [], "output": {"kind": "final", "target": "user", "tool_call_count": 0, "model": "demo/observatory-mini", "usage": {"input_tokens": 1812, "output_tokens": 76, "cache_read_tokens": 0, "cache_write_tokens": 1812}}, "attributes": {"agent": "obs_agent", "visible_count": 5, "llm_message_count": 5, "tools": []}}], "model_turns": [{"step_id": "demo.observatory.001.model1", "agent": "obs_agent", "input_messages": [], "output_message": {"role": "assistant", "content": [{"text": "Inspect the layout before editing.", "signature": null, "redacted": false, "source_field": null, "kind": "thinking"}, {"text": "Looking at the repo layout.", "kind": "text"}, {"id": "call_01", "name": "bash", "arguments": {"command": "ls src/simple_agent_lab"}, "kind": "tool_call"}], "sender": "obs_agent", "target": "obs_agent", "kind": "thought", "usage": {"input_tokens": 612, "output_tokens": 88, "cache_read_tokens": 0, "cache_write_tokens": 612}, "model": "demo/observatory-mini", "sidecar": {"raw": {"request": {"model": "demo/observatory-mini", "messages": [{"role": "system", "content": "You are obs_agent."}, {"role": "user", "content": [{"type": "text", "text": "Investigate the failing wc-line counter regression and ship a fix with a new test."}]}], "reasoning_effort": "high", "temperature": 1.0, "max_tokens": 400}, "response": {"id": "chatcmpl-demo-0001", "model": "demo/observatory-mini", "choices": [{"index": 0, "finish_reason": "tool_calls", "message": {"role": "assistant", "content": "Looking at the repo layout.", "reasoning": "Inspect the layout before touching files."}}], "usage": {"prompt_tokens": 612, "completion_tokens": 88, "total_tokens": 700, "completion_tokens_details": {"reasoning_tokens": 40}}}}}}, "tools": [{"name": "bash", "description": "Run a bash command."}, {"name": "task", "description": "Delegate a focused subtask."}], "meta": {"visible_count": 1, "model_message_count": 2, "request_event_index": 3, "message_event_index": 5}}, {"step_id": "demo.observatory.001.model2", "agent": "obs_agent", "input_messages": [], "output_message": {"role": "assistant", "content": [{"text": "Dispatching a search sub-agent.", "kind": "text"}, {"id": "call_02_task", "name": "task", "arguments": {"agent": "search_agent", "task": "Search for wc_lines callers."}, "kind": "tool_call"}], "sender": "obs_agent", "target": "obs_agent", "kind": "thought", "usage": {"input_tokens": 894, "output_tokens": 120, "cache_read_tokens": 612, "cache_write_tokens": 282}, "model": "demo/observatory-mini", "sidecar": {}}, "tools": [], "meta": {"visible_count": 3, "model_message_count": 4, "request_event_index": 11, "message_event_index": 13}}, {"step_id": "demo.observatory.001.model3", "agent": "obs_agent", "input_messages": [], "output_message": {"role": "assistant", "content": [{"text": "Applying the fix.", "kind": "text"}, {"id": "call_03", "name": "bash", "arguments": {"command": "patch -p0 < /tmp/missing.patch"}, "kind": "tool_call"}], "sender": "obs_agent", "target": "obs_agent", "kind": "thought", "usage": {"input_tokens": 1842, "output_tokens": 96, "cache_read_tokens": 894, "cache_write_tokens": 948}, "model": "demo/observatory-mini", "sidecar": {}}, "tools": [], "meta": {"visible_count": 5, "model_message_count": 6, "request_event_index": 19, "message_event_index": 21}}, {"step_id": "demo.observatory.001.model4", "agent": "obs_agent", "input_messages": [], "output_message": {"role": "assistant", "content": [{"text": "Fixed the off-by-one in wc.py; the focused test passes.", "kind": "text"}], "sender": "obs_agent", "target": "user", "kind": "final", "usage": {"input_tokens": 1812, "output_tokens": 76, "cache_read_tokens": 0, "cache_write_tokens": 1812}, "model": "demo/observatory-mini", "sidecar": {}}, "tools": [], "meta": {"visible_count": 5, "model_message_count": 5, "request_event_index": 28, "message_event_index": 30}}], "cost": {"total_usd": 0.0, "calls": 6, "total_tokens": {"input_tokens": 5612, "output_tokens": 472, "cache_read_tokens": 1506, "cache_write_tokens": 3654}, "cost": {"input_usd": 0.0, "output_usd": 0.0, "cache_read_usd": 0.0, "cache_write_usd": 0.0, "total_usd": 0.0}, "by_model": [{"model": "demo/observatory-mini", "calls": 6, "tokens": {"input_tokens": 5612, "output_tokens": 472, "cache_read_tokens": 1506, "cache_write_tokens": 3654}, "cost": {"input_usd": 0.0, "output_usd": 0.0, "cache_read_usd": 0.0, "cache_write_usd": 0.0, "total_usd": 0.0}}], "unpriced_models": ["demo/observatory-mini"]}, "meta": {"model": "demo/observatory-mini", "provider": "fake", "run_label": "observatory-demo"}}
 </script>
 
   <script>
@@ -3300,15 +3411,39 @@
   // producer/viewer drift fails CI instead of going silently blank.
   const TraceSchema = (function () {
     const SUPPORTED_SCHEMA = "simple-agent-lab.trajectory.v3";
+    // Externalized provider raw blobs. Long runs store `sidecar.raw` not inline
+    // but as a `{raw_ref: <int>}` pointer into a sibling `*.raw.jsonl` pool
+    // (one blob per line), because inline the snapshot is duplicated across
+    // messages/events/model_turns and regrows every turn — ballooning a record
+    // past 200 MB. `setRawPool` is called when that sidecar file is loaded; null
+    // means inline/none. Kept inside this closure so the contract-test extract
+    // of TraceSchema stays self-contained.
+    let rawPool = null;
+    function setRawPool(pool) { rawPool = Array.isArray(pool) ? pool : null; }
+    function hasRawPool() { return Array.isArray(rawPool) && rawPool.length > 0; }
     // The per-message provider bag. The runtime field is `sidecar` (it was the
     // open `data` bag pre-d15cd89); accept either so older traces still load.
     function sidecarOf(msg) {
       return (msg && (msg.sidecar || msg.data)) || null;
     }
     // Verbatim provider request/response snapshot — the Wire debug panel.
+    // Resolves an externalized `{raw_ref}` pointer against the loaded pool;
+    // returns null when the pool isn't loaded (panel then shows a hint).
     function wireRaw(msg) {
       const s = sidecarOf(msg);
-      return (s && s.raw) || null;
+      const raw = (s && s.raw) || null;
+      if (raw && typeof raw === "object" && typeof raw.raw_ref === "number") {
+        return (rawPool && rawPool[raw.raw_ref]) || null;
+      }
+      return raw;
+    }
+    // True when the message's raw is an unresolved external pointer (pool not
+    // loaded) — lets the Wire debug panel explain how to surface it.
+    function wireRawPending(msg) {
+      const s = sidecarOf(msg);
+      const raw = (s && s.raw) || null;
+      return !!(raw && typeof raw === "object" && typeof raw.raw_ref === "number"
+                && !(rawPool && rawPool[raw.raw_ref]));
     }
     // Map of tool_call_id -> tool detail (sub-agent runs carry `sub_events`).
     function sidecarDetails(msg) {
@@ -3336,7 +3471,7 @@
       const slash = trimmed.lastIndexOf("/");
       return slash >= 0 ? trimmed.slice(slash + 1) : trimmed;
     }
-    return { SUPPORTED_SCHEMA, sidecarOf, wireRaw, sidecarDetails, subEvents, modelName };
+    return { SUPPORTED_SCHEMA, sidecarOf, wireRaw, wireRawPending, sidecarDetails, subEvents, modelName, setRawPool, hasRawPool };
   })();
   // ===== END trace-schema accessors =====
 
@@ -3585,8 +3720,18 @@
           }
         }
       } else if (k === "context_compression") {
+        let startT = (Number.isFinite(ev.start_elapsed) ? ev.start_elapsed : ev.elapsed) + baseTime;
+        if (!Number.isFinite(ev.start_elapsed)) {
+          const priorCompressorCall = spans
+            .slice()
+            .reverse()
+            .find(s => s.kind === "model_call"
+              && s.attributes?.agent === "context_compressor"
+              && s.end <= t);
+          if (priorCompressorCall) startT = priorCompressorCall.start;
+        }
         spans.push({ id: nextId("compression"), parent_id: parentId(), kind: "compression",
-                     start: t, end: t,
+                     start: startT, end: t,
                      attributes: { agent: ev.agent, before_tokens: ev.before_tokens, after_tokens: ev.after_tokens,
                                    summary_message_index: ev.summary_message_index,
                                    compressed_message_indices: ev.compressed_message_indices } });
@@ -4641,6 +4786,8 @@
               }
             }
           }
+        } else if (ev.kind === "context_compression") {
+          flat.push({ kind: "compression", depth: 0, ev, t: ev.elapsed });
         }
       }
       flat.sort((a,b) => a.t - b.t);
@@ -4658,13 +4805,17 @@
           // auto-expand while searching/filtering so inner matches stay visible
           const expanded = State.expandedSubagents.has(item.callId) || !!q || errOnly;
           rows.push(renderSubagentGroupHeader(item.callId, childRows.length, expanded));
-          if (expanded) for (const r of childRows) rows.push(renderMessageRow(r));
+          if (expanded) for (const r of childRows) rows.push(...minimapRowsForMessage(r));
+        } else if (item.kind === "compression") {
+          if (errOnly) continue;
+          if (q && !eventSearchBlob(item.ev).includes(q)) continue;
+          rows.push(minimapRowForCompression(item));
         } else {
           if (!matchMsgRow(item)) continue;
-          rows.push(renderMessageRow(item));
+          rows.push(...minimapRowsForMessage(item));
         }
       }
-      $("#stream-label").textContent = `messages · ${rows.length}`;
+      $("#stream-label").textContent = `minimap · ${rows.length}`;
     } else if (State.mode === "events") {
       // Flat events including sub-agent
       const flat = [];
@@ -4764,6 +4915,139 @@
     if (State.expandedSubagents.has(callId)) State.expandedSubagents.delete(callId);
     else State.expandedSubagents.add(callId);
     renderStream();
+  }
+
+  // ---- minimap: compact, scannable one-line message bars ----
+  // The "messages" mode renders each message as one or more filled bars (one
+  // per logical action: a user turn, an assistant utterance, each tool call,
+  // each tool result) so the whole trajectory's shape is legible at a glance.
+  // Full detail still lives in the inspector — clicking any bar selects its
+  // parent message.
+  const MINIMAP_TOOL_GLYPHS = [
+    [/(bash|shell|\bsh\b|exec|\brun\b|command|terminal)/, "$"],
+    [/(read|cat|open|head|tail|view|\bfile\b)/, "▤"],
+    [/(grep|search|find|\brg\b|glob|\bls\b|list)/, "⌕"],
+    [/(write|edit|patch|apply|create|update|insert)/, "✎"],
+    [/(task|agent|delegate|spawn|\bsub\b)/, "❖"],
+    [/(web|fetch|http|browse|\burl\b|curl)/, "◍"],
+  ];
+  function minimapToolGlyph(name) {
+    const n = (name || "").toLowerCase();
+    for (const [re, g] of MINIMAP_TOOL_GLYPHS) if (re.test(n)) return g;
+    return "▸";
+  }
+  function minimapOneLine(s) {
+    return clamp((s || "").replace(/\s+/g, " ").trim(), 300);
+  }
+  function minimapBar(opts, ctx) {
+    // opts: { tone, glyph, label, text, mono, badge, dim, thinking, err }
+    const cls = ["row", "mrow", `tone-${opts.tone}`];
+    if (ctx.depth > 0) cls.push("is-sub");
+    if (opts.dim) cls.push("is-dim");
+    if (opts.thinking) cls.push("is-thinking");
+    if (opts.err) cls.push("is-error");
+    if (ctx.selected) cls.push("selected");
+    const text = opts.text
+      ? `<span class="mrow-text${opts.mono ? " mono" : ""}">${escapeHtml(opts.text)}</span>`
+      : `<span class="mrow-text is-empty">—</span>`;
+    return `
+      <div class="${cls.join(" ")}" data-sel-kind="${ctx.selKind || "msg"}" data-sel-id="${ctx.selKey}">
+        <span class="mrow-glyph">${opts.glyph}</span>
+        <span class="mrow-label">${escapeHtml(opts.label)}</span>
+        ${text}
+        <span class="mrow-badge">${opts.badge ? escapeHtml(opts.badge) : ""}</span>
+        <span class="mrow-t">${ts(ctx.t)}</span>
+      </div>`;
+  }
+  function minimapRowForCompression(r) {
+    const ev = r.ev;
+    const before = Number.isFinite(ev.before_tokens) ? fmt(ev.before_tokens) : "?";
+    const after = Number.isFinite(ev.after_tokens) ? fmt(ev.after_tokens) : "?";
+    const folded = Array.isArray(ev.compressed_message_indices)
+      ? `${ev.compressed_message_indices.length} folded`
+      : "";
+    const duration = Number.isFinite(ev.start_elapsed)
+      ? dur(Math.max(0, ev.elapsed - ev.start_elapsed))
+      : "";
+    return minimapBar({
+      tone: "compression",
+      glyph: "◆",
+      label: "Compressed",
+      text: `${before}→${after} tok`,
+      badge: [folded, duration].filter(Boolean).join(" · "),
+    }, {
+      depth: r.depth || 0,
+      selected: State.selected.kind === "event" && State.selected.id === String(ev.index),
+      selKind: "event",
+      selKey: String(ev.index),
+      t: r.t,
+    });
+  }
+  function minimapRowsForMessage(r) {
+    const ev = r.ev;
+    const msg = ev.message;
+    const blocks = msg.content || [];
+    const role = msg.role;
+    const selKey = `evt:${ev.index}${r.subCallId ? ":sub:" + r.subCallId : ""}`;
+    const selected = State.selected.kind === "msg" && State.selected.id === selKey;
+    const ctx = { selKey, selected, depth: r.depth || 0, t: r.t };
+    const out = [];
+
+    // tool result → subordinate line(s)
+    if (msg.kind === "tool_result") {
+      for (const tr of blocks.filter(b => b.kind === "tool_result")) {
+        const inner = (tr.content || []).map(b => b.text || "").join("\n");
+        out.push(minimapBar({
+          tone: "tool", dim: true, mono: true, err: tr.is_error,
+          glyph: tr.is_error ? "✕" : "←",
+          label: tr.tool_name || "result",
+          text: minimapOneLine(inner) || (tr.is_error ? "(error)" : "(no output)"),
+        }, ctx));
+      }
+      if (!out.length) out.push(minimapBar({ tone: "tool", dim: true, glyph: "←", label: "result", text: "(no output)" }, ctx));
+      return out;
+    }
+
+    // user / task
+    if (role === "user") {
+      const text = blocks.filter(b => b.kind === "text").map(b => b.text).join("\n");
+      out.push(minimapBar({ tone: "user", glyph: "◆", label: "User", text: minimapOneLine(text) || "(empty)" }, ctx));
+      return out;
+    }
+
+    // assistant: thinking → text → each tool call, each on its own bar
+    const isFinal = msg.kind === "final";
+    const thinking = blocks.find(b => b.kind === "thinking");
+    if (thinking && State.filters.thinking) {
+      out.push(minimapBar({
+        tone: "assistant", dim: true, thinking: true, glyph: "✻", label: "thinking",
+        text: minimapOneLine(thinking.text || (thinking.redacted ? "[redacted]" : "")) || "[redacted]",
+      }, ctx));
+    }
+    const text = blocks.filter(b => b.kind === "text").map(b => b.text).join("\n");
+    if (text) {
+      const outTok = msg.usage && msg.usage.output_tokens;
+      out.push(minimapBar({
+        tone: isFinal ? "final" : "assistant",
+        glyph: isFinal ? "★" : "✦",
+        label: "Assistant",
+        text: minimapOneLine(text),
+        badge: outTok ? `${outTok}↑` : "",
+      }, ctx));
+    }
+    for (const c of blocks.filter(b => b.kind === "tool_call")) {
+      const inputPreview = extractToolInput(c.name, c.arguments || {}).label;
+      out.push(minimapBar({
+        tone: "tool", mono: true,
+        glyph: minimapToolGlyph(c.name),
+        label: c.name,
+        text: minimapOneLine(inputPreview || JSON.stringify(c.arguments || {})),
+      }, ctx));
+    }
+    if (!out.length) {
+      out.push(minimapBar({ tone: "assistant", dim: true, glyph: "·", label: role || "msg", text: "(no visible content)" }, ctx));
+    }
+    return out;
   }
 
   function renderMessageRow(r) {
@@ -5536,20 +5820,20 @@
   }
 
   function assistantProviderRawAfter(events, req) {
-    if (!req) return { request: null, response: null };
+    if (!req) return { request: null, response: null, pending: false };
     const reqIdx = events.indexOf(req);
-    if (reqIdx < 0) return { request: null, response: null };
+    if (reqIdx < 0) return { request: null, response: null, pending: false };
     for (let i = reqIdx + 1; i < events.length; i++) {
       const e = events[i];
-      if (e.kind === "model_request") return { request: null, response: null };
+      if (e.kind === "model_request") return { request: null, response: null, pending: false };
       if (e.kind === "message" && e.message?.role === "assistant") {
         const raw = TraceSchema.wireRaw(e.message);
         const request = raw?.request && typeof raw.request === "object" ? raw.request : null;
         const response = raw?.response != null ? raw.response : null;
-        return { request, response };
+        return { request, response, pending: TraceSchema.wireRawPending(e.message) };
       }
     }
-    return { request: null, response: null };
+    return { request: null, response: null, pending: false };
   }
 
   function capturedWireRequestAfter(events, req) {
@@ -5616,6 +5900,7 @@
       request_source,
       has_raw_request: !!wire.request,
       has_raw_response: wire.response != null,
+      raw_externalized: !!wire.pending,
     };
   }
 
@@ -5708,6 +5993,13 @@
   }
 
   function replayEmptyMessage(view, ctx) {
+    if (ctx.raw_externalized && (view === "request" || view === "response")) {
+      return [
+        "// Raw provider snapshot is externalized for this trace.",
+        "// Load the sibling `*.raw.jsonl` file (drag it in, or pick it",
+        "// alongside the trajectory) to resolve raw.request / raw.response.",
+      ].join("\n");
+    }
     if (view === "response") {
       return [
         "// No raw response on this call.",
@@ -5755,7 +6047,7 @@
   }
 
   function traceModelName(model, meta) {
-    const raw = String(model || meta?.model || "gpt-4o-mini").trim();
+    const raw = String(model || meta?.model || "unknown").trim();
     const slash = raw.lastIndexOf("/");
     return slash >= 0 ? raw.slice(slash + 1) : raw;
   }
@@ -6068,7 +6360,7 @@
   }
 
   // file loader
-  function loadJSONLText(text) {
+  function loadJSONLText(text, { keepRawPool = false } = {}) {
     const trimmed = text.trim();
     if (!trimmed) return alert("File is empty");
     const lines = trimmed.split(/\r?\n/).filter(Boolean);
@@ -6087,21 +6379,64 @@
       } catch (_) {}
     }
     if (!trace) return alert("No trajectory record found in file");
+    // A fresh trajectory drops any previously-loaded raw pool unless the caller
+    // (loadFiles) just set one for this very trace.
+    if (!keepRawPool) TraceSchema.setRawPool(null);
     setTrace(trace);
   }
-  $("#file-input").addEventListener("change", (e) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    f.text().then(loadJSONLText);
-  });
+  // A `*.raw.jsonl` sidecar: each line is a provider raw blob (request/response),
+  // NOT a trajectory record. Indexed by line == the `raw_ref` in the trajectory.
+  function looksLikeRawPool(text) {
+    const first = (text || "").trim().split(/\r?\n/).find(Boolean);
+    if (!first) return false;
+    try {
+      const d = JSON.parse(first);
+      return !!(d && typeof d === "object" && !d.events && !d.schema
+                && ("request" in d || "response" in d));
+    } catch (_) { return false; }
+  }
+  function parseRawPool(text) {
+    const pool = [];
+    for (const line of (text || "").trim().split(/\r?\n/)) {
+      const ln = line.trim();
+      if (!ln) continue;
+      try { pool.push(JSON.parse(ln)); } catch (_) { pool.push(null); }
+    }
+    return pool;
+  }
+  // Load a trajectory and/or its raw sidecar — both can be dropped/picked at
+  // once, or the sidecar added later to resolve Wire-debug for the open trace.
+  async function loadFiles(fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    let traceText = null, pool = null;
+    for (const f of files) {
+      let text;
+      try { text = await f.text(); } catch (_) { continue; }
+      const name = (f.name || "").toLowerCase();
+      if (name.endsWith(".raw.jsonl") || (!traceText && looksLikeRawPool(text))) {
+        pool = parseRawPool(text);
+      } else {
+        traceText = text;
+      }
+    }
+    if (traceText) {
+      TraceSchema.setRawPool(pool);            // null when no sidecar supplied
+      loadJSONLText(traceText, { keepRawPool: true });
+    } else if (pool) {
+      TraceSchema.setRawPool(pool);
+      if (State.trace) setTrace(State.trace);  // re-render to resolve raw refs
+      else alert("Loaded raw sidecar. Now load its trajectory `.jsonl` file.");
+    }
+  }
+  $("#file-input").addEventListener("change", (e) => { loadFiles(e.target.files); });
   let dragCounter = 0;
   document.addEventListener("dragenter", (e) => { e.preventDefault(); dragCounter++; document.body.classList.add("drag-over"); });
   document.addEventListener("dragover",  (e) => { e.preventDefault(); });
   document.addEventListener("dragleave", (e) => { dragCounter = Math.max(0, dragCounter - 1); if (dragCounter === 0) document.body.classList.remove("drag-over"); });
   document.addEventListener("drop", (e) => {
     e.preventDefault(); dragCounter = 0; document.body.classList.remove("drag-over");
-    const f = e.dataTransfer?.files?.[0];
-    if (f) f.text().then(loadJSONLText);
+    loadFiles(e.dataTransfer?.files);
   });
   $("#sample-btn").addEventListener("click", () => loadEmbeddedSample());
 
@@ -6865,6 +7200,7 @@
 
   function loadEmbeddedSample() {
     const raw = document.getElementById("embedded-sample").textContent.trim();
+    TraceSchema.setRawPool(null);
     try { setTrace(JSON.parse(raw)); }
     catch (e) { console.error("embedded sample failed to parse", e); alert("embedded sample failed to parse: " + e); }
     setActiveTraceLabel("(embedded sample)", false);
@@ -7405,6 +7741,9 @@
     Picker.loadedMtime = serverMtime != null
       ? serverMtime
       : (Number.isFinite(entry.mtime) ? entry.mtime : null);
+    // Server mode fetches one record by path; the raw sidecar isn't auto-pulled,
+    // so clear any stale pool — Wire debug shows a hint to load `*.raw.jsonl`.
+    TraceSchema.setRawPool(null);
     setTrace(record);
     setActiveTraceLabel(`${label} · ${fmtBytes(entry.size || text.length)}`, true);
     updateActiveTraceLive();

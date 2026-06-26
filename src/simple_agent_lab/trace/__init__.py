@@ -47,10 +47,12 @@ from .openai_export import (
 )
 from .render import print_trace
 from .run_trace import (
+    RAW_REF_KEY,
     SCHEMA,
     RunTrace,
     event_record,
     run_trace_from_state,
+    split_raw_from_record,
     trace_record,
 )
 from .spans import (
@@ -82,11 +84,13 @@ __all__ = [
     "model_turns_from_events",
     "openai_training_record",
     "print_trace",
+    "RAW_REF_KEY",
     "read_jsonl",
     "run_agent_with_live_trace",
     "run_trace_from_state",
     "span_record",
     "spans_from_events",
+    "split_raw_from_record",
     "trace_meta_from_run_trace",
     "trace_record",
     "write_canonical_trace",

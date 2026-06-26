@@ -14,6 +14,9 @@ from simple_agent_lab import (
     estimate_message_tokens,
     run,
 )
+from simple_agent_lab.llm import Provider
+
+REAL_PROVIDER = Provider(id="test", api="openai-chat", model="test-model")
 
 
 class ContextUsageTest(unittest.TestCase):
@@ -47,7 +50,7 @@ class ContextUsageTest(unittest.TestCase):
                 "done", sender="writer", target="user", kind="final"
             )
 
-        agent = Agent("writer", two_turn_generate)
+        agent = Agent("writer", two_turn_generate, llm_provider=REAL_PROVIDER)
         state = State(
             "Explain why context accounting should use provider usage when available."
         )

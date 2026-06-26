@@ -8,10 +8,10 @@ brief (promising hypotheses, progress made, dead ends), and conditions the next
 round's attempts on that brief. After `rounds` rounds a finalizer writes the
 answer from the accumulated brief.
 
-Contrast with RTV: RTV spends compute *in parallel* and *selects* one rollout;
-PDR spends compute *sequentially* and *reuses* distilled signal across rounds.
-Run both against the same suite to compare the parallel and sequential axes of
-test-time compute on the same quality-vs-cost frontier.
+Where pure parallel sampling spends compute on independent attempts and just
+*selects* one, PDR spends compute *sequentially* and *reuses* distilled signal
+across rounds — the distilled brief is the channel that carries progress from
+one round's fan of attempts into the next.
 
 Every attempt, distillation, and the finalizer is an ordinary `run_agent` step
 recorded in `steps`, so per-run cost flows into the trace/metrics pipeline
@@ -20,7 +20,7 @@ unchanged.
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from simple_agent_lab.core import Agent
 from simple_agent_lab.llm import Provider as LLMProvider
@@ -60,7 +60,7 @@ def _distill_prompt(task: str, steps: list[StepResult], prior: str) -> str:
 
 
 def run_pdr(
-    worker: Agent,
+    worker: Agent | Sequence[Agent],
     distiller: Agent,
     task: str,
     *,
@@ -76,11 +76,22 @@ def run_pdr(
 ) -> WorkflowResult:
     """Run `rounds` of (parallel attempts -> distill), then finalize the answer.
 
-    Each round runs `width` independent `worker` attempts (concurrently, via
+    Each round runs `width` independent attempts (concurrently, via
     `run_parallel`) on the task conditioned on the running brief, then the
     `distiller` folds those attempts into an updated brief. After the last
-    round, `finalizer` (defaulting to `worker`) writes the final answer from the
-    task plus the accumulated brief.
+    round, `finalizer` writes the final answer from the task plus the
+    accumulated brief.
+
+    `worker` accepts two forms: a single agent is replicated into `width`
+    attempts (diversity rides on the provider's sampling temperature), or a
+    sequence of distinct agents is the per-round attempt pool (then `width` is
+    ignored and the sequence length is used). The sequence form is what lets a
+    caller give each attempt an isolated workspace — e.g. SWE-bench binds each
+    attempt agent to its own git worktree so concurrent edits never collide.
+    The same attempt agents are reused across rounds, so an agent that must
+    start each round from a clean slate should reset its workspace in its
+    `init_state` hook (fired once per `agent.run`). `finalizer` defaults to the
+    first attempt agent.
 
     `check` is an optional "done early" gate (the same `CompletionCheck` the goal
     loop uses, e.g. `command_verifier_check`). When given, each round's attempts
@@ -95,8 +106,15 @@ def run_pdr(
     """
     if rounds < 1:
         raise ValueError("run_pdr requires rounds >= 1")
-    if width < 1:
-        raise ValueError("run_pdr requires width >= 1")
+    if isinstance(worker, Agent):
+        if width < 1:
+            raise ValueError("run_pdr requires width >= 1")
+        attempts: list[Agent] = [worker] * width
+    else:
+        attempts = list(worker)
+        if not attempts:
+            raise ValueError("run_pdr requires at least one worker")
+    default_finalizer = attempts[0]
 
     task_text = as_text(task)
     steps: list[StepResult] = []
@@ -105,7 +123,7 @@ def run_pdr(
         if abort():
             break
         round_result = run_parallel(
-            [worker] * width,
+            attempts,
             _conditioned_task(task_text, brief),
             worker_max_turns=worker_max_turns,
             max_concurrency=max_concurrency,
@@ -131,7 +149,7 @@ def run_pdr(
         brief = distill_step.output
 
     final_step = run_agent(
-        finalizer or worker,
+        finalizer or default_finalizer,
         _conditioned_task(task_text, brief),
         max_turns=finalizer_max_turns,
         abort=abort,

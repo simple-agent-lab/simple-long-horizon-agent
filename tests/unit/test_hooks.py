@@ -226,6 +226,68 @@ class HookTest(unittest.TestCase):
         self.assertEqual(recorder.calls, [{"text": "hi"}])
         self.assertEqual(_hook_events(state, HookPoint.PRE_TOOL_USE)[0].emitted, 0)
 
+    def test_post_tool_use_hook_emits_after_tool_result(self) -> None:
+        seen_by_second_turn: list[list[str]] = []
+
+        def generate(visible: list[Message]) -> Message:
+            seen_by_second_turn.append(_texts(visible))
+            if any(message.kind == "tool_result" for message in visible):
+                return assistant_message(
+                    "final ok", sender="caller", target="user", kind="final"
+                )
+            return assistant_message(
+                [TextBlock("calling"), ToolCallBlock("call_1", "echo", {"text": "hi"})],
+                sender="caller",
+                target="caller",
+                kind="step",
+            )
+
+        def reminder(ctx: HookContext) -> HookDecision | None:
+            self.assertEqual(ctx.tool_call.name if ctx.tool_call else "", "echo")
+            return HookDecision(
+                emit_messages=(
+                    runtime_message(
+                        "post-tool reminder",
+                        sender="hook",
+                        target="caller",
+                        kind="context",
+                    ),
+                )
+            )
+
+        recorder = _RecordingTool()
+        tool = AgentTool(
+            name="echo",
+            description="Echo text.",
+            parameters={"type": "object"},
+            execute=recorder.execute,
+            execution_mode="sequential",
+        )
+        agent = Agent(
+            "caller",
+            generate,
+            tools=(tool,),
+            hooks={HookPoint.POST_TOOL_USE: [reminder]},
+        )
+
+        state, events = agent.run("go", max_turns=3)
+        yielded = list(events)
+
+        self.assertEqual(recorder.calls, [{"text": "hi"}])
+        self.assertIn("post-tool reminder", _texts(state.messages))
+        self.assertIn("post-tool reminder", seen_by_second_turn[-1])
+        fired = _hook_events(state, HookPoint.POST_TOOL_USE)
+        self.assertEqual(len(fired), 1)
+        self.assertEqual(fired[0].target, "echo")
+        self.assertEqual(fired[0].emitted, 1)
+
+        message_kinds = [
+            event.message.kind for event in yielded if isinstance(event, MessageEvent)
+        ]
+        tool_result_at = message_kinds.index("tool_result")
+        reminder_at = message_kinds.index("context")
+        self.assertLess(tool_result_at, reminder_at)
+
     def test_session_hooks_bracket_the_run(self) -> None:
         def observer(ctx: HookContext) -> HookDecision | None:
             del ctx

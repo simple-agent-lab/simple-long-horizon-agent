@@ -51,8 +51,8 @@ class ProgrambenchSuite:
         platform: str = "",
         network_mode: str = "host",
         cap_add: Sequence[str] = ("SYS_ADMIN",),
-        cpus: int | None = 20,
-        mem_limit: str | None = "60g",
+        cpus: int | None = 12,
+        mem_limit: str | None = "24g",
     ) -> None:
         self.image_tag = image_tag
         self.platform = platform

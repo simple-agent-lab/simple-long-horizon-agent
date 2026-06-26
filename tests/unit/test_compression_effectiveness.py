@@ -32,10 +32,12 @@ from simple_agent_lab import (
     text_of,
 )
 from simple_agent_lab.compression import summarize_compression
+from simple_agent_lab.llm import Provider
 from simple_agent_lab.messages import TextBlock, ToolCallBlock
 from simple_agent_lab.tools import make_recall_tool, tool_result_text
 
 THRESHOLD = 4000
+REAL_PROVIDER = Provider(id="test", api="openai-chat", model="test-model")
 
 
 def _no_abort() -> bool:
@@ -83,7 +85,13 @@ def _run_tool_heavy(policy: ContextPolicy, n_reads: int) -> list:
 
     state = State("explore")
     state.send("task", "user", "explorer", state.task)
-    agent = Agent("explorer", brain, tools=(_read_tool(),), context_policy=policy)
+    agent = Agent(
+        "explorer",
+        brain,
+        tools=(_read_tool(),),
+        context_policy=policy,
+        llm_provider=REAL_PROVIDER,
+    )
     return list(run(agent, state, max_turns=n_reads + 2))
 
 
@@ -217,7 +225,7 @@ def _run_text_heavy(policy: ContextPolicy, n_steps: int) -> list:
 
     state = State("analyze")
     state.send("task", "user", "analyst", state.task)
-    agent = Agent("analyst", brain, context_policy=policy)
+    agent = Agent("analyst", brain, context_policy=policy, llm_provider=REAL_PROVIDER)
     return list(run(agent, state, max_turns=n_steps + 2))
 
 

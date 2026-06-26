@@ -87,3 +87,27 @@ test("accessors go null when the producer renames the sidecar slot (drift tripwi
   assert.equal(msgs.find((m) => TraceSchema.wireRaw(m)), undefined,
     "accessor must fail to find raw once the producer field is renamed");
 });
+
+test("wireRaw resolves an externalized {raw_ref} pointer against the loaded pool", () => {
+  // Long runs externalize sidecar.raw into a sibling pool to keep the record
+  // small; the message then carries a {raw_ref:int} pointer the viewer resolves.
+  const msg = { sidecar: { raw: { raw_ref: 1 } } };
+  const blob = { request: { model: "deepseek/x" }, response: { model: "deepseek/x" } };
+
+  // Pool not loaded yet: unresolved, and flagged pending so the panel can hint.
+  TraceSchema.setRawPool(null);
+  assert.equal(TraceSchema.wireRaw(msg), null, "unresolved pointer must be null without a pool");
+  assert.equal(TraceSchema.wireRawPending(msg), true, "missing pool must read as pending");
+
+  // Pool loaded: the pointer resolves to its blob, and pending clears.
+  TraceSchema.setRawPool([{ request: {} }, blob]);
+  assert.deepEqual(TraceSchema.wireRaw(msg), blob, "pointer must resolve to pool[raw_ref]");
+  assert.equal(TraceSchema.wireRawPending(msg), false, "resolved pointer is not pending");
+  assert.equal(TraceSchema.modelName(msg, {}), "x", "model name resolves through the pool");
+
+  // Inline raw still works regardless of pool state (back-compat).
+  const inline = { sidecar: { raw: blob } };
+  assert.deepEqual(TraceSchema.wireRaw(inline), blob, "inline raw must still resolve");
+  assert.equal(TraceSchema.wireRawPending(inline), false, "inline raw is never pending");
+  TraceSchema.setRawPool(null);
+});

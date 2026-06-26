@@ -9,7 +9,8 @@ cap_add) and the wheelhouse/uv mounts come from the shared `harness` helpers tha
 Usage (host with Docker + a built SWE-bench image):
 
     uv run python runs/run_swebench_suite.py <instance-id> \
-        [--max-turns N] [--run-id ID] [--agent-flavor bash|bash_task|bash_skills] \
+        [--max-turns N] [--run-id ID] \
+        [--agent-flavor bash|bash_task|bash_task_read|bash_skills|loop|pdr] \
         [--in-env-scoring] [--force]
 
 Reads OPENAI_MODEL / OPENAI_AUTH_TOKEN (and optional OPENAI_BASE_URL) from .env.
@@ -32,27 +33,51 @@ for path in (ROOT, SRC):
 
 from evals.swebench import harness  # noqa: E402
 from evals.swebench.suite import SwebenchSuite  # noqa: E402
+from simple_agent_lab.agent_flavors import (  # noqa: E402
+    AGENT_FLAVOR_ENV,
+    WORKFLOW_AGENT_FLAVORS,
+)
+from simple_agent_lab.agents.flavors import (  # noqa: E402
+    LOOP_MAX_TURNS_ENV,
+    PDR_ROUNDS_ENV,
+    PDR_WIDTH_ENV,
+    WORKER_MAX_TURNS_ENV,
+)
 from simple_agent_lab.evals import (  # noqa: E402
     LocalDirStore,
     LocalDockerBackend,
+    parse_with_profile,
     run_suite_instance,
 )
 from simple_agent_lab.evals.backends.docker_local import (  # noqa: E402
     DEFAULT_DOCKER_TIMEOUT_S,
 )
 from simple_agent_lab.evals.runner import container_name  # noqa: E402
+from simple_agent_lab.evals.suites.swebench.container import (  # noqa: E402
+    REPO_LANGUAGE_ENV,
+)
+from simple_agent_lab.evals.suites.swebench.patch import instance_language  # noqa: E402
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("instance_id")
     parser.add_argument(
+        "--profile",
+        default=None,
+        help=(
+            "Path to a JSON run-profile (its `env` fills env gaps, its `run` "
+            "flags are defaults overridable by explicit flags). See ADR "
+            "run-profile-file."
+        ),
+    )
+    parser.add_argument(
         "--instance-json",
         default=None,
         help="Defaults to evals/out/swebench/instance_<id>.jsonl",
     )
     parser.add_argument("--dataset-name", default=harness.DEFAULT_DATASET)
-    parser.add_argument("--max-turns", type=int, default=75)
+    parser.add_argument("--max-turns", type=int, default=200)
     parser.add_argument(
         "--run-id", default=f"swebench-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     )
@@ -60,13 +85,30 @@ def _build_parser() -> argparse.ArgumentParser:
         "--agent-flavor",
         choices=harness.AGENT_FLAVOR_CHOICES,
         default=harness.DEFAULT_AGENT_FLAVOR,
+        help=(
+            "The single agent selector. Simple flavors (bash | bash_task | "
+            "bash_task_read | bash_skills) run one multi-turn agent; workflow "
+            "arms (loop | pdr) run a multi-agent choreography — when an arm is "
+            "chosen, --max-turns becomes the per-agent budget and the outer "
+            "facade loop runs once."
+        ),
     )
+    parser.add_argument("--pdr-rounds", type=int, default=None)
+    parser.add_argument("--pdr-width", type=int, default=None)
+    parser.add_argument("--loop-max-turns", type=int, default=None)
     parser.add_argument(
         "--provider", choices=["fake", "openai", "oracle"], default="openai"
     )
     parser.add_argument("--api-kind", default=None)
     parser.add_argument("--namespace", default="swebench")
     parser.add_argument("--network-mode", default="host")
+    parser.add_argument(
+        "--security-opt",
+        action="append",
+        default=None,
+        help="Docker --security-opt (repeatable). Defaults to seccomp=unconfined; "
+        "pass --security-opt seccomp=default to restore the daemon's profile.",
+    )
     parser.add_argument(
         "--platform", default="", help="Override docker --platform (e.g. linux/amd64)"
     )
@@ -133,7 +175,7 @@ def _resolve_paths(
 
 
 def main() -> None:
-    args = _build_parser().parse_args()
+    args = parse_with_profile(_build_parser())
 
     instance_json = args.instance_json or str(
         ROOT / f"evals/out/swebench/instance_{args.instance_id}.jsonl"
@@ -147,7 +189,26 @@ def main() -> None:
         harness.load_dotenv(args.dotenv)
     provider_env = harness._container_environment(args.provider)
     provider_env[harness.API_KIND_ENV] = harness.resolve_api_kind(args.api_kind)
-    provider_env["AGENT_FLAVOR"] = args.agent_flavor
+    provider_env[AGENT_FLAVOR_ENV] = args.agent_flavor
+
+    # The single AGENT_FLAVOR selector picks the agent. For a workflow arm
+    # (loop | pdr) the facade `build_agent` runs the whole choreography in ONE
+    # outer turn, so --max-turns becomes the per-agent budget (passed as
+    # SWE_WORKER_MAX_TURNS) and the outer loop runs once. Simple flavors run the
+    # normal multi-turn agent with --max-turns as their own budget.
+    is_arm = args.agent_flavor in WORKFLOW_AGENT_FLAVORS
+    outer_max_turns = args.max_turns
+    if is_arm:
+        provider_env[WORKER_MAX_TURNS_ENV] = str(args.max_turns)
+        provider_env[REPO_LANGUAGE_ENV] = instance_language(dict(instance))
+        for value, env_name in (
+            (args.pdr_rounds, PDR_ROUNDS_ENV),
+            (args.pdr_width, PDR_WIDTH_ENV),
+            (args.loop_max_turns, LOOP_MAX_TURNS_ENV),
+        ):
+            if value is not None:
+                provider_env[env_name] = str(value)
+        outer_max_turns = 1
 
     run_root, wheelhouse = _resolve_paths(args, instance)
     mcp_config_path = harness.resolve_mcp_config_path(args.mcp_config)
@@ -166,6 +227,9 @@ def main() -> None:
         namespace=args.namespace,
         platform=args.platform,
         network_mode=args.network_mode,
+        security_opt=tuple(args.security_opt)
+        if args.security_opt is not None
+        else ("seccomp=unconfined",),
         in_env_scoring=args.in_env_scoring,
     )
     backend = LocalDockerBackend(
@@ -180,11 +244,11 @@ def main() -> None:
     if args.force:
         _force_remove(name)
 
-    print("==> Running SWE-bench instance through SwebenchSuite")
+    print(f"==> Running SWE-bench instance through {SwebenchSuite.__name__}")
     print(f"    instance:   {args.instance_id}")
     print(f"    max-turns:  {args.max_turns}")
     print(f"    run-id:     {args.run_id}")
-    print(f"    agent:      {args.agent_flavor}")
+    print(f"    agent:      {args.agent_flavor}{' (arm)' if is_arm else ''}")
     if mcp_config_path:
         print(f"    mcp config: {mcp_config_path}")
     print(f"    container:  {name}")
@@ -200,7 +264,7 @@ def main() -> None:
         run_id=args.run_id,
         provider=args.provider,
         api_kind=provider_env[harness.API_KIND_ENV],
-        max_turns=args.max_turns,
+        max_turns=outer_max_turns,
         provider_env=provider_env,
         package_extras=package_extras,
         wheelhouse_mount=harness.DEFAULT_WHEELHOUSE_MOUNT,

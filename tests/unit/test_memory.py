@@ -174,10 +174,10 @@ class MemoryBaseTest(unittest.TestCase):
         state, events = agent.run("answer directly")
         seen_events = list(events)
 
-        request = next(
-            event for event in seen_events if isinstance(event, ModelRequestEvent)
+        self.assertIn("memory_probe", [tool.name for tool in agent.tools])
+        self.assertFalse(
+            any(isinstance(event, ModelRequestEvent) for event in seen_events)
         )
-        self.assertIn("memory_probe", [tool["name"] for tool in request.tools])
         self.assertEqual(state.messages[-1].kind, "final")
 
     def test_llm_agent_factory_closes_over_bound_memory_hooks(self) -> None:

@@ -326,8 +326,10 @@ class LocalProcessBackendTest(unittest.TestCase):
 
             self.assertEqual(artifacts.status_code, 0, artifacts.logs)
             trace = json.loads(store.bind(artifacts.run_dir).get(TRACE_KEY))
-            tools = trace["model_turns"][0]["tools"]
-            self.assertIn("workspace_list_files", {tool["name"] for tool in tools})
+            self.assertEqual(trace["model_turns"], [])
+            self.assertTrue(
+                any(event["kind"] == "tool_execution_start" for event in trace["events"])
+            )
 
     def test_oracle_run_reproduces_gold_patch(self) -> None:
         """Oracle mode applies the gold patch (no model) and extract reproduces it.

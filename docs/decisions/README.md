@@ -47,6 +47,7 @@ product direction, especially if future contributors may wonder why it was chose
 - [Model-Alias Registry (strong / fast) over provider_from_env](20260613-model-alias-registry.md) — env-alias scheme superseded by model-config-file; registry type stands
 - [JSON Model-Config File for the Model Registry](20260615-model-config-file.md) — replaces the env-alias scheme of model-alias-registry
 - [Goal Loop: Autonomous Continue-Until-Verifiably-Done Primitive](20260618-goal-loop.md)
+- [JSON Run-Profile File for Launching an Agent + Bench](20260626-run-profile-file.md) — bundles `.env` + CLI behind `--profile`; mirrors model-config-file (JSON, not YAML)
 
 ## Proposed
 
