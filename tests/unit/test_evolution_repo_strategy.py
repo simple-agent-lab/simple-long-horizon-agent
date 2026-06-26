@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from collections.abc import Iterator
@@ -12,7 +13,7 @@ from simple_agent_lab.evolution.components.repo_strategy import (
 from simple_agent_lab.evolution import Experiment
 from simple_agent_lab.evolution import registry
 from simple_agent_lab.evolution.source_tree import SOURCE_ROOT
-from simple_agent_lab.evolution.types import Context
+from simple_agent_lab.evolution.types import Context, Decision, Run
 
 
 class RepoStrategyTest(unittest.TestCase):
@@ -190,6 +191,74 @@ class RepoStrategyTest(unittest.TestCase):
         self.assertIn(current.hash, fake_agent.context_text)
         self.assertIn("Editable scope: src/simple_agent_lab/", fake_agent.context_text)
 
+    def test_source_tree_agent_strategy_writes_meta_agent_evidence(self) -> None:
+        run_dir = self.root / "runs" / "seed-train" / "django__django-1"
+        (run_dir / "out").mkdir(parents=True)
+        (run_dir / "out" / "result.json").write_text(
+            json.dumps({"reward": 0.0, "resolved": False, "error": "failed"}),
+            encoding="utf-8",
+        )
+        (run_dir / "out" / "trajectory.jsonl").write_text(
+            json.dumps(
+                {
+                    "events": [
+                        {"type": "assistant", "text": "attempted patch"},
+                        {"type": "tool", "message": "tests failed"},
+                    ]
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        fake_agent = FakeAgent(expect_evidence=True)
+
+        def agent_builder(**kwargs):
+            fake_agent.cwd = Path(kwargs["cwd"])
+            return fake_agent
+
+        exp = Experiment(
+            self.root / "evidence-workspace",
+            rollout=lambda _version, _slice: [],
+            seed={SOURCE_ROOT + "/core.py": "def run() -> str:\n    return 'old'\n"},
+        )
+        current = exp.current()
+        ctx = Context(
+            runs=(Run(run_dir),),
+            current=current,
+            workspace=self.root / "evidence-workspace",
+            decisions=(
+                Decision(
+                    id="d-000001",
+                    ts="2026-06-26T00:00:00Z",
+                    baseline={"reward": 0.0},
+                    candidate={"reward": 0.0},
+                    slice={"id": "train", "sha": "abc", "n": 1},
+                    accepted=False,
+                    reason="no improvement",
+                ),
+            ),
+        )
+        strategy = source_tree_agent_strategy(
+            provider=object(),
+            repo_root=self.base,
+            agent_builder=agent_builder,
+            validation=lambda _repo_root, _files: None,
+        )
+
+        proposal = strategy(ctx)
+
+        self.assertIsNotNone(proposal)
+        self.assertTrue(fake_agent.evidence_seen)
+        assert fake_agent.evidence_manifest is not None
+        self.assertEqual(fake_agent.evidence_manifest["parent_version"], current.hash)
+        self.assertEqual(fake_agent.evidence_manifest["failure_count"], 1)
+        self.assertEqual(
+            fake_agent.failure_result,
+            {"error": "failed", "resolved": False, "reward": 0.0},
+        )
+        assert fake_agent.baseline_runs is not None
+        self.assertEqual(fake_agent.baseline_runs["runs"][0]["reward"], 0.0)
+
     def test_source_tree_agent_strategy_overlays_current_version_before_agent(
         self,
     ) -> None:
@@ -231,6 +300,49 @@ class RepoStrategyTest(unittest.TestCase):
             {SOURCE_ROOT + "/core.py": "def run() -> str:\n    return 'agent'\n"},
         )
         self.assertEqual(validations, [(fake_agent.base_tree, dict(proposal.edits))])
+
+    def test_source_tree_agent_strategy_discards_deletions_with_evidence(
+        self,
+    ) -> None:
+        fake_agent = FakeAgent(
+            expected_path=SOURCE_ROOT + "/helpers.py",
+            delete_path=SOURCE_ROOT + "/core.py",
+        )
+
+        def agent_builder(**kwargs):
+            fake_agent.cwd = Path(kwargs["cwd"])
+            return fake_agent
+
+        exp = Experiment(
+            self.root / "delete-evidence-workspace",
+            rollout=lambda _version, _slice: [],
+            seed={SOURCE_ROOT + "/core.py": "def run() -> str:\n    return 'old'\n"},
+        )
+        current = exp.current()
+        ctx = Context(
+            runs=(),
+            current=current,
+            workspace=self.root / "delete-evidence-workspace",
+        )
+        strategy = source_tree_agent_strategy(
+            provider=object(),
+            repo_root=self.base,
+            agent_builder=agent_builder,
+            validation=lambda _repo_root, _files: None,
+        )
+
+        proposal = strategy(ctx)
+
+        self.assertIsNotNone(proposal)
+        assert proposal is not None
+        self.assertEqual(
+            proposal.edits,
+            {SOURCE_ROOT + "/helpers.py": "def run() -> str:\n    return 'agent'\n"},
+        )
+        self.assertIn(
+            "discarded-deleted-source:" + SOURCE_ROOT + "/core.py",
+            proposal.evidence,
+        )
 
     def test_source_tree_agent_overlay_replaces_symlink_without_writing_through(
         self,
@@ -356,6 +468,8 @@ class FakeAgent:
         expected_before: str | None = None,
         expected_path: str = SOURCE_ROOT + "/core.py",
         expect_context: bool = False,
+        expect_evidence: bool = False,
+        delete_path: str | None = None,
     ) -> None:
         self.cwd: Path | None = None
         self.base_tree: Path | None = None
@@ -363,8 +477,14 @@ class FakeAgent:
         self.expected_before = expected_before
         self.expected_path = expected_path
         self.expect_context = expect_context
+        self.expect_evidence = expect_evidence
+        self.delete_path = delete_path
         self.context_seen = False
         self.context_text: str | None = None
+        self.evidence_seen = False
+        self.evidence_manifest: dict[str, object] | None = None
+        self.baseline_runs: dict[str, object] | None = None
+        self.failure_result: dict[str, object] | None = None
 
     def run(self, task: str, *, max_turns: int) -> tuple[object, Iterator[object]]:
         self.task = task
@@ -382,6 +502,30 @@ class FakeAgent:
                     raise AssertionError("missing SELF_EVOLUTION_CONTEXT.md")
                 self.context_text = context.read_text(encoding="utf-8")
                 self.context_seen = True
+            if self.expect_evidence:
+                evidence_root = self.cwd / "self_evolution"
+                if not evidence_root.is_dir():
+                    raise AssertionError("missing self_evolution/")
+                self.evidence_manifest = json.loads(
+                    (evidence_root / "current_manifest.json").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                self.baseline_runs = json.loads(
+                    (evidence_root / "baseline_runs.json").read_text(encoding="utf-8")
+                )
+                self.failure_result = json.loads(
+                    (
+                        evidence_root / "failures" / "django__django-1" / "result.json"
+                    ).read_text(encoding="utf-8")
+                )
+                if "d-000001" not in (
+                    evidence_root / "prior_decisions.jsonl"
+                ).read_text(encoding="utf-8"):
+                    raise AssertionError("missing prior decision")
+                self.evidence_seen = True
+            if self.delete_path is not None:
+                (self.cwd / self.delete_path).unlink()
             (self.cwd / self.expected_path).write_text(
                 "def run() -> str:\n    return 'agent'\n"
             )

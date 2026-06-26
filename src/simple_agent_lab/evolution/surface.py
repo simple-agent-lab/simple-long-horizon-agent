@@ -36,6 +36,7 @@ class AgentSurface:
     default_files: Mapping[str, str]
     artifact_key: str
     components: tuple[SurfaceComponent, ...]
+    excluded_paths: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _relative_path(self.artifact_key, field="artifact_key")
@@ -66,6 +67,9 @@ class AgentSurface:
             if not _path_safe(path):
                 rejected.append(path)
                 continue
+            if _path_excluded(path, self.excluded_paths):
+                rejected.append(path)
+                continue
             if not _path_allowed(path, allowed):
                 rejected.append(path)
                 continue
@@ -76,6 +80,9 @@ class AgentSurface:
                 out[path] = None
                 continue
             if not isinstance(content, str):
+                rejected.append(path)
+                continue
+            if "python_source" in validators and not path.endswith(".py"):
                 rejected.append(path)
                 continue
             if "python_syntax" in validators and path.endswith(".py"):
@@ -102,6 +109,10 @@ class AgentSurface:
         for component in selected:
             paths = ", ".join(component.paths)
             lines.append(f"- {component.id}: {component.description} Paths: {paths}")
+        if self.excluded_paths:
+            lines.extend(["", "Protected paths:"])
+            for pattern in self.excluded_paths:
+                lines.append(f"- {pattern}")
         return "\n".join(lines).strip()
 
     @property
@@ -124,73 +135,15 @@ class AgentSurface:
             path for component in self.components for path in component.paths
         )
         for name in version.files():
+            if _path_excluded(name, self.excluded_paths):
+                continue
             if any(fnmatch.fnmatch(name, pattern) for pattern in patterns):
-                rel = (
-                    name[len(self.artifact_root) :]
-                    if name.startswith(self.artifact_root)
-                    else name
-                )
-                files[rel] = version.read(name)
+                files[name] = version.read(name)
         return files
 
     def artifacts_from_version(self, version: Version) -> dict[str, bytes]:
         payload = json.dumps(self.files_from_version(version), ensure_ascii=False)
         return {self.artifact_key: payload.encode("utf-8")}
-
-
-def python_agent_surface(
-    *,
-    default_files: Mapping[str, str],
-    artifact_key: str,
-    version_root: str = "agent/",
-) -> AgentSurface:
-    root = _version_root(version_root)
-    version_files = {
-        root + _relative_path(path, field="default file path"): text
-        for path, text in default_files.items()
-    }
-    return AgentSurface(
-        id="python_agent_package",
-        name="Python agent package",
-        description="A Python package that builds the benchmark-solving agent.",
-        entrypoint=f"{root}agent_program.py:build_agent",
-        default_files=version_files,
-        artifact_key=artifact_key,
-        components=(
-            SurfaceComponent(
-                id="agent_program",
-                name="Agent program",
-                description="Build-agent entrypoint and agent assembly.",
-                paths=(f"{root}agent_program.py",),
-                validators=("path_allowed", "python_syntax", "entrypoint_exists"),
-            ),
-            SurfaceComponent(
-                id="prompts",
-                name="Prompts",
-                description="system prompts, task framing, and response policy.",
-                paths=(f"{root}prompts.py", f"{root}prompts/**"),
-            ),
-            SurfaceComponent(
-                id="tool_policy",
-                name="Tool policy",
-                description="Tool choice, shell usage, and retry behavior.",
-                paths=(f"{root}tools.py", f"{root}tool_policy.py", f"{root}tools/**"),
-            ),
-            SurfaceComponent(
-                id="memory_policy",
-                name="Memory policy",
-                description="How prior evidence or notes are used.",
-                paths=(f"{root}memory.py", f"{root}memory/**"),
-            ),
-            SurfaceComponent(
-                id="everything",
-                name="Whole agent package",
-                description="Unrestricted edits to the whole agent package.",
-                paths=(f"{root}**",),
-                validators=("path_allowed", "python_syntax", "entrypoint_exists"),
-            ),
-        ),
-    )
 
 
 def _path_allowed(path: str, components: Sequence[SurfaceComponent]) -> bool:
@@ -200,18 +153,12 @@ def _path_allowed(path: str, components: Sequence[SurfaceComponent]) -> bool:
     return any(fnmatch.fnmatch(path, pattern) for pattern in patterns)
 
 
+def _path_excluded(path: str, patterns: Sequence[str]) -> bool:
+    return any(fnmatch.fnmatch(path, pattern) for pattern in patterns)
+
+
 def _path_safe(path: str) -> bool:
     return _relative_path_ok(path)
-
-
-def _version_root(version_root: str) -> str:
-    root = version_root.rstrip("/")
-    path = PurePosixPath(root)
-    if not _relative_path_ok(root):
-        raise ValueError(
-            f"version_root must be a non-empty relative path without '..': {version_root!r}"
-        )
-    return f"{path.as_posix()}/"
 
 
 def _relative_path(path: str, *, field: str) -> str:

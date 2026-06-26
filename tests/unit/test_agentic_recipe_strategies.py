@@ -7,27 +7,31 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from recipes.ahe.strategy import ahe_agent_strategy
-from recipes.ahe.surface import ahe_harness_surface
 from recipes.dgm.evolve import dgm_agentic_strategy
-from recipes.dgm.swebench import AGENT_PREFIX, seed_files
-from simple_agent_lab.evals.protocols import AGENT_PACKAGE_KEY
 from simple_agent_lab.evolution import Experiment
+from simple_agent_lab.evolution.source_tree import (
+    SOURCE_ROOT,
+    source_tree_agent_surface,
+)
 from simple_agent_lab.evolution.types import Context
 from recipes.ahe.analyzer import AnalysisResult
 
 
 class AgenticRecipeStrategyTest(unittest.TestCase):
-    def test_dgm_strategy_runs_parent_agent_package_as_meta_agent(self) -> None:
+    def test_dgm_strategy_runs_meta_agent_over_selected_source_tree(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            repo_root = root / "repo"
+            package = repo_root / SOURCE_ROOT
+            package.mkdir(parents=True)
+            (package / "__init__.py").write_text("VALUE = 1\n")
+            (package / "core.py").write_text("def run() -> str:\n    return 'ok'\n")
             workspace = root / "evolution"
+            surface = source_tree_agent_surface(repo_root)
             experiment = Experiment(
                 workspace,
                 rollout=lambda _version, _slice: [],
-                seed={
-                    **seed_files(model="fake-model", api_kind="fake"),
-                    AGENT_PREFIX + "agent_program.py": _dgm_meta_agent_program(),
-                },
+                seed=surface.seed_files(),
             )
             ctx = Context(
                 runs=(),
@@ -36,22 +40,40 @@ class AgenticRecipeStrategyTest(unittest.TestCase):
                 decisions=(),
             )
 
-            strategy = dgm_agentic_strategy(provider=object(), max_turns=3)
+            fake_agent = SourceTreeFakeAgent()
+
+            def agent_builder(**kwargs: object) -> SourceTreeFakeAgent:
+                fake_agent.cwd = Path(kwargs["cwd"])
+                return fake_agent
+
+            strategy = dgm_agentic_strategy(
+                provider=object(),
+                repo_root=repo_root,
+                surface=surface,
+                editable_components=("everything",),
+                agent_builder=agent_builder,
+                max_turns=3,
+            )
             proposal = strategy(ctx)
 
         self.assertIsNotNone(proposal)
         assert proposal is not None
         self.assertEqual(proposal.base, ctx.current.hash)
         self.assertEqual(proposal.kind, "dgm_agentic")
-        self.assertIn(AGENT_PREFIX + "prompts.py", proposal.edits)
-        self.assertIn("DGM_CONTEXT", proposal.edits[AGENT_PREFIX + "prompts.py"])
-        self.assertIn("dgm-parent-agent-ran", proposal.evidence)
+        self.assertIn(SOURCE_ROOT + "/core.py", proposal.edits)
+        self.assertIn("DGM_CONTEXT", proposal.edits[SOURCE_ROOT + "/core.py"])
+        self.assertIn("dgm-source-tree-agent-ran", proposal.evidence)
 
-    def test_ahe_strategy_runs_evolve_agent_over_harness_workspace(self) -> None:
+    def test_ahe_strategy_runs_evolve_agent_over_source_tree_surface(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            repo_root = root / "repo"
+            package = repo_root / SOURCE_ROOT
+            package.mkdir(parents=True)
+            (package / "__init__.py").write_text("VALUE = 1\n")
+            (package / "core.py").write_text("def run() -> str:\n    return 'ok'\n")
             workspace = root / "evolution"
-            surface = ahe_harness_surface(artifact_key=AGENT_PACKAGE_KEY)
+            surface = source_tree_agent_surface(repo_root)
             experiment = Experiment(
                 workspace,
                 rollout=lambda _version, _slice: [],
@@ -72,7 +94,7 @@ class AgenticRecipeStrategyTest(unittest.TestCase):
             strategy = ahe_agent_strategy(
                 provider=object(),
                 surface=surface,
-                editable_components=("system_prompt",),
+                editable_components=("agent_runtime",),
                 agent_builder=agent_builder,
                 analyzer_fn=deterministic_analyzer,
                 max_turns=4,
@@ -88,9 +110,9 @@ class AgenticRecipeStrategyTest(unittest.TestCase):
         self.assertTrue(fake_agent.events_consumed)
         self.assertIsNotNone(proposal)
         assert proposal is not None
-        self.assertEqual(proposal.kind, "ahe_harness")
+        self.assertEqual(proposal.kind, "ahe_source_tree")
         self.assertEqual(proposal.base, ctx.current.hash)
-        self.assertIn("harness/systemprompt.md", proposal.edits)
+        self.assertIn(SOURCE_ROOT + "/core.py", proposal.edits)
         self.assertEqual(manifest["round"], 1)
         self.assertEqual(manifest["base_version"], ctx.current.hash)
         self.assertEqual(manifest["changes"][0]["id"], "chg-1")
@@ -121,8 +143,8 @@ class AheFakeAgent:
             )
             if not overview.is_file():
                 raise AssertionError("AHE evolve agent did not receive analysis")
-            (self.cwd / "harness" / "systemprompt.md").write_text(
-                "You are an AHE harness agent.\nUse evaluator-like validation.\n",
+            (self.cwd / SOURCE_ROOT / "core.py").write_text(
+                "DGM_CONTEXT = 'analysis-guided source change'\n",
                 encoding="utf-8",
             )
             (self.cwd / "change_manifest.json").write_text(
@@ -132,8 +154,8 @@ class AheFakeAgent:
                             {
                                 "id": "chg-1",
                                 "type": "improvement",
-                                "component": "system_prompt",
-                                "files": ["harness/systemprompt.md"],
+                                "component": "agent_runtime",
+                                "files": [SOURCE_ROOT + "/core.py"],
                                 "failure_pattern": "shallow validation",
                                 "root_cause": "agent trusted weak evidence",
                                 "targeted_fix": "require evaluator-like validation",
@@ -175,31 +197,25 @@ def deterministic_analyzer(*args: object, **_kwargs: object) -> AnalysisResult:
     )
 
 
-def _dgm_meta_agent_program() -> str:
-    return """\
-from pathlib import Path
+class SourceTreeFakeAgent:
+    def __init__(self) -> None:
+        self.cwd: Path | None = None
 
-
-class ParentMetaAgent:
-    def __init__(self, cwd: Path):
-        self.cwd = cwd
-
-    def run(self, task: str, *, max_turns: int):
-        def events():
-            context = self.cwd / "SELF_IMPROVEMENT_CONTEXT.md"
+    def run(self, task: str, *, max_turns: int) -> tuple[object, Iterator[object]]:
+        def events() -> Iterator[object]:
+            assert self.cwd is not None
+            context = self.cwd / "SELF_EVOLUTION_CONTEXT.md"
             if not context.is_file():
-                return
-            (self.cwd / "agent" / "prompts.py").write_text(
-                "DGM_CONTEXT = " + repr(context.read_text(encoding="utf-8")[:80]) + "\\n",
+                raise AssertionError("DGM source-tree agent did not receive context")
+            (self.cwd / SOURCE_ROOT / "core.py").write_text(
+                "DGM_CONTEXT = "
+                + repr(context.read_text(encoding="utf-8")[:80])
+                + "\n",
                 encoding="utf-8",
             )
             yield object()
+
         return object(), events()
-
-
-def build_agent(*, provider, cwd, base_system_prompt):
-    return ParentMetaAgent(Path(cwd))
-"""
 
 
 if __name__ == "__main__":

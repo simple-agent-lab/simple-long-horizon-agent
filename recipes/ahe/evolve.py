@@ -23,9 +23,12 @@ def register_recipe_factories(config_path: str | Path | None = None) -> None:
 
     from evals.swebench.suite import SwebenchSuite
     from recipes.ahe.strategy import ahe_agent_strategy
-    from recipes.ahe.surface import ahe_harness_surface
     from simple_agent_lab.evals import LocalDirStore, LocalDockerBackend
     from simple_agent_lab.evolution import registry
+    from simple_agent_lab.evolution.components.repo_strategy import (
+        source_tree_agent_strategy,
+    )
+    from simple_agent_lab.evolution.source_tree import source_tree_agent_surface
 
     def swebench_suite(**args):
         suite = SwebenchSuite(**args)
@@ -34,8 +37,12 @@ def register_recipe_factories(config_path: str | Path | None = None) -> None:
 
     registry.SUITES.setdefault("swebench", swebench_suite)
     registry.SURFACES.setdefault(
-        "ahe_harness_surface",
-        lambda *, artifact_key, **_args: ahe_harness_surface(artifact_key=artifact_key),
+        "source_tree",
+        lambda *, artifact_key, **args: source_tree_agent_surface(
+            repo_root=ROOT,
+            artifact_key=artifact_key,
+            **args,
+        ),
     )
     registry.BACKENDS.setdefault(
         "local_docker", lambda **args: LocalDockerBackend(**args)
@@ -43,6 +50,7 @@ def register_recipe_factories(config_path: str | Path | None = None) -> None:
     registry.STORES.setdefault("local_dir", lambda root, **_args: LocalDirStore(root))
     registry.STRATEGIES.setdefault("ahe_agent", ahe_agent_strategy)
     registry.STRATEGIES.setdefault("ahe_model", ahe_agent_strategy)
+    registry.STRATEGIES.setdefault("source_tree_agent", source_tree_agent_strategy)
     if config_path is not None:
         reward = _swebench_reward_from_config(config_path)
         registry.REWARDS["result_key"] = lambda reward=reward: reward

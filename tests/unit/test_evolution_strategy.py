@@ -9,6 +9,7 @@ from simple_agent_lab.evolution.components.strategy import (
     safe_prefix_edits,
 )
 from simple_agent_lab.evolution.types import Context
+from simple_agent_lab.evolution.surface import AgentSurface, SurfaceComponent
 
 
 class FakeResponse:
@@ -35,6 +36,33 @@ def fake_complete(_request):
 
 
 class StrategyComponentTest(unittest.TestCase):
+    def _demo_surface(self) -> AgentSurface:
+        return AgentSurface(
+            id="demo_source",
+            name="Demo source",
+            description="Demo source tree.",
+            entrypoint="agent/agent_program.py:build_agent",
+            default_files={
+                "agent/agent_program.py": "def build_agent(**kwargs): pass\n"
+            },
+            artifact_key="input/source.json",
+            components=(
+                SurfaceComponent(
+                    id="prompts",
+                    name="Prompts",
+                    description="Prompt files.",
+                    paths=("agent/prompts.py",),
+                ),
+                SurfaceComponent(
+                    id="everything",
+                    name="Everything",
+                    description="All demo source.",
+                    paths=("agent/**",),
+                    validators=("path_allowed", "python_syntax", "entrypoint_exists"),
+                ),
+            ),
+        )
+
     def test_parse_model_json_handles_fenced(self):
         self.assertEqual(parse_model_json('```json\n{"a": 1}\n```'), {"a": 1})
 
@@ -78,18 +106,10 @@ class StrategyComponentTest(unittest.TestCase):
             )
 
     def test_strategy_uses_surface_validation(self):
-        from simple_agent_lab.evals.protocols import AGENT_PACKAGE_KEY
-        from simple_agent_lab.evolution.surface import python_agent_surface
-
-        surface = python_agent_surface(
-            default_files={"agent_program.py": "def build_agent(**kwargs): pass\n"},
-            artifact_key=AGENT_PACKAGE_KEY,
-        )
+        surface = self._demo_surface()
 
         def complete_with_prompt_capture(request):
-            self.assertIn(
-                "Editable surface: Python agent package", request.system_prompt
-            )
+            self.assertIn("Editable surface: Demo source", request.system_prompt)
             self.assertIn("prompts", request.system_prompt)
             return FakeResponse(
                 '{"note": "n", "evidence": [], '
@@ -127,13 +147,7 @@ class StrategyComponentTest(unittest.TestCase):
         )
 
     def test_strategy_declines_when_surface_edits_are_not_a_mapping(self):
-        from simple_agent_lab.evals.protocols import AGENT_PACKAGE_KEY
-        from simple_agent_lab.evolution.surface import python_agent_surface
-
-        surface = python_agent_surface(
-            default_files={"agent_program.py": "def build_agent(**kwargs): pass\n"},
-            artifact_key=AGENT_PACKAGE_KEY,
-        )
+        surface = self._demo_surface()
         response_texts = (
             '{"note": "n", "evidence": [], "edits": []}',
             '{"note": "n", "evidence": [], "edits": null}',
@@ -165,13 +179,7 @@ class StrategyComponentTest(unittest.TestCase):
                 self.assertIsNone(proposal)
 
     def test_strategy_declines_when_all_edits_are_rejected(self):
-        from simple_agent_lab.evals.protocols import AGENT_PACKAGE_KEY
-        from simple_agent_lab.evolution.surface import python_agent_surface
-
-        surface = python_agent_surface(
-            default_files={"agent_program.py": "def build_agent(**kwargs): pass\n"},
-            artifact_key=AGENT_PACKAGE_KEY,
-        )
+        surface = self._demo_surface()
 
         with tempfile.TemporaryDirectory() as tmp:
             ws = Path(tmp) / "ws"

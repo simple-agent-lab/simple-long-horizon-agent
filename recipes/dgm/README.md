@@ -1,17 +1,17 @@
 # DGM-style self-evolving recipe
 
 This recipe reproduces the SWE-bench-facing DGM archive mechanics: the selected
-parent agent package under `agent/` is materialized as a SAL agent and run as
-the meta-agent for its own self-improvement step; the evolution kernel runs a
+parent version is materialized as a source-tree repo copy and improved by a SAL
+meta-agent for its own self-improvement step; the evolution kernel runs a
 **parallel open-ended archive-admission loop** (branches per round, best-valid
 promotion, archive parent selection); and the seed and best-on-train agents are
 scored on a held-out test split so the run reports a before/after delta. Every
 archive-loop knob is exposed.
 
 The implementation is intentionally still a compact teaching version of DGM:
-it keeps the parent-as-meta-agent self-reference and archive admission shape,
+it keeps the parent-as-source-tree self-reference and archive admission shape,
 while leaving broader DGM engineering details outside this recipe. Treat this as
-the DGM-style archive showcase — the counterpart to the
+the DGM-style archive showcase - the counterpart to the
 [`simple`](../simple/README.md) recipe's minimalism.
 
 ## Layout

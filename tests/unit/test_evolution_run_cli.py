@@ -25,10 +25,10 @@ suite:
   args:
     dataset_name: demo-dataset
 surface:
-  name: python_agent_package
+  name: demo_source
   editable_components: [everything]
-  artifact_key: input/agent_package.json
-  default: simple_agent_package
+  artifact_key: input/source.json
+  default: demo_source
 instances:
   train:
     id: train
@@ -87,13 +87,11 @@ class EvolutionRunCliTest(unittest.TestCase):
         from simple_agent_lab.evals import FakeBackend, LocalDirStore
         from simple_agent_lab.evals.protocols import LaunchSpec
         from simple_agent_lab.evolution import registry
-        from simple_agent_lab.evolution.surface import python_agent_surface
+        from simple_agent_lab.evolution.surface import AgentSurface, SurfaceComponent
 
         previous: dict[tuple[str, str], Callable[..., Any] | None] = {
             ("suite", "demo_suite"): registry.SUITES.get("demo_suite"),
-            ("surface", "python_agent_package"): registry.SURFACES.get(
-                "python_agent_package"
-            ),
+            ("surface", "demo_source"): registry.SURFACES.get("demo_source"),
             ("backend", "fake"): registry.BACKENDS.get("fake"),
             ("store", "local_dir"): registry.STORES.get("local_dir"),
             ("strategy", "model_program"): registry.STRATEGIES.get("model_program"),
@@ -113,10 +111,23 @@ class EvolutionRunCliTest(unittest.TestCase):
                 return None
 
         registry.SUITES["demo_suite"] = lambda **_args: DemoSuite()
-        registry.SURFACES["python_agent_package"] = (
-            lambda *, default, artifact_key, **_args: python_agent_surface(
-                default_files={"agent_program.py": agent_program},
+        registry.SURFACES["demo_source"] = lambda *, default, artifact_key, **_args: (
+            AgentSurface(
+                id="demo_source",
+                name="Demo source",
+                description="Demo source tree.",
+                entrypoint="src/demo/agent_program.py:build_agent",
+                default_files={"src/demo/agent_program.py": agent_program},
                 artifact_key=artifact_key,
+                components=(
+                    SurfaceComponent(
+                        id="everything",
+                        name="Everything",
+                        description="All demo source.",
+                        paths=("src/demo/**",),
+                        validators=("path_allowed", "python_source", "python_syntax"),
+                    ),
+                ),
             )
         )
         registry.BACKENDS["fake"] = lambda **_args: FakeBackend(on_run=on_run)
@@ -169,7 +180,7 @@ class EvolutionRunCliTest(unittest.TestCase):
         self.assertIn("dry-run self-evolving plan", output)
         self.assertIn("run id: demo", output)
         self.assertIn("suite: demo_suite", output)
-        self.assertIn("surface: python_agent_package", output)
+        self.assertIn("surface: demo_source", output)
         self.assertIn("editable components: everything", output)
         self.assertIn("train: train", output)
         self.assertIn("train count: 1", output)
@@ -239,9 +250,7 @@ class EvolutionRunCliTest(unittest.TestCase):
             config = self._write_demo_config(root)
             text = config.read_text(encoding="utf-8")
             text = text.replace("name: demo_suite", "name: unregistered_suite")
-            text = text.replace(
-                "name: python_agent_package", "name: unregistered_surface"
-            )
+            text = text.replace("name: demo_source", "name: unregistered_surface")
             text = text.replace("name: fake", "name: unregistered_backend")
             text = text.replace("name: local_dir", "name: unregistered_store")
             text = text.replace("name: model_program", "name: unregistered_strategy")
@@ -268,7 +277,6 @@ class EvolutionRunCliTest(unittest.TestCase):
 
     def test_execute_writes_heldout_performance_summary(self) -> None:
         from simple_agent_lab.evals import RESULT_KEY
-        from simple_agent_lab.evals.protocols import AGENT_PACKAGE_KEY
         from simple_agent_lab.evolution.types import Proposal
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -302,15 +310,8 @@ class EvolutionRunCliTest(unittest.TestCase):
             config.write_text(text, encoding="utf-8")
 
             def on_run(_spec: Any, bound: Any) -> None:
-                package = json.loads(bound.get(AGENT_PACKAGE_KEY).decode("utf-8"))
-                reward = 1.0 if "better" in package["agent_program.py"] else 0.0
-                agent_package = {
-                    "loaded": True,
-                    "used_fallback": _spec.instance_id == "h2" and reward > 0.0,
-                    "error": "demo fallback"
-                    if _spec.instance_id == "h2" and reward > 0.0
-                    else "",
-                }
+                source = json.loads(bound.get("input/source.json").decode("utf-8"))
+                reward = 1.0 if "better" in source["src/demo/agent_program.py"] else 0.0
                 bound.put(
                     RESULT_KEY,
                     (
@@ -318,7 +319,6 @@ class EvolutionRunCliTest(unittest.TestCase):
                             {
                                 "reward": reward,
                                 "resolved": reward > 0.0,
-                                "agent_package": agent_package,
                             }
                         )
                         + "\n"
@@ -335,7 +335,7 @@ class EvolutionRunCliTest(unittest.TestCase):
                     proposed = True
                     return Proposal(
                         {
-                            "agent/agent_program.py": "def build_agent(**kwargs):\n"
+                            "src/demo/agent_program.py": "def build_agent(**kwargs):\n"
                             "    return 'better'\n"
                         },
                         note="make the demo agent better",
@@ -360,12 +360,6 @@ class EvolutionRunCliTest(unittest.TestCase):
         self.assertEqual(summary["evaluations"][0]["metrics"]["resolved"], 0)
         self.assertEqual(summary["evaluations"][1]["metrics"]["reward_mean"], 1.0)
         self.assertEqual(summary["evaluations"][1]["metrics"]["resolved"], 2)
-        self.assertEqual(
-            summary["evaluations"][1]["metrics"]["agent_package_fallback"], 1
-        )
-        self.assertTrue(
-            summary["evaluations"][1]["runs"][1]["agent_package"]["used_fallback"]
-        )
         self.assertEqual(summary["delta"]["reward_mean"], 1.0)
         self.assertEqual(summary["delta"]["resolved"], 2)
         self.assertIn("heldout baseline: reward=0.000 resolved=0/2", output)

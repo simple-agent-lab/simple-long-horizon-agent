@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import subprocess
 import sys
 import tempfile
@@ -33,6 +34,62 @@ _SKIP_PARTS = {
     "node_modules",
 }
 _SKIP_SUFFIXES = {".pyc", ".pyo", ".pyd", ".so"}
+DEFAULT_SOURCE_COMPONENTS = (
+    SurfaceComponent(
+        id="agent_runtime",
+        name="Agent runtime",
+        description="Core agent loop, context projection, and agent assembly.",
+        paths=(
+            f"{SOURCE_ROOT}/core.py",
+            f"{SOURCE_ROOT}/context_view.py",
+            f"{SOURCE_ROOT}/messages.py",
+            f"{SOURCE_ROOT}/agents/**",
+        ),
+        validators=("path_allowed", "python_source", "python_syntax"),
+    ),
+    SurfaceComponent(
+        id="tools",
+        name="Tools",
+        description="Tool values, concrete tools, and sub-agent delegation.",
+        paths=(f"{SOURCE_ROOT}/tools/**",),
+        validators=("path_allowed", "python_source", "python_syntax"),
+    ),
+    SurfaceComponent(
+        id="skills",
+        name="Skills",
+        description="Skill discovery, loading, and skill-aware agent behavior.",
+        paths=(f"{SOURCE_ROOT}/skills/**",),
+        validators=("path_allowed", "python_source", "python_syntax"),
+    ),
+    SurfaceComponent(
+        id="memory",
+        name="Memory",
+        description="Memory hooks, recall, and distillation support.",
+        paths=(f"{SOURCE_ROOT}/memory/**",),
+        validators=("path_allowed", "python_source", "python_syntax"),
+    ),
+    SurfaceComponent(
+        id="compression",
+        name="Compression",
+        description="Context compression and visibility shaping.",
+        paths=(f"{SOURCE_ROOT}/compression/**",),
+        validators=("path_allowed", "python_source", "python_syntax"),
+    ),
+    SurfaceComponent(
+        id="llm_boundary",
+        name="LLM boundary",
+        description="Provider-neutral model access and message conversion.",
+        paths=(f"{SOURCE_ROOT}/llm/**",),
+        validators=("path_allowed", "python_source", "python_syntax"),
+    ),
+    SurfaceComponent(
+        id="everything",
+        name="Whole framework source tree",
+        description="All Python source files under src/simple_agent_lab/.",
+        paths=(f"{SOURCE_ROOT}/**",),
+        validators=("path_allowed", "python_source", "python_syntax"),
+    ),
+)
 
 
 def source_tree_surface(repo_root: Path) -> str:
@@ -67,6 +124,9 @@ def source_tree_agent_surface(
     repo_root: Path,
     *,
     artifact_key: str = CANDIDATE_TREE,
+    include: tuple[str, ...] = (f"{SOURCE_ROOT}/**",),
+    exclude: tuple[str, ...] = (),
+    components: tuple[SurfaceComponent, ...] = DEFAULT_SOURCE_COMPONENTS,
     **_args: object,
 ) -> AgentSurface:
     """Return the config-facing surface for evolving the package source tree."""
@@ -79,6 +139,9 @@ def source_tree_agent_surface(
         path.relative_to(repo_root).as_posix(): path.read_text(encoding="utf-8")
         for path in _walk_candidate_files(source_root)
         if path.suffix == ".py"
+        and _included_for_surface(
+            path.relative_to(repo_root).as_posix(), include, exclude
+        )
     }
     return AgentSurface(
         id="source_tree",
@@ -87,15 +150,8 @@ def source_tree_agent_surface(
         entrypoint=f"{SOURCE_ROOT}/__init__.py",
         default_files=default_files,
         artifact_key=artifact_key,
-        components=(
-            SurfaceComponent(
-                id="everything",
-                name="Whole framework source tree",
-                description="All Python source files under src/simple_agent_lab/.",
-                paths=(f"{SOURCE_ROOT}/**",),
-                validators=("path_allowed", "python_syntax"),
-            ),
-        ),
+        components=components,
+        excluded_paths=exclude,
     )
 
 
@@ -223,3 +279,11 @@ def _skip_path(path: str) -> bool:
     if any(part in _SKIP_PARTS for part in pure.parts):
         return True
     return pure.suffix in _SKIP_SUFFIXES
+
+
+def _included_for_surface(
+    path: str, include: tuple[str, ...], exclude: tuple[str, ...]
+) -> bool:
+    if exclude and any(fnmatch.fnmatch(path, pattern) for pattern in exclude):
+        return False
+    return any(fnmatch.fnmatch(path, pattern) for pattern in include)

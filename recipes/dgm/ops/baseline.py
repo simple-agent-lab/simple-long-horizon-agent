@@ -30,6 +30,11 @@ sys.path.insert(0, str(ROOT / "src"))
 import recipes.runtime as recipe_runtime  # noqa: E402
 from recipes.dgm import swebench as er  # noqa: E402
 from simple_agent_lab.evolution.config import safe_run_root  # noqa: E402
+from simple_agent_lab.evolution.source_tree import (  # noqa: E402
+    CANDIDATE_SOURCE_CONTAINER_SRC,
+    candidate_source_artifacts,
+    source_tree_agent_surface,
+)
 
 DEFAULT_OUTPUT_ROOT = Path("evals/out/dgm_swebench")
 
@@ -178,11 +183,12 @@ def measure_pool(
     layout = er.PerformanceLayout(output_root, run_id)
     layout.create()
     workspace = layout.run_root / "evolution"
+    source_surface = source_tree_agent_surface(ROOT)
 
     seed = evo_store.stage(
         workspace,
         base=None,
-        edits=er.seed_files(model=model_name, api_kind=api_kind, base_url=base_url),
+        edits=source_surface.seed_files(),
     )
     evo_store.promote(workspace, seed)
 
@@ -194,7 +200,10 @@ def measure_pool(
         wheelhouse=wheelhouse or None,
         uv_binary=uv_binary or None,
         in_env_scoring=True,
-        version_artifacts=er.version_package_artifacts,
+        version_artifacts=lambda version: candidate_source_artifacts(
+            ROOT, source_surface.files_from_version(version)
+        ),
+        candidate_pythonpath=(CANDIDATE_SOURCE_CONTAINER_SRC,),
         container_module=er.EVOLVING_CONTAINER_MODULE,
     )
     rollout = er.make_scaffold_rollout(

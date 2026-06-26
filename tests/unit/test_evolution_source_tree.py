@@ -26,6 +26,12 @@ class SourceTreeEvolutionTest(unittest.TestCase):
         package.mkdir(parents=True)
         (package / "__init__.py").write_text("VALUE = 1\n")
         (package / "core.py").write_text("def run() -> str:\n    return 'ok'\n")
+        (package / "tools").mkdir()
+        (package / "tools" / "bash.py").write_text(
+            "def tool() -> str:\n    return 'bash'\n"
+        )
+        (package / "evolution").mkdir()
+        (package / "evolution" / "kernel.py").write_text("KERNEL = True\n")
         (package / "README.md").write_text("# Package notes\n")
         (package / "__pycache__").mkdir()
         (package / "__pycache__" / "core.cpython-314.pyc").write_bytes(b"cache")
@@ -73,6 +79,27 @@ class SourceTreeEvolutionTest(unittest.TestCase):
             "def run() -> str:\n    return 'ok'\n",
         )
         self.assertNotIn(SOURCE_ROOT + "/README.md", surface.default_files)
+        self.assertEqual(surface.component("agent_runtime").id, "agent_runtime")
+        self.assertEqual(surface.component("tools").id, "tools")
+        self.assertEqual(surface.component("everything").id, "everything")
+
+    def test_agent_surface_can_exclude_protected_source_paths(self) -> None:
+        surface = source_tree_agent_surface(
+            self.repo_root,
+            exclude=(SOURCE_ROOT + "/evolution/**",),
+        )
+
+        self.assertNotIn(SOURCE_ROOT + "/evolution/kernel.py", surface.default_files)
+        result = surface.validate_edits(
+            {
+                SOURCE_ROOT + "/core.py": "def run() -> str:\n    return 'new'\n",
+                SOURCE_ROOT + "/evolution/kernel.py": "KERNEL = False\n",
+            },
+            components=("everything",),
+        )
+
+        self.assertIn(SOURCE_ROOT + "/core.py", result.edits)
+        self.assertIn(SOURCE_ROOT + "/evolution/kernel.py", result.rejected)
 
     def test_candidate_artifacts_and_surface_skip_symlinked_files(self) -> None:
         outside = self.repo_root / "outside_secret.py"

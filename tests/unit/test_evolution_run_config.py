@@ -19,10 +19,10 @@ suite:
   args:
     dataset_name: demo-dataset
 surface:
-  name: python_agent_package
+  name: demo_source
   editable_components: [everything]
-  artifact_key: input/agent_package.json
-  default: simple_agent_package
+  artifact_key: input/source.json
+  default: demo_source
 instances:
   train:
     id: train
@@ -80,7 +80,7 @@ class RunConfigTest(unittest.TestCase):
         from simple_agent_lab.evals import FakeBackend, LocalDirStore
         from simple_agent_lab.evals.protocols import LaunchSpec
         from simple_agent_lab.evolution import registry
-        from simple_agent_lab.evolution.surface import python_agent_surface
+        from simple_agent_lab.evolution.surface import AgentSurface, SurfaceComponent
 
         class DemoSuite:
             name = "demo"
@@ -96,17 +96,30 @@ class RunConfigTest(unittest.TestCase):
                 return None
 
         registry.SUITES["demo_suite"] = lambda **_args: DemoSuite()
-        registry.SURFACES["python_agent_package"] = (
-            lambda *, default, artifact_key, **_args: python_agent_surface(
-                default_files={"agent_program.py": agent_program},
+        registry.SURFACES["demo_source"] = lambda *, default, artifact_key, **_args: (
+            AgentSurface(
+                id="demo_source",
+                name="Demo source",
+                description="Demo source tree.",
+                entrypoint="src/demo/agent_program.py:build_agent",
+                default_files={"src/demo/agent_program.py": agent_program},
                 artifact_key=artifact_key,
+                components=(
+                    SurfaceComponent(
+                        id="everything",
+                        name="Everything",
+                        description="All demo source.",
+                        paths=("src/demo/**",),
+                        validators=("path_allowed", "python_source", "python_syntax"),
+                    ),
+                ),
             )
         )
         registry.BACKENDS["fake"] = lambda **_args: FakeBackend(on_run=None)
         registry.STORES["local_dir"] = lambda root, **_args: LocalDirStore(root)
         registry.STRATEGIES["model_program"] = strategy_factory
         self.addCleanup(registry.SUITES.pop, "demo_suite", None)
-        self.addCleanup(registry.SURFACES.pop, "python_agent_package", None)
+        self.addCleanup(registry.SURFACES.pop, "demo_source", None)
         self.addCleanup(registry.BACKENDS.pop, "fake", None)
         self.addCleanup(registry.STORES.pop, "local_dir", None)
         self.addCleanup(registry.STRATEGIES.pop, "model_program", None)
@@ -210,7 +223,7 @@ class RunConfigTest(unittest.TestCase):
             )
             self.assertEqual(
                 built.experiment.current().files(),
-                ("agent/agent_program.py", "provider.json"),
+                ("provider.json", "src/demo/agent_program.py"),
             )
 
     def test_build_self_evolving_run_with_model_program_strategy(self) -> None:
@@ -311,7 +324,7 @@ class RunConfigTest(unittest.TestCase):
 
             first = build_self_evolving_run(load_self_evolving_config(path))
             self.assertIn(
-                "'old'", first.experiment.current().read("agent/agent_program.py")
+                "'old'", first.experiment.current().read("src/demo/agent_program.py")
             )
 
             reset_path = self._write_demo_config(
@@ -327,7 +340,7 @@ class RunConfigTest(unittest.TestCase):
 
             self.assertIn(
                 "'new'",
-                second.experiment.current().read("agent/agent_program.py"),
+                second.experiment.current().read("src/demo/agent_program.py"),
             )
 
     def test_build_self_evolving_run_rejects_unsafe_run_id_before_reset(self) -> None:

@@ -3,11 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from simple_agent_lab.evals.protocols import AGENT_PACKAGE_KEY
-from simple_agent_lab.evolution.agent_package import load_agent_package_result
 from recipes.dgm import swebench as er
-from simple_agent_lab.evolution.kernel import store
-from simple_agent_lab.evolution.types import Manifest, Run, Version
+from simple_agent_lab.evolution.types import Run
 
 
 class EvolvingRolloutTest(unittest.TestCase):
@@ -86,55 +83,6 @@ class EvolvingRolloutTest(unittest.TestCase):
         self.assertEqual(rec["patch_valid"], 1)
         self.assertEqual(rec["tokens"], 10)
         self.assertEqual(rec["resolved_rate"], 0.5)
-
-    def test_seed_files_includes_agent_package(self):
-        seed = er.seed_files(
-            model="gpt-test",
-            api_kind="openai-chat",
-            base_url="https://example.test/v1",
-        )
-        self.assertIn("agent/agent_program.py", seed)
-        self.assertIn("agent/prompts.py", seed)
-        self.assertIn("agent/review.py", seed)
-        self.assertIn("agent/tools.py", seed)
-        self.assertIn("build_agent", seed["agent/agent_program.py"])
-        self.assertIn("review_patch", seed["agent/agent_program.py"])
-        self.assertIn("provider.json", seed)
-        self.assertIn("README.md", seed)
-        provider = json.loads(seed["provider.json"])
-        self.assertEqual(provider["model"], "gpt-test")
-        self.assertEqual(provider["api"], "openai-chat")
-        self.assertEqual(provider["base_url"], "https://example.test/v1")
-        self.assertEqual(provider["api_key_env"], er.OPENAI_AUTH_ENV)
-
-    def test_dgm_default_agent_package_loads(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            result = load_agent_package_result(
-                er.dgm_default_agent_package(), root=Path(tmp)
-            )
-
-        self.assertTrue(result.loaded, result.error)
-        self.assertTrue(callable(result.builder))
-
-    def test_version_package_artifacts_contains_default(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            v = store.stage(
-                Path(tmp),
-                base=None,
-                edits={"agent/agent_program.py": "def build_agent(): ...\n"},
-                manifest=Manifest(producer="seed"),
-            )
-            art = er.version_package_artifacts(v)
-        files = json.loads(art[AGENT_PACKAGE_KEY].decode("utf-8"))
-        self.assertIn("agent_program.py", files)
-
-    def test_package_files_falls_back_to_default(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            version_dir = Path(tmp) / "version"
-            version_dir.mkdir()
-            files = er.package_files(Version(version_dir))
-        self.assertIn("agent_program.py", files)
-        self.assertIn("build_agent", files["agent_program.py"])
 
     def test_apply_eval_score_updates_result_json(self):
         with tempfile.TemporaryDirectory() as tmp:

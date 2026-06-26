@@ -4,14 +4,15 @@ This recipe demonstrates a self-evolving SWE-bench run that keeps AHE behavior
 visible instead of hiding it behind a larger framework. The current
 implementation reproduces the AHE component, experience, and decision
 observability story on top of the SAL evolution framework, using
-`ahe_harness_surface` as the editable surface. Each proposal round runs a
-role-separated SAL evolve agent over a materialized harness workspace; the
+the source-tree `AgentSurface` as the editable surface. Each proposal round runs
+a role-separated SAL evolve agent over a materialized source-tree workspace; the
 evaluated code agent and the evolve agent are separate roles, matching AHE's
 shape without adding a new framework runtime.
 
 ## What it maps to
 
-- Component observability -> `ahe_harness_surface`
+- Component observability -> `source_tree_agent_surface` and selected
+  `AgentSurface` components
 - Experience observability -> the model-backed analyzer plus its analysis
   artifacts staged into the evolve-agent workspace
 - Decision observability -> `change_manifest.json`,
@@ -21,7 +22,8 @@ The recipe is explicit about the boundary choices:
 
 - It uses SAL's evolution substrate and `AgentSurface`.
 - It runs a model-backed analyzer before each proposal.
-- It runs a SAL evolve agent to inspect `analysis/`, edit `harness/`, and write
+- It runs a SAL evolve agent to inspect `analysis/`, edit the selected
+  source-tree surface under `src/simple_agent_lab/`, and write
   `change_manifest.json`.
 - It stores the AHE ledger under the run root's `ahe/` directory.
 - It does not add Best-of-N search, live external exploration, a

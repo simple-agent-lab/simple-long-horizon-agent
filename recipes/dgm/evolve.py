@@ -1,11 +1,10 @@
 """DGM-style self-evolving SWE-bench recipe.
 
-A model-driven meta-agent rewrites the whole agent program under ``agent/``; the
-evolution kernel runs a parallel open-ended archive-admission loop (branches per
-round, best-valid promotion, archive parent selection), and the best-on-train
-agent is scored on a held-out test split. This is archive-mechanics
-infrastructure; the stronger self-reference milestone is still future work. All
-DGM knobs are exposed. Dry by default; --execute runs real model + Docker.
+The evolution kernel runs a parallel open-ended archive-admission loop over the
+real Simple Agent Lab source tree (branches per round, best-valid promotion,
+archive parent selection), and the best-on-train source version is scored on a
+held-out test split. All DGM knobs are exposed. Dry by default; --execute runs
+real model + Docker.
 """
 
 from __future__ import annotations
@@ -16,11 +15,10 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))  # for recipe support modules
@@ -29,40 +27,41 @@ sys.path.insert(0, str(ROOT / "src"))
 import recipes.runtime as recipe_runtime  # noqa: E402
 from recipes.dgm.config import load_dgm_config  # noqa: E402
 from recipes.dgm import swebench as er  # noqa: E402
-from recipes.dgm.algorithm import archive, open_ended, repo_edits  # noqa: E402
+from recipes.dgm.algorithm import archive, open_ended  # noqa: E402
 from simple_agent_lab.evolution import Experiment  # noqa: E402
-from simple_agent_lab.evolution import agent_package  # noqa: E402
-from simple_agent_lab.evolution.components.agentic import (  # noqa: E402
-    RunnableAgent,
-    consume_agent_run,
-    materialize_version_files,
-)
 from simple_agent_lab.evolution.components.criterion import valid_when  # noqa: E402
+from simple_agent_lab.evolution.components.repo_strategy import (  # noqa: E402
+    AgentBuilder,
+    source_tree_agent_strategy,
+)
 from simple_agent_lab.evolution.kernel import store as evo_store  # noqa: E402
 from simple_agent_lab.evolution.config import safe_run_root  # noqa: E402
+from simple_agent_lab.evolution.source_tree import (  # noqa: E402
+    CANDIDATE_SOURCE_CONTAINER_SRC,
+    candidate_source_artifacts,
+    source_tree_agent_surface,
+)
+from simple_agent_lab.evolution.surface import AgentSurface  # noqa: E402
 from simple_agent_lab.evolution.types import RunScores, Slice, Verdict, Version  # noqa: E402
 from simple_agent_lab.llm import Provider  # noqa: E402
 from simple_agent_lab.trace.jsonl import read_jsonl  # noqa: E402
 
 DEFAULT_CONFIG = Path("configs/dgm_swebench.yaml")
 
-SYSTEM_PROMPT = """You are a meta-agent evolving a SWE-bench coding agent.
-The agent is a Python package under `agent/`. `agent/agent_program.py` defines
-`build_agent(*, provider, cwd, base_system_prompt) -> Agent`; `agent/prompts.py`,
-`agent/review.py`, and `agent/tools.py` are deliberately moderate, bounded
-extension points for prompt discipline, patch review, and tool-use guidance.
-Edit any file under `agent/` (full file contents, AST-valid). Keep build_agent
-present, preserve the package loadability, and prefer one focused change likely
-to raise the resolve rate over broad rewrites. Return ONLY JSON:
-{"note":"...","evidence":["..."],"edits":{"agent/<path>":"FULL"|null}}.
+SYSTEM_PROMPT = """You are a meta-agent evolving Simple Agent Lab itself.
+
+The editable target is the real framework source tree under
+`src/simple_agent_lab/`. Inspect the applied parent workspace and make one
+focused, readable Python source change likely to raise SWE-bench resolve rate.
+Prefer changes to the agent runtime, tools, skills, memory, compression, or
+context handling over benchmark-specific hacks.
 """
 
-SELF_IMPROVEMENT_TASK = """Improve this DGM parent agent package.
+SELF_IMPROVEMENT_TASK = """Improve this DGM parent source tree.
 
-You are running as the selected parent agent. Inspect SELF_IMPROVEMENT_CONTEXT.md,
-then make one small, focused edit under agent/ that is likely to improve the
-SWE-bench coding agent. Keep the package loadable and preserve
-agent/agent_program.py:build_agent. Do not edit files outside agent/.
+You are running as the selected parent agent. Inspect SELF_EVOLUTION_CONTEXT.md,
+then make one small, focused edit under src/simple_agent_lab/ that is likely to
+improve the SWE-bench coding agent. Do not edit files outside src/simple_agent_lab/.
 """
 
 
@@ -107,6 +106,7 @@ def run_workflow(args: argparse.Namespace) -> None:
         f"(<= {global_workers} containers total; memory is the hard cap)"
     )
     args.parallel = global_workers
+    source_surface = source_tree_agent_surface(ROOT)
     base_rollout = er.build_swebench_rollout(
         layout,
         dataset_name=args.dataset_name,
@@ -118,7 +118,10 @@ def run_workflow(args: argparse.Namespace) -> None:
         wheelhouse=args.wheelhouse,
         uv_binary=args.uv_binary,
         in_env_scoring=True,
-        version_artifacts=er.version_package_artifacts,
+        version_artifacts=lambda version: candidate_source_artifacts(
+            ROOT, source_surface.files_from_version(version)
+        ),
+        candidate_pythonpath=(CANDIDATE_SOURCE_CONTAINER_SRC,),
         container_module=er.EVOLVING_CONTAINER_MODULE,
     )
     graded_rollout = er.make_scaffold_rollout(
@@ -140,11 +143,7 @@ def run_workflow(args: argparse.Namespace) -> None:
         criterion=dgm_admission_criterion("reward"),
         slice_id="swebench-train",
         instances=train_records,
-        seed=er.seed_files(
-            model=args.model_name,
-            api_kind=args.api_kind,
-            base_url=os.environ.get(er.OPENAI_BASE_URL_ENV, "").strip(),
-        ),
+        seed=source_surface.seed_files(),
     )
     if args.skip_baseline_heldout:
         print("\nskipping baseline held-out test rollout (--skip-baseline-heldout)")
@@ -163,6 +162,9 @@ def run_workflow(args: argparse.Namespace) -> None:
         )
     strategy = dgm_agentic_strategy(
         provider=provider,
+        repo_root=ROOT,
+        surface=source_surface,
+        editable_components=("everything",),
         parent_selection=args.parent_selection,
         parent_selector=select_archive_parent,
     )
@@ -355,111 +357,31 @@ def select_archive_parent(ctx: Any, method: str) -> str:
 def dgm_agentic_strategy(
     *,
     provider: Any,
+    repo_root: Path = ROOT,
+    surface: AgentSurface | None = None,
+    editable_components: Sequence[str] = ("everything",),
+    agent_builder: AgentBuilder | None = None,
     parent_selection: str = "current",
     parent_selector: Any = None,
     max_turns: int = 20,
     task: str = SELF_IMPROVEMENT_TASK,
 ):
-    """Run the selected parent package itself as DGM's self-improving agent."""
+    """Run a DGM branch as an agentic edit over the selected source-tree parent."""
 
-    def strategy(ctx: Any):
-        parent = _select_strategy_parent(
-            ctx, parent_selection=parent_selection, parent_selector=parent_selector
-        )
-        base_version = ctx.version(parent)
-        package = er.package_files(base_version)
-        with tempfile.TemporaryDirectory(prefix="sal-dgm-agentic-") as tmp:
-            root = Path(tmp)
-            base_tree = root / "base"
-            candidate = root / "candidate"
-            materialize_version_files(
-                base_version,
-                base_tree,
-                include=lambda name: name.startswith(er.AGENT_PREFIX),
-            )
-            shutil.copytree(base_tree, candidate)
-            _write_self_improvement_context(candidate, ctx, base_version)
-            load_root = root / "loaded-parent"
-            loaded = agent_package.load_agent_package_result(package, root=load_root)
-            if loaded.builder is None:
-                return None
-            agent = cast(
-                RunnableAgent,
-                loaded.builder(
-                    provider=provider,
-                    cwd=candidate,
-                    base_system_prompt=SYSTEM_PROMPT,
-                ),
-            )
-            consume_agent_run(agent, task, max_turns=max_turns)
-            proposal = repo_edits.proposal_from_changed_tree(
-                base_tree,
-                candidate,
-                note="DGM parent agent self-improvement",
-                evidence=("dgm-parent-agent-ran",),
-                kind="dgm_agentic",
-                exclude=("SELF_IMPROVEMENT_CONTEXT.md",),
-            )
-            edits = {
-                path: value
-                for path, value in proposal.edits.items()
-                if path.startswith(er.AGENT_PREFIX)
-            }
-            if not edits:
-                return None
-            return type(proposal)(
-                edits=edits,
-                note=proposal.note,
-                evidence=proposal.evidence,
-                base=parent,
-                kind=proposal.kind,
-            )
-
-    return strategy
-
-
-def _select_strategy_parent(
-    ctx: Any, *, parent_selection: str, parent_selector: Any
-) -> str:
-    if parent_selection == "current":
-        return ctx.current.hash
-    if parent_selector is None:
-        raise ValueError(
-            "non-current parent selection requires a recipe-provided parent_selector"
-        )
-    return parent_selector(ctx, parent_selection) or ctx.current.hash
-
-
-def _write_self_improvement_context(path: Path, ctx: Any, version: Version) -> None:
-    lines = [
-        "# Self Improvement Context",
-        "",
-        f"- Parent version: {version.hash}",
-        f"- Prior decisions: {len(getattr(ctx, 'decisions', ()))}",
-        f"- Baseline runs: {len(getattr(ctx, 'runs', ()))}",
-        "",
-        "## Recent Decisions",
-    ]
-    decisions = tuple(getattr(ctx, "decisions", ()))
-    if not decisions:
-        lines.append("- none")
-    for decision in decisions[-5:]:
-        lines.append(f"- {decision.id}: {decision.outcome}; {decision.reason}")
-    lines.extend(["", "## Baseline Runs"])
-    runs = tuple(getattr(ctx, "runs", ()))
-    if not runs:
-        lines.append("- none")
-    for run in runs[:8]:
-        lines.append(f"- {run.instance_id}: reward={run.reward}")
-    lines.extend(
-        [
-            "",
-            "Only edits under agent/ are eligible for the next candidate.",
-            "",
-        ]
-    )
-    (path / "SELF_IMPROVEMENT_CONTEXT.md").write_text(
-        "\n".join(lines), encoding="utf-8"
+    return source_tree_agent_strategy(
+        provider=provider,
+        repo_root=repo_root,
+        max_turns=max_turns,
+        parent_selection=parent_selection,
+        parent_selector=parent_selector,
+        agent_builder=agent_builder,
+        system_prompt=SYSTEM_PROMPT,
+        task=task,
+        name="dgm_source_tree_meta_agent",
+        surface=surface,
+        editable_components=editable_components,
+        proposal_kind="dgm_agentic",
+        evidence_marker="dgm-source-tree-agent-ran",
     )
 
 

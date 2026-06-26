@@ -35,7 +35,8 @@ src/simple_agent_lab/evolution/
   components/    rollout, reward, criterion, and strategy helpers
   experiment.py  small Python-facing wirer around the kernel
   surface.py     semantic editable agent surfaces
-  agent_package.py  default editable Python-agent package + loader
+  source_tree.py source-tree surface and candidate source staging
+  agent_package.py  legacy wrapper-package loader used by eval compatibility tests
   config.py      YAML schema and configured-run builder
   run.py         generic configured-run CLI
 
@@ -102,8 +103,10 @@ def my_strategy(ctx):
     if not ctx.failures:
         return None
     return Proposal(
-        edits={"agent/prompt.md": "Try a more direct repair plan.\n"},
-        note="tighten repair prompt",
+        edits={
+            "src/simple_agent_lab/agents/policy.py": "MAX_RETRIES = 2\n",
+        },
+        note="tune agent retry policy",
     )
 
 
@@ -114,7 +117,7 @@ exp = Experiment(
     criterion=improve("reward"),     # compare aggregate scores
     slice_id="train",
     instances=train_records,
-    seed={"agent/prompt.md": "You fix bugs.\n"},
+    seed={"src/simple_agent_lab/agents/policy.py": "MAX_RETRIES = 1\n"},
 )
 
 decision = exp.step(my_strategy)
@@ -225,8 +228,8 @@ train instances to run concurrently.
 the model writes." A surface defines:
 
 - default seed files for the initial `Version`
-- named editable components such as `agent_program`, `prompts`, `tool_policy`,
-  `memory_policy`, or `everything`
+- named editable components such as `agent_runtime`, `tools`, `skills`,
+  `memory`, `compression`, `llm_boundary`, or `everything`
 - validators such as path safety, Python syntax, and required entrypoint checks
 - how a `Version` becomes per-run input artifacts
 
@@ -234,12 +237,13 @@ The built-in `source_tree_agent_surface(...)` seeds Python files from
 `src/simple_agent_lab/` into the initial `Version`. Config-built source-tree
 runs stage the selected version under `input/source_tree/src/simple_agent_lab/`
 and prepend `/agent/run/input/source_tree/src` to the candidate run's
-`PYTHONPATH`, so the suite exercises the evolved framework source.
+`PYTHONPATH`, so the suite exercises the evolved framework source. This is the
+recommended evolution surface for `simple`, `ahe`, `dgm`, and future
+source-tree recipes.
 
-The lower-level `python_agent_surface(...)` remains available for tests and
-custom wrapper-package experiments. It stores files under `agent/`, requires
-`agent/agent_program.py:build_agent`, and packages the selected version files as
-`input/agent_package.json` for eval containers that opt into that artifact.
+`agent_package.py` remains as a legacy wrapper-package loader for container
+fallbacks and focused compatibility tests. It is not the recommended editable
+self-evolution surface.
 
 ## Benchmark Execution
 
@@ -268,13 +272,13 @@ Strategies return `Proposal | None`.
   temporary repo copy after reading `SELF_EVOLUTION_CONTEXT.md`, then derives a
   `Proposal` from filesystem diffs under `src/simple_agent_lab/`.
 - `recipes.dgm.evolve.dgm_agentic_strategy(...)` is recipe-local DGM policy: it
-  materializes the selected parent `agent/` package, loads that package as a SAL
-  agent, lets it perform its own self-improvement step, and converts `agent/`
-  diffs into a `Proposal`.
+  selects a parent from the archive, lets a source-tree meta-agent inspect a
+  temporary repo copy and local self-evolution evidence, and converts validated
+  `src/simple_agent_lab/` diffs into a child proposal.
 - `recipes.ahe.strategy.ahe_agent_strategy(...)` is recipe-local AHE policy: it
-  runs the analyzer, stages the analysis into a harness workspace, lets a
-  role-separated SAL evolve agent edit `harness/`, and records
-  `change_manifest.json`.
+  runs the analyzer, stages the analysis into the source-tree evolve-agent
+  workspace, lets a role-separated SAL evolve agent edit the selected
+  `AgentSurface`, and records `change_manifest.json`.
 - `model_program_strategy(...)` is a lower-level wrapper-program strategy that
   asks an LLM to rewrite full files under the selected surface. It validates
   JSON, filters invalid edits, and returns a `Proposal`.

@@ -24,7 +24,6 @@ from simple_agent_lab.evolution.experiment import Experiment
 from simple_agent_lab.evolution.registry import Use
 from simple_agent_lab.evolution.source_tree import (
     CANDIDATE_SOURCE_CONTAINER_SRC,
-    SOURCE_ROOT,
     candidate_source_artifacts,
 )
 from simple_agent_lab.evolution.surface import AgentSurface
@@ -242,11 +241,7 @@ def build_self_evolving_run(config: SelfEvolvingConfig) -> SelfEvolvingRun:
         repo_root = source_tree_repo_root
 
         def source_tree_version_artifacts(version: Version) -> Mapping[str, bytes]:
-            files = {
-                name: version.read(name)
-                for name in version.files()
-                if name.startswith(f"{SOURCE_ROOT}/")
-            }
+            files = surface.files_from_version(version)
             return candidate_source_artifacts(repo_root, files)
 
         version_artifacts = source_tree_version_artifacts

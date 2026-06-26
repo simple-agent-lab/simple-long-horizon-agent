@@ -5,69 +5,94 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from simple_agent_lab.evals.protocols import AGENT_PACKAGE_KEY
 from simple_agent_lab.evolution.kernel import store
 from simple_agent_lab.evolution.surface import (
     AgentSurface,
     SurfaceComponent,
-    python_agent_surface,
 )
 from simple_agent_lab.evolution.types import Manifest, Version
 
 
-DEFAULT_FILES = {
-    "agent_program.py": (
-        "from simple_agent_lab.core import Agent\n\n"
-        "def build_agent(*, provider, cwd, base_system_prompt) -> Agent:\n"
-        "    raise RuntimeError('demo')\n"
-    ),
-    "prompts.py": "SYSTEM_PROMPT = 'demo'\n",
-    "tool_policy.py": "MAX_RETRIES = 1\n",
-}
+ARTIFACT_KEY = "input/source.json"
 
 
 class AgentSurfaceTest(unittest.TestCase):
-    def test_seed_files_are_stored_under_version_root(self) -> None:
-        surface = python_agent_surface(
-            default_files=DEFAULT_FILES,
-            artifact_key=AGENT_PACKAGE_KEY,
+    def test_seed_files_preserve_surface_paths(self) -> None:
+        surface = AgentSurface(
+            id="custom",
+            name="Custom source",
+            description="A custom source surface.",
+            entrypoint="src/pkg/__init__.py",
+            default_files={"src/pkg/__init__.py": "VALUE = 1\n"},
+            artifact_key=ARTIFACT_KEY,
+            components=(
+                SurfaceComponent(
+                    id="everything",
+                    name="Everything",
+                    description="All source files.",
+                    paths=("src/pkg/**",),
+                ),
+            ),
         )
 
         self.assertIsInstance(surface, AgentSurface)
-        self.assertIsInstance(surface.component("prompts"), SurfaceComponent)
-        self.assertIn("agent/agent_program.py", surface.seed_files())
-        self.assertIn("agent/prompts.py", surface.seed_files())
+        self.assertIsInstance(surface.component("everything"), SurfaceComponent)
+        self.assertIn("src/pkg/__init__.py", surface.seed_files())
 
     def test_prompt_brief_describes_selected_components(self) -> None:
-        surface = python_agent_surface(
-            default_files=DEFAULT_FILES,
-            artifact_key=AGENT_PACKAGE_KEY,
+        surface = AgentSurface(
+            id="custom",
+            name="Custom source",
+            description="A custom source surface.",
+            entrypoint="src/pkg/__init__.py",
+            default_files={},
+            artifact_key=ARTIFACT_KEY,
+            components=(
+                SurfaceComponent(
+                    id="prompts",
+                    name="Prompts",
+                    description="system prompts, task framing, and response policy.",
+                    paths=("src/pkg/prompts.py",),
+                ),
+            ),
         )
 
         brief = surface.prompt_brief(components=("prompts",))
 
-        self.assertIn("Python agent package", brief)
+        self.assertIn("Custom source", brief)
         self.assertIn("prompts", brief)
         self.assertIn("system prompts", brief)
-        self.assertIn("agent/agent_program.py:build_agent", brief)
+        self.assertIn("src/pkg/__init__.py", brief)
 
     def test_validate_edits_rejects_paths_outside_selected_components(self) -> None:
-        surface = python_agent_surface(
-            default_files=DEFAULT_FILES,
-            artifact_key=AGENT_PACKAGE_KEY,
+        surface = AgentSurface(
+            id="custom",
+            name="Custom source",
+            description="A custom source surface.",
+            entrypoint="src/pkg/__init__.py",
+            default_files={},
+            artifact_key=ARTIFACT_KEY,
+            components=(
+                SurfaceComponent(
+                    id="prompts",
+                    name="Prompts",
+                    description="Prompt files.",
+                    paths=("src/pkg/prompts.py",),
+                ),
+            ),
         )
 
         result = surface.validate_edits(
             {
-                "agent/prompts.py": "SYSTEM_PROMPT = 'better'\n",
-                "agent/tool_policy.py": "MAX_RETRIES = 3\n",
+                "src/pkg/prompts.py": "SYSTEM_PROMPT = 'better'\n",
+                "src/pkg/tool_policy.py": "MAX_RETRIES = 3\n",
                 "../escape.py": "x = 1\n",
             },
             components=("prompts",),
         )
 
-        self.assertIn("agent/prompts.py", result.edits)
-        self.assertIn("agent/tool_policy.py", result.rejected)
+        self.assertIn("src/pkg/prompts.py", result.edits)
+        self.assertIn("src/pkg/tool_policy.py", result.rejected)
         self.assertIn("../escape.py", result.rejected)
 
     def test_validate_edits_always_rejects_unsafe_paths(self) -> None:
@@ -77,7 +102,7 @@ class AgentSurfaceTest(unittest.TestCase):
             description="A custom public surface.",
             entrypoint="safe.py:build_agent",
             default_files={},
-            artifact_key=AGENT_PACKAGE_KEY,
+            artifact_key=ARTIFACT_KEY,
             components=(
                 SurfaceComponent(
                     id="custom_component",
@@ -109,7 +134,7 @@ class AgentSurfaceTest(unittest.TestCase):
             description="A custom public surface.",
             entrypoint="safe.py:build_agent",
             default_files={},
-            artifact_key=AGENT_PACKAGE_KEY,
+            artifact_key=ARTIFACT_KEY,
             components=(
                 SurfaceComponent(
                     id="custom_component",
@@ -135,83 +160,187 @@ class AgentSurfaceTest(unittest.TestCase):
     def test_validate_edits_rejects_everything_without_selected_components(
         self,
     ) -> None:
-        surface = python_agent_surface(
-            default_files=DEFAULT_FILES,
-            artifact_key=AGENT_PACKAGE_KEY,
+        surface = AgentSurface(
+            id="custom",
+            name="Custom source",
+            description="A custom source surface.",
+            entrypoint="src/pkg/__init__.py",
+            default_files={},
+            artifact_key=ARTIFACT_KEY,
+            components=(
+                SurfaceComponent(
+                    id="prompts",
+                    name="Prompts",
+                    description="Prompt files.",
+                    paths=("src/pkg/prompts.py",),
+                ),
+            ),
         )
 
         result = surface.validate_edits(
             {
-                "agent/prompts.py": "def (",
+                "src/pkg/prompts.py": "def (",
                 "../escape.py": "x = 1\n",
             },
             components=(),
         )
 
         self.assertEqual(result.edits, {})
-        self.assertIn("agent/prompts.py", result.rejected)
+        self.assertIn("src/pkg/prompts.py", result.rejected)
         self.assertIn("../escape.py", result.rejected)
 
-    def test_everything_component_allows_whole_agent_package(self) -> None:
-        surface = python_agent_surface(
-            default_files=DEFAULT_FILES,
-            artifact_key=AGENT_PACKAGE_KEY,
+    def test_everything_component_allows_whole_surface(self) -> None:
+        surface = AgentSurface(
+            id="custom",
+            name="Custom source",
+            description="A custom source surface.",
+            entrypoint="src/pkg/__init__.py",
+            default_files={},
+            artifact_key=ARTIFACT_KEY,
+            components=(
+                SurfaceComponent(
+                    id="everything",
+                    name="Everything",
+                    description="All files.",
+                    paths=("src/pkg/**",),
+                ),
+            ),
         )
 
         result = surface.validate_edits(
-            {"agent/tool_policy.py": "MAX_RETRIES = 3\n"},
+            {"src/pkg/tool_policy.py": "MAX_RETRIES = 3\n"},
             components=("everything",),
         )
 
-        self.assertEqual(result.edits["agent/tool_policy.py"], "MAX_RETRIES = 3\n")
+        self.assertEqual(result.edits["src/pkg/tool_policy.py"], "MAX_RETRIES = 3\n")
+
+    def test_excluded_paths_reject_even_when_component_matches(self) -> None:
+        surface = AgentSurface(
+            id="custom",
+            name="Custom source",
+            description="A custom source surface.",
+            entrypoint="src/pkg/__init__.py",
+            default_files={},
+            artifact_key=ARTIFACT_KEY,
+            components=(
+                SurfaceComponent(
+                    id="everything",
+                    name="Everything",
+                    description="All files.",
+                    paths=("src/pkg/**",),
+                ),
+            ),
+            excluded_paths=("src/pkg/protected/**",),
+        )
+
+        result = surface.validate_edits(
+            {
+                "src/pkg/module.py": "x = 1\n",
+                "src/pkg/protected/kernel.py": "x = 2\n",
+            },
+            components=("everything",),
+        )
+
+        self.assertIn("src/pkg/module.py", result.edits)
+        self.assertIn("src/pkg/protected/kernel.py", result.rejected)
 
     def test_entrypoint_deletion_is_rejected_when_entrypoint_validator_runs(
         self,
     ) -> None:
-        surface = python_agent_surface(
-            default_files=DEFAULT_FILES,
-            artifact_key=AGENT_PACKAGE_KEY,
+        surface = AgentSurface(
+            id="custom",
+            name="Custom source",
+            description="A custom source surface.",
+            entrypoint="src/pkg/agent_program.py:build_agent",
+            default_files={},
+            artifact_key=ARTIFACT_KEY,
+            components=(
+                SurfaceComponent(
+                    id="everything",
+                    name="Everything",
+                    description="All files.",
+                    paths=("src/pkg/**",),
+                    validators=("path_allowed", "python_syntax", "entrypoint_exists"),
+                ),
+            ),
         )
 
         result = surface.validate_edits(
-            {"agent/agent_program.py": None},
+            {"src/pkg/agent_program.py": None},
             components=("everything",),
         )
 
         self.assertEqual(result.edits, {})
-        self.assertIn("agent/agent_program.py", result.rejected)
+        self.assertIn("src/pkg/agent_program.py", result.rejected)
 
     def test_entrypoint_replacement_without_symbol_is_rejected(self) -> None:
-        surface = python_agent_surface(
-            default_files=DEFAULT_FILES,
-            artifact_key=AGENT_PACKAGE_KEY,
+        surface = AgentSurface(
+            id="custom",
+            name="Custom source",
+            description="A custom source surface.",
+            entrypoint="src/pkg/agent_program.py:build_agent",
+            default_files={},
+            artifact_key=ARTIFACT_KEY,
+            components=(
+                SurfaceComponent(
+                    id="everything",
+                    name="Everything",
+                    description="All files.",
+                    paths=("src/pkg/**",),
+                    validators=("path_allowed", "python_syntax", "entrypoint_exists"),
+                ),
+            ),
         )
 
         result = surface.validate_edits(
-            {"agent/agent_program.py": "def other() -> None:\n    pass\n"},
+            {"src/pkg/agent_program.py": "def other() -> None:\n    pass\n"},
             components=("everything",),
         )
 
         self.assertEqual(result.edits, {})
-        self.assertIn("agent/agent_program.py", result.rejected)
+        self.assertIn("src/pkg/agent_program.py", result.rejected)
 
     def test_python_validator_rejects_invalid_python(self) -> None:
-        surface = python_agent_surface(
-            default_files=DEFAULT_FILES,
-            artifact_key=AGENT_PACKAGE_KEY,
+        surface = AgentSurface(
+            id="custom",
+            name="Custom source",
+            description="A custom source surface.",
+            entrypoint="src/pkg/prompts.py",
+            default_files={},
+            artifact_key=ARTIFACT_KEY,
+            components=(
+                SurfaceComponent(
+                    id="prompts",
+                    name="Prompts",
+                    description="Prompt files.",
+                    paths=("src/pkg/prompts.py",),
+                ),
+            ),
         )
 
         result = surface.validate_edits(
-            {"agent/prompts.py": "def ("},
+            {"src/pkg/prompts.py": "def ("},
             components=("prompts",),
         )
 
-        self.assertIn("agent/prompts.py", result.rejected)
+        self.assertIn("src/pkg/prompts.py", result.rejected)
 
-    def test_artifacts_from_version_strip_version_root(self) -> None:
-        surface = python_agent_surface(
-            default_files=DEFAULT_FILES,
-            artifact_key=AGENT_PACKAGE_KEY,
+    def test_artifacts_from_version_keep_surface_paths(self) -> None:
+        surface = AgentSurface(
+            id="custom",
+            name="Custom source",
+            description="A custom source surface.",
+            entrypoint="src/pkg/__init__.py",
+            default_files={"src/pkg/__init__.py": "VALUE = 1\n"},
+            artifact_key=ARTIFACT_KEY,
+            components=(
+                SurfaceComponent(
+                    id="everything",
+                    name="Everything",
+                    description="All files.",
+                    paths=("src/pkg/**",),
+                ),
+            ),
         )
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp)
@@ -224,10 +353,8 @@ class AgentSurfaceTest(unittest.TestCase):
 
             artifacts = surface.artifacts_from_version(Version(version.dir))
 
-        payload = json.loads(artifacts[AGENT_PACKAGE_KEY].decode("utf-8"))
-        self.assertIn("agent_program.py", payload)
-        self.assertIn("prompts.py", payload)
-        self.assertNotIn("agent/agent_program.py", payload)
+        payload = json.loads(artifacts[ARTIFACT_KEY].decode("utf-8"))
+        self.assertIn("src/pkg/__init__.py", payload)
 
     def test_agent_surface_rejects_unsafe_artifact_keys(self) -> None:
         for artifact_key in ("", "/tmp/agent.json", "../agent.json"):
@@ -248,25 +375,6 @@ class AgentSurfaceTest(unittest.TestCase):
                                 paths=("safe.py",),
                             ),
                         ),
-                    )
-
-    def test_python_agent_surface_rejects_unsafe_default_files(self) -> None:
-        for path in ("", "/tmp/agent_program.py", "../agent_program.py"):
-            with self.subTest(path=path):
-                with self.assertRaises(ValueError):
-                    python_agent_surface(
-                        default_files={path: "x = 1\n"},
-                        artifact_key=AGENT_PACKAGE_KEY,
-                    )
-
-    def test_python_agent_surface_rejects_unsafe_version_roots(self) -> None:
-        for version_root in ("", "/tmp", "../agent"):
-            with self.subTest(version_root=version_root):
-                with self.assertRaises(ValueError):
-                    python_agent_surface(
-                        default_files=DEFAULT_FILES,
-                        artifact_key=AGENT_PACKAGE_KEY,
-                        version_root=version_root,
                     )
 
 

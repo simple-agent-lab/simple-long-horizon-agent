@@ -6,10 +6,10 @@ import unittest
 from pathlib import Path
 
 from simple_agent_lab.evals import RESULT_KEY, FakeBackend, LaunchSpec, LocalDirStore
-from simple_agent_lab.evals.protocols import AGENT_PACKAGE_KEY, RunSpec
+from simple_agent_lab.evals.protocols import RunSpec
 from simple_agent_lab.evolution.components.rollout import rollout_from_suite
 from simple_agent_lab.evolution.kernel import store
-from simple_agent_lab.evolution.surface import python_agent_surface
+from simple_agent_lab.evolution.surface import AgentSurface, SurfaceComponent
 from simple_agent_lab.evolution.types import Manifest, Slice
 
 
@@ -33,9 +33,23 @@ class RolloutFromSuiteTest(unittest.TestCase):
             root = Path(tmp)
             workspace = root / "evolution"
             runs_root = root / "runs"
-            surface = python_agent_surface(
-                default_files={"agent_program.py": "def build_agent(**kwargs): pass\n"},
-                artifact_key=AGENT_PACKAGE_KEY,
+            surface = AgentSurface(
+                id="demo_source",
+                name="Demo source",
+                description="Demo source tree.",
+                entrypoint="src/demo/agent_program.py:build_agent",
+                default_files={
+                    "src/demo/agent_program.py": "def build_agent(**kwargs): pass\n"
+                },
+                artifact_key="input/source.json",
+                components=(
+                    SurfaceComponent(
+                        id="everything",
+                        name="Everything",
+                        description="All demo source.",
+                        paths=("src/demo/**",),
+                    ),
+                ),
             )
             version = store.stage(
                 workspace,
@@ -61,9 +75,9 @@ class RolloutFromSuiteTest(unittest.TestCase):
             runs = rollout(version, Slice("train", ({"instance_id": "i1"},)))
 
             self.assertEqual(len(runs), 1)
-            staged = runs[0].dir / AGENT_PACKAGE_KEY
+            staged = runs[0].dir / "input/source.json"
             payload = json.loads(staged.read_text(encoding="utf-8"))
-            self.assertIn("agent_program.py", payload)
+            self.assertIn("src/demo/agent_program.py", payload)
             self.assertTrue(runs[0].ok)
 
 

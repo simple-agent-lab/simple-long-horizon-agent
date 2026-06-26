@@ -19,13 +19,11 @@ from pathlib import Path
 from typing import Any
 
 from recipes import swebench_reward as shared_reward
-from simple_agent_lab.evals.protocols import AGENT_PACKAGE_KEY
 from simple_agent_lab.evolution.types import Run, Slice, Version
 from simple_agent_lab.trace.jsonl import read_jsonl, write_jsonl
 
 DEFAULT_DATASET = "princeton-nlp/SWE-bench_Verified"
 DEFAULT_MODEL_NAME = "dgm-swebench"
-AGENT_PREFIX = "agent/"
 EVOLVING_CONTAINER_MODULE = "simple_agent_lab.evals.suites.swebench.evolving"
 OPENAI_AUTH_ENV = "OPENAI_AUTH_TOKEN"
 OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
@@ -37,99 +35,6 @@ DIAGNOSTIC_STATUSES = (
     "missing_result",
     "scoring_failed",
 )
-
-_AGENT_PROGRAM = '''\
-"""DGM SWE-bench coding agent scaffold.
-
-This package is intentionally small: evolve prompts, patch-review heuristics,
-and tool guidance before changing the agent construction path.
-"""
-
-from __future__ import annotations
-
-from pathlib import Path
-
-from prompts import build_system_prompt
-from review import review_patch
-from simple_agent_lab.agents.starter import make_bash_agent
-from simple_agent_lab.core import Agent
-from simple_agent_lab.llm import Provider
-from tools import tool_guidance
-
-
-def build_agent(*, provider: Provider, cwd: Path, base_system_prompt: str) -> Agent:
-    system_prompt = build_system_prompt(
-        base_system_prompt,
-        review_guidance=review_patch(),
-        tool_guidance=tool_guidance(),
-    )
-    return make_bash_agent(
-        provider=provider,
-        cwd=cwd,
-        name="dgm_swebench_agent",
-        system_prompt=system_prompt,
-    )
-'''
-
-_PROMPTS = '''\
-"""Prompt helpers for the DGM SWE-bench agent."""
-
-from __future__ import annotations
-
-
-PATCH_DISCIPLINE = """\\
-Work like a careful maintainer:
-- reproduce or inspect the failing behavior first when possible;
-- make the smallest code change that addresses the root cause;
-- avoid broad rewrites, generated files, and unrelated style churn;
-- run targeted tests or explain why they are unavailable;
-- leave the final answer focused on changed files and verification.
-"""
-
-
-def build_system_prompt(
-    base_system_prompt: str,
-    *,
-    review_guidance: str,
-    tool_guidance: str,
-) -> str:
-    sections = [
-        base_system_prompt.strip(),
-        PATCH_DISCIPLINE.strip(),
-        review_guidance.strip(),
-        tool_guidance.strip(),
-    ]
-    return "\\n\\n".join(section for section in sections if section)
-'''
-
-_REVIEW = '''\
-"""Lightweight patch-review guidance for the DGM SWE-bench agent."""
-
-from __future__ import annotations
-
-
-def review_patch() -> str:
-    return """\\
-Before finishing, review the diff for:
-- whether the patch touches only files needed for the reported bug;
-- whether the changed behavior is covered by a focused test or smoke check;
-- whether import errors, syntax errors, and missing dependencies are likely.
-"""
-'''
-
-_TOOLS = '''\
-"""Tool-use guidance for the DGM SWE-bench agent."""
-
-from __future__ import annotations
-
-
-def tool_guidance() -> str:
-    return """\\
-Use shell commands to inspect files and run narrow tests. Prefer search and
-small file reads over dumping large logs. When a test is expensive, run the
-smallest command that exercises the suspected behavior.
-"""
-'''
 
 
 @dataclass(frozen=True)
@@ -328,6 +233,7 @@ def build_swebench_rollout(
     uv_binary: str | Path | None = None,
     in_env_scoring: bool = False,
     version_artifacts: Any = None,
+    candidate_pythonpath: Sequence[str] = (),
     container_module: str | None = None,
 ):
     """Build the DGM rollout on the mature SWE-bench Suite path.
@@ -362,6 +268,7 @@ def build_swebench_rollout(
         concurrency=concurrency,
         run_kwargs=extra_kwargs,
         version_artifacts=version_artifacts,
+        candidate_pythonpath=candidate_pythonpath,
     )
 
 
@@ -451,6 +358,12 @@ def run_diagnostic(run: Run) -> dict[str, Any]:
     if bool(agent_status.get("used_fallback")):
         error = str(agent_status.get("error") or "")
         loaded = bool(agent_status.get("loaded"))
+        if _missing_legacy_agent_package(error):
+            return {
+                "status": "completed",
+                "reward": reward_from_result(result),
+                "message": "",
+            }
         if "container exited" in error or "before writing a result" in error:
             status = "container_failed"
         elif loaded:
@@ -521,53 +434,6 @@ def _failure_message(run: Run) -> str:
     )
 
 
-def dgm_default_agent_package() -> dict[str, str]:
-    """Return DGM's moderate evolvable agent package scaffold."""
-
-    return {
-        "agent_program.py": _AGENT_PROGRAM,
-        "prompts.py": _PROMPTS,
-        "review.py": _REVIEW,
-        "tools.py": _TOOLS,
-    }
-
-
-def seed_files(*, model: str, api_kind: str, base_url: str = "") -> dict[str, str]:
-    """Return DGM's seed version files for an evolvable SWE-bench agent package."""
-
-    provider: dict[str, Any] = {
-        "api": api_kind,
-        "model": model,
-        "api_key_env": OPENAI_AUTH_ENV,
-    }
-    if base_url:
-        provider["base_url"] = base_url
-    files: dict[str, str] = {
-        "README.md": "# Real SWE-bench self-evolving agent\n",
-        "provider.json": json.dumps(provider, indent=2, sort_keys=True) + "\n",
-    }
-    for name, text in dgm_default_agent_package().items():
-        files[AGENT_PREFIX + name] = text
-    return files
-
-
-def package_files(version: Version) -> dict[str, str]:
-    """Collect DGM's versioned agent package, or the neutral default."""
-
-    out: dict[str, str] = {}
-    for name in version.files():
-        if name.startswith(AGENT_PREFIX):
-            out[name[len(AGENT_PREFIX) :]] = version.read(name)
-    return out or dgm_default_agent_package()
-
-
-def version_package_artifacts(version: Version) -> dict[str, bytes]:
-    """Stage DGM's versioned package for the in-container SWE-bench agent."""
-
-    payload = json.dumps(package_files(version), ensure_ascii=False)
-    return {AGENT_PACKAGE_KEY: payload.encode("utf-8")}
-
-
 def reward_from_result(result: Mapping[str, Any]) -> float:
     """Extract the DGM train reward from a SWE-bench ``result.json`` mapping."""
 
@@ -585,6 +451,15 @@ def swebench_reward(run: Run) -> dict[str, float]:
         0.0 if status in {"agent_load_failed", "agent_build_failed"} else 1.0
     )
     return scores
+
+
+def _missing_legacy_agent_package(error: str) -> bool:
+    lowered = error.lower()
+    return "agent_package.json" in lowered and (
+        "filenotfounderror" in lowered
+        or "no such file" in lowered
+        or "not found" in lowered
+    )
 
 
 def apply_eval_score(run: Run, eval_row: Mapping[str, Any]) -> None:

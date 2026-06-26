@@ -1,4 +1,4 @@
-"""Editable Python-agent package used by self-evolving recipes.
+"""Legacy Python-agent package loader for eval compatibility.
 
 A package is a mapping of relative path -> file text. ``default_agent_package()``
 reproduces the default bash agent, so an unedited package is behavior-neutral.
@@ -6,8 +6,8 @@ reproduces the default bash agent, so an unedited package is behavior-neutral.
 returns its ``build_agent`` callable (or ``None`` if the code is invalid).
 
 This helper is benchmark-neutral: suites decide how to stage the package into a
-run, while the package itself is just the editable Python agent program behind
-``python_agent_surface``.
+run, while the package itself is just a compact wrapper-agent program. New
+self-evolving recipes should prefer the source-tree `AgentSurface`.
 """
 
 from __future__ import annotations

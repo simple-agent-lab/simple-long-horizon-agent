@@ -109,16 +109,17 @@ parents are explored and *how many* candidates run at once.
   (`evolution/components/repo_strategy.py`) — the source-tree meta-strategy used
   by the simple recipe: it copies the repo, overlays the parent version's
   `src/simple_agent_lab/**` files, writes a compact `SELF_EVOLUTION_CONTEXT.md`
-  briefing, lets a bash-capable meta-agent inspect and edit the temporary copy,
-  and converts changed Python source files into a `Proposal`.
+  briefing plus optional `self_evolution/` evidence files, lets a bash-capable
+  meta-agent inspect and edit the temporary copy, and converts validated source
+  changes into a `Proposal`.
 - `recipes.dgm.evolve.dgm_agentic_strategy(...)` — the DGM recipe's agentic
-  self-improvement strategy: select a parent from the archive, materialize its
-  `agent/` package, load that package as a SAL agent, run it on a
-  self-improvement task, and turn `agent/` diffs into a child proposal.
+  self-improvement strategy: select a parent from the archive, run the
+  source-tree meta-agent against that parent with DGM archive context, and turn
+  validated `src/simple_agent_lab/` diffs into a child proposal.
 - `recipes.ahe.strategy.ahe_agent_strategy(...)` — the AHE recipe's
   role-separated evolve-agent strategy: run analysis, stage the analysis and
-  harness files into a workspace, let a SAL evolve agent edit `harness/`, and
-  write `change_manifest.json`.
+  selected source-tree surface into a workspace, let a SAL evolve agent edit the
+  selected `AgentSurface`, and write `change_manifest.json`.
 - `model_program_strategy(*, provider, prefix="agent/", system_prompt, parent_selection="current", parent_selector=None)`
   (`evolution/components/strategy.py`) — a lower-level model-driven wrapper
   strategy: an LLM rewrites whole files under a path prefix (Python is
@@ -165,7 +166,8 @@ For the simple path, choose these pieces:
   components, and how a version is staged into each run. The simple recipe's
   `source_tree` surface seeds current `src/simple_agent_lab/**/*.py` files.
 - editable components — the surface slices the strategy may change, such as
-  `agent_program`, `prompts`, `tool_policy`, `memory_policy`, or `everything`.
+  `agent_runtime`, `tools`, `skills`, `memory`, `compression`, `llm_boundary`,
+  or `everything`.
 - `InstanceSet` — the frozen train slice loaded from the JSONL path named in
   config.
 - `evolution.algorithm` — currently `simple` in the generic builder. DGM's
@@ -232,7 +234,7 @@ src/simple_agent_lab/evolution/    # substrate (benchmark-agnostic)
   kernel/        store, log, loop   # versions, decision log, the loop + guarantees
   components/    reward, criterion, rollout, strategy
   surface.py, source_tree.py        # editable surfaces + source-tree staging
-  agent_package.py                  # lower-level wrapper-package test support
+  agent_package.py                  # legacy wrapper-package compatibility loader
 evals/swebench/suite.py             # SWE-bench benchmark interface
 src/simple_agent_lab/evals/suites/swebench/evolving.py
                                     # SWE-bench container hook for staged candidates

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import tempfile
+import fnmatch
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, cast
@@ -36,12 +37,12 @@ MAX_PRIOR_DECISIONS = 5
 MAX_DECISION_CHARS = 240
 MAX_EVIDENCE_CHARS = 320
 
-AHE_EVOLVE_TASK = """Improve this AHE harness.
+AHE_EVOLVE_TASK = """Improve this AHE source-tree surface.
 
 Read runs/iteration_001/input/analysis/overview.md and index.json first, then
-make one focused edit under harness/. Write change_manifest.json at the workspace
-root describing the component-level change. Do not edit files outside harness/
-except change_manifest.json.
+make one focused edit to the selected AgentSurface. Write change_manifest.json
+at the workspace root describing the component-level change. Do not edit files
+outside the editable surface except change_manifest.json.
 """
 
 
@@ -54,7 +55,9 @@ def ahe_model_strategy(
     complete_fn: Callable[[LLMRequest], Any] = complete,
     analyzer_fn: Callable[..., AnalysisResult] = analyze_runs,
     max_tokens: int = 6000,
+    repo_root: object | None = None,
 ) -> Callable[[Context], Proposal | None]:
+    _ = repo_root
     surface_brief = ""
     if surface is not None:
         surface_brief = "\n\n" + surface.prompt_brief(components=editable_components)
@@ -76,7 +79,7 @@ def ahe_model_strategy(
             run_scores=run_scores,
         )
 
-        current_files = _read_harness_files(ctx.current)
+        current_files = _read_surface_files(ctx.current, surface, editable_components)
         user_prompt = _build_user_prompt(
             analysis=analysis,
             round_index=round_index,
@@ -142,7 +145,7 @@ def ahe_model_strategy(
             edits=edits,
             note=note,
             evidence=evidence,
-            kind="ahe_harness",
+            kind="ahe_source_tree",
         )
 
     return strategy
@@ -158,9 +161,11 @@ def ahe_agent_strategy(
     analyzer_fn: Callable[..., AnalysisResult] = analyze_runs,
     max_turns: int = 20,
     task: str = AHE_EVOLVE_TASK,
+    repo_root: object | None = None,
 ) -> Callable[[Context], Proposal | None]:
     """Run an AHE-style evolve agent over a materialized harness workspace."""
 
+    _ = repo_root
     build_agent = agent_builder or make_bash_agent
 
     def strategy(ctx: Context) -> Proposal | None:
@@ -219,7 +224,7 @@ def ahe_agent_strategy(
                 base_hash=ctx.current.hash,
                 note="AHE evolve agent harness edit",
                 evidence=evidence,
-                kind="ahe_harness",
+                kind="ahe_source_tree",
             )
             if not proposal.edits:
                 return None
@@ -250,7 +255,7 @@ def _stage_ahe_evidence_workspace(
         f"- Baseline runs: {len(ctx.runs)}",
         f"- Prior decisions: {len(ctx.decisions)}",
         "",
-        "Only edits under harness/ become candidate changes.",
+        "Only edits inside the selected AgentSurface become candidate changes.",
     ]
     (workspace / "AHE_CONTEXT.md").write_text(
         "\n".join(context_lines) + "\n", encoding="utf-8"
@@ -269,7 +274,7 @@ def _ahe_evolve_system_prompt(
 ) -> str:
     return (
         "You are an AHE Evolve Agent. Use bash to inspect the evidence workspace, "
-        "edit the harness, and write change_manifest.json.\n\n"
+        "edit the selected AgentSurface, and write change_manifest.json.\n\n"
         + surface.prompt_brief(components=editable_components)
     )
 
@@ -303,12 +308,26 @@ def _read_knowledge(knowledge_paths: Sequence[str]) -> tuple[str, ...]:
     return tuple(texts[:MAX_KNOWLEDGE_SNIPPETS])
 
 
-def _read_harness_files(version: Version) -> tuple[tuple[str, str], ...]:
+def _read_surface_files(
+    version: Version,
+    surface: AgentSurface,
+    editable_components: Sequence[str],
+) -> tuple[tuple[str, str], ...]:
+    selected = tuple(editable_components) or tuple(
+        component.id for component in surface.components
+    )
+    allowed_patterns = tuple(
+        pattern
+        for component_id in selected
+        for pattern in surface.component(component_id).paths
+    )
     files = []
     for name in sorted(version.files()):
-        if not name.startswith("harness/"):
+        if name == "provider.json":
             continue
-        if name == "harness/provider.json":
+        if any(fnmatch.fnmatch(name, pattern) for pattern in surface.excluded_paths):
+            continue
+        if not any(fnmatch.fnmatch(name, pattern) for pattern in allowed_patterns):
             continue
         files.append((name, _clip_text(version.read(name), MAX_HARNESS_FILE_CHARS)))
     if len(files) > MAX_HARNESS_FILES:
@@ -343,7 +362,7 @@ def _build_user_prompt(
             f"Analysis index path: {analysis.index_path}",
             analysis_index,
             knowledge_block,
-            "Current harness files:\n" + files_block,
+            "Current editable files:\n" + files_block,
             "Prior decisions:\n" + decision_block,
             "Return JSON with keys note, evidence, manifest, edits.",
         ]

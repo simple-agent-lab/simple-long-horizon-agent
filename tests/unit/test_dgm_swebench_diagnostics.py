@@ -76,6 +76,25 @@ class DgmSwebenchDiagnosticsTest(unittest.TestCase):
 
         self.assertEqual(diagnostic["status"], "agent_load_failed")
 
+    def test_missing_legacy_agent_package_marker_is_completed_for_source_tree(self):
+        run = self._run(
+            "case",
+            {
+                "resolved": True,
+                "score": 1.0,
+                "agent_package": {
+                    "loaded": False,
+                    "used_fallback": True,
+                    "error": ("FileNotFoundError: input/agent_package.json not found"),
+                },
+            },
+        )
+
+        diagnostic = swebench.run_diagnostic(run)
+
+        self.assertEqual(diagnostic["status"], "completed")
+        self.assertEqual(diagnostic["reward"], 1.0)
+
     def test_container_failure_is_distinct_when_result_exists_only_as_fallback_marker(
         self,
     ):

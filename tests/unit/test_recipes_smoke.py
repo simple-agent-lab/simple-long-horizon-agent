@@ -410,10 +410,10 @@ run:
 suite:
   name: swebench
 surface:
-  name: ahe_harness_surface
+  name: source_tree
   editable_components: [everything]
-  artifact_key: input/agent_package.json
-  default: ahe_harness_package
+  artifact_key: source_tree
+  default: current_source_tree
 instances:
   train:
     id: train
@@ -467,7 +467,7 @@ evaluation:
         self.assertIn("dry-run", result.stdout)
         self.assertIn("run id: override-ahe", result.stdout)
         self.assertIn("suite: swebench", result.stdout)
-        self.assertIn("surface: ahe_harness_surface", result.stdout)
+        self.assertIn("surface: source_tree", result.stdout)
         self.assertIn("editable components: everything", result.stdout)
 
     def test_ahe_recipe_default_config_runs_dry_run(self):
@@ -682,11 +682,11 @@ dgm:
         self.assertEqual(self.mod._score({}), 0.0)
         self.assertEqual(self.mod._score({"scores": "bad"}), 0.0)
 
-    def test_dgm_prompt_exposes_moderate_agent_package_surface(self):
-        self.assertIn("agent/prompts.py", self.mod.SYSTEM_PROMPT)
-        self.assertIn("agent/review.py", self.mod.SYSTEM_PROMPT)
-        self.assertIn("agent/tools.py", self.mod.SYSTEM_PROMPT)
-        self.assertIn("bounded", self.mod.SYSTEM_PROMPT.lower())
+    def test_dgm_prompt_exposes_source_tree_surface(self):
+        self.assertIn("src/simple_agent_lab", self.mod.SYSTEM_PROMPT)
+        self.assertIn("agent runtime", self.mod.SYSTEM_PROMPT)
+        self.assertIn("tools", self.mod.SYSTEM_PROMPT)
+        self.assertIn("memory", self.mod.SYSTEM_PROMPT)
 
     def test_dgm_admission_rejects_agent_package_failure_diagnostics(self):
         criterion = self.mod.dgm_admission_criterion("reward")

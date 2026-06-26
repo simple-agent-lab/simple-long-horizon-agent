@@ -1,7 +1,7 @@
 # SAL Framework Guide for AHE
 
 Use this note as a local working guide when editing the AHE recipe or related
-surface, analyzer, and ledger code.
+source-tree surface, analyzer, and ledger code.
 
 ## Purpose
 
@@ -11,7 +11,8 @@ keeping AHE-specific observability in recipe-local code and artifacts.
 
 ## Core pieces
 
-- `recipes/ahe/surface.py` defines `ahe_harness_surface`.
+- `simple_agent_lab.evolution.source_tree.source_tree_agent_surface` defines the
+  editable source-tree surface used by AHE.
 - `recipes/ahe/strategy.py` builds the model strategy.
 - `recipes/ahe/analyzer.py` creates the pre-proposal analysis artifacts.
 - `recipes/ahe/ledger.py` writes the AHE run ledger.
@@ -19,13 +20,13 @@ keeping AHE-specific observability in recipe-local code and artifacts.
 
 ## Surface guidance
 
-- Treat `ahe_harness_surface` as the editable contract.
-- Keep the component names stable unless the code changes first.
+- Treat the selected `AgentSurface` as the editable contract.
+- Keep shared source-tree component names stable unless the code changes first.
 - Prefer component-level edits over whole-tree churn when the surface can
   express the change.
-- When adding files, make sure they land inside the surface's allowed harness
-  root.
-- Preserve the entrypoint check and the syntax and path validators.
+- When adding files, make sure they land inside the selected surface under
+  `src/simple_agent_lab/`.
+- Preserve the syntax, path, and component validators.
 
 ## Analyzer guidance
 
@@ -59,7 +60,7 @@ keeping AHE-specific observability in recipe-local code and artifacts.
 
 ## What to check after edits
 
-- The recipe still registers `swebench`, `ahe_harness_surface`, `local_docker`,
+- The recipe still registers `swebench`, `source_tree`, `local_docker`,
   `local_dir`, and `ahe_model`.
 - The analysis artifacts still land under the round analysis directory.
 - The ledger still writes into `ahe/`.
@@ -87,4 +88,3 @@ Less favorable changes usually look like:
 AHE here is a teaching and research recipe.
 Keep the documentation honest, the artifacts inspectable, and the component
 boundaries visible.
-

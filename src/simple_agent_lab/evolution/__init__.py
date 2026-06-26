@@ -30,7 +30,6 @@ from simple_agent_lab.evolution.surface import (
     AgentSurface,
     SurfaceComponent,
     ValidatedEdits,
-    python_agent_surface,
 )
 from simple_agent_lab.evolution.types import (
     Context,
@@ -59,7 +58,6 @@ __all__ = [
     "AgentSurface",
     "SurfaceComponent",
     "ValidatedEdits",
-    "python_agent_surface",
     "Context",
     "Proposal",
     "Decision",
