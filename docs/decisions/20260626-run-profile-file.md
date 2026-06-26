@@ -13,7 +13,7 @@ Launching one agent-on-a-bench arm reads from two surfaces: `.env` (the provider
 / flavor / workflow / compression env knobs, forwarded into the container by each
 harness `container_environment()` / passthrough list) and the `run_*_suite.py`
 argparse flags (run-shape: instance, max-turns, image, cpus/memory, network,
-dataset). The `run_swebench_arms.sh` driver glues both together in bash. An arm
+dataset). Operators glue both together by hand. An arm
 is therefore real but implicit — to reproduce "PDR on SWE-bench Pro at 200
 turns" you must remember a flavor env var, a compression ratio, and a handful of
 flags, spread across a shell history and a `.env`.
@@ -76,7 +76,7 @@ working unchanged; `--profile` only pre-seeds the two surfaces.
 ## Consequences
 
 - A runnable arm is one committed, reviewable file (`runs/profiles/<arm>.json`);
-  `run_swebench_arms.sh` arms can point at profiles instead of re-encoding flag
+  the `run_*_suite.py` runners can point at profiles instead of re-encoding flag
   strings.
 - No new dependency, no new schema for the knobs, no precedence table: the
   profile is a thin bundle over `.env` (fill-gaps) and the CLI (overridable
