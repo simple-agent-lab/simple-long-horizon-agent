@@ -58,9 +58,9 @@ directly.
 
 Add PostTrainBench using the existing eval-suite shape:
 
-- `evals/posttrainbench/`: host-side adapter, config loading, command helpers,
+- host-side evals/posttrainbench package: adapter, config loading, command helpers,
   dataset/task metadata helpers, and README.
-- `src/simple_agent_lab/evals/suites/posttrainbench/`: lightweight runtime half
+- package runtime half under `src/simple_agent_lab/evals/suites`: lightweight runtime half
   shipped with the package. Keep imports to stdlib plus `simple_agent_lab`.
 - `runs/run_posttrainbench_*.py` or `.sh`: small reproducible entrypoints for
   local smoke, DevBoxS probe, Runpod probe, and later full runs.
