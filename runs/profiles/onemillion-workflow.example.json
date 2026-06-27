@@ -1,0 +1,15 @@
+{
+  "_comment": "OneMillion-Bench through a multi-agent workflow (workflow: reflection | parallel | pdr | single). Copy to onemillion-workflow.json and run: uv run python runs/run_onemillion_workflow.py <case-id> --dataset datasets/OneMillion-Bench/<domain> --profile runs/profiles/onemillion-workflow.json. Generator + judge creds stay in .env.",
+  "env": {
+    "_comment": "Catalogued knobs read by the in-process generator (see docs/agent-native/configuration.md). Applied fill-the-gaps: a real export still wins.",
+    "REASONING_EFFORT": "high"
+  },
+  "run": {
+    "_comment": "run_onemillion_workflow.py long options (without --). The workflow's shape (reflection-rounds, parallel-workers, timeout) maps to OMB_* inside the run. Defaults; an explicit CLI flag overrides.",
+    "workflow": "reflection",
+    "reflection-rounds": 2,
+    "timeout": 600,
+    "concurrency": 8,
+    "max-turns": 1
+  }
+}

@@ -40,6 +40,7 @@ from evals.onemillion.suite import OneMillionSuite  # noqa: E402
 from simple_agent_lab.evals import (  # noqa: E402
     LocalDirStore,
     LocalProcessBackend,
+    parse_with_profile,
     run_dataset,
     run_suite_instance,
 )
@@ -52,6 +53,15 @@ def _build_parser() -> argparse.ArgumentParser:
         nargs="?",
         default=None,
         help="Case id (e.g. case_2860). Omit with --all to run the whole dataset.",
+    )
+    parser.add_argument(
+        "--profile",
+        default=None,
+        help=(
+            "Path to a JSON run-profile (its `env` fills env gaps, its `run` "
+            "flags are defaults overridable by explicit flags). See ADR "
+            "run-profile-file."
+        ),
     )
     parser.add_argument(
         "--dataset",
@@ -80,7 +90,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    args = _build_parser().parse_args()
+    args = parse_with_profile(_build_parser())
 
     # Load .env into the process so both the generator (provider_env) and the
     # judge (read from os.environ by the in-process evaluate hook) are populated.

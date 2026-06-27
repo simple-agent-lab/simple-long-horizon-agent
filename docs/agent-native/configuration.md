@@ -9,9 +9,10 @@ re-declaring the string. See ADR `consolidate-provider-env` for why.
 ## Launching a run: the JSON run-profile (`--profile`)
 
 To launch one agent-on-a-bench arm from a single committed file instead of a
-remembered mix of exports and flags, pass `--profile PATH` to a run entry
-(`runs/run_swebench_suite.py`, `runs/run_programbench_suite.py`). A profile is a
-small JSON document with two sections (see ADR `run-profile-file`):
+remembered mix of exports and flags, pass `--profile PATH` to any run entry
+(`runs/run_swebench_suite.py`, `runs/run_programbench_suite.py`,
+`runs/run_onemillion_suite.py`, `runs/run_onemillion_workflow.py`). A profile is
+a small JSON document with two sections (see ADR `run-profile-file`):
 
 ```json
 {
@@ -27,8 +28,10 @@ small JSON document with two sections (see ADR `run-profile-file`):
 
 It is a *bundle* of the two existing surfaces (`.env` + CLI), not a new schema,
 so there is no second source of truth. Keep secrets in `.env`; commit only
-`runs/profiles/*.example.json` (the rest are gitignored). See
-`runs/profiles/swebench-pdr.example.json`.
+`runs/profiles/*.example.json` (the rest are gitignored). Each benchmark ships a
+default example to copy and edit: `swebench-pdr.example.json`,
+`programbench.example.json`, `onemillion.example.json`, and
+`onemillion-workflow.example.json`.
 
 ## Boundary rule (where to declare a new env var)
 

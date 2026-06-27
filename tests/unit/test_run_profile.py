@@ -125,5 +125,56 @@ class RunProfileTest(unittest.TestCase):
             load_run_profile(path)
 
 
+# Committed example profiles → the run script whose flags their `run` section
+# targets. Every shipped *.example.json must be registered here, so a new
+# benchmark example forces a script mapping (and gets its run keys validated).
+ROOT = Path(__file__).resolve().parents[2]
+EXAMPLE_TO_SCRIPT = {
+    "swebench-pdr.example.json": "runs/run_swebench_suite.py",
+    "programbench.example.json": "runs/run_programbench_suite.py",
+    "onemillion.example.json": "runs/run_onemillion_suite.py",
+    "onemillion-workflow.example.json": "runs/run_onemillion_workflow.py",
+}
+
+
+def _parser_long_options(script: Path) -> set[str]:
+    """Load a run script by path and return its `--long-option` names."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(script.stem, script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    options: set[str] = set()
+    for action in module._build_parser()._actions:
+        options.update(s[2:] for s in action.option_strings if s.startswith("--"))
+    return options
+
+
+class ExampleProfilesTest(unittest.TestCase):
+    """Guard the shipped example profiles: shape valid + run keys real."""
+
+    def test_every_example_is_registered(self) -> None:
+        on_disk = {p.name for p in (ROOT / "runs/profiles").glob("*.example.json")}
+        self.assertEqual(
+            on_disk,
+            set(EXAMPLE_TO_SCRIPT),
+            "every runs/profiles/*.example.json must be registered in "
+            "EXAMPLE_TO_SCRIPT so its run keys get validated.",
+        )
+
+    def test_examples_load_and_run_keys_match_parser(self) -> None:
+        for name, script in EXAMPLE_TO_SCRIPT.items():
+            with self.subTest(example=name):
+                profile = load_run_profile(ROOT / "runs/profiles" / name)
+                options = _parser_long_options(ROOT / script)
+                unknown = [key for key in profile.run if key not in options]
+                self.assertEqual(
+                    unknown,
+                    [],
+                    f"{name} run keys not accepted by {script}: {unknown}",
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
