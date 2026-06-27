@@ -50,10 +50,9 @@ from .starter import (
     make_agent,
 )
 
-# The compression env names + defaults now live in `simple_agent_lab.config`
-# (group agent.compression). This fixed value is the threshold fallback used
-# only when the provider's context window is unknown, so it stays here with the
-# logic that needs it rather than as an env default.
+# The threshold fallback used only when the provider's context window is
+# unknown, so it stays here with the logic that needs it rather than as an
+# env knob in `simple_agent_lab.config`.
 DEFAULT_AGENT_COMPRESSION_FALLBACK_THRESHOLD_TOKENS = 80_000
 
 WorkflowRunner = Callable[[str], WorkflowResult]

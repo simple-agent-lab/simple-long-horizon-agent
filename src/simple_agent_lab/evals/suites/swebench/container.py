@@ -74,8 +74,7 @@ from .patch import (
 )
 
 # Back-compatible flavor-name aliases for older scripts/tests. The source of
-# truth lives in `simple_agent_lab.agent_flavors`. (The workflow/repo-language
-# env names now live in `simple_agent_lab.config`; callers read them there.)
+# truth lives in `simple_agent_lab.agent_flavors`.
 SIMPLE_FLAVORS = SIMPLE_AGENT_FLAVORS
 ARM_FLAVORS = WORKFLOW_AGENT_FLAVORS
 ALL_FLAVORS = AGENT_FLAVORS

@@ -5,9 +5,6 @@ import os
 AGENT_FLAVOR_ENV = "AGENT_FLAVOR"
 DEFAULT_AGENT_FLAVOR = "bash"
 
-# (Agent-level compression knob names now live in `simple_agent_lab.config`,
-# group agent.compression — the single env-config registry.)
-
 # One-turn/multi-turn agents that the generic in-container runner can build
 # directly from an AgentSpec.
 SIMPLE_AGENT_FLAVORS = ("bash", "bash_task", "bash_task_read", "bash_skills")
