@@ -34,9 +34,9 @@ uv run python runs/run_bench.py all --manifest runs/bench-manifest.json
 bash runs/dev/run_ci.sh
 bash runs/dev/run_docs_lint.sh
 bash runs/demos/run_bash_agent_demo.sh
-bash runs/swebench/run_swebench_verified.sh
-bash runs/swebench/run_swebench_multilingual.sh
-bash runs/swebench/run_swebench_pro.sh
+bash runs/swebench/run_swebench.sh
+bash runs/swebench/run_swebench.sh --variant multilingual
+bash runs/swebench/run_swebench.sh --variant pro
 bash runs/swebench/eval_swebench.sh
 ```
 
@@ -86,16 +86,16 @@ instance, or the full dataset split. Full-split runs use `--all` and can limit
 Docker/model concurrency with `--parallel N`:
 
 ```bash
-bash runs/swebench/run_swebench_verified.sh
-bash runs/swebench/run_swebench_verified.sh sympy__sympy-23824
-bash runs/swebench/run_swebench_verified.sh --all --parallel 4
+bash runs/swebench/run_swebench.sh
+bash runs/swebench/run_swebench.sh sympy__sympy-23824
+bash runs/swebench/run_swebench.sh --all --parallel 4
 
-bash runs/swebench/run_swebench_multilingual.sh
-bash runs/swebench/run_swebench_multilingual.sh --all --parallel 4
+bash runs/swebench/run_swebench.sh --variant multilingual
+bash runs/swebench/run_swebench.sh --variant multilingual --all --parallel 4
 
-bash runs/swebench/run_swebench_pro.sh
-bash runs/swebench/run_swebench_pro.sh instance_navidrome__navidrome-8e640bb8580affb7e0ea6225c0bbe240186b6b08
-bash runs/swebench/run_swebench_pro.sh --all --parallel 4
+bash runs/swebench/run_swebench.sh --variant pro
+bash runs/swebench/run_swebench.sh --variant pro instance_navidrome__navidrome-8e640bb8580affb7e0ea6225c0bbe240186b6b08
+bash runs/swebench/run_swebench.sh --variant pro --all --parallel 4
 ```
 
 SWE-bench Verified artifacts land under `evals/out/swebench/`; SWE-bench

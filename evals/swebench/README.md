@@ -47,7 +47,7 @@ API_KIND=openai-chat
 EOF
 
 # 4. Fetch an instance, build images, and run the agent
-bash runs/swebench/run_swebench_verified.sh sympy__sympy-23824
+bash runs/swebench/run_swebench.sh sympy__sympy-23824
 ```
 
 To enable MCP tools for the same instance, keep the provider settings in `.env`
@@ -55,7 +55,7 @@ and point `MCP_CONFIG` at a separate MCP server config:
 
 ```bash
 MCP_CONFIG=evals/swebench/mcp.example.json \
-  bash runs/swebench/run_swebench_verified.sh sympy__sympy-23824 3 mcp-smoke bash
+  bash runs/swebench/run_swebench.sh sympy__sympy-23824 3 mcp-smoke bash
 ```
 
 ## Docker Setup
@@ -86,7 +86,7 @@ Set the Docker socket for all subsequent commands:
 export DOCKER_HOST=unix://$HOME/.colima/default/docker.sock
 ```
 
-`runs/swebench/run_swebench_verified.sh` also probes
+`runs/swebench/run_swebench.sh` also probes
 `~/.docker/run/docker.sock` (Docker Desktop) and the Colima socket above when
 `DOCKER_HOST` is unset, so headless invocations from CI or chat sessions reach
 the right daemon without an explicit export.
@@ -267,7 +267,7 @@ Python Git MCP server inside the SWE-bench container:
 
 ```bash
 MCP_CONFIG=evals/swebench/mcp.example.json \
-  bash runs/swebench/run_swebench_verified.sh sympy__sympy-23824 3 mcp-smoke bash
+  bash runs/swebench/run_swebench.sh sympy__sympy-23824 3 mcp-smoke bash
 ```
 
 The example config is:
@@ -308,16 +308,16 @@ instance. Passing `--all` runs the full dataset split; use `--parallel N` to
 limit concurrent Docker/model runs:
 
 ```bash
-bash runs/swebench/run_swebench_verified.sh
-bash runs/swebench/run_swebench_verified.sh sympy__sympy-23824
-bash runs/swebench/run_swebench_verified.sh --all --parallel 4
+bash runs/swebench/run_swebench.sh
+bash runs/swebench/run_swebench.sh sympy__sympy-23824
+bash runs/swebench/run_swebench.sh --all --parallel 4
 
-bash runs/swebench/run_swebench_multilingual.sh
-bash runs/swebench/run_swebench_multilingual.sh --all --parallel 4
+bash runs/swebench/run_swebench.sh --variant multilingual
+bash runs/swebench/run_swebench.sh --variant multilingual --all --parallel 4
 
-bash runs/swebench/run_swebench_pro.sh
-bash runs/swebench/run_swebench_pro.sh instance_navidrome__navidrome-8e640bb8580affb7e0ea6225c0bbe240186b6b08
-bash runs/swebench/run_swebench_pro.sh --all --parallel 4
+bash runs/swebench/run_swebench.sh --variant pro
+bash runs/swebench/run_swebench.sh --variant pro instance_navidrome__navidrome-8e640bb8580affb7e0ea6225c0bbe240186b6b08
+bash runs/swebench/run_swebench.sh --variant pro --all --parallel 4
 ```
 
 The scripts keep each suite under its own flat output root. SWE-bench Verified
@@ -334,7 +334,7 @@ For a single instance with full control over arguments, call the run entry
 directly on an already-prepared instance JSONL:
 
 ```bash
-bash runs/swebench/run_swebench_verified.sh sympy__sympy-23824
+bash runs/swebench/run_swebench.sh sympy__sympy-23824
 # or, equivalently:
 uv run python runs/run_bench.py swebench sympy__sympy-23824 \
   --instance-json evals/out/swebench/instance_sympy__sympy-23824.jsonl \

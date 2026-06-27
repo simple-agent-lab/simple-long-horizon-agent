@@ -192,4 +192,4 @@ fi
 
 echo ""
 echo "Setup complete! Run the agent with:"
-echo "  bash runs/swebench/run_swebench_verified.sh $INSTANCE_ID"
+echo "  bash runs/swebench/run_swebench.sh $INSTANCE_ID"

@@ -22,8 +22,8 @@ evals/out/swebench_pro/
 ## Generating a Run
 
 ```bash
-bash runs/swebench/run_swebench_pro.sh
-bash runs/swebench/run_swebench_pro.sh --all --parallel 4
+bash runs/swebench/run_swebench.sh --variant pro
+bash runs/swebench/run_swebench.sh --variant pro --all --parallel 4
 ```
 
 ## File Sizes

@@ -58,7 +58,7 @@ through `evals/swebench/`.
 bash runs/swebench/setup_swebench_docker.sh sympy__sympy-23824
 
 # 2. Run the agent
-bash runs/swebench/run_swebench_verified.sh sympy__sympy-23824
+bash runs/swebench/run_swebench.sh sympy__sympy-23824
 ```
 
 Outputs land under `swebench/<run-id>/<instance-id>/out/`.

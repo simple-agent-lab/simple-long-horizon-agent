@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Run the agent on SWE-bench Verified through the Suite framework (ADR generic-containerized-eval-framework).
+# Run the agent on a SWE-bench variant through the Suite framework (ADR generic-containerized-eval-framework).
 #
 # Usage:
-#   bash runs/swebench/run_swebench_verified.sh                          # default: sympy__sympy-23824
-#   bash runs/swebench/run_swebench_verified.sh django__django-16379     # one custom instance
-#   bash runs/swebench/run_swebench_verified.sh --all --parallel 4       # full split, 4 at a time
+#   bash runs/swebench/run_swebench.sh [--variant verified|multilingual|pro] [INSTANCE_ID]
+#   bash runs/swebench/run_swebench.sh                                   # verified, default instance
+#   bash runs/swebench/run_swebench.sh django__django-16379             # verified, one instance
+#   bash runs/swebench/run_swebench.sh --variant pro --all --parallel 4 # pro, full split, 4 at a time
 #
 # Requires Docker, `uv sync --extra swebench`, and a .env with provider credentials.
 # Downloading uncached dataset records uses `datasets`.
@@ -14,26 +15,26 @@ cd "$(dirname "$0")/../.."
 source runs/lib/_python.sh
 source runs/lib/_swebench_uv.sh
 
-DATASET="princeton-nlp/SWE-bench_Verified"
-SPLIT="test"
-DEFAULT_INSTANCE_ID="sympy__sympy-23824"
-INSTANCE_DIR="evals/out/swebench"
-CONTAINER_RUN_ROOT="evals/out/swebench"
-PREDICTION_DIR="evals/out/swebench"
-MODEL_NAME="simple-agent-lab-verified"
-MAX_TURNS=150
-RUN_ID="verified-$(date +%Y%m%d-%H%M%S)"
+VARIANT="verified"
 RUN_ALL=0
 PARALLEL=1
 POSITIONAL=()
 FETCH_PYTHON=()
 
 usage() {
-  sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --variant)
+      if [ "$#" -lt 2 ]; then
+        echo "ERROR: --variant requires a value (verified|multilingual|pro)." >&2
+        exit 2
+      fi
+      VARIANT="$2"
+      shift 2
+      ;;
     --all)
       RUN_ALL=1
       shift
@@ -61,6 +62,50 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
+
+# Per-variant config — the only thing that differs between the three splits.
+case "$VARIANT" in
+  verified)
+    DATASET="princeton-nlp/SWE-bench_Verified"
+    DEFAULT_INSTANCE_ID="sympy__sympy-23824"
+    OUT_ROOT="evals/out/swebench"
+    WHEELHOUSE=""
+    WHEELHOUSE_CONST="DEFAULT_WHEELHOUSE"
+    MODEL_NAME="simple-agent-lab-verified"
+    MAX_TURNS=150
+    TITLE="SWE-bench Verified"
+    ;;
+  multilingual)
+    DATASET="SWE-bench/SWE-bench_Multilingual"
+    DEFAULT_INSTANCE_ID="${SWE_BENCH_MULTILINGUAL_DEFAULT_INSTANCE_ID:-}"
+    OUT_ROOT="evals/out/swebench_multilingual"
+    WHEELHOUSE="evals/out/swebench_multilingual/wheelhouse/cp311-manylinux"
+    WHEELHOUSE_CONST="DEFAULT_MULTILINGUAL_WHEELHOUSE"
+    MODEL_NAME="simple-agent-lab-multilingual"
+    MAX_TURNS=150
+    TITLE="SWE-bench Multilingual"
+    ;;
+  pro)
+    DATASET="ScaleAI/SWE-bench_Pro"
+    DEFAULT_INSTANCE_ID="instance_navidrome__navidrome-8e640bb8580affb7e0ea6225c0bbe240186b6b08"
+    OUT_ROOT="evals/out/swebench_pro"
+    WHEELHOUSE="evals/out/swebench_pro/wheelhouse/cp311-manylinux"
+    WHEELHOUSE_CONST="DEFAULT_PRO_WHEELHOUSE"
+    MODEL_NAME="simple-agent-lab-pro"
+    MAX_TURNS=40
+    TITLE="SWE-bench Pro"
+    ;;
+  *)
+    echo "ERROR: unknown --variant: ${VARIANT} (expected verified|multilingual|pro)." >&2
+    exit 2
+    ;;
+esac
+
+SPLIT="test"
+INSTANCE_DIR="$OUT_ROOT"
+CONTAINER_RUN_ROOT="$OUT_ROOT"
+PREDICTION_DIR="$OUT_ROOT"
+RUN_ID="${VARIANT}-$(date +%Y%m%d-%H%M%S)"
 
 if ! [[ "$PARALLEL" =~ ^[1-9][0-9]*$ ]]; then
   echo "ERROR: --parallel must be a positive integer; got ${PARALLEL@Q}." >&2
@@ -159,22 +204,43 @@ PY
   mapfile -t INSTANCE_IDS < "$ids_file"
 }
 
+ensure_default_instance_id() {
+  # Variants without a hard-coded default (multilingual) resolve it to the
+  # first instance of the split.
+  if [ -n "$DEFAULT_INSTANCE_ID" ]; then
+    return
+  fi
+  fetch_all_instances
+  if [ "${#INSTANCE_IDS[@]}" -eq 0 ]; then
+    echo "ERROR: ${DATASET} ${SPLIT} returned no instances." >&2
+    exit 1
+  fi
+  DEFAULT_INSTANCE_ID="${INSTANCE_IDS[0]}"
+}
+
 run_container() {
   local instance_json="$1"
   local instance_id="$2"
   shift 2
-  "${PYTHON[@]}" runs/run_bench.py swebench "$instance_id" \
-    --instance-json "$instance_json" \
-    --dataset-name "$DATASET" \
-    --provider openai \
-    --dotenv .env \
-    --max-turns "$MAX_TURNS" \
-    --run-id "$RUN_ID" \
-    --run-root "$CONTAINER_RUN_ROOT" \
-    --uv-binary "$SWEBENCH_UV_BIN" \
-    --network-mode host \
-    --force \
-    "$@"
+  local args=(
+    runs/run_bench.py swebench "$instance_id"
+    --instance-json "$instance_json"
+    --dataset-name "$DATASET"
+    --provider openai
+    --dotenv .env
+    --max-turns "$MAX_TURNS"
+    --run-id "$RUN_ID"
+    --agent-flavor "${AGENT_FLAVOR:-bash}"
+    --run-root "$CONTAINER_RUN_ROOT"
+    --uv-binary "$SWEBENCH_UV_BIN"
+    --network-mode host
+    --force
+  )
+  # Verified uses the harness default wheelhouse; the others pin a per-variant one.
+  if [ -n "$WHEELHOUSE" ]; then
+    args+=(--wheelhouse "$WHEELHOUSE")
+  fi
+  "${PYTHON[@]}" "${args[@]}" "$@"
 }
 
 running_jobs() {
@@ -192,7 +258,7 @@ collect_predictions() {
 
 if [ "$RUN_ALL" -eq 1 ]; then
   fetch_all_instances
-  echo "=== SWE-bench Verified full split ==="
+  echo "=== ${TITLE} full split ==="
   echo "Run ID: $RUN_ID"
   echo "Instances: ${#INSTANCE_IDS[@]}"
   echo "Parallel: $PARALLEL"
@@ -200,9 +266,12 @@ if [ "$RUN_ALL" -eq 1 ]; then
 
   echo "Preparing wheelhouse and Linux uv once before launching batch..."
   swebench_ensure_linux_uv
-  "${PYTHON[@]}" - <<'PY'
-from evals.swebench.harness import DEFAULT_WHEELHOUSE, prepare_wheelhouse
-prepare_wheelhouse(DEFAULT_WHEELHOUSE)
+  WHEELHOUSE_CONST="$WHEELHOUSE_CONST" "${PYTHON[@]}" - <<'PY'
+import os
+
+import evals.swebench.harness as harness
+
+harness.prepare_wheelhouse(getattr(harness, os.environ["WHEELHOUSE_CONST"]))
 PY
 
   FAIL=0
@@ -228,12 +297,14 @@ PY
   fi
 else
   if [ "${#POSITIONAL[@]}" -eq 0 ]; then
+    ensure_default_instance_id
     INSTANCE_IDS=("$DEFAULT_INSTANCE_ID")
+    INSTANCE_JSON="${INSTANCE_JSON:-$(fetch_one_instance "${INSTANCE_IDS[0]}")}"
   else
     INSTANCE_IDS=("${POSITIONAL[0]}")
+    INSTANCE_JSON="$(fetch_one_instance "${INSTANCE_IDS[0]}")"
   fi
-  INSTANCE_JSON="$(fetch_one_instance "${INSTANCE_IDS[0]}")"
-  echo "=== SWE-bench Verified: ${INSTANCE_IDS[0]} ==="
+  echo "=== ${TITLE}: ${INSTANCE_IDS[0]} ==="
   echo "Run ID: $RUN_ID"
   swebench_ensure_linux_uv
   run_container "$INSTANCE_JSON" "${INSTANCE_IDS[0]}" --prepare-wheelhouse

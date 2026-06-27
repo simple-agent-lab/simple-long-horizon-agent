@@ -40,9 +40,7 @@ class RunsScriptsTest(unittest.TestCase):
             ROOT / "runs/swebench/eval_swebench.sh",
             ROOT / "runs/swebench/setup_swebench_docker.sh",
             ROOT / "runs/swebench/run_swebench_gold_smoke.sh",
-            ROOT / "runs/swebench/run_swebench_verified.sh",
-            ROOT / "runs/swebench/run_swebench_multilingual.sh",
-            ROOT / "runs/swebench/run_swebench_pro.sh",
+            ROOT / "runs/swebench/run_swebench.sh",
         ]
 
         for script in scripts:
@@ -58,55 +56,36 @@ class RunsScriptsTest(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_swebench_run_scripts_support_batch_flags(self) -> None:
-        scripts = [
-            ROOT / "runs/swebench/run_swebench_verified.sh",
-            ROOT / "runs/swebench/run_swebench_multilingual.sh",
-            ROOT / "runs/swebench/run_swebench_pro.sh",
-        ]
-
-        for script in scripts:
-            text = script.read_text(encoding="utf-8")
-            with self.subTest(script=script.name):
-                self.assertIn("--all", text)
-                self.assertIn("--parallel", text)
-                self.assertIn("FETCH_PYTHON", text)
-                self.assertIn("--extra swebench", text)
-                self.assertIn("wait -n", text)
-                self.assertIn("--collect-predictions", text)
+        text = (ROOT / "runs/swebench/run_swebench.sh").read_text(encoding="utf-8")
+        self.assertIn("--all", text)
+        self.assertIn("--parallel", text)
+        self.assertIn("FETCH_PYTHON", text)
+        self.assertIn("--extra swebench", text)
+        self.assertIn("wait -n", text)
+        self.assertIn("--collect-predictions", text)
 
     def test_swebench_run_scripts_load_provider_settings_from_dotenv(self) -> None:
-        scripts = [
-            ROOT / "runs/swebench/run_swebench_verified.sh",
-            ROOT / "runs/swebench/run_swebench_multilingual.sh",
-            ROOT / "runs/swebench/run_swebench_pro.sh",
-        ]
+        text = (ROOT / "runs/swebench/run_swebench.sh").read_text(encoding="utf-8")
+        self.assertIn("--dotenv .env", text)
 
-        for script in scripts:
-            text = script.read_text(encoding="utf-8")
-            with self.subTest(script=script.name):
-                self.assertIn("--dotenv .env", text)
+    def test_swebench_variants_cover_all_three_splits(self) -> None:
+        """The one runner parametrizes all three splits via --variant."""
+        text = (ROOT / "runs/swebench/run_swebench.sh").read_text(encoding="utf-8")
+        for variant in ("verified", "multilingual", "pro"):
+            self.assertIn(variant, text, f"missing --variant case: {variant}")
+        self.assertIn("princeton-nlp/SWE-bench_Verified", text)
+        self.assertIn("SWE-bench/SWE-bench_Multilingual", text)
+        self.assertIn("ScaleAI/SWE-bench_Pro", text)
 
     def test_swebench_run_scripts_use_flat_suite_output_layout(self) -> None:
         expected_paths = {
-            "run_swebench_verified.sh": [
-                'INSTANCE_DIR="evals/out/swebench"',
-                'CONTAINER_RUN_ROOT="evals/out/swebench"',
-                'PREDICTION_DIR="evals/out/swebench"',
-                "instance_${instance_id}.jsonl",
-            ],
-            "run_swebench_pro.sh": [
-                'INSTANCE_DIR="evals/out/swebench_pro"',
-                'CONTAINER_RUN_ROOT="evals/out/swebench_pro"',
-                'PREDICTION_DIR="evals/out/swebench_pro"',
+            "run_swebench.sh": [
+                'OUT_ROOT="evals/out/swebench"',
+                'OUT_ROOT="evals/out/swebench_multilingual"',
+                'OUT_ROOT="evals/out/swebench_pro"',
                 'WHEELHOUSE="evals/out/swebench_pro/wheelhouse/cp311-manylinux"',
-                "instance_${instance_id}.jsonl",
-                '--wheelhouse "$WHEELHOUSE"',
-            ],
-            "run_swebench_multilingual.sh": [
-                'INSTANCE_DIR="evals/out/swebench_multilingual"',
-                'CONTAINER_RUN_ROOT="evals/out/swebench_multilingual"',
-                'PREDICTION_DIR="evals/out/swebench_multilingual"',
                 'WHEELHOUSE="evals/out/swebench_multilingual/wheelhouse/cp311-manylinux"',
+                'INSTANCE_DIR="$OUT_ROOT"',
                 "instance_${instance_id}.jsonl",
                 '--wheelhouse "$WHEELHOUSE"',
             ],
