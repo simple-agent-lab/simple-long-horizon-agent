@@ -83,6 +83,7 @@ OMB_FLAVORS = (DEFAULT_OMB_FLAVOR, *WORKFLOW_FLAVORS)
 def flavor_from_env(env: Mapping[str, str] | None = None) -> str:
     """The OneMillion generation flavor from ``AGENT_FLAVOR`` (default ``single``)."""
 
+    # env-ok: reads the AGENT_FLAVOR foundation name
     source = os.environ if env is None else env
     flavor = (
         source.get(AGENT_FLAVOR_ENV) or DEFAULT_OMB_FLAVOR

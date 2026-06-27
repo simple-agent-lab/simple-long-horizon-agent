@@ -437,12 +437,12 @@ def _failure_message(exit_code: int) -> str:
 
 
 def _bash_subprocess_env() -> dict[str, str]:
-    """Return a copy of os.environ with non-interactive defaults filled in.
+    """Return a copy of the process environment with non-interactive defaults.
 
     Caller-provided values always win so the user can override (e.g. set
     ``PAGER=less`` if they want paging back in a local terminal demo).
     """
-    env = os.environ.copy()
+    env = os.environ.copy()  # env-ok: snapshot process env to scrub interactive vars
     for key, value in NON_INTERACTIVE_BASH_ENV.items():
         env.setdefault(key, value)
     return env

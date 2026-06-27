@@ -50,6 +50,31 @@ class RunBenchRegistryTest(unittest.TestCase):
         self.assertTrue(run_bench.BENCHES["programbench"].needs_docker)
         self.assertFalse(run_bench.BENCHES["onemillion"].needs_docker)
 
+    def test_benches_dir_and_registry_are_in_sync(self) -> None:
+        """Every runs/_benches/<x>.py is registered, and vice versa.
+
+        A bench can't be added "in a weird place": the only way in is a module
+        under runs/_benches/ that exposes NAME / _build_parser / run AND is
+        wired into run_bench.BENCHES under that NAME.
+        """
+        modules = {
+            p.stem
+            for p in (ROOT / "runs/_benches").glob("*.py")
+            if p.stem != "__init__"
+        }
+        self.assertEqual(
+            modules,
+            set(run_bench.BENCHES),
+            "runs/_benches/<x>.py modules must match run_bench.BENCHES exactly "
+            "(register a new bench, or move stray modules out of _benches/).",
+        )
+        for name, bench in run_bench.BENCHES.items():
+            with self.subTest(bench=name):
+                self.assertEqual(bench.module.NAME, name)
+                self.assertTrue(bench.module.DESCRIPTION)
+                self.assertTrue(callable(bench.module.run))
+                self.assertTrue(callable(bench.module._build_parser))
+
 
 class RunBenchCliTest(unittest.TestCase):
     def _run_json(self, argv: list[str]) -> dict:

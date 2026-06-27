@@ -182,6 +182,47 @@ class RunsScriptsTest(unittest.TestCase):
             with self.subTest(path=path.relative_to(ROOT)):
                 self.assertNotIn("SWE-bench_Lite", text)
 
+    def test_runs_toplevel_is_whitelisted(self) -> None:
+        """`runs/` top level stays tidy: only the public entry + known subdirs.
+
+        Guards the reorg — a new ad-hoc script must go into a concern subdir
+        (swebench/ programbench/ demos/ dev/), the internal _benches/, or the
+        profiles/ lib/ data dirs, not loose at the top.
+        """
+        allowed_files = {
+            "run_bench.py",
+            "README.md",
+            "bench-manifest.example.json",
+        }
+        allowed_dirs = {
+            "_benches",
+            "profiles",
+            "lib",
+            "swebench",
+            "programbench",
+            "demos",
+            "dev",
+        }
+        for entry in (ROOT / "runs").iterdir():
+            if entry.name.startswith(".") or entry.name == "__pycache__":
+                continue
+            with self.subTest(entry=entry.name):
+                if entry.is_dir():
+                    self.assertIn(
+                        entry.name,
+                        allowed_dirs,
+                        f"unexpected top-level dir runs/{entry.name}/ — add it to "
+                        "allowed_dirs only if it's a real concern group.",
+                    )
+                else:
+                    self.assertIn(
+                        entry.name,
+                        allowed_files,
+                        f"unexpected top-level file runs/{entry.name} — the only "
+                        "public entry is run_bench.py; per-bench logic goes in "
+                        "runs/_benches/ and scripts in a concern subdir.",
+                    )
+
 
 if __name__ == "__main__":
     unittest.main()

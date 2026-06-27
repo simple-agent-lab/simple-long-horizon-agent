@@ -118,6 +118,7 @@ def apply_profile_env(
     Identical to `load_dotenv` semantics: an already-exported value wins, so the
     profile is a default and an ad-hoc export stays the override.
     """
+    # env-ok: the .env/profile loader writes into the process env
     target = os.environ if environ is None else environ
     for key, value in env.items():
         if key not in target:

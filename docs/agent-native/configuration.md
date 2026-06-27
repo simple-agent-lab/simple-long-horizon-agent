@@ -78,6 +78,12 @@ graph:
 Do **not** centralize all names into one module *if doing so couples unrelated
 layers* — that would break the inward dependency that keeps `llm/env.py` clean.
 
+This boundary is **enforced in CI** by `scripts/env_lint.py`: a direct
+`os.environ` / `os.getenv` read anywhere in `src/simple_agent_lab/` outside the
+owner modules above fails the build unless the line carries an inline
+`# env-ok: <reason>` marker. So a new behavioral knob must be declared as an
+`EnvVar` in the registry; ad-hoc reads can't creep back in unnoticed.
+
 > Direction (ADR `centralized-env-config`, in progress): env knobs are moving
 > into one declarative registry, `src/simple_agent_lab/config.py`. It is a
 > FOUNDATION-zone leaf that *declares* each name (with default/parser/group)

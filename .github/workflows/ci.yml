@@ -82,6 +82,8 @@ jobs:
         run: uv sync --group dev
       - name: Run architecture lint
         run: uv run python scripts/arch_lint.py
+      - name: Run env-registry lint
+        run: uv run python scripts/env_lint.py
 
   format:
     name: ruff format / check

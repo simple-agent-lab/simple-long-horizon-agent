@@ -211,6 +211,7 @@ def _isolation_required() -> bool:
     counts as required, so silently un-isolated runs cannot happen by default.
     """
 
+    # env-ok: host->container isolation handoff
     value = os.environ.get(REQUIRE_ISOLATION_ENV, "1").strip().lower()
     return value not in ("0", "false", "no", "off", "")
 

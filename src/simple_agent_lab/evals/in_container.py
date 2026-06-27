@@ -85,7 +85,7 @@ TRACE_FLUSH_INTERVAL_S = 2.0
 def memory_home_from_env(env: Mapping[str, str] | None = None) -> Path | None:
     """Return the optional in-container persistent-memory directory."""
 
-    source = env if env is not None else os.environ
+    source = env if env is not None else os.environ  # env-ok: default to process env
     value = source.get(MEMORY_HOME_ENV, "").strip()
     if not value:
         return None
@@ -118,7 +118,7 @@ def memory_hooks_from_env(
         make_filesystem_distiller,
     )
 
-    source = env if env is not None else os.environ
+    source = env if env is not None else os.environ  # env-ok: default to process env
     memory = FilesystemMemory(
         root=memory_home,
         distiller=make_filesystem_distiller(provider, request_extra=request_extra),
@@ -512,6 +512,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--api-kind",
         choices=API_KIND_CHOICES,
+        # env-ok: CLI default mirrors API_KIND for the in-container entrypoint
         default=os.environ.get(API_KIND_ENV, "openai-chat"),
     )
     args = parser.parse_args(argv)
