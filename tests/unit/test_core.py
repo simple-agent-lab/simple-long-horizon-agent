@@ -481,6 +481,8 @@ class CoreTest(unittest.TestCase):
             "is_tool_result_message",
             "make_compact_control",
             "make_edit_tool",
+            "make_jina_fetch_tool",
+            "make_jina_search_tool",
             "make_llm_agent",
             "make_message",
             "make_read_tool",

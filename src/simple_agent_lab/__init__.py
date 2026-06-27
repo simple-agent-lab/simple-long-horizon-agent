@@ -104,6 +104,7 @@ from .tools import (
 from .tools.read import make_read_tool
 from .tools.edit import make_edit_tool
 from .tools.recall import make_recall_tool
+from .tools.jina import make_jina_fetch_tool, make_jina_search_tool
 from .skills import (
     SkillMetadata,
     SkillRoot,
@@ -196,6 +197,8 @@ __all__ = [
     "make_read_tool",
     "make_edit_tool",
     "make_recall_tool",
+    "make_jina_search_tool",
+    "make_jina_fetch_tool",
     "SkillMetadata",
     "SkillRoot",
     "discover_skills",

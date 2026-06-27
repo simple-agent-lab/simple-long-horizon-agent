@@ -33,6 +33,8 @@ __all__ = [
     "make_read_tool",
     "make_edit_tool",
     "make_recall_tool",
+    "make_jina_search_tool",
+    "make_jina_fetch_tool",
 ]
 
 
@@ -152,3 +154,4 @@ from .task import task_tool  # noqa: E402
 from .read import make_read_tool  # noqa: E402
 from .edit import make_edit_tool  # noqa: E402
 from .recall import make_recall_tool  # noqa: E402
+from .jina import make_jina_fetch_tool, make_jina_search_tool  # noqa: E402
