@@ -45,12 +45,12 @@ inside any SWE-bench image with no copied files.
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+import simple_agent_lab.config as config
 from simple_agent_lab.agent_flavors import (
     AGENT_FLAVORS,
     SIMPLE_AGENT_FLAVORS,
@@ -88,8 +88,9 @@ PDR_WIDTH_ENV = _PDR_WIDTH_ENV
 PDR_ATTEMPT_TURNS_ENV = _PDR_ATTEMPT_TURNS_ENV
 LOOP_MAX_TURNS_ENV = _LOOP_MAX_TURNS_ENV
 WORKER_MAX_TURNS_ENV = _WORKER_MAX_TURNS_ENV
-
-REPO_LANGUAGE_ENV = "SWE_REPO_LANGUAGE"
+# Transitional alias (ADR centralized-env-config): the host sets this env var
+# (run_swebench_suite) and the container reads it via `config.REPO_LANGUAGE`.
+REPO_LANGUAGE_ENV = config.REPO_LANGUAGE.name
 
 AGENT_NAME = "swebench_agent"
 AGENT_ROLE = (
@@ -284,7 +285,7 @@ def evaluate(
 
 
 def _repo_language() -> str:
-    return (os.environ.get(REPO_LANGUAGE_ENV) or "python").strip() or "python"
+    return config.REPO_LANGUAGE.get()
 
 
 def _prepare_workflow_workspace(workdir: Path) -> None:

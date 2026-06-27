@@ -16,6 +16,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+import simple_agent_lab.config as config
 from simple_agent_lab.agent_flavors import SIMPLE_AGENT_FLAVORS, WORKFLOW_AGENT_FLAVORS
 from simple_agent_lab.compression import SummarizeStrategy
 from simple_agent_lab.context_view import ContextPolicy
@@ -50,11 +51,14 @@ from .starter import (
     make_agent,
 )
 
-PDR_ROUNDS_ENV = "SWE_PDR_ROUNDS"
-PDR_WIDTH_ENV = "SWE_PDR_WIDTH"
-PDR_ATTEMPT_TURNS_ENV = "SWE_PDR_ATTEMPT_TURNS"
-LOOP_MAX_TURNS_ENV = "SWE_LOOP_MAX_TURNS"
-WORKER_MAX_TURNS_ENV = "SWE_WORKER_MAX_TURNS"
+# Transitional aliases (ADR centralized-env-config): the names now live in
+# `config`; these are kept so the SWE-bench container re-export, the run script,
+# and tests keep importing them until they migrate to `config.*` directly.
+PDR_ROUNDS_ENV = config.PDR_ROUNDS.name
+PDR_WIDTH_ENV = config.PDR_WIDTH.name
+PDR_ATTEMPT_TURNS_ENV = config.PDR_ATTEMPT_TURNS.name
+LOOP_MAX_TURNS_ENV = config.LOOP_MAX_TURNS.name
+WORKER_MAX_TURNS_ENV = config.WORKER_MAX_TURNS.name
 AGENT_COMPRESSION_THRESHOLD_ENV = "SAL_AGENT_COMPRESSION_THRESHOLD_TOKENS"
 AGENT_COMPRESSION_WINDOW_RATIO_ENV = "SAL_AGENT_COMPRESSION_WINDOW_RATIO"
 AGENT_COMPRESSION_KEEP_RECENT_ENV = "SAL_AGENT_COMPRESSION_KEEP_RECENT"
@@ -332,10 +336,10 @@ def make_workflow_runner_for_flavor(
     """Build the `task -> WorkflowResult` runner for a workflow flavor."""
 
     selected = flavor.strip().lower()
-    worker_max_turns = _env_int(WORKER_MAX_TURNS_ENV, 40)
+    worker_max_turns = config.WORKER_MAX_TURNS.get()
 
     if selected == "loop":
-        loop_turns = _env_int(LOOP_MAX_TURNS_ENV, 6)
+        loop_turns = config.LOOP_MAX_TURNS.get()
         # The judge-gated loop is the general workflow optimization; this flavor
         # supplies a bash+read solver and the per-task budget.
         agent = _solver_agent(
@@ -373,11 +377,11 @@ def make_workflow_runner_for_flavor(
         return run_loop
 
     if selected == "pdr":
-        rounds = _env_int(PDR_ROUNDS_ENV, 2)
-        width = _env_int(PDR_WIDTH_ENV, 3)
+        rounds = config.PDR_ROUNDS.get()
+        width = config.PDR_WIDTH.get()
         # Opt-in cost guard. Shorter throwaway attempts can cut cost, but may
         # reduce the quality of the distilled brief, so default to full budget.
-        attempt_turns = _env_int(PDR_ATTEMPT_TURNS_ENV, worker_max_turns)
+        attempt_turns = config.PDR_ATTEMPT_TURNS.get(default=worker_max_turns)
         distiller = make_distiller_agent(provider, request_extra=request_extra)
 
         def run_pdr_arm(task: str) -> WorkflowResult:

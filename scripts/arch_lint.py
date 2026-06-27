@@ -48,6 +48,9 @@ MODULE_ZONES = {
     # foundation: shared flavor / agent-config name constants, a pure leaf with
     # no internal deps, imported by both peripheral agents and eval harnesses.
     "agent_flavors": FOUNDATION,
+    # foundation: the env-config registry (ADR centralized-env-config), a pure
+    # leaf with no internal deps so every layer can read config through it.
+    "config": FOUNDATION,
     # core runtime: orchestration, state, context, model boundary, tools
     "protocols": CORE,
     "context_view": CORE,
