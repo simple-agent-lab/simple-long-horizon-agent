@@ -37,12 +37,7 @@ from simple_agent_lab.agent_flavors import (  # noqa: E402
     AGENT_FLAVOR_ENV,
     WORKFLOW_AGENT_FLAVORS,
 )
-from simple_agent_lab.agents.flavors import (  # noqa: E402
-    LOOP_MAX_TURNS_ENV,
-    PDR_ROUNDS_ENV,
-    PDR_WIDTH_ENV,
-    WORKER_MAX_TURNS_ENV,
-)
+import simple_agent_lab.config as config  # noqa: E402
 from simple_agent_lab.evals import (  # noqa: E402
     LocalDirStore,
     LocalDockerBackend,
@@ -53,9 +48,6 @@ from simple_agent_lab.evals.backends.docker_local import (  # noqa: E402
     DEFAULT_DOCKER_TIMEOUT_S,
 )
 from simple_agent_lab.evals.runner import container_name  # noqa: E402
-from simple_agent_lab.evals.suites.swebench.container import (  # noqa: E402
-    REPO_LANGUAGE_ENV,
-)
 from simple_agent_lab.evals.suites.swebench.patch import instance_language  # noqa: E402
 
 
@@ -194,12 +186,12 @@ def main() -> None:
     is_arm = args.agent_flavor in WORKFLOW_AGENT_FLAVORS
     outer_max_turns = args.max_turns
     if is_arm:
-        provider_env[WORKER_MAX_TURNS_ENV] = str(args.max_turns)
-        provider_env[REPO_LANGUAGE_ENV] = instance_language(dict(instance))
+        provider_env[config.WORKER_MAX_TURNS.name] = str(args.max_turns)
+        provider_env[config.REPO_LANGUAGE.name] = instance_language(dict(instance))
         for value, env_name in (
-            (args.pdr_rounds, PDR_ROUNDS_ENV),
-            (args.pdr_width, PDR_WIDTH_ENV),
-            (args.loop_max_turns, LOOP_MAX_TURNS_ENV),
+            (args.pdr_rounds, config.PDR_ROUNDS.name),
+            (args.pdr_width, config.PDR_WIDTH.name),
+            (args.loop_max_turns, config.LOOP_MAX_TURNS.name),
         ):
             if value is not None:
                 provider_env[env_name] = str(value)

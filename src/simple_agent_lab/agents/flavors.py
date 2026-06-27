@@ -51,14 +51,6 @@ from .starter import (
     make_agent,
 )
 
-# Transitional aliases (ADR centralized-env-config): the names now live in
-# `config`; these are kept so the SWE-bench container re-export, the run script,
-# and tests keep importing them until they migrate to `config.*` directly.
-PDR_ROUNDS_ENV = config.PDR_ROUNDS.name
-PDR_WIDTH_ENV = config.PDR_WIDTH.name
-PDR_ATTEMPT_TURNS_ENV = config.PDR_ATTEMPT_TURNS.name
-LOOP_MAX_TURNS_ENV = config.LOOP_MAX_TURNS.name
-WORKER_MAX_TURNS_ENV = config.WORKER_MAX_TURNS.name
 AGENT_COMPRESSION_THRESHOLD_ENV = "SAL_AGENT_COMPRESSION_THRESHOLD_TOKENS"
 AGENT_COMPRESSION_WINDOW_RATIO_ENV = "SAL_AGENT_COMPRESSION_WINDOW_RATIO"
 AGENT_COMPRESSION_KEEP_RECENT_ENV = "SAL_AGENT_COMPRESSION_KEEP_RECENT"

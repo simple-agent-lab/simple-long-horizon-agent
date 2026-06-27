@@ -58,11 +58,6 @@ from simple_agent_lab.agent_flavors import (
     flavor_from_env,
 )
 from simple_agent_lab.agents.flavors import (
-    LOOP_MAX_TURNS_ENV as _LOOP_MAX_TURNS_ENV,
-    PDR_ATTEMPT_TURNS_ENV as _PDR_ATTEMPT_TURNS_ENV,
-    PDR_ROUNDS_ENV as _PDR_ROUNDS_ENV,
-    PDR_WIDTH_ENV as _PDR_WIDTH_ENV,
-    WORKER_MAX_TURNS_ENV as _WORKER_MAX_TURNS_ENV,
     ArtifactPut,
     build_flavor_agent,
 )
@@ -78,19 +73,12 @@ from .patch import (
     update_info_exclude,
 )
 
-# Back-compatible names for older scripts/tests. The source of truth lives in
-# `simple_agent_lab.agent_flavors`.
+# Back-compatible flavor-name aliases for older scripts/tests. The source of
+# truth lives in `simple_agent_lab.agent_flavors`. (The workflow/repo-language
+# env names now live in `simple_agent_lab.config`; callers read them there.)
 SIMPLE_FLAVORS = SIMPLE_AGENT_FLAVORS
 ARM_FLAVORS = WORKFLOW_AGENT_FLAVORS
 ALL_FLAVORS = AGENT_FLAVORS
-PDR_ROUNDS_ENV = _PDR_ROUNDS_ENV
-PDR_WIDTH_ENV = _PDR_WIDTH_ENV
-PDR_ATTEMPT_TURNS_ENV = _PDR_ATTEMPT_TURNS_ENV
-LOOP_MAX_TURNS_ENV = _LOOP_MAX_TURNS_ENV
-WORKER_MAX_TURNS_ENV = _WORKER_MAX_TURNS_ENV
-# Transitional alias (ADR centralized-env-config): the host sets this env var
-# (run_swebench_suite) and the container reads it via `config.REPO_LANGUAGE`.
-REPO_LANGUAGE_ENV = config.REPO_LANGUAGE.name
 
 AGENT_NAME = "swebench_agent"
 AGENT_ROLE = (

@@ -42,6 +42,7 @@ from simple_agent_lab.agents.starter import BASH_TASK_EXPLORER_ADDENDUM
 from simple_agent_lab.compression import SummarizeStrategy
 from simple_agent_lab.evals.stores import container_store_from_env
 from simple_agent_lab.evals.suites.swebench import container as wc
+import simple_agent_lab.config as config
 from simple_agent_lab.llm import Provider
 from simple_agent_lab.state import State
 from simple_agent_lab.workflow import run_pdr
@@ -275,9 +276,9 @@ class ArmRunnerTest(unittest.TestCase):
     def test_pdr_finalizer_writes_workspace(self) -> None:
         with _envs(
             {
-                wc.PDR_ROUNDS_ENV: "1",
-                wc.PDR_WIDTH_ENV: "2",
-                wc.WORKER_MAX_TURNS_ENV: "3",
+                config.PDR_ROUNDS.name: "1",
+                config.PDR_WIDTH.name: "2",
+                config.WORKER_MAX_TURNS.name: "3",
             }
         ):
             run = make_workflow_runner_for_flavor(
@@ -297,7 +298,9 @@ class ArmRunnerTest(unittest.TestCase):
         self._no_leftover_worktrees()
 
     def test_loop_arm_runs_and_edits_workspace(self) -> None:
-        with _envs({wc.LOOP_MAX_TURNS_ENV: "1", wc.WORKER_MAX_TURNS_ENV: "2"}):
+        with _envs(
+            {config.LOOP_MAX_TURNS.name: "1", config.WORKER_MAX_TURNS.name: "2"}
+        ):
             run = make_workflow_runner_for_flavor(
                 "loop",
                 FAKE_PROVIDER,
@@ -379,8 +382,8 @@ class SubAgentTraceTest(unittest.TestCase):
             {
                 AGENT_FLAVOR_ENV: "loop",
                 "SAL_STORE_ROOT": str(self.store),
-                wc.LOOP_MAX_TURNS_ENV: "1",
-                wc.WORKER_MAX_TURNS_ENV: "2",
+                config.LOOP_MAX_TURNS.name: "1",
+                config.WORKER_MAX_TURNS.name: "2",
             }
         ):
             agent = wc.build_agent(
@@ -407,9 +410,9 @@ class SubAgentTraceTest(unittest.TestCase):
             {
                 AGENT_FLAVOR_ENV: "pdr",
                 "SAL_STORE_ROOT": str(self.store),
-                wc.PDR_WIDTH_ENV: "2",
-                wc.PDR_ROUNDS_ENV: "1",
-                wc.WORKER_MAX_TURNS_ENV: "3",
+                config.PDR_WIDTH.name: "2",
+                config.PDR_ROUNDS.name: "1",
+                config.WORKER_MAX_TURNS.name: "3",
             }
         ):
             agent = wc.build_agent(
@@ -502,8 +505,8 @@ class ComposeTraceStateTest(unittest.TestCase):
             {
                 AGENT_FLAVOR_ENV: "loop",
                 "SAL_STORE_ROOT": str(self.store),
-                wc.LOOP_MAX_TURNS_ENV: "1",
-                wc.WORKER_MAX_TURNS_ENV: "2",
+                config.LOOP_MAX_TURNS.name: "1",
+                config.WORKER_MAX_TURNS.name: "2",
             }
         ):
             agent = wc.build_agent(
