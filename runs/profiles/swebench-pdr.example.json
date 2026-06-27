@@ -3,8 +3,8 @@
   "env": {
     "_comment": "Catalogued env knobs (see docs/agent-native/configuration.md). Applied fill-the-gaps: a real export still wins.",
     "AGENT_FLAVOR": "pdr",
-    "SWE_PDR_ROUNDS": "2",
-    "SWE_PDR_WIDTH": "3",
+    "SAL_WORKFLOW_PDR_ROUNDS": "2",
+    "SAL_WORKFLOW_PDR_WIDTH": "3",
     "SAL_AGENT_COMPRESSION_WINDOW_RATIO": "0.8",
     "REASONING_EFFORT": "high"
   },

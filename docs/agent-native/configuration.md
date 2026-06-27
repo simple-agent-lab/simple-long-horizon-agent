@@ -15,7 +15,7 @@ small JSON document with two sections (see ADR `run-profile-file`):
 
 ```json
 {
-  "env": { "AGENT_FLAVOR": "pdr", "SWE_PDR_WIDTH": "3" },
+  "env": { "AGENT_FLAVOR": "pdr", "SAL_WORKFLOW_PDR_WIDTH": "3" },
   "run": { "max-turns": 200, "network-mode": "host", "prepare-wheelhouse": true }
 }
 ```
@@ -47,9 +47,16 @@ graph:
 - Suite-specific knobs → that suite's container module under
   `src/simple_agent_lab/evals/suites/<suite>/`.
 
-Do **not** centralize all names into one module — that would couple unrelated
-layers and break the inward dependency that keeps `llm/env.py` clean. Add a row
-to this table instead.
+Do **not** centralize all names into one module *if doing so couples unrelated
+layers* — that would break the inward dependency that keeps `llm/env.py` clean.
+
+> Direction (ADR `centralized-env-config`, in progress): env knobs are moving
+> into one declarative registry, `src/simple_agent_lab/config.py`. It is a
+> FOUNDATION-zone leaf that *declares* each name (with default/parser/group)
+> and imports nothing internal, so it centralizes without the coupling this
+> rule guards against — layers depend on `config`, never the reverse. The
+> SWE-bench knobs are migrated as the first sample; until a knob moves, its
+> name still lives with the layer below.
 
 ## Provider / credentials
 
@@ -104,11 +111,11 @@ the workflow/compression knobs: `src/simple_agent_lab/agents/flavors.py`.
 | `SAL_AGENT_COMPRESSION_THRESHOLD_TOKENS` | `window * ratio`, else `80000` | Token threshold that triggers context compression. |
 | `SAL_AGENT_COMPRESSION_WINDOW_RATIO` | `0.8` | Fraction of the context window used as the threshold when no explicit threshold is set. |
 | `SAL_AGENT_COMPRESSION_KEEP_RECENT` | `4` | Recent turns kept verbatim during compression. |
-| `SWE_PDR_ROUNDS` | `2` | PDR workflow: distill/refine rounds. |
-| `SWE_PDR_WIDTH` | `3` | PDR workflow: parallel attempts per round. |
-| `SWE_PDR_ATTEMPT_TURNS` | = `SWE_WORKER_MAX_TURNS` | PDR workflow: per-attempt turn budget (cost guard). |
-| `SWE_LOOP_MAX_TURNS` | `6` | Loop workflow: judge-gated outer iterations. |
-| `SWE_WORKER_MAX_TURNS` | `40` | Per-worker inner turn budget. |
+| `SAL_WORKFLOW_PDR_ROUNDS` | `2` | PDR workflow: distill/refine rounds. |
+| `SAL_WORKFLOW_PDR_WIDTH` | `3` | PDR workflow: parallel attempts per round. |
+| `SAL_WORKFLOW_PDR_ATTEMPT_TURNS` | = `SAL_WORKFLOW_WORKER_MAX_TURNS` | PDR workflow: per-attempt turn budget (cost guard). |
+| `SAL_WORKFLOW_LOOP_MAX_TURNS` | `6` | Loop workflow: judge-gated outer iterations. |
+| `SAL_WORKFLOW_WORKER_MAX_TURNS` | `40` | Per-worker inner turn budget. |
 
 ## Suite-specific knobs
 

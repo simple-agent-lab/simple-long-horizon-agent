@@ -33,7 +33,11 @@ class RunProfileTest(unittest.TestCase):
             self.tmp,
             {
                 "_comment": "ignored",
-                "env": {"AGENT_FLAVOR": "pdr", "SWE_PDR_WIDTH": 3, "FLAG": True},
+                "env": {
+                    "AGENT_FLAVOR": "pdr",
+                    "SAL_WORKFLOW_PDR_WIDTH": 3,
+                    "FLAG": True,
+                },
                 "run": {"max-turns": 200, "prepare-wheelhouse": True},
             },
         )
@@ -41,7 +45,7 @@ class RunProfileTest(unittest.TestCase):
         # env values become environment strings; a JSON bool is lowercased.
         self.assertEqual(
             profile.env,
-            {"AGENT_FLAVOR": "pdr", "SWE_PDR_WIDTH": "3", "FLAG": "true"},
+            {"AGENT_FLAVOR": "pdr", "SAL_WORKFLOW_PDR_WIDTH": "3", "FLAG": "true"},
         )
         # run values keep their JSON type for argv rendering.
         self.assertEqual(profile.run, {"max-turns": 200, "prepare-wheelhouse": True})

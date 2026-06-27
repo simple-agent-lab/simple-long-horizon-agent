@@ -10,10 +10,11 @@ See ADR centralized-env-config.
 
 `group` is a dotted ``domain.subsystem`` label (the config hierarchy); the
 top-level domains are ``agent``, ``eval``, ``provider``, ``trace``,
-``runtime``. Classification is by domain, **not** by name prefix: ``SWE_PDR_*``
-are named for SWE-bench but configure the *agent's* workflow arm
-(``agent.workflow``), while ``SWE_REPO_LANGUAGE`` is eval-container config
-(``eval.swebench``).
+``runtime``. Classification is by **domain**, not by an env var's name prefix:
+the workflow-arm knobs were renamed from ``SWE_*`` to ``SAL_WORKFLOW_*`` so the
+name no longer implies they are SWE-bench-specific — they configure the agent's
+workflow arm (``agent.workflow``). ``SWE_REPO_LANGUAGE`` keeps its ``SWE_``
+prefix because it really is eval-container config (``eval.swebench``).
 
 This module is a FOUNDATION-zone leaf: it imports nothing internal, so every
 layer can read config through it.
@@ -86,42 +87,42 @@ class EnvVar:
 
 # --------------------------------------------------------------------------- #
 # agent.workflow — knobs for the loop / PDR workflow arms, read in the agent
-# build layer. Named ``SWE_*`` for historical reasons; they configure the
-# agent, not the SWE-bench container.
+# build layer. Generic to any suite that runs these arms; renamed from the
+# misleading ``SWE_*`` prefix (see ADR centralized-env-config).
 # --------------------------------------------------------------------------- #
 WORKER_MAX_TURNS = EnvVar(
-    "SWE_WORKER_MAX_TURNS",
+    "SAL_WORKFLOW_WORKER_MAX_TURNS",
     40,
     "agent.workflow",
     "Per-worker inner turn budget.",
     as_int(minimum=1),
 )
 LOOP_MAX_TURNS = EnvVar(
-    "SWE_LOOP_MAX_TURNS",
+    "SAL_WORKFLOW_LOOP_MAX_TURNS",
     6,
     "agent.workflow",
     "Loop workflow: judge-gated outer iterations.",
     as_int(minimum=1),
 )
 PDR_ROUNDS = EnvVar(
-    "SWE_PDR_ROUNDS",
+    "SAL_WORKFLOW_PDR_ROUNDS",
     2,
     "agent.workflow",
     "PDR workflow: distill/refine rounds.",
     as_int(minimum=1),
 )
 PDR_WIDTH = EnvVar(
-    "SWE_PDR_WIDTH",
+    "SAL_WORKFLOW_PDR_WIDTH",
     3,
     "agent.workflow",
     "PDR workflow: parallel attempts per round.",
     as_int(minimum=1),
 )
 PDR_ATTEMPT_TURNS = EnvVar(
-    "SWE_PDR_ATTEMPT_TURNS",
+    "SAL_WORKFLOW_PDR_ATTEMPT_TURNS",
     None,
     "agent.workflow",
-    "PDR workflow: per-attempt turn budget; defaults to SWE_WORKER_MAX_TURNS.",
+    "PDR workflow: per-attempt turn budget; defaults to SAL_WORKFLOW_WORKER_MAX_TURNS.",
     as_int(minimum=1),
 )
 

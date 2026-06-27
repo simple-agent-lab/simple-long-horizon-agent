@@ -55,7 +55,7 @@ class EnvVarResolverTest(unittest.TestCase):
 class RegistryTest(unittest.TestCase):
     def test_registry_lists_declared_vars_with_grouped_hierarchy(self) -> None:
         names = {var.name for var in config.REGISTRY}
-        self.assertIn("SWE_PDR_ROUNDS", names)
+        self.assertIn("SAL_WORKFLOW_PDR_ROUNDS", names)
         self.assertIn("SWE_REPO_LANGUAGE", names)
         # Domains follow the dotted `domain.subsystem` hierarchy.
         domains = {var.group.split(".", 1)[0] for var in config.REGISTRY}

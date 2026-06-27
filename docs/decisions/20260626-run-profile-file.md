@@ -34,7 +34,7 @@ Add a single JSON **run-profile** file with two sections and a small loader
 ```json
 {
   "_comment": "PDR arm on SWE-bench Pro",
-  "env": { "AGENT_FLAVOR": "pdr", "SWE_PDR_WIDTH": "3" },
+  "env": { "AGENT_FLAVOR": "pdr", "SAL_WORKFLOW_PDR_WIDTH": "3" },
   "run": { "max-turns": 200, "network-mode": "host", "prepare-wheelhouse": true }
 }
 ```

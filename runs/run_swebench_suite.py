@@ -189,7 +189,7 @@ def main() -> None:
     # The single AGENT_FLAVOR selector picks the agent. For a workflow arm
     # (loop | pdr) the facade `build_agent` runs the whole choreography in ONE
     # outer turn, so --max-turns becomes the per-agent budget (passed as
-    # SWE_WORKER_MAX_TURNS) and the outer loop runs once. Simple flavors run the
+    # SAL_WORKFLOW_WORKER_MAX_TURNS) and the outer loop runs once. Simple flavors run the
     # normal multi-turn agent with --max-turns as their own budget.
     is_arm = args.agent_flavor in WORKFLOW_AGENT_FLAVORS
     outer_max_turns = args.max_turns

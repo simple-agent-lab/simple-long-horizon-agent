@@ -39,9 +39,12 @@ parse)`:
 
 - `group` is a dotted `domain.subsystem` label — the **config hierarchy**.
   Top-level domains are `agent`, `eval`, `provider`, `trace`, `runtime`.
-  Classification is by domain, **not** by name prefix: `SWE_PDR_*` are named
-  for SWE-bench but configure the *agent's* workflow arm (`agent.workflow`),
-  while `SWE_REPO_LANGUAGE` is eval-container config (`eval.swebench`).
+  Classification is by domain, **not** by an env var's name prefix. Because the
+  registry centralizes the name, a historical misnomer is now a one-line fix:
+  the workflow-arm knobs were renamed from `SWE_*` to `SAL_WORKFLOW_*` (they
+  configure the *agent's* workflow arm — `agent.workflow` — not SWE-bench),
+  while `SWE_REPO_LANGUAGE` keeps its prefix because it really is eval-container
+  config (`eval.swebench`).
 - `EnvVar.get()` applies **one precedence rule**: an explicit override beats
   the environment, which beats the declared default; a blank/unparseable value
   falls back to the default and never raises (matching the ad-hoc readers it
@@ -53,7 +56,9 @@ no argv-token tricks. `configuration.md` becomes generated-from / validated-
 against `REGISTRY`, so it cannot drift.
 
 Migration is incremental. This ADR ships the registry plus a sample migration
-of the SWE-bench env vars (both hierarchy levels). To keep each step
+of the SWE-bench env vars (both hierarchy levels), including the `SWE_*` ->
+`SAL_WORKFLOW_*` rename of the generic workflow knobs (a breaking env-name
+change, acceptable for these alpha research knobs). To keep each step
 reviewable and low-risk, a consumer migrates its *reads* to `config.X.get()`
 first; a name constant that other modules still import is kept as a thin
 transitional alias (`PDR_ROUNDS_ENV = config.PDR_ROUNDS.name`) until those
