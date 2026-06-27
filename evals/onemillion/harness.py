@@ -37,7 +37,7 @@ from simple_agent_lab.llm.env import (
     REASONING_EFFORT_ENV,
 )
 
-# Re-exported so the run entry (`runs/run_onemillion_suite.py`) keeps calling
+# Re-exported so the run entry (`runs/_benches/onemillion.py`) keeps calling
 # `harness.load_dotenv`; the implementation is owned by `llm.env`.
 from simple_agent_lab.llm.env import load_dotenv as load_dotenv  # noqa: F401
 

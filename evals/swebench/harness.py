@@ -7,7 +7,8 @@ provider environment, the offline wheelhouse build, and prediction shaping for
 the official harness.
 
 `SwebenchSuite` (`suite.py`) consumes the image/launch helpers; the run entry
-(`runs/run_swebench_suite.py`) consumes instance loading + env + wheelhouse prep;
+(`runs/_benches/swebench.py`, via `runs/run_bench.py swebench`) consumes
+instance loading + env + wheelhouse prep;
 `evaluate_predictions.py` consumes the test spec + prediction shaping. The agent
 loop itself lives in the wheel (`simple_agent_lab.evals.in_container` + the
 SWE-bench container half), so nothing here launches or talks to a container.
@@ -50,7 +51,7 @@ from simple_agent_lab.llm.env import (  # noqa: E402
     REASONING_EFFORT_ENV,
 )
 
-# Re-exported so the run entry (`runs/run_swebench_suite.py`) keeps calling
+# Re-exported so the run entry (`runs/_benches/swebench.py`) keeps calling
 # `harness.load_dotenv`; the implementation is owned by `llm.env`.
 from simple_agent_lab.llm.env import load_dotenv as load_dotenv  # noqa: E402,F401
 

@@ -141,7 +141,7 @@ PY
 
 run_one() {
   local instance_id="$1"
-  "${PYTHON[@]}" runs/run_programbench_suite.py "$instance_id" \
+  "${PYTHON[@]}" runs/run_bench.py programbench "$instance_id" \
     --max-turns "$MAX_TURNS" \
     --run-id "$RUN_ID" \
     --run-root "$RUN_ROOT" \

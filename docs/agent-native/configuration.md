@@ -9,10 +9,10 @@ re-declaring the string. See ADR `consolidate-provider-env` for why.
 ## Launching a run: the JSON run-profile (`--profile`)
 
 To launch one agent-on-a-bench arm from a single committed file instead of a
-remembered mix of exports and flags, pass `--profile PATH` to any run entry
-(`runs/run_swebench_suite.py`, `runs/run_programbench_suite.py`,
-`runs/run_onemillion_suite.py`, `runs/run_onemillion_workflow.py`). A profile is
-a small JSON document with two sections (see ADR `run-profile-file`):
+remembered mix of exports and flags, pass `--profile PATH` to any bench through
+the unified entry (`runs/run_bench.py <bench> --profile PATH`; the per-bench
+modules live in `runs/_benches/`). A profile is a small JSON document with two
+sections (see ADR `run-profile-file`):
 
 ```json
 {

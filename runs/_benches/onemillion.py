@@ -1,6 +1,6 @@
 """Run OneMillion-Bench cases through the generic `Suite` framework (ADR 0017).
 
-The OneMillion-Bench run entry, mirroring ``runs/run_swebench_suite.py`` but for
+The OneMillion-Bench run entry, mirroring ``runs/_benches/swebench.py`` but for
 a light, Docker-free suite: it drives the container half through
 ``run_suite_instance(OneMillionSuite, LocalProcessBackend, LocalDirStore)`` — the
 same primitive every suite uses. Generation is one tool-free model turn; the
@@ -10,11 +10,11 @@ with a judge model.
 Usage (a downloaded dataset under ``datasets/OneMillion-Bench/``):
 
     # one case by id
-    uv run python runs/run_onemillion_suite.py case_2860 \
+    uv run python runs/run_bench.py onemillion case_2860 \
         --dataset datasets/OneMillion-Bench/healthcare_and_medicine
 
     # a whole domain (or the full dataset)
-    uv run python runs/run_onemillion_suite.py --all \
+    uv run python runs/run_bench.py onemillion --all \
         --dataset datasets/OneMillion-Bench --concurrency 8
 
 Reads the generator OPENAI_MODEL / OPENAI_AUTH_TOKEN (+ optional OPENAI_BASE_URL)
@@ -29,7 +29,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 for path in (ROOT, SRC):
     if str(path) not in sys.path:

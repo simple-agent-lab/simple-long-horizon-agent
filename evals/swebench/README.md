@@ -336,7 +336,7 @@ directly on an already-prepared instance JSONL:
 ```bash
 bash runs/run_swebench_suite.sh sympy__sympy-23824
 # or, equivalently:
-uv run python runs/run_swebench_suite.py sympy__sympy-23824 \
+uv run python runs/run_bench.py swebench sympy__sympy-23824 \
   --instance-json evals/out/swebench/instance_sympy__sympy-23824.jsonl \
   --dataset-name princeton-nlp/SWE-bench_Verified \
   --provider openai --api-kind openai-chat --dotenv .env \

@@ -9,7 +9,7 @@ helpers.
 
 Usage (host with Docker + the ProgramBench image pulled):
 
-    uv run python runs/run_programbench_suite.py <instance-id> \
+    uv run python runs/run_bench.py programbench <instance-id> \
         [--max-turns N] [--run-id ID] [--no-network-isolation] [--force]
 
 Reads OPENAI_MODEL / OPENAI_AUTH_TOKEN (and optional OPENAI_BASE_URL) from .env.
@@ -27,7 +27,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 for path in (ROOT, SRC):
     if str(path) not in sys.path:

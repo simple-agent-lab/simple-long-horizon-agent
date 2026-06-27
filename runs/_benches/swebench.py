@@ -8,7 +8,7 @@ cap_add) and the wheelhouse/uv mounts come from the shared `harness` helpers tha
 
 Usage (host with Docker + a built SWE-bench image):
 
-    uv run python runs/run_swebench_suite.py <instance-id> \
+    uv run python runs/run_bench.py swebench <instance-id> \
         [--max-turns N] [--run-id ID] \
         [--agent-flavor bash|bash_task|bash_task_read|bash_skills|loop|pdr] \
         [--in-env-scoring] [--force]
@@ -25,7 +25,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 for path in (ROOT, SRC):
     if str(path) not in sys.path:

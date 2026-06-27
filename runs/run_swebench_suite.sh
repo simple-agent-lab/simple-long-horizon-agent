@@ -91,7 +91,7 @@ if [ -n "${MCP_CONFIG:-}" ]; then
   MCP_ARGS+=(--mcp-config "$MCP_CONFIG")
 fi
 
-"${PYTHON[@]}" runs/run_swebench_suite.py "$INSTANCE_ID" \
+"${PYTHON[@]}" runs/run_bench.py swebench "$INSTANCE_ID" \
   --max-turns "$MAX_TURNS" \
   --run-id "$RUN_ID" \
   --agent-flavor "$AGENT_FLAVOR" \

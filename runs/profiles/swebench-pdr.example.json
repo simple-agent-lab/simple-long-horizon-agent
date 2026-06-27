@@ -1,5 +1,5 @@
 {
-  "_comment": "PDR arm on SWE-bench Pro. Copy to swebench-pdr.json and run: uv run python runs/run_swebench_suite.py <instance-id> --profile runs/profiles/swebench-pdr.json. Provider creds stay in .env (do NOT put OPENAI_AUTH_TOKEN in a committed profile).",
+  "_comment": "PDR arm on SWE-bench Pro. Copy to swebench-pdr.json and run: uv run python runs/run_bench.py swebench <instance-id> --profile runs/profiles/swebench-pdr.json. Provider creds stay in .env (do NOT put OPENAI_AUTH_TOKEN in a committed profile).",
   "env": {
     "_comment": "Catalogued env knobs (see docs/agent-native/configuration.md). Applied fill-the-gaps: a real export still wins.",
     "AGENT_FLAVOR": "pdr",
@@ -9,7 +9,7 @@
     "REASONING_EFFORT": "high"
   },
   "run": {
-    "_comment": "run_swebench_suite.py long options (without --). Defaults; an explicit CLI flag overrides.",
+    "_comment": "swebench long options (run_bench.py swebench; without --). Defaults; an explicit CLI flag overrides.",
     "max-turns": 200,
     "network-mode": "host",
     "prepare-wheelhouse": true

@@ -1,6 +1,6 @@
 """Run OneMillion-Bench cases answered by a multi-agent *workflow*.
 
-A sibling of ``runs/run_onemillion_suite.py`` that swaps the single tool-free
+A sibling of ``runs/_benches/onemillion.py`` that swaps the single tool-free
 generator for one of the ``simple_agent_lab.workflow`` orchestrations. Same
 host plumbing (dataset loading, rubric staging, judge scoring); the only
 differences are the suite (``OneMillionWorkflowSuite``) and a ``--workflow``
@@ -9,12 +9,12 @@ flag that selects which orchestration generates the answer.
 Usage (a downloaded dataset under ``datasets/OneMillion-Bench/``):
 
     # one case with the reflection workflow
-    uv run python runs/run_onemillion_workflow.py case_10086 \
+    uv run python runs/run_bench.py onemillion-workflow case_10086 \
         --workflow reflection \
         --dataset datasets/OneMillion-Bench/healthcare_and_medicine
 
     # a whole domain with planner/executor
-    uv run python runs/run_onemillion_workflow.py --all --workflow planner_executor \
+    uv run python runs/run_bench.py onemillion-workflow --all --workflow planner_executor \
         --dataset datasets/OneMillion-Bench/law --concurrency 8
 
 Workflows: single | reflection | planner_executor | parallel | chain | routing.
@@ -31,7 +31,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 for path in (ROOT, SRC):
     if str(path) not in sys.path:

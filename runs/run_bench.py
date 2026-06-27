@@ -25,8 +25,8 @@ prints a combined JSON summary:
     {"runs": [{"bench": "...", "args": ["case_1", "--provider", "oracle"]}, ...],
      "parallel": 1}
 
-The per-bench run scripts (runs/run_<bench>.py) remain directly runnable; this
-file imports their `run()` / `_build_parser()` and adds the unified surface.
+The per-bench logic lives in internal modules (runs/_benches/<bench>.py); this
+file imports their `run()` / `_build_parser()` and is the one supported entry.
 """
 
 from __future__ import annotations
@@ -47,10 +47,10 @@ for _p in (str(ROOT), str(ROOT / "src"), str(HERE)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import run_onemillion_suite as _onemillion  # noqa: E402
-import run_onemillion_workflow as _onemillion_workflow  # noqa: E402
-import run_programbench_suite as _programbench  # noqa: E402
-import run_swebench_suite as _swebench  # noqa: E402
+from _benches import onemillion as _onemillion  # noqa: E402
+from _benches import onemillion_workflow as _onemillion_workflow  # noqa: E402
+from _benches import programbench as _programbench  # noqa: E402
+from _benches import swebench as _swebench  # noqa: E402
 from evals.onemillion import harness as _omb_harness  # noqa: E402
 from simple_agent_lab.evals import parse_with_profile  # noqa: E402
 

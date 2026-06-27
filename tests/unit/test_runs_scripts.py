@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _load_run_swebench_suite_module():
-    path = ROOT / "runs/run_swebench_suite.py"
+    path = ROOT / "runs/_benches/swebench.py"
     spec = importlib.util.spec_from_file_location("sal_run_swebench_suite", path)
     assert spec is not None
     module = importlib.util.module_from_spec(spec)

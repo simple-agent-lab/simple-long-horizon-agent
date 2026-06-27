@@ -1,5 +1,5 @@
 {
-  "_comment": "Default ProgramBench arm. Copy to programbench.json and run: uv run python runs/run_programbench_suite.py <instance-id> --profile runs/profiles/programbench.json. Provider creds stay in .env (do NOT put OPENAI_AUTH_TOKEN in a committed profile). Network isolation stays on by default — see --no-network-isolation only if you must.",
+  "_comment": "Default ProgramBench arm. Copy to programbench.json and run: uv run python runs/run_bench.py programbench <instance-id> --profile runs/profiles/programbench.json. Provider creds stay in .env (do NOT put OPENAI_AUTH_TOKEN in a committed profile). Network isolation stays on by default — see --no-network-isolation only if you must.",
   "env": {
     "_comment": "Catalogued knobs forwarded into the container (see docs/agent-native/configuration.md). Applied fill-the-gaps: a real export still wins.",
     "AGENT_FLAVOR": "bash",
@@ -7,7 +7,7 @@
     "SAL_AGENT_COMPRESSION_WINDOW_RATIO": "0.8"
   },
   "run": {
-    "_comment": "run_programbench_suite.py long options (without --). Defaults; an explicit CLI flag overrides.",
+    "_comment": "programbench long options (run_bench.py programbench; without --). Defaults; an explicit CLI flag overrides.",
     "max-turns": 1000,
     "network-mode": "host"
   }

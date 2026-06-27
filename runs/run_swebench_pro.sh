@@ -164,7 +164,7 @@ run_container() {
   local instance_json="$1"
   local instance_id="$2"
   shift 2
-  "${PYTHON[@]}" runs/run_swebench_suite.py "$instance_id" \
+  "${PYTHON[@]}" runs/run_bench.py swebench "$instance_id" \
     --instance-json "$instance_json" \
     --dataset-name "$DATASET" \
     --provider openai \

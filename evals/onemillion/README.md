@@ -31,10 +31,10 @@ JUDGE_BASE_URL=https://your-provider/v1
 EOF
 
 # 3. Run one case, or a whole domain.
-uv run python runs/run_onemillion_suite.py case_2860 \
+uv run python runs/run_bench.py onemillion case_2860 \
   --dataset datasets/OneMillion-Bench/healthcare_and_medicine
 
-uv run python runs/run_onemillion_suite.py --all \
+uv run python runs/run_bench.py onemillion --all \
   --dataset datasets/OneMillion-Bench --concurrency 8
 ```
 

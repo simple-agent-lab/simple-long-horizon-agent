@@ -75,7 +75,7 @@ fi
 swebench_ensure_linux_uv
 
 # --- Run the agent through the Suite framework ---
-"${PYTHON[@]}" runs/run_programbench_suite.py "$INSTANCE_ID" \
+"${PYTHON[@]}" runs/run_bench.py programbench "$INSTANCE_ID" \
   --max-turns "$MAX_TURNS" \
   --run-id "$RUN_ID" \
   --uv-binary "$SWEBENCH_UV_BIN" \
