@@ -54,6 +54,10 @@ from simple_agent_lab.evals.suites.swebench.patch import instance_language  # no
 # result dict so the dispatcher / dashboard can read a machine-readable outcome.
 NAME = "swebench"
 DESCRIPTION = "SWE-bench instance in a Docker container (single instance per run)."
+# Official scorer reached by `run_bench.py score swebench ...` (collect
+# predictions + the official harness). Tests already run in-env with
+# --in-env-scoring; this is the host-side parse into a parity-grade verdict.
+SCORER = ("evals/swebench/evaluate_predictions.py",)
 
 
 def _build_parser() -> argparse.ArgumentParser:

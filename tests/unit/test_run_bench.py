@@ -131,5 +131,45 @@ class RunBenchHelpersTest(unittest.TestCase):
                 self.assertFalse(run_bench._provider_creds_present(env))
 
 
+class RunBenchScoreOracleTest(unittest.TestCase):
+    def _capture(self, argv: list[str]) -> tuple[int, str]:
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = run_bench.main(argv)
+        return code, buf.getvalue()
+
+    def test_score_inline_bench_is_a_noop(self) -> None:
+        code, out = self._capture(["score", "onemillion", "--json"])
+        payload = json.loads(out.strip().splitlines()[-1])
+        self.assertEqual(code, 0)
+        self.assertTrue(payload["inline"])
+        self.assertEqual(payload["bench"], "onemillion")
+
+    def test_score_and_oracle_need_a_known_bench(self) -> None:
+        self.assertEqual(run_bench.main(["score"]), 2)
+        self.assertEqual(run_bench.main(["score", "nope"]), 2)
+        self.assertEqual(run_bench.main(["oracle", "nope"]), 2)
+
+    def test_oracle_unsupported_bench_errors(self) -> None:
+        # ProgramBench has no apply_oracle / --provider oracle.
+        self.assertEqual(run_bench.main(["oracle", "programbench"]), 2)
+
+    def test_oracle_supported_where_provider_accepts_it(self) -> None:
+        accepts = run_bench._provider_accepts_oracle
+        self.assertTrue(accepts(run_bench.BENCHES["swebench"].module._build_parser()))
+        self.assertTrue(accepts(run_bench.BENCHES["onemillion"].module._build_parser()))
+        self.assertFalse(
+            accepts(run_bench.BENCHES["programbench"].module._build_parser())
+        )
+
+    def test_benches_with_a_scorer_point_at_a_real_file(self) -> None:
+        for name, bench in run_bench.BENCHES.items():
+            scorer = getattr(bench.module, "SCORER", None)
+            if scorer is None:
+                continue
+            with self.subTest(bench=name):
+                self.assertTrue((ROOT / scorer[0]).exists(), scorer)
+
+
 if __name__ == "__main__":
     unittest.main()

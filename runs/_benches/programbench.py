@@ -54,6 +54,8 @@ DESCRIPTION = (
     "ProgramBench reverse-engineering instance in a Docker container "
     "(single instance per run; per-command network isolation)."
 )
+# Official scorer reached by `run_bench.py score programbench ...`.
+SCORER = ("evals/programbench/evaluate_submissions.py",)
 
 
 def _build_parser() -> argparse.ArgumentParser:

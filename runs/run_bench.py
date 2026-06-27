@@ -2,11 +2,13 @@
 """Unified benchmark entry point — one CLI over every bench.
 
 Built so a thin dashboard can drive everything by shelling out and reading
-JSON. Four subcommands:
+JSON. Subcommands:
 
     uv run python runs/run_bench.py list [--json]
     uv run python runs/run_bench.py setup [bench ...] [--oracle] [--json]
     uv run python runs/run_bench.py <bench> [bench args ...] [--json]
+    uv run python runs/run_bench.py score <bench> [scorer args ...] [--json]
+    uv run python runs/run_bench.py oracle <bench> [bench args ...] [--json]
     uv run python runs/run_bench.py all --manifest M.json [--parallel N]
 
 `<bench>` is one of the registered names (see `list`). Per-bench flags are
@@ -18,6 +20,12 @@ to stderr), so the dashboard gets a clean contract.
 `setup` probes the environment (Python/uv, `.env` + provider creds, Docker,
 datasets) and, with `--oracle`, runs a cheap model-free oracle smoke where a
 bench supports it — a fast "is my environment wired correctly?" check.
+
+`score` reaches a bench's official scorer (SWE-bench / ProgramBench delegate to
+their `evals/<suite>/evaluate_*.py`; the test run is already inline, so this is
+the parity-grade host parse). A bench that grades inline (OneMillion) says so
+and does nothing. `oracle` runs the gold/model-free reference solution — sugar
+for the run path with `--provider oracle` — as a deterministic wiring check.
 
 `all` runs every entry of a JSON manifest, each as an isolated subprocess, and
 prints a combined JSON summary:
@@ -130,6 +138,66 @@ def cmd_bench(name: str, rest: list[str], json_mode: bool) -> int:
             }
     _emit_json(outcome)
     return int(outcome.get("status_code", 0))
+
+
+# --------------------------------------------------------------------------- #
+# score — reach a bench's official scorer (or note inline scoring)
+# --------------------------------------------------------------------------- #
+def cmd_score(name: str, rest: list[str], json_mode: bool) -> int:
+    bench = BENCHES[name]
+    scorer = getattr(bench.module, "SCORER", None)
+    if not scorer:
+        # No separate scorer: the bench grades itself during the run.
+        detail = (
+            f"{name} scores inline during the run (graded in-environment); "
+            "there is no separate scorer to invoke."
+        )
+        if json_mode:
+            _emit_json(
+                {"bench": name, "action": "score", "inline": True, "detail": detail}
+            )
+        else:
+            print(detail)
+        return 0
+    cmd = [sys.executable, *scorer, *rest]
+    proc = subprocess.run(cmd, cwd=str(ROOT))
+    if json_mode:
+        _emit_json(
+            {
+                "bench": name,
+                "action": "score",
+                "inline": False,
+                "status_code": proc.returncode,
+            }
+        )
+    return proc.returncode
+
+
+# --------------------------------------------------------------------------- #
+# oracle — run the gold/model-free reference solution (sugar for --provider oracle)
+# --------------------------------------------------------------------------- #
+def _provider_accepts_oracle(parser: argparse.ArgumentParser) -> bool:
+    for action in parser._actions:
+        if "--provider" in action.option_strings:
+            return bool(action.choices) and "oracle" in action.choices
+    return False
+
+
+def cmd_oracle(name: str, rest: list[str], json_mode: bool) -> int:
+    bench = BENCHES[name]
+    if not _provider_accepts_oracle(bench.module._build_parser()):
+        detail = (
+            f"{name} has no oracle mode (no apply_oracle / --provider oracle). "
+            "Oracle runs apply the reference solution model-free as a wiring check."
+        )
+        sys.stderr.write(detail + "\n")
+        if json_mode:
+            _emit_json(
+                {"bench": name, "action": "oracle", "supported": False, "error": detail}
+            )
+        return 2
+    # Oracle is the run path with the gold/model-free provider.
+    return cmd_bench(name, ["--provider", "oracle", *rest], json_mode)
 
 
 # --------------------------------------------------------------------------- #
@@ -414,11 +482,21 @@ def main(argv: list[str] | None = None) -> int:
         pre.add_argument("--parallel", type=int, default=0)
         ns = pre.parse_args(rest)
         return cmd_all(ns.manifest, ns.parallel, json_mode)
+    if cmd in ("score", "oracle"):
+        if not rest or rest[0] not in BENCHES:
+            sys.stderr.write(
+                f"usage: run_bench.py {cmd} <bench> [args]; "
+                f"bench is one of {list(BENCHES)}\n"
+            )
+            return 2
+        handler = cmd_score if cmd == "score" else cmd_oracle
+        return handler(rest[0], rest[1:], json_mode)
     if cmd in BENCHES:
         return cmd_bench(cmd, rest, json_mode)
 
     sys.stderr.write(
-        f"unknown command {cmd!r}. Use: list | setup | all | {' | '.join(BENCHES)}\n"
+        f"unknown command {cmd!r}. Use: "
+        f"list | setup | score | oracle | all | {' | '.join(BENCHES)}\n"
     )
     return 2
 

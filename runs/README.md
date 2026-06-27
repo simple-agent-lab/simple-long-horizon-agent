@@ -8,7 +8,7 @@ useful as the reference way to run an experiment), grouped by concern.
 
 ```
 runs/
-  run_bench.py               # the one entry over every bench (list/setup/<bench>/all)
+  run_bench.py               # the one entry over every bench (list/setup/<bench>/score/oracle/all)
   bench-manifest.example.json
   profiles/                  # per-bench run-profiles (*.example.json)
   _benches/                  # internal per-bench modules (imported by run_bench.py)
@@ -25,8 +25,16 @@ Start with the unified entry:
 uv run python runs/run_bench.py list            # what benches exist
 uv run python runs/run_bench.py setup           # is my environment ready?
 uv run python runs/run_bench.py <bench> ...     # run one bench
+uv run python runs/run_bench.py score <bench> ...   # official scorer (or note inline scoring)
+uv run python runs/run_bench.py oracle <bench> ...  # gold/model-free reference run (wiring check)
 uv run python runs/run_bench.py all --manifest runs/bench-manifest.json
 ```
+
+`score` reaches a bench's official scorer (SWE-bench / ProgramBench delegate to
+their `evals/<suite>/evaluate_*.py`; a bench that grades inline says so and does
+nothing). `oracle` is sugar for the run path with `--provider oracle`, applying
+the reference solution model-free as a deterministic wiring check (only benches
+whose `--provider` accepts `oracle`).
 
 ## Available shell runs
 

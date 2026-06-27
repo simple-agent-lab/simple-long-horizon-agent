@@ -37,13 +37,15 @@ multi-agent workflows are a flavor of that one bench — `--agent-flavor`).
 
 `runs/run_bench.py` is a single dispatcher over all benches, built so a thin
 dashboard can drive everything by shelling out and reading JSON. The per-bench
-`runs/run_<bench>.py` scripts stay directly runnable (they are imported by the
+logic lives in internal modules (`runs/_benches/<bench>.py`, imported by the
 dispatcher); `run_bench.py` is the one surface to learn:
 
 ```bash
 uv run python runs/run_bench.py list [--json]            # discover benches
 uv run python runs/run_bench.py setup [bench ...] [--oracle] [--json]
 uv run python runs/run_bench.py <bench> [bench args ...] [--json]
+uv run python runs/run_bench.py score <bench> [scorer args ...] [--json]
+uv run python runs/run_bench.py oracle <bench> [bench args ...] [--json]
 uv run python runs/run_bench.py all --manifest M.json [--parallel N]
 ```
 
@@ -54,6 +56,15 @@ uv run python runs/run_bench.py all --manifest M.json [--parallel N]
   environment wired correctly?" check before launching real runs.
 - `<bench>` — delegate to that bench's own parser (same flags, incl. `--profile`);
   with `--json` it prints one result object to stdout (human logs go to stderr).
+- `score` — reach a bench's official scorer. SWE-bench / ProgramBench delegate to
+  their `evals/<suite>/evaluate_*.py`; the test run is already inline (with
+  `--in-env-scoring` the eval log is in `result.json`), so this is just the
+  parity-grade host parse. A bench that grades inline (OneMillion) says so and
+  does nothing.
+- `oracle` — run the gold / model-free reference solution (sugar for the run path
+  with `--provider oracle`): a deterministic wiring check that the suite + scoring
+  are correct without a model. Errors on a bench with no oracle mode
+  (ProgramBench).
 - `all` — run every entry of a JSON manifest, each as an isolated subprocess, and
   print a combined JSON summary. See `runs/bench-manifest.example.json`; a
   manifest entry is `{bench, args:[...]}` (plus optional `profile`), so the
