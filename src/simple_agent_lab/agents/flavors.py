@@ -455,11 +455,18 @@ def _resolve_context_policy(
     compressor = make_llm_agent(
         name="context_compressor",
         provider=provider,
-        role="Summarize older agent context before it exceeds the model window.",
+        role="Compact older agent context into durable working memory.",
         system_prompt=(
-            "You compress long agent transcripts. Produce a concise, faithful "
-            "summary that preserves durable facts, constraints, tool results, "
-            "decisions, open questions, and file paths. Do not invent facts."
+            "You compact an agent's own working transcript into durable memory "
+            "it will keep reading. Be faithful: preserve facts exactly and never "
+            "invent — if unsure, omit. Preserve identifiers VERBATIM (file "
+            "paths, symbols, commands, error strings, test names, IDs, numbers); "
+            "do not paraphrase them. Capture not just what is true but the state "
+            "of the work — what is done, what remains, and which approaches "
+            "already failed (with the reason, so they are not retried). Drop "
+            "chit-chat and superseded detail. The summary must stand alone: the "
+            "agent should be able to continue from it plus the few recent "
+            "messages."
         ),
         tools=(),
         request_extra=request_extra,

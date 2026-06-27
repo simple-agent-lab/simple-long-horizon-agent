@@ -260,12 +260,22 @@ class SummarizeStrategy:
         instruction = make_message(
             "user",
             (
-                f"Summarize the older conversation context above for agent "
-                f"{agent_name!r}.\n"
-                "Keep durable facts, decisions, tool results, constraints, "
-                "and unresolved questions. Omit low-value wording. Your "
-                "summary will replace the prior messages while the task and "
-                "recent messages stay visible."
+                f"Compact the older conversation above into working memory for "
+                f"agent {agent_name!r}. It replaces those messages; the task and "
+                "recent messages stay visible.\n\n"
+                "Write a terse, self-contained summary under these headings, "
+                "omitting any that have nothing:\n"
+                "- Goal: the objective plus constraints / acceptance criteria.\n"
+                "- Done: what has been accomplished and verified.\n"
+                "- State: where the work stands now.\n"
+                "- Facts & identifiers: key facts, decisions, and tool results, "
+                "with exact paths, symbols, commands, errors, test names, and "
+                "values kept VERBATIM.\n"
+                "- Open: unresolved questions and blockers.\n"
+                "- Next: the next concrete action(s).\n"
+                "- Tried & rejected: approaches already attempted that failed, "
+                "and why.\n\n"
+                "Preserve facts exactly; never invent. Omit low-value wording."
             ),
             sender="runtime",
             target=self.compressor.name,

@@ -200,10 +200,12 @@ def make_compact_control(
             "has grown long and earlier messages are no longer needed verbatim "
             "— e.g. after finishing a sub-task. Write `summary` as the "
             "replacement for those older messages: keep every fact, decision, "
-            "constraint, and open question you still need, because everything "
-            "not in the summary leaves your view. The replacement cites the "
-            "transcript indices it folded, so a `recall` tool (when available) "
-            "can retrieve the originals."
+            "constraint, open question, and next step you still need, plus exact "
+            "identifiers (paths, symbols, commands, errors, test names, values) "
+            "kept VERBATIM and any approach you already tried that failed (with "
+            "why). Everything not in the summary leaves your view. The "
+            "replacement cites the transcript indices it folded, so a `recall` "
+            "tool (when available) can retrieve the originals."
         ),
         parameters={
             "type": "object",
