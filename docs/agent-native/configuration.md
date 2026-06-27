@@ -23,15 +23,15 @@ sections (see ADR `run-profile-file`):
 
 - `env` → the catalogued env names below, applied **fill-the-gaps** (a real
   export still wins, exactly like `.env`).
-- `run` → `run_*_suite.py` long-option names (without `--`), injected as
-  defaults that an explicit CLI flag overrides.
+- `run` → the bench's long-option names (without `--`), injected as defaults
+  that an explicit CLI flag overrides.
 
 It is a *bundle* of the two existing surfaces (`.env` + CLI), not a new schema,
 so there is no second source of truth. Keep secrets in `.env`; commit only
 `runs/profiles/*.example.json` (the rest are gitignored). Each benchmark ships a
 default example to copy and edit: `swebench-pdr.example.json`,
-`programbench.example.json`, `onemillion.example.json`, and
-`onemillion-workflow.example.json`.
+`programbench.example.json`, and `onemillion.example.json` (the OneMillion
+multi-agent workflows are a flavor of that one bench — `--agent-flavor`).
 
 ## One entry point for every bench (`run_bench.py`)
 
@@ -118,7 +118,6 @@ hierarchy. Knobs not yet migrated stay in the hand-written sections that follow.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `OMB_WORKFLOW` | `single` | OneMillion workflow selector. |
 | `OMB_REFLECTION_ROUNDS` | `2` | Reflection rounds. |
 | `OMB_PARALLEL_WORKERS` | `3` | Parallel workers. |
 | `OMB_PDR_ROUNDS` | `2` | PDR rounds. |

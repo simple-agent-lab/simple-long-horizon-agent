@@ -3,18 +3,23 @@
 The OneMillion-Bench run entry, mirroring ``runs/_benches/swebench.py`` but for
 a light, Docker-free suite: it drives the container half through
 ``run_suite_instance(OneMillionSuite, LocalProcessBackend, LocalDirStore)`` — the
-same primitive every suite uses. Generation is one tool-free model turn; the
-in-environment ``evaluate`` hook grades the answer against the case's rubrics
-with a judge model.
+same primitive every suite uses. The in-environment ``evaluate`` hook grades the
+answer against the case's rubrics with a judge model.
+
+Generation strategy is chosen with the shared ``--agent-flavor`` knob (like
+SWE-bench): ``single`` (default) is one tool-free model turn; a workflow flavor
+(``reflection`` / ``planner_executor`` / ``parallel`` / ``chain`` / ``routing``
+/ ``pdr``) produces the answer with a multi-agent ``simple_agent_lab.workflow``
+orchestration. There is one OneMillion entry — the flavor picks the strategy.
 
 Usage (a downloaded dataset under ``datasets/OneMillion-Bench/``):
 
-    # one case by id
+    # one case, single tool-free turn (default)
     uv run python runs/run_bench.py onemillion case_2860 \
         --dataset datasets/OneMillion-Bench/healthcare_and_medicine
 
-    # a whole domain (or the full dataset)
-    uv run python runs/run_bench.py onemillion --all \
+    # a whole domain via the reflection workflow
+    uv run python runs/run_bench.py onemillion --all --agent-flavor reflection \
         --dataset datasets/OneMillion-Bench --concurrency 8
 
 Reads the generator OPENAI_MODEL / OPENAI_AUTH_TOKEN (+ optional OPENAI_BASE_URL)
@@ -25,6 +30,7 @@ value) from ``.env``.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -35,8 +41,10 @@ for path in (ROOT, SRC):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
+import simple_agent_lab.config as config  # noqa: E402
 from evals.onemillion import harness  # noqa: E402
 from evals.onemillion.suite import OneMillionSuite  # noqa: E402
+from simple_agent_lab.agent_flavors import AGENT_FLAVOR_ENV  # noqa: E402
 from simple_agent_lab.evals import (  # noqa: E402
     LocalDirStore,
     LocalProcessBackend,
@@ -44,13 +52,14 @@ from simple_agent_lab.evals import (  # noqa: E402
     run_dataset,
     run_suite_instance,
 )
+from simple_agent_lab.evals.suites.onemillion.container import OMB_FLAVORS  # noqa: E402
 
 # Identity for the unified entry (runs/run_bench.py). `run(args)` returns a
 # result dict so the dispatcher / dashboard can read a machine-readable outcome.
 NAME = "onemillion"
 DESCRIPTION = (
-    "OneMillion-Bench: one tool-free generation turn, judged by a rubric "
-    "(in-process; supports --all sweeps)."
+    "OneMillion-Bench: rubric-judged Q&A; --agent-flavor picks single (tool-free "
+    "turn) or a multi-agent workflow (in-process; supports --all sweeps)."
 )
 
 
@@ -70,6 +79,34 @@ def _build_parser() -> argparse.ArgumentParser:
             "flags are defaults overridable by explicit flags). See ADR "
             "run-profile-file."
         ),
+    )
+    parser.add_argument(
+        "--agent-flavor",
+        choices=list(OMB_FLAVORS),
+        default="single",
+        help=(
+            "Generation strategy (default: single). A workflow flavor "
+            "(reflection|planner_executor|parallel|chain|routing|pdr) answers via "
+            "a multi-agent simple_agent_lab.workflow orchestration."
+        ),
+    )
+    parser.add_argument(
+        "--reflection-rounds",
+        type=int,
+        default=None,
+        help="Critique/revise rounds for --agent-flavor reflection.",
+    )
+    parser.add_argument(
+        "--parallel-workers",
+        type=int,
+        default=None,
+        help="Worker count for --agent-flavor parallel.",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=None,
+        help="Per-request timeout (s) for each sub-agent (default: 600).",
     )
     parser.add_argument(
         "--dataset",
@@ -106,6 +143,19 @@ def run(args: argparse.Namespace) -> dict:
     api_kind = harness.resolve_api_kind(args.api_kind)
     provider_env[harness.API_KIND_ENV] = api_kind
 
+    # The container half (in-process for LocalProcessBackend) reads AGENT_FLAVOR
+    # (single vs a workflow) and the OMB_* workflow knobs from os.environ; mirror
+    # them into provider_env so containerized backends get them too.
+    flavor_env = {AGENT_FLAVOR_ENV: args.agent_flavor}
+    if args.reflection_rounds is not None:
+        flavor_env[config.OMB_REFLECTION_ROUNDS.name] = str(args.reflection_rounds)
+    if args.parallel_workers is not None:
+        flavor_env[config.OMB_PARALLEL_WORKERS.name] = str(args.parallel_workers)
+    if args.timeout is not None:
+        flavor_env[config.OMB_TIMEOUT.name] = str(args.timeout)
+    os.environ.update(flavor_env)
+    provider_env.update(flavor_env)
+
     suite = OneMillionSuite(in_env_scoring=not args.no_scoring)
     backend = LocalProcessBackend()
     store = LocalDirStore(Path(args.run_root))
@@ -127,7 +177,9 @@ def run(args: argparse.Namespace) -> dict:
         instances = harness.load_dataset(args.dataset)
         if args.limit > 0:
             instances = instances[: args.limit]
-        print(f"==> Running {len(instances)} OneMillion-Bench cases")
+        print(
+            f"==> Running {len(instances)} OneMillion-Bench cases [{args.agent_flavor}]"
+        )
         print(f"    run-id: {args.run_id}  concurrency: {args.concurrency}")
         report = run_dataset(
             instances=instances,
@@ -152,6 +204,7 @@ def run(args: argparse.Namespace) -> dict:
     instance_id = str(instance["instance_id"])
     print("==> Running OneMillion-Bench case through OneMillionSuite")
     print(f"    case:      {instance_id}")
+    print(f"    flavor:    {args.agent_flavor}")
     print(f"    run-id:    {args.run_id}")
     print(f"    scoring:   {'on' if not args.no_scoring else 'off'}")
     print("")

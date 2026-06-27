@@ -18,9 +18,9 @@
       "args": ["--all", "--dataset", "datasets/OneMillion-Bench/healthcare_and_medicine", "--limit", "20"]
     },
     {
-      "bench": "onemillion-workflow",
-      "profile": "runs/profiles/onemillion-workflow.json",
-      "args": ["case_10086", "--dataset", "datasets/OneMillion-Bench/healthcare_and_medicine"]
+      "bench": "onemillion",
+      "profile": "runs/profiles/onemillion.json",
+      "args": ["--all", "--agent-flavor", "reflection", "--dataset", "datasets/OneMillion-Bench/law", "--limit", "20"]
     }
   ]
 }

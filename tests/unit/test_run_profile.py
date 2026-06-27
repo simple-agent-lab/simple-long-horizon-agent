@@ -133,7 +133,6 @@ EXAMPLE_TO_SCRIPT = {
     "swebench-pdr.example.json": "runs/_benches/swebench.py",
     "programbench.example.json": "runs/_benches/programbench.py",
     "onemillion.example.json": "runs/_benches/onemillion.py",
-    "onemillion-workflow.example.json": "runs/_benches/onemillion_workflow.py",
 }
 
 

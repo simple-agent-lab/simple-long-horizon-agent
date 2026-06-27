@@ -169,11 +169,9 @@ REPO_LANGUAGE = EnvVar(
 )
 
 # --------------------------------------------------------------------------- #
-# eval.onemillion — OneMillion suite workflow knobs.
+# eval.onemillion — OneMillion workflow-flavor tuning knobs. (The workflow is
+# selected with AGENT_FLAVOR, like every suite; these only tune the chosen one.)
 # --------------------------------------------------------------------------- #
-OMB_WORKFLOW = EnvVar(
-    "OMB_WORKFLOW", "single", "eval.onemillion", "OneMillion workflow selector."
-)
 OMB_REFLECTION_ROUNDS = EnvVar(
     "OMB_REFLECTION_ROUNDS",
     2,
@@ -220,7 +218,6 @@ REGISTRY: tuple[EnvVar, ...] = (
     COMPRESSION_WINDOW_RATIO,
     COMPRESSION_KEEP_RECENT,
     REPO_LANGUAGE,
-    OMB_WORKFLOW,
     OMB_REFLECTION_ROUNDS,
     OMB_PARALLEL_WORKERS,
     OMB_PDR_ROUNDS,

@@ -48,7 +48,6 @@ for _p in (str(ROOT), str(ROOT / "src"), str(HERE)):
         sys.path.insert(0, _p)
 
 from _benches import onemillion as _onemillion  # noqa: E402
-from _benches import onemillion_workflow as _onemillion_workflow  # noqa: E402
 from _benches import programbench as _programbench  # noqa: E402
 from _benches import swebench as _swebench  # noqa: E402
 from evals.onemillion import harness as _omb_harness  # noqa: E402
@@ -84,12 +83,6 @@ BENCHES: dict[str, Bench] = {
             needs_docker=False,
             dataset_dir=_omb_harness.DEFAULT_DATASET_DIR,
             oracle_smoke=True,
-        ),
-        Bench(
-            _onemillion_workflow,
-            needs_docker=False,
-            dataset_dir=_omb_harness.DEFAULT_DATASET_DIR,
-            oracle_smoke=False,
         ),
     )
 }

@@ -5,7 +5,8 @@
     "REASONING_EFFORT": "high"
   },
   "run": {
-    "_comment": "onemillion long options (run_bench.py onemillion; without --). Defaults; an explicit CLI flag overrides. Add `all: true` plus a domain `dataset` for a sweep.",
+    "_comment": "onemillion long options (run_bench.py onemillion; without --). Defaults; an explicit CLI flag overrides. Set `agent-flavor` to single (default) or a workflow (reflection|planner_executor|parallel|chain|routing|pdr). Add `all: true` plus a domain `dataset` for a sweep.",
+    "agent-flavor": "single",
     "concurrency": 8,
     "max-turns": 1
   }

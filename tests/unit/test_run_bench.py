@@ -34,7 +34,6 @@ EXPECTED_BENCHES = {
     "swebench",
     "programbench",
     "onemillion",
-    "onemillion-workflow",
 }
 
 
