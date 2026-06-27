@@ -213,14 +213,17 @@ def main() -> None:
         extras=package_extras,
     )
 
+    security_opt = (
+        tuple(args.security_opt)
+        if args.security_opt is not None
+        else ("seccomp=unconfined",)
+    )
     suite = SwebenchSuite(
         dataset_name=args.dataset_name,
         namespace=args.namespace,
         platform=args.platform,
         network_mode=args.network_mode,
-        security_opt=tuple(args.security_opt)
-        if args.security_opt is not None
-        else ("seccomp=unconfined",),
+        security_opt=security_opt,
         in_env_scoring=args.in_env_scoring,
     )
     backend = LocalDockerBackend(
@@ -242,6 +245,12 @@ def main() -> None:
     print(f"    agent:      {args.agent_flavor}{' (arm)' if is_arm else ''}")
     print(f"    container:  {name}")
     print(f"    docker api timeout: {args.docker_timeout_seconds:g}s")
+    if any("seccomp=unconfined" in opt for opt in security_opt):
+        print(
+            "    WARNING: seccomp disabled (seccomp=unconfined) — reduced "
+            "container isolation. Pass --security-opt seccomp=default to "
+            "restore the daemon's profile."
+        )
     print("")
 
     result = run_suite_instance(
