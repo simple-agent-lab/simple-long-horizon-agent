@@ -25,7 +25,6 @@ here keeps that surface focused on the protocol and runtime.
 """
 
 from .flavors import (
-    agent_session_for_flavor,
     build_flavor_agent,
     make_workflow_runner_for_flavor,
 )
@@ -61,7 +60,6 @@ __all__ = [
     "SkillConfig",
     "Toolset",
     "MCPToolset",
-    "agent_session_for_flavor",
     "build_flavor_agent",
     "make_workflow_runner_for_flavor",
     "agent_session",

@@ -119,11 +119,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Image pull policy before create.",
     )
     parser.add_argument("--dotenv", default=str(ROOT / ".env"))
-    parser.add_argument(
-        "--mcp-config",
-        default=None,
-        help="Optional MCP server config JSON; defaults to MCP_CONFIG when set.",
-    )
     parser.add_argument("--run-root", default=None)
     parser.add_argument("--wheelhouse", default=None)
     parser.add_argument("--uv-binary", default=harness.DEFAULT_UV_BINARY)
@@ -211,14 +206,10 @@ def main() -> None:
         outer_max_turns = 1
 
     run_root, wheelhouse = _resolve_paths(args, instance)
-    mcp_config_path = harness.resolve_mcp_config_path(args.mcp_config)
-    mcp_config = (
-        harness.load_mcp_config_payload(mcp_config_path) if mcp_config_path else None
-    )
-    package_extras = ("mcp",) if mcp_config else ()
+    package_extras: tuple[str, ...] = ()
     harness.prepare_wheelhouse_for_run(
         wheelhouse,
-        prepare_all=args.prepare_wheelhouse or bool(package_extras),
+        prepare_all=args.prepare_wheelhouse,
         extras=package_extras,
     )
 
@@ -249,8 +240,6 @@ def main() -> None:
     print(f"    max-turns:  {args.max_turns}")
     print(f"    run-id:     {args.run_id}")
     print(f"    agent:      {args.agent_flavor}{' (arm)' if is_arm else ''}")
-    if mcp_config_path:
-        print(f"    mcp config: {mcp_config_path}")
     print(f"    container:  {name}")
     print(f"    docker api timeout: {args.docker_timeout_seconds:g}s")
     print("")
@@ -269,7 +258,6 @@ def main() -> None:
         package_extras=package_extras,
         wheelhouse_mount=harness.DEFAULT_WHEELHOUSE_MOUNT,
         name=name,
-        mcp_config=mcp_config,
     )
 
     if result.logs:

@@ -70,7 +70,6 @@ DEFAULT_MULTILINGUAL_WHEELHOUSE = (
 DEFAULT_PRO_RUN_ROOT = ROOT / "evals/out/swebench_pro"
 DEFAULT_PRO_WHEELHOUSE = ROOT / "evals/out/swebench_pro/wheelhouse/cp311-manylinux"
 DEFAULT_UV_BINARY = shutil.which("uv") or ""
-MCP_CONFIG_ENV = "MCP_CONFIG"
 # This suite intentionally accepts only the OpenAI-protocol adapters (not the
 # broader set in `llm.env.API_KIND_CHOICES`), so it is declared locally. The
 # reasoning-effort names are imported above from `llm.env`; forwarding them keeps
@@ -357,34 +356,6 @@ def resolve_api_kind(value: str | None) -> str:
             + ", ".join(API_KIND_CHOICES)
         )
     return api_kind
-
-
-def resolve_mcp_config_path(value: str | None) -> str | None:
-    """Return the requested MCP config path, preferring CLI over MCP_CONFIG."""
-
-    config = (value or os.environ.get(MCP_CONFIG_ENV) or "").strip()
-    return config or None
-
-
-def load_mcp_config_payload(path: str | Path) -> dict[str, Any]:
-    """Load and validate an MCP config file, returning its JSON object payload."""
-
-    config_path = Path(path)
-    try:
-        text = config_path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise SystemExit(f"MCP config {config_path}: {exc}") from exc
-
-    try:
-        from simple_agent_lab.mcp.config_file import mcp_server_configs_from_json
-
-        mcp_server_configs_from_json(text, source=f"MCP config {config_path}")
-        payload = json.loads(text)
-    except (ValueError, json.JSONDecodeError) as exc:
-        raise SystemExit(f"MCP config {config_path}: {exc}") from exc
-    if not isinstance(payload, dict):
-        raise SystemExit(f"MCP config {config_path}: expected a JSON object")
-    return dict(payload)
 
 
 # --------------------------------------------------------------------------- #

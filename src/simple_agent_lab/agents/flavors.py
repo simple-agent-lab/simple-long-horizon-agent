@@ -47,8 +47,6 @@ from simple_agent_lab.workflow import (
 
 from .starter import (
     BASH_TASK_EXPLORER_ADDENDUM,
-    AgentSession,
-    agent_session,
     make_agent,
 )
 
@@ -223,91 +221,6 @@ def _build_simple_flavor_agent(
     )
 
 
-def agent_session_for_flavor(
-    *,
-    flavor: str,
-    provider: Provider,
-    cwd: Path,
-    mcp_servers: Sequence[Any],
-    max_turns: int,
-    name: str = "agent",
-    role: str = "",
-    system_prompt: str = "",
-    request_extra: Mapping[str, Any] | None = None,
-    hooks: HookMap | None = None,
-    context_policy: ContextPolicy | None = None,
-    enable_default_compression: bool = True,
-) -> AgentSession:
-    """Build an MCP-owning AgentSession for one shipped simple flavor."""
-
-    hooks = hooks or {}
-    policy = _resolve_context_policy(
-        provider,
-        request_extra=request_extra,
-        context_policy=context_policy,
-        enable_default_compression=enable_default_compression,
-    )
-    if flavor == "bash":
-        return agent_session(
-            provider,
-            cwd=cwd,
-            name=name,
-            role=role,
-            system_prompt=system_prompt,
-            context_policy=policy,
-            mcp_servers=mcp_servers,
-            request_extra=request_extra,
-            max_turns=max_turns,
-            hooks=hooks,
-        )
-    if flavor == "bash_task":
-        return agent_session(
-            provider,
-            cwd=cwd,
-            explorer=True,
-            name=name,
-            role=role,
-            system_prompt=_with_explorer_addendum(system_prompt),
-            context_policy=policy,
-            mcp_servers=mcp_servers,
-            request_extra=request_extra,
-            max_turns=max_turns,
-            hooks=hooks,
-        )
-    if flavor == "bash_task_read":
-        return agent_session(
-            provider,
-            cwd=cwd,
-            read=True,
-            explorer=True,
-            name=name,
-            role=role,
-            system_prompt=_with_explorer_addendum(system_prompt),
-            context_policy=policy,
-            mcp_servers=mcp_servers,
-            request_extra=request_extra,
-            max_turns=max_turns,
-            hooks=hooks,
-        )
-    if flavor == "bash_skills":
-        return agent_session(
-            provider,
-            cwd=cwd,
-            read=True,
-            name=name,
-            role=role,
-            system_prompt=system_prompt_with_skills(system_prompt, cwd=cwd),
-            context_policy=policy,
-            mcp_servers=mcp_servers,
-            request_extra=request_extra,
-            max_turns=max_turns,
-            hooks=hooks,
-        )
-    raise SystemExit(
-        f"Unsupported agent flavor {flavor!r}; expected one of {SIMPLE_AGENT_FLAVORS}."
-    )
-
-
 def _build_workflow_flavor_agent(
     *,
     flavor: str,
@@ -325,9 +238,9 @@ def _build_workflow_flavor_agent(
 ) -> Agent:
     """Build the facade Agent for one shipped workflow flavor.
 
-    The facade delays creating workers until its single `generate` call. This
-    keeps resolver probes cheap and lets eval runners reject MCP for workflow
-    flavors without constructing worktrees or sub-agents.
+    The facade delays creating workers until its single `generate` call, so a
+    build_agent probe constructs no worktrees or sub-agents until the run
+    actually starts.
 
     The facade owns all workflow bookkeeping so callers (eval suites) do not
     each re-implement it: it writes the sub-agent traces via ``trace_put`` and

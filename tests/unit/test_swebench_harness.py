@@ -30,13 +30,11 @@ from evals.swebench.harness import (
     is_swebench_pro,
     is_swebench_pro_instance,
     load_instance,
-    load_mcp_config_payload,
     prediction_record,
     prepare_project_wheel,
     prepare_wheelhouse,
     prepare_wheelhouse_for_run,
     resolve_api_kind,
-    resolve_mcp_config_path,
     resolve_workdir,
     sanitized_instance,
 )
@@ -287,43 +285,6 @@ class SwebenchHarnessTest(unittest.TestCase):
     def test_resolve_api_kind_rejects_unknown_value(self) -> None:
         with self.assertRaisesRegex(SystemExit, "Unsupported API_KIND"):
             resolve_api_kind("unknown-api")
-
-    def test_resolve_mcp_config_path_prefers_cli_then_env(self) -> None:
-        with mock.patch.dict("os.environ", {}, clear=True):
-            self.assertIsNone(resolve_mcp_config_path(None))
-            self.assertEqual(resolve_mcp_config_path("cli.json"), "cli.json")
-
-        with mock.patch.dict("os.environ", {"MCP_CONFIG": "env.json"}, clear=True):
-            self.assertEqual(resolve_mcp_config_path(None), "env.json")
-            self.assertEqual(resolve_mcp_config_path("cli.json"), "cli.json")
-
-    def test_load_mcp_config_payload_validates_and_returns_json_object(self) -> None:
-        payload = {
-            "servers": [
-                {
-                    "name": "workspace",
-                    "transport": "stdio",
-                    "command": "python",
-                    "args": ["-m", "server"],
-                    "cwd": "/testbed",
-                }
-            ]
-        }
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "mcp.json"
-            path.write_text(json.dumps(payload), encoding="utf-8")
-
-            loaded = load_mcp_config_payload(path)
-
-        self.assertEqual(loaded, payload)
-
-    def test_load_mcp_config_payload_rejects_invalid_config(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "mcp.json"
-            path.write_text('{"servers": [{"name": "bad"}]}', encoding="utf-8")
-
-            with self.assertRaisesRegex(SystemExit, "MCP config"):
-                load_mcp_config_payload(path)
 
     def test_load_instance_accepts_instances_wrapper(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

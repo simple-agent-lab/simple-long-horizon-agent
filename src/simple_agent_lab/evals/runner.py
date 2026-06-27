@@ -165,7 +165,6 @@ def run_suite_instance(
     package_extras: tuple[str, ...] = (),
     wheelhouse_mount: str | None = None,
     name: str | None = None,
-    mcp_config: Mapping[str, Any] | None = None,
 ) -> RunArtifacts:
     """Run one instance and return where its artifacts landed.
 
@@ -195,7 +194,6 @@ def run_suite_instance(
         (json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8"),
     )
     _stage_eval_inputs(suite, instance, bound)
-    _stage_mcp_config(mcp_config, bound)
     binding = bound.container_binding()
 
     spec = RunSpec(
@@ -251,21 +249,4 @@ def _stage_eval_inputs(
     bound.put(
         EVAL_KEY,
         (json.dumps(dict(payload), ensure_ascii=False) + "\n").encode("utf-8"),
-    )
-
-
-def _stage_mcp_config(
-    mcp_config: Mapping[str, Any] | None, bound: ArtifactStore
-) -> None:
-    """Stage optional MCP server config under MCP_KEY, separate from task input."""
-
-    if not mcp_config:
-        return
-    from .protocols import MCP_KEY
-
-    bound.put(
-        MCP_KEY,
-        (
-            json.dumps(dict(mcp_config), ensure_ascii=False, sort_keys=True) + "\n"
-        ).encode("utf-8"),
     )

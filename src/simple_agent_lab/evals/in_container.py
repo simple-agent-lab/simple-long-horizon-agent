@@ -30,20 +30,13 @@ import inspect
 import json
 import os
 import time
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, cast
 
-from ..agent_flavors import (
-    SIMPLE_AGENT_FLAVORS,
-    WORKFLOW_AGENT_FLAVORS,
-    flavor_from_env,
-)
 from ..agents.flavors import (
-    AgentSession,
     ArtifactPut,
-    agent_session_for_flavor,
     build_flavor_agent,
 )
 from ..core import Agent
@@ -230,7 +223,7 @@ def _resolve_agent(
 
     # A custom build_agent may handle only SOME flavors (e.g. the workflow arms)
     # and return None for the rest, delegating those back to the agent_spec path
-    # so they still get memory hooks + MCP. Non-None wins.
+    # so they still get memory hooks. Non-None wins.
     agent = _custom_build_agent(
         module,
         provider=provider,
@@ -260,11 +253,6 @@ def _resolve_agent(
     )
 
 
-def _agent_spec(module: ModuleType) -> AgentSpec:
-    factory = getattr(module, "agent_spec", None)
-    return factory() if callable(factory) else AgentSpec()
-
-
 def _custom_build_agent(
     module: ModuleType,
     *,
@@ -277,9 +265,7 @@ def _custom_build_agent(
     """The module's optional `build_agent` hook, or None when absent or declined.
 
     A custom `build_agent` claims a flavor by returning an `Agent` and declines
-    one by returning None (so it falls through to the `agent_spec` path). Both
-    the plain and MCP resolvers ask through here so they agree on what "the hook
-    handles this flavor" means.
+    one by returning None (so it falls through to the `agent_spec` path).
 
     ``trace_put`` is the artifact sink for workflow sub-agent traces; it is
     passed only to hooks that declare it, so a suite building a workflow arm
@@ -296,56 +282,6 @@ def _custom_build_agent(
         cwd=cwd,
         request_extra=request_extra,
         **extra,
-    )
-
-
-def _resolve_mcp_session(
-    module: ModuleType,
-    *,
-    provider: Provider,
-    cwd: Path,
-    request_extra: Mapping[str, Any] | None,
-    mcp_servers: Sequence[Any],
-    max_turns: int,
-    instance: Mapping[str, Any],
-    context: Mapping[str, Any],
-) -> AgentSession:
-    """Build an MCP-owning session for the suite's supported agent flavor."""
-
-    # Workflow arms (loop/pdr) build a facade Agent that runs its own
-    # multi-agent loop, so they can't host an MCP session. Reject the
-    # combination early with an actionable message instead of failing later
-    # inside agent_session_for_flavor with a generic "unsupported flavor".
-    # `flavor_from_env` is the source of truth a suite's custom `build_agent`
-    # uses to claim a flavor, so it stays correct even for suites that ship no
-    # `agent_spec` (where `spec.flavor` would wrongly default to a simple one).
-    if flavor_from_env() in WORKFLOW_AGENT_FLAVORS:
-        raise SystemExit(
-            "MCP config is not supported with this agent flavor (a workflow arm "
-            "runs its own loop); use a simple flavor "
-            f"({', '.join(SIMPLE_AGENT_FLAVORS)}) with MCP instead."
-        )
-
-    spec = _agent_spec(module)
-    hooks = memory_hooks_from_env(
-        provider,
-        agent_name=spec.name,
-        request_extra=request_extra,
-        artifact_builder=_memory_artifact_builder(
-            module, workdir=cwd, instance=instance, context=context
-        ),
-    )
-    return agent_session_for_flavor(
-        flavor=spec.flavor,
-        provider=provider,
-        cwd=cwd,
-        mcp_servers=mcp_servers,
-        max_turns=max_turns,
-        name=spec.name,
-        role=spec.role,
-        system_prompt=spec.system_prompt,
-        request_extra=request_extra,
-        hooks=hooks,
     )
 
 
@@ -461,7 +397,6 @@ def run_in_container(
     else:
         if provider is None:
             raise SystemExit("a Provider is required unless oracle=True")
-        mcp_servers = _load_mcp_servers(store)
         trace_agent: Agent | None = None
         abort_fn = lambda: False  # noqa: E731
         context["runtime"] = {
@@ -478,43 +413,22 @@ def run_in_container(
                 flush=True,
             )
         last = 0.0
-        if mcp_servers:
-            if not isinstance(task, str):
-                raise SystemExit("MCP-enabled eval runs currently require a text task")
-            with _resolve_mcp_session(
-                module,
-                provider=provider,
-                cwd=workdir,
-                request_extra=request_extra,
-                mcp_servers=mcp_servers,
-                max_turns=max_turns,
-                instance=instance,
-                context=context,
-            ) as session:
-                trace_agent = session.agent
-                state, events = session.run(task, max_turns=max_turns, abort=abort_fn)
-                for _ in events:
-                    now = time.monotonic()
-                    if now - last >= flush_interval_s:
-                        put_trace(in_progress=True)
-                        last = now
-        else:
-            agent = _resolve_agent(
-                module,
-                provider=provider,
-                cwd=workdir,
-                request_extra=request_extra,
-                instance=instance,
-                context=context,
-                trace_put=store.put,
-            )
-            trace_agent = agent
-            state, events = agent.run(task, max_turns=max_turns, abort=abort_fn)
-            for _ in events:
-                now = time.monotonic()
-                if now - last >= flush_interval_s:
-                    put_trace(in_progress=True)
-                    last = now
+        agent = _resolve_agent(
+            module,
+            provider=provider,
+            cwd=workdir,
+            request_extra=request_extra,
+            instance=instance,
+            context=context,
+            trace_put=store.put,
+        )
+        trace_agent = agent
+        state, events = agent.run(task, max_turns=max_turns, abort=abort_fn)
+        for _ in events:
+            now = time.monotonic()
+            if now - last >= flush_interval_s:
+                put_trace(in_progress=True)
+                last = now
 
     extract = tasks.extract_result
     result = dict(extract(workdir, instance, **_context_kwargs(extract, context)))
@@ -577,20 +491,6 @@ def _load_eval_inputs(store: ArtifactStore) -> dict[str, Any]:
     except (FileNotFoundError, OSError):
         return {}
     return json.loads(raw.decode("utf-8") or "{}")
-
-
-def _load_mcp_servers(store: ArtifactStore) -> tuple[Any, ...]:
-    """Read optional staged MCP config and return validated server configs."""
-
-    from .protocols import MCP_KEY
-
-    try:
-        raw = store.get(MCP_KEY)
-    except (FileNotFoundError, OSError):
-        return ()
-    from simple_agent_lab.mcp.config_file import mcp_server_configs_from_json
-
-    return mcp_server_configs_from_json(raw.decode("utf-8"), source=MCP_KEY)
 
 
 def main(argv: list[str] | None = None) -> None:

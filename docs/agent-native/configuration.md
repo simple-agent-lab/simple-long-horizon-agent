@@ -122,7 +122,6 @@ the workflow/compression knobs: `src/simple_agent_lab/agents/flavors.py`.
 | `OMB_PDR_ROUNDS` | same | — | PDR rounds for the OneMillion arm. |
 | `OMB_PDR_WIDTH` | same | — | PDR width for the OneMillion arm. |
 | `OMB_TIMEOUT` | same | `600.0`s | Per-request timeout for every sub-agent. |
-| `MCP_CONFIG` | `evals/swebench/harness.py` | unset | MCP server config forwarded into the container. |
 
 ## Memory
 
