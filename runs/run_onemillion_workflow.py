@@ -51,6 +51,14 @@ from simple_agent_lab.evals.suites.onemillion.workflow_container import (  # noq
     WORKFLOW_CHOICES,
 )
 
+# Identity for the unified entry (runs/run_bench.py). `run(args)` returns a
+# result dict so the dispatcher / dashboard can read a machine-readable outcome.
+NAME = "onemillion-workflow"
+DESCRIPTION = (
+    "OneMillion-Bench through a multi-agent workflow (reflection | parallel | "
+    "pdr | …; in-process; supports --all sweeps)."
+)
+
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -122,9 +130,7 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
-    args = parse_with_profile(_build_parser())
-
+def run(args: argparse.Namespace) -> dict:
     # Load .env into the process so both the generator (provider_env) and the
     # judge (read from os.environ by the in-process evaluate hook) are populated.
     if args.provider == "openai":
@@ -180,9 +186,13 @@ def main() -> None:
         summary = report.summary()
         print(f"==> done: {summary}")
         print(f"    artifacts under: {run_root / args.run_id}")
-        if summary.get("failed"):
-            raise SystemExit(1)
-        return
+        return {
+            "bench": NAME,
+            "status_code": 1 if summary.get("failed") else 0,
+            "run_dir": str(run_root / args.run_id),
+            "result_path": None,
+            "summary": summary,
+        }
 
     instance = harness.load_case(args.dataset, args.instance_id)
     instance_id = str(instance["instance_id"])
@@ -201,8 +211,17 @@ def main() -> None:
     print(f"    result:  {result.run_dir / 'out' / 'result.json'}")
     print("    steps:   per-step breakdown is under the 'workflow' key in result.json")
     print(f"    status:  {result.status_code}")
-    if result.status_code != 0:
-        raise SystemExit(result.status_code)
+    return {
+        "bench": NAME,
+        "status_code": result.status_code,
+        "run_dir": str(result.run_dir),
+        "result_path": str(result.run_dir / "out" / "result.json"),
+        "summary": None,
+    }
+
+
+def main() -> None:
+    raise SystemExit(run(parse_with_profile(_build_parser()))["status_code"])
 
 
 if __name__ == "__main__":

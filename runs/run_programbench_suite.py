@@ -47,6 +47,14 @@ from simple_agent_lab.evals.backends.docker_local import (  # noqa: E402
 )
 from simple_agent_lab.evals.runner import container_name  # noqa: E402
 
+# Identity for the unified entry (runs/run_bench.py). `run(args)` returns a
+# result dict so the dispatcher / dashboard can read a machine-readable outcome.
+NAME = "programbench"
+DESCRIPTION = (
+    "ProgramBench reverse-engineering instance in a Docker container "
+    "(single instance per run; per-command network isolation)."
+)
+
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -126,9 +134,7 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
-    args = parse_with_profile(_build_parser())
-
+def run(args: argparse.Namespace) -> dict:
     instance = harness.load_instance(args.instance_id)
 
     if args.provider == "openai":
@@ -210,8 +216,17 @@ def main() -> None:
         "    score it: uv run python evals/programbench/evaluate_submissions.py "
         f"--run-root {run_root} --run-id {args.run_id}"
     )
-    if result.status_code != 0:
-        raise SystemExit(result.status_code)
+    return {
+        "bench": NAME,
+        "status_code": result.status_code,
+        "run_dir": str(result.run_dir),
+        "result_path": str(result.run_dir / "out" / "result.json"),
+        "summary": None,
+    }
+
+
+def main() -> None:
+    raise SystemExit(run(parse_with_profile(_build_parser()))["status_code"])
 
 
 def _force_remove(name: str) -> None:

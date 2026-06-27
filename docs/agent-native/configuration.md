@@ -33,6 +33,32 @@ default example to copy and edit: `swebench-pdr.example.json`,
 `programbench.example.json`, `onemillion.example.json`, and
 `onemillion-workflow.example.json`.
 
+## One entry point for every bench (`run_bench.py`)
+
+`runs/run_bench.py` is a single dispatcher over all benches, built so a thin
+dashboard can drive everything by shelling out and reading JSON. The per-bench
+`runs/run_<bench>.py` scripts stay directly runnable (they are imported by the
+dispatcher); `run_bench.py` is the one surface to learn:
+
+```bash
+uv run python runs/run_bench.py list [--json]            # discover benches
+uv run python runs/run_bench.py setup [bench ...] [--oracle] [--json]
+uv run python runs/run_bench.py <bench> [bench args ...] [--json]
+uv run python runs/run_bench.py all --manifest M.json [--parallel N]
+```
+
+- `list` — registered benches (name, description, whether Docker is needed).
+- `setup` — probe the environment (Python/uv, `.env` + provider creds, Docker
+  daemon, datasets) and report per-bench readiness; `--oracle` additionally runs
+  a model-free oracle smoke where a bench supports it (OneMillion). A fast "is my
+  environment wired correctly?" check before launching real runs.
+- `<bench>` — delegate to that bench's own parser (same flags, incl. `--profile`);
+  with `--json` it prints one result object to stdout (human logs go to stderr).
+- `all` — run every entry of a JSON manifest, each as an isolated subprocess, and
+  print a combined JSON summary. See `runs/bench-manifest.example.json`; a
+  manifest entry is `{bench, args:[...]}` (plus optional `profile`), so the
+  dashboard composes one click from the per-bench profiles above.
+
 ## Boundary rule (where to declare a new env var)
 
 Env-var names live with the layer that owns the concern, in a *light* module so

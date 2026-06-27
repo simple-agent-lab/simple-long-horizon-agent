@@ -50,6 +50,11 @@ from simple_agent_lab.evals.backends.docker_local import (  # noqa: E402
 from simple_agent_lab.evals.runner import container_name  # noqa: E402
 from simple_agent_lab.evals.suites.swebench.patch import instance_language  # noqa: E402
 
+# Identity for the unified entry (runs/run_bench.py). `run(args)` returns a
+# result dict so the dispatcher / dashboard can read a machine-readable outcome.
+NAME = "swebench"
+DESCRIPTION = "SWE-bench instance in a Docker container (single instance per run)."
+
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -161,9 +166,7 @@ def _resolve_paths(
     return run_root, wheelhouse
 
 
-def main() -> None:
-    args = parse_with_profile(_build_parser())
-
+def run(args: argparse.Namespace) -> dict:
     instance_json = args.instance_json or str(
         ROOT / f"evals/out/swebench/instance_{args.instance_id}.jsonl"
     )
@@ -267,8 +270,17 @@ def main() -> None:
     print(f"==> run dir: {result.run_dir}")
     print(f"    result:  {result.run_dir / 'out' / 'result.json'}")
     print(f"    status:  {result.status_code}")
-    if result.status_code != 0:
-        raise SystemExit(result.status_code)
+    return {
+        "bench": NAME,
+        "status_code": result.status_code,
+        "run_dir": str(result.run_dir),
+        "result_path": str(result.run_dir / "out" / "result.json"),
+        "summary": None,
+    }
+
+
+def main() -> None:
+    raise SystemExit(run(parse_with_profile(_build_parser()))["status_code"])
 
 
 def _force_remove(name: str) -> None:

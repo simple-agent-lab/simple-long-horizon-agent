@@ -19,6 +19,9 @@ models.json
 # Run-profiles may reference local paths/creds; commit only *.example.json.
 runs/profiles/*.json
 !runs/profiles/*.example.json
+# Multi-bench manifests for `run_bench.py all`; commit only the example.
+runs/bench-manifest*.json
+!runs/bench-manifest.example.json
 
 # Tooling caches
 .pytest_cache/
