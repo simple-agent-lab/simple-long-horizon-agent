@@ -45,12 +45,9 @@ from simple_agent_lab.evals import (  # noqa: E402
     run_dataset,
     run_suite_instance,
 )
+import simple_agent_lab.config as config  # noqa: E402
 from simple_agent_lab.evals.suites.onemillion.workflow_container import (  # noqa: E402
-    PARALLEL_WORKERS_ENV,
-    REFLECTION_ROUNDS_ENV,
-    TIMEOUT_ENV,
     WORKFLOW_CHOICES,
-    WORKFLOW_ENV,
 )
 
 
@@ -129,13 +126,13 @@ def main() -> None:
     # The container half (in-process for LocalProcessBackend) reads these from
     # os.environ; mirror them into provider_env so containerized backends get
     # them too. Set them before the suite runs.
-    workflow_env = {WORKFLOW_ENV: args.workflow}
+    workflow_env = {config.OMB_WORKFLOW.name: args.workflow}
     if args.reflection_rounds is not None:
-        workflow_env[REFLECTION_ROUNDS_ENV] = str(args.reflection_rounds)
+        workflow_env[config.OMB_REFLECTION_ROUNDS.name] = str(args.reflection_rounds)
     if args.parallel_workers is not None:
-        workflow_env[PARALLEL_WORKERS_ENV] = str(args.parallel_workers)
+        workflow_env[config.OMB_PARALLEL_WORKERS.name] = str(args.parallel_workers)
     if args.timeout is not None:
-        workflow_env[TIMEOUT_ENV] = str(args.timeout)
+        workflow_env[config.OMB_TIMEOUT.name] = str(args.timeout)
     os.environ.update(workflow_env)
     provider_env.update(workflow_env)
 

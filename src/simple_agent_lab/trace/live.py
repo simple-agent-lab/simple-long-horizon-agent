@@ -14,7 +14,6 @@ contract.
 
 from __future__ import annotations
 
-import os
 import sys
 import threading
 from collections.abc import Iterable, Mapping
@@ -22,6 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
+from ..config import LIVE_TRACE_PATH
 from ..messages import ContentInput
 from ..protocols import Event
 from .jsonl import write_jsonl_atomic
@@ -37,9 +37,6 @@ if TYPE_CHECKING:
     from ..core import Agent
     from ..state import State
 
-
-# Standard env var: container runners read this when --traces is omitted.
-LIVE_TRACE_PATH_ENV = "LIVE_TRACE_PATH"
 
 DEFAULT_FLUSH_INTERVAL_S = 2.0
 
@@ -57,10 +54,8 @@ class TraceMeta:
 def live_trace_path_from_env() -> Path | None:
     """Return ``LIVE_TRACE_PATH`` when set, else ``None``."""
 
-    raw = os.environ.get(LIVE_TRACE_PATH_ENV, "").strip()
-    if not raw:
-        return None
-    return Path(raw)
+    raw = LIVE_TRACE_PATH.get()
+    return Path(raw) if raw else None
 
 
 class IncrementalTraceWriter:

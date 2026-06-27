@@ -28,11 +28,11 @@ two parameterized workflows.
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Callable
 
+import simple_agent_lab.config as config
 from simple_agent_lab.core import Agent
 from simple_agent_lab.llm import LLMRequest, Provider, complete_with_retry, llm_message
 from simple_agent_lab.llm_agent import make_llm_agent
@@ -74,18 +74,11 @@ from .grading import (
     score_summary,
 )
 
-WORKFLOW_ENV = "OMB_WORKFLOW"
-REFLECTION_ROUNDS_ENV = "OMB_REFLECTION_ROUNDS"
-PARALLEL_WORKERS_ENV = "OMB_PARALLEL_WORKERS"
-PDR_ROUNDS_ENV = "OMB_PDR_ROUNDS"
-PDR_WIDTH_ENV = "OMB_PDR_WIDTH"
-# Per-request timeout for every sub-agent. The default LLM request timeout is
-# 60s, far too short for slow high-reasoning models on a long case, so the
-# workflow agents use a generous default that callers can override.
-TIMEOUT_ENV = "OMB_TIMEOUT"
-DEFAULT_TIMEOUT_S = 600.0
+# OMB_* workflow knob names + defaults now live in `simple_agent_lab.config`
+# (group eval.onemillion); the host run script and this container read them
+# there. The default per-request timeout is generous (600s) because the 60s LLM
+# default is far too short for slow high-reasoning models on a long case.
 JUDGE_TIMEOUT_S = 600.0
-DEFAULT_WORKFLOW = "single"
 WORKFLOW_STEPS_FILENAME = "workflow_steps.json"
 
 # English answer prompt mirroring OMB's generation intent (direct, complete,
@@ -141,26 +134,6 @@ def _answer_agent(
     )
 
 
-def _env_int(name: str, default: int, *, minimum: int = 1) -> int:
-    raw = (os.environ.get(name) or "").strip()
-    if not raw:
-        return default
-    try:
-        return max(minimum, int(raw))
-    except ValueError:
-        return default
-
-
-def _env_float(name: str, default: float, *, minimum: float = 1.0) -> float:
-    raw = (os.environ.get(name) or "").strip()
-    if not raw:
-        return default
-    try:
-        return max(minimum, float(raw))
-    except ValueError:
-        return default
-
-
 def make_workflow_runner(
     provider: Provider,
     *,
@@ -169,10 +142,8 @@ def make_workflow_runner(
 ) -> WorkflowRunner:
     """Build the `task -> WorkflowResult` runner for the selected workflow."""
 
-    name = (
-        (workflow or os.environ.get(WORKFLOW_ENV) or DEFAULT_WORKFLOW).strip().lower()
-    )
-    timeout = _env_float(TIMEOUT_ENV, DEFAULT_TIMEOUT_S)
+    name = (workflow or config.OMB_WORKFLOW.get()).strip().lower()
+    timeout = config.OMB_TIMEOUT.get()
 
     if name == "single":
         agent = _answer_agent(
@@ -199,7 +170,7 @@ def make_workflow_runner(
         critic = make_critic_agent(
             provider, request_extra=request_extra, timeout_seconds=timeout
         )
-        rounds = _env_int(REFLECTION_ROUNDS_ENV, 2)
+        rounds = config.OMB_REFLECTION_ROUNDS.get()
         return lambda task: run_reflection(generator, critic, task, max_rounds=rounds)
 
     if name == "planner_executor":
@@ -219,7 +190,7 @@ def make_workflow_runner(
         return lambda task: run_planner_executor(planner, executor, task)
 
     if name == "parallel":
-        n = _env_int(PARALLEL_WORKERS_ENV, 3)
+        n = config.OMB_PARALLEL_WORKERS.get()
         workers = [
             _answer_agent(
                 provider, f"worker_{i}", request_extra, timeout_seconds=timeout
@@ -292,8 +263,8 @@ def make_workflow_runner(
     if name == "pdr":
         # Parallel-Distill-Refine: each round runs `width` attempts, distills
         # them into a findings brief, and conditions the next round on it.
-        rounds = _env_int(PDR_ROUNDS_ENV, 2)
-        width = _env_int(PDR_WIDTH_ENV, 3)
+        rounds = config.OMB_PDR_ROUNDS.get()
+        width = config.OMB_PDR_WIDTH.get()
         worker = _answer_agent(
             provider, "attempt", request_extra, timeout_seconds=timeout
         )
@@ -321,7 +292,8 @@ def make_workflow_runner(
         )
 
     raise SystemExit(
-        f"Unsupported {WORKFLOW_ENV}={name!r}; expected one of {WORKFLOW_CHOICES}."
+        f"Unsupported {config.OMB_WORKFLOW.name}={name!r}; "
+        f"expected one of {WORKFLOW_CHOICES}."
     )
 
 
@@ -480,7 +452,7 @@ def _step_record(step: StepResult, index: int, workflow_name: str) -> dict[str, 
 def _write_steps(path: Path, result: WorkflowResult) -> None:
     """Persist each step's output + full sub-agent trace for inspection."""
 
-    workflow_name = os.environ.get(WORKFLOW_ENV) or DEFAULT_WORKFLOW
+    workflow_name = config.OMB_WORKFLOW.get()
     try:
         path.write_text(
             json.dumps(

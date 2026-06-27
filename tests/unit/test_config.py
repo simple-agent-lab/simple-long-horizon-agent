@@ -57,10 +57,12 @@ class RegistryTest(unittest.TestCase):
         names = {var.name for var in config.REGISTRY}
         self.assertIn("SAL_WORKFLOW_PDR_ROUNDS", names)
         self.assertIn("SWE_REPO_LANGUAGE", names)
-        # Domains follow the dotted `domain.subsystem` hierarchy.
+        # Every group is a dotted `domain.subsystem` label from the known set.
         domains = {var.group.split(".", 1)[0] for var in config.REGISTRY}
-        self.assertEqual(domains, {"agent", "eval"})
-        # Classification is by domain, not name prefix: SWE_PDR_* is agent.workflow.
+        self.assertTrue(domains <= {"agent", "eval", "provider", "trace", "runtime"})
+        self.assertTrue({"agent", "eval", "trace"} <= domains)
+        # Classification is by domain, not name prefix: SAL_WORKFLOW_* (was SWE_*)
+        # is agent.workflow; SWE_REPO_LANGUAGE really is eval.swebench.
         self.assertEqual(config.PDR_ROUNDS.group, "agent.workflow")
         self.assertEqual(config.REPO_LANGUAGE.group, "eval.swebench")
 

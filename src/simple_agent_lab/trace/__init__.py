@@ -31,7 +31,6 @@ from .jsonl import (
     write_jsonl_atomic,
 )
 from .live import (
-    LIVE_TRACE_PATH_ENV,
     IncrementalTraceWriter,
     LiveTraceSession,
     TraceMeta,
@@ -68,7 +67,6 @@ from .training import (
 
 __all__ = [
     "IncrementalTraceWriter",
-    "LIVE_TRACE_PATH_ENV",
     "LiveTraceSession",
     "ModelTurn",
     "RunTrace",

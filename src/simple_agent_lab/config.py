@@ -40,8 +40,14 @@ def as_int(*, minimum: int | None = None) -> Callable[[str], int]:
     return parse
 
 
-def as_float(raw: str) -> float:
-    return float(raw)
+def as_float(*, minimum: float | None = None) -> Callable[[str], float]:
+    """A parser reading a float, clamped to ``minimum`` when given."""
+
+    def parse(raw: str) -> float:
+        value = float(raw)
+        return value if minimum is None else max(minimum, value)
+
+    return parse
 
 
 def as_bool(raw: str) -> bool:
@@ -142,7 +148,7 @@ COMPRESSION_WINDOW_RATIO = EnvVar(
     0.8,
     "agent.compression",
     "Fraction of the context window used as the threshold when none is set.",
-    as_float,
+    as_float(),
 )
 COMPRESSION_KEEP_RECENT = EnvVar(
     "SAL_AGENT_COMPRESSION_KEEP_RECENT",
@@ -162,6 +168,46 @@ REPO_LANGUAGE = EnvVar(
     "Repo language hint for the SWE-bench container.",
 )
 
+# --------------------------------------------------------------------------- #
+# eval.onemillion — OneMillion suite workflow knobs.
+# --------------------------------------------------------------------------- #
+OMB_WORKFLOW = EnvVar(
+    "OMB_WORKFLOW", "single", "eval.onemillion", "OneMillion workflow selector."
+)
+OMB_REFLECTION_ROUNDS = EnvVar(
+    "OMB_REFLECTION_ROUNDS",
+    2,
+    "eval.onemillion",
+    "Reflection rounds.",
+    as_int(minimum=1),
+)
+OMB_PARALLEL_WORKERS = EnvVar(
+    "OMB_PARALLEL_WORKERS", 3, "eval.onemillion", "Parallel workers.", as_int(minimum=1)
+)
+OMB_PDR_ROUNDS = EnvVar(
+    "OMB_PDR_ROUNDS", 2, "eval.onemillion", "PDR rounds.", as_int(minimum=1)
+)
+OMB_PDR_WIDTH = EnvVar(
+    "OMB_PDR_WIDTH", 3, "eval.onemillion", "PDR width.", as_int(minimum=1)
+)
+OMB_TIMEOUT = EnvVar(
+    "OMB_TIMEOUT",
+    600.0,
+    "eval.onemillion",
+    "Per-request timeout for every sub-agent (seconds).",
+    as_float(minimum=1.0),
+)
+
+# --------------------------------------------------------------------------- #
+# trace — trajectory tracing.
+# --------------------------------------------------------------------------- #
+LIVE_TRACE_PATH = EnvVar(
+    "LIVE_TRACE_PATH",
+    None,
+    "trace",
+    "Bind-mounted path for incremental live trace output (unset = off).",
+)
+
 # Every declared var, so the catalog (docs/agent-native/configuration.md) can be
 # generated from / validated against this list. New EnvVars must be added here.
 REGISTRY: tuple[EnvVar, ...] = (
@@ -174,4 +220,11 @@ REGISTRY: tuple[EnvVar, ...] = (
     COMPRESSION_WINDOW_RATIO,
     COMPRESSION_KEEP_RECENT,
     REPO_LANGUAGE,
+    OMB_WORKFLOW,
+    OMB_REFLECTION_ROUNDS,
+    OMB_PARALLEL_WORKERS,
+    OMB_PDR_ROUNDS,
+    OMB_PDR_WIDTH,
+    OMB_TIMEOUT,
+    LIVE_TRACE_PATH,
 )
