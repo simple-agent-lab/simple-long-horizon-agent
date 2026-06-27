@@ -79,10 +79,16 @@ TraceStateFn = Callable[["Agent", State], State | None]
 
 
 def records_model_events(agent: "Agent") -> bool:
-    """Return whether this agent should produce model request/response events."""
+    """Return whether this agent should produce model request/response events.
 
-    provider = agent.llm_provider
-    return provider is not None and provider.api != "fake"
+    True for any provider-backed agent — including the ``"fake"`` test adapter,
+    whose calls are recorded and tagged (``ModelRequestEvent.api``) so a
+    consumer can filter fake data downstream. False only for programmatic
+    facades (``llm_provider is None``): their deterministic ``generate`` is not
+    a model call at all, so it must not masquerade as one in the trace.
+    """
+
+    return agent.llm_provider is not None
 
 
 @dataclass
@@ -279,9 +285,11 @@ def run(
             llm_payload = [llm_message("system", agent.system_prompt), *llm_payload]
 
         if records_model_events(agent):
+            api = agent.llm_provider.api if agent.llm_provider is not None else ""
             yield state.record_event(
                 ModelRequestEvent(
                     agent=name,
+                    api=api,
                     visible_count=len(visible),
                     llm_message_count=len(llm_payload),
                     context_view=context.as_dict(),
@@ -300,9 +308,11 @@ def run(
         output = agent.generate(visible)
         output_tool_calls = message_tool_calls(output)
         if records_model_events(agent):
+            api = agent.llm_provider.api if agent.llm_provider is not None else ""
             yield state.record_event(
                 ModelResponseEvent(
                     agent=name,
+                    api=api,
                     output_kind=output.kind,
                     target=output.target,
                     tool_call_count=len(output_tool_calls),

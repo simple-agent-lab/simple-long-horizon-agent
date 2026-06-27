@@ -100,7 +100,10 @@ class CoreTest(unittest.TestCase):
         self.assertNotIn("model_request", kinds)
         self.assertNotIn("model_response", kinds)
 
-    def test_fake_provider_agent_does_not_emit_model_events(self) -> None:
+    def test_fake_provider_agent_emits_tagged_model_events(self) -> None:
+        """A fake call is still a model call: it is recorded and tagged
+        ``api="fake"`` (so a consumer can filter it), not dropped."""
+
         def writer(visible: list[Message]) -> Message:
             del visible
             return assistant_message(
@@ -117,8 +120,16 @@ class CoreTest(unittest.TestCase):
             pass
 
         kinds = [event.kind for event in state.events]
-        self.assertNotIn("model_request", kinds)
-        self.assertNotIn("model_response", kinds)
+        self.assertIn("model_request", kinds)
+        self.assertIn("model_response", kinds)
+        request = next(
+            event for event in state.events if isinstance(event, ModelRequestEvent)
+        )
+        response = next(
+            event for event in state.events if isinstance(event, ModelResponseEvent)
+        )
+        self.assertEqual(request.api, "fake")
+        self.assertEqual(response.api, "fake")
 
     def test_run_accepts_a_multimodal_content_list_task(self) -> None:
         """`Agent.run` takes `str` or content blocks; a text+image task is

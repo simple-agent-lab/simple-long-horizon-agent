@@ -107,6 +107,12 @@ class ModelRequestEvent(_BaseEvent):
     context_view: dict[str, Any]
     tools: list[dict[str, Any]]
     llm_payload: list[Any]
+    # Provider wire-adapter that served this call: ``"fake"`` for the
+    # deterministic test adapter, e.g. ``"openai-chat"`` for a real one. A fake
+    # call is still a model call, so it is recorded and *tagged* here rather
+    # than dropped — derived spans / training turns carry `api` so a downstream
+    # consumer can filter fake data out instead of the runtime hiding it.
+    api: str = ""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -124,6 +130,9 @@ class ModelResponseEvent(_BaseEvent):
     # span layer fold cost without walking messages or the raw blob.
     usage: TokenUsage | None = None
     model: str = ""
+    # Provider wire-adapter that served this call (see ModelRequestEvent.api);
+    # ``"fake"`` marks the deterministic test adapter.
+    api: str = ""
 
 
 @dataclass(frozen=True, kw_only=True)

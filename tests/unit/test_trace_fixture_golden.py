@@ -79,6 +79,7 @@ def _write_embedded_sample(record: dict) -> None:
 TRACE_ID = "demo.observatory.001"
 PRODUCER = "demo:trace-viewer"
 MODEL = "demo/observatory-mini"
+API = "openai-chat"
 PARENT = "obs_agent"
 SUB = "search_agent"
 TASK = (
@@ -149,6 +150,7 @@ def _sub_events() -> list[Event]:
             TurnStartEvent(agent=SUB),
             ModelRequestEvent(
                 agent=SUB,
+                api=API,
                 visible_count=2,
                 llm_message_count=2,
                 context_view={"input_tokens_estimate": 188},
@@ -157,6 +159,7 @@ def _sub_events() -> list[Event]:
             ),
             ModelResponseEvent(
                 agent=SUB,
+                api=API,
                 output_kind="thought",
                 target=SUB,
                 tool_call_count=1,
@@ -207,6 +210,7 @@ def _sub_events() -> list[Event]:
             TurnEndEvent(agent=SUB),
             ModelResponseEvent(
                 agent=SUB,
+                api=API,
                 output_kind="final",
                 target=PARENT,
                 tool_call_count=0,
@@ -246,6 +250,7 @@ def _build_events() -> list[Event]:
             TurnStartEvent(agent=PARENT),
             ModelRequestEvent(
                 agent=PARENT,
+                api=API,
                 visible_count=1,
                 llm_message_count=2,
                 context_view={"input_tokens_estimate": 612, "messages": 2},
@@ -260,6 +265,7 @@ def _build_events() -> list[Event]:
             ),
             ModelResponseEvent(
                 agent=PARENT,
+                api=API,
                 output_kind="thought",
                 target=PARENT,
                 tool_call_count=1,
@@ -318,6 +324,7 @@ def _build_events() -> list[Event]:
             TurnStartEvent(agent=PARENT),
             ModelRequestEvent(
                 agent=PARENT,
+                api=API,
                 visible_count=3,
                 llm_message_count=4,
                 context_view={"input_tokens_estimate": 894, "messages": 4},
@@ -326,6 +333,7 @@ def _build_events() -> list[Event]:
             ),
             ModelResponseEvent(
                 agent=PARENT,
+                api=API,
                 output_kind="thought",
                 target=PARENT,
                 tool_call_count=1,
@@ -394,6 +402,7 @@ def _build_events() -> list[Event]:
             TurnStartEvent(agent=PARENT),
             ModelRequestEvent(
                 agent=PARENT,
+                api=API,
                 visible_count=5,
                 llm_message_count=6,
                 context_view={"input_tokens_estimate": 1842, "messages": 6},
@@ -402,6 +411,7 @@ def _build_events() -> list[Event]:
             ),
             ModelResponseEvent(
                 agent=PARENT,
+                api=API,
                 output_kind="thought",
                 target=PARENT,
                 tool_call_count=1,
@@ -469,6 +479,7 @@ def _build_events() -> list[Event]:
             TurnStartEvent(agent=PARENT),
             ModelRequestEvent(
                 agent=PARENT,
+                api=API,
                 visible_count=5,
                 llm_message_count=5,
                 context_view={"input_tokens_estimate": 1432, "messages": 5},
@@ -477,6 +488,7 @@ def _build_events() -> list[Event]:
             ),
             ModelResponseEvent(
                 agent=PARENT,
+                api=API,
                 output_kind="final",
                 target="user",
                 tool_call_count=0,

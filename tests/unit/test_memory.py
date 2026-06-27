@@ -175,9 +175,13 @@ class MemoryBaseTest(unittest.TestCase):
         seen_events = list(events)
 
         self.assertIn("memory_probe", [tool.name for tool in agent.tools])
-        self.assertFalse(
-            any(isinstance(event, ModelRequestEvent) for event in seen_events)
-        )
+        # The fake provider's calls are recorded and tagged api="fake" (so a
+        # consumer can filter), not hidden.
+        model_requests = [
+            event for event in seen_events if isinstance(event, ModelRequestEvent)
+        ]
+        self.assertTrue(model_requests)
+        self.assertTrue(all(event.api == "fake" for event in model_requests))
         self.assertEqual(state.messages[-1].kind, "final")
 
     def test_llm_agent_factory_closes_over_bound_memory_hooks(self) -> None:

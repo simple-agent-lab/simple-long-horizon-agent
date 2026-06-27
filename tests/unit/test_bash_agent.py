@@ -183,7 +183,9 @@ class BashToolTest(unittest.TestCase):
         self.assertTrue(
             any(event.kind == "tool_execution_start" for event in state.events)
         )
-        self.assertFalse(any(event.kind == "model_request" for event in state.events))
+        # The fake provider's calls are recorded (and tagged api="fake"
+        # elsewhere), not hidden — so model_request events are present.
+        self.assertTrue(any(event.kind == "model_request" for event in state.events))
 
     def test_run_trace_from_state_produces_span_tree(self) -> None:
         agent = make_bash_agent(provider=FAKE_PROVIDER, cwd=ROOT)
@@ -206,7 +208,12 @@ class BashToolTest(unittest.TestCase):
         turns = [s for s in spans if s.kind == "turn"]
         agent_runs = [s for s in spans if s.kind == "agent_run"]
 
-        self.assertEqual(len(model_calls), 0)
+        # The fake provider's model_call spans are kept and tagged api="fake"
+        # (so a consumer can filter), not dropped from the tree.
+        self.assertGreaterEqual(len(model_calls), 1)
+        self.assertTrue(
+            all((s.attributes or {}).get("api") == "fake" for s in model_calls)
+        )
         self.assertGreaterEqual(len(tool_calls), 1)
         self.assertGreaterEqual(len(turns), 1)
         self.assertEqual(len(agent_runs), 1)
@@ -216,7 +223,7 @@ class BashToolTest(unittest.TestCase):
         self.assertIsNotNone(first_tool.parent_id)
 
         event_kinds = [e.kind.value for e in trace.events]
-        self.assertNotIn("model_request", event_kinds)
+        self.assertIn("model_request", event_kinds)
         self.assertIn("tool_execution_start", event_kinds)
         record = trace_record(trace)
         self.assertEqual(record["events"][0]["kind"], "message")
@@ -279,7 +286,7 @@ class TraceSpanTest(unittest.TestCase):
                 "Parallel tool_call must be child of turn, not sibling tool_call",
             )
 
-    def test_fake_provider_trace_has_no_model_turns(self) -> None:
+    def test_fake_provider_trace_has_tagged_model_turns(self) -> None:
         agent = make_bash_agent(provider=FAKE_PROVIDER, cwd=ROOT)
         state, events = agent.run(
             "Use bash to run command: `printf 'mt ok\\n'`",
@@ -294,9 +301,12 @@ class TraceSpanTest(unittest.TestCase):
             producer="tests",
         )
         turns = trace.model_turns()
-        self.assertEqual(turns, [])
+        # Fake turns are emitted and tagged api="fake" so a training exporter
+        # can filter them, rather than the runtime dropping them silently.
+        self.assertGreaterEqual(len(turns), 1)
+        self.assertTrue(all((t.meta or {}).get("api") == "fake" for t in turns))
 
-    def test_trace_record_includes_spans_but_no_fake_provider_model_turns(self) -> None:
+    def test_trace_record_includes_spans_and_tagged_model_turns(self) -> None:
         agent = make_bash_agent(provider=FAKE_PROVIDER, cwd=ROOT)
         state, events = agent.run(
             "Use bash to run command: `printf 'rec ok\\n'`",
@@ -315,7 +325,8 @@ class TraceSpanTest(unittest.TestCase):
         self.assertIn("spans", record)
         self.assertIn("model_turns", record)
         self.assertGreater(len(record["spans"]), 0)
-        self.assertEqual(record["model_turns"], [])
+        self.assertGreater(len(record["model_turns"]), 0)
+        self.assertTrue(all(t["meta"]["api"] == "fake" for t in record["model_turns"]))
 
     def test_tree_sort_handles_orphans(self) -> None:
         orphan = Span(

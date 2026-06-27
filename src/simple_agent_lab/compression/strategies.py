@@ -290,10 +290,13 @@ class SummarizeStrategy:
         from ..core import records_model_events
 
         record_model_events = records_model_events(self.compressor)
+        compressor_provider = self.compressor.llm_provider
+        api = compressor_provider.api if compressor_provider is not None else ""
         trace_events: tuple[ModelRequestEvent | ModelResponseEvent, ...] = ()
         if record_model_events:
             request_event = ModelRequestEvent(
                 agent=self.compressor.name,
+                api=api,
                 visible_count=len(compressor_context.messages),
                 llm_message_count=len(llm_payload),
                 context_view=compressor_context.as_dict(),
@@ -313,6 +316,7 @@ class SummarizeStrategy:
         if record_model_events:
             response_event = ModelResponseEvent(
                 agent=self.compressor.name,
+                api=api,
                 output_kind=output.kind,
                 target=output.target,
                 tool_call_count=len(tool_calls_of(output.content)),

@@ -150,6 +150,10 @@ def spans_from_events(
                     input=event.llm_payload,
                     attributes={
                         "agent": event.agent,
+                        # Provider that served the call ("fake" for the test
+                        # adapter): a fake model_call is kept in the span tree
+                        # and tagged here so consumers can filter, not dropped.
+                        "api": event.api,
                         "visible_count": event.visible_count,
                         "llm_message_count": event.llm_message_count,
                         "tools": event.tools,
