@@ -40,12 +40,11 @@ graph:
 - Named model aliases (`<ALIAS>_*`) → `src/simple_agent_lab/llm/config.py`
   (`ModelRegistry`).
 - Model pricing / context-window overrides → `src/simple_agent_lab/model_metadata.py`.
-- Agent selection + agent-level knobs (flavor, compression) →
-  `src/simple_agent_lab/agent_flavors.py` (light names module; reading and
-  default values for the workflow/compression knobs live in
-  `src/simple_agent_lab/agents/flavors.py`, which imports the names back).
-- Suite-specific knobs → that suite's container module under
-  `src/simple_agent_lab/evals/suites/<suite>/`.
+- Agent selection (flavor) → `src/simple_agent_lab/agent_flavors.py`. The
+  agent-level workflow/compression knobs are registry-backed (declared in
+  `src/simple_agent_lab/config.py`; see the generated table below).
+- Suite-specific knobs not yet in the registry → that suite's container module
+  under `src/simple_agent_lab/evals/suites/<suite>/`.
 
 Do **not** centralize all names into one module *if doing so couples unrelated
 layers* — that would break the inward dependency that keeps `llm/env.py` clean.
@@ -54,9 +53,62 @@ layers* — that would break the inward dependency that keeps `llm/env.py` clean
 > into one declarative registry, `src/simple_agent_lab/config.py`. It is a
 > FOUNDATION-zone leaf that *declares* each name (with default/parser/group)
 > and imports nothing internal, so it centralizes without the coupling this
-> rule guards against — layers depend on `config`, never the reverse. The
-> SWE-bench knobs are migrated as the first sample; until a knob moves, its
-> name still lives with the layer below.
+> rule guards against — layers depend on `config`, never the reverse. Several
+> groups are migrated already (see the generated table below); until a knob
+> moves, its name still lives with the layer below.
+
+## Registry-backed configuration
+
+These knobs live in the central registry (`src/simple_agent_lab/config.py`); the
+table below is generated from `REGISTRY` by `scripts/build_config_reference.py`
+and validated in CI, so it cannot drift. Groups follow the `domain.subsystem`
+hierarchy. Knobs not yet migrated stay in the hand-written sections that follow.
+
+<!-- BEGIN GENERATED: config-registry (scripts/build_config_reference.py) -->
+<!-- Generated from simple_agent_lab.config.REGISTRY — do not edit by hand; run scripts/build_config_reference.py. -->
+
+### `agent.compression`
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SAL_AGENT_COMPRESSION_THRESHOLD_TOKENS` | unset | Token threshold that triggers compression; default is window * ratio, else a fixed fallback. |
+| `SAL_AGENT_COMPRESSION_WINDOW_RATIO` | `0.8` | Fraction of the context window used as the threshold when none is set. |
+| `SAL_AGENT_COMPRESSION_KEEP_RECENT` | `4` | Recent turns kept verbatim during compression. |
+
+### `agent.workflow`
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SAL_WORKFLOW_WORKER_MAX_TURNS` | `40` | Per-worker inner turn budget. |
+| `SAL_WORKFLOW_LOOP_MAX_TURNS` | `6` | Loop workflow: judge-gated outer iterations. |
+| `SAL_WORKFLOW_PDR_ROUNDS` | `2` | PDR workflow: distill/refine rounds. |
+| `SAL_WORKFLOW_PDR_WIDTH` | `3` | PDR workflow: parallel attempts per round. |
+| `SAL_WORKFLOW_PDR_ATTEMPT_TURNS` | unset | PDR workflow: per-attempt turn budget; defaults to SAL_WORKFLOW_WORKER_MAX_TURNS. |
+
+### `eval.onemillion`
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `OMB_WORKFLOW` | `single` | OneMillion workflow selector. |
+| `OMB_REFLECTION_ROUNDS` | `2` | Reflection rounds. |
+| `OMB_PARALLEL_WORKERS` | `3` | Parallel workers. |
+| `OMB_PDR_ROUNDS` | `2` | PDR rounds. |
+| `OMB_PDR_WIDTH` | `3` | PDR width. |
+| `OMB_TIMEOUT` | `600.0` | Per-request timeout for every sub-agent (seconds). |
+
+### `eval.swebench`
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SWE_REPO_LANGUAGE` | `python` | Repo language hint for the SWE-bench container. |
+
+### `trace`
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `LIVE_TRACE_PATH` | unset | Bind-mounted path for incremental live trace output (unset = off). |
+
+<!-- END GENERATED: config-registry -->
 
 ## Provider / credentials
 
@@ -100,35 +152,23 @@ Owner: `src/simple_agent_lab/model_metadata.py`.
 | `SIMPLE_AGENT_LAB_PRICE_BOOK` | built-in table | Path to a JSON model→rate override, merged over the built-in price book. |
 | `SIMPLE_AGENT_LAB_CONTEXT_WINDOW_BOOK` | built-in table | Path to model metadata with context windows (LiteLLM / models.dev formats). |
 
-## Agent selection + agent-level knobs
+## Agent selection
 
-Owner (names): `src/simple_agent_lab/agent_flavors.py`. Reading + defaults for
-the workflow/compression knobs: `src/simple_agent_lab/agents/flavors.py`.
+Owner: `src/simple_agent_lab/agent_flavors.py`. (The agent compression +
+workflow knobs are registry-backed — see the generated table above.)
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `AGENT_FLAVOR` | `bash` | Agent flavor: `bash`, `bash_task`, `bash_task_read`, `bash_skills`, `loop`, `pdr`. |
-| `SAL_AGENT_COMPRESSION_THRESHOLD_TOKENS` | `window * ratio`, else `80000` | Token threshold that triggers context compression. |
-| `SAL_AGENT_COMPRESSION_WINDOW_RATIO` | `0.8` | Fraction of the context window used as the threshold when no explicit threshold is set. |
-| `SAL_AGENT_COMPRESSION_KEEP_RECENT` | `4` | Recent turns kept verbatim during compression. |
-| `SAL_WORKFLOW_PDR_ROUNDS` | `2` | PDR workflow: distill/refine rounds. |
-| `SAL_WORKFLOW_PDR_WIDTH` | `3` | PDR workflow: parallel attempts per round. |
-| `SAL_WORKFLOW_PDR_ATTEMPT_TURNS` | = `SAL_WORKFLOW_WORKER_MAX_TURNS` | PDR workflow: per-attempt turn budget (cost guard). |
-| `SAL_WORKFLOW_LOOP_MAX_TURNS` | `6` | Loop workflow: judge-gated outer iterations. |
-| `SAL_WORKFLOW_WORKER_MAX_TURNS` | `40` | Per-worker inner turn budget. |
 
 ## Suite-specific knobs
 
+The SWE-bench and OneMillion suite knobs are registry-backed (see the generated
+table above). This bespoke default-closed bool stays with its suite:
+
 | Variable | Owner | Default | Purpose |
 | --- | --- | --- | --- |
-| `SWE_REPO_LANGUAGE` | `src/simple_agent_lab/evals/suites/swebench/container.py` | unset | Repo language hint for the SWE-bench container. |
 | `PROGRAMBENCH_REQUIRE_NET_ISOLATION` | `src/simple_agent_lab/evals/suites/programbench/container.py` | on | Require per-command network isolation (`unshare --net`). |
-| `OMB_WORKFLOW` | `src/simple_agent_lab/evals/suites/onemillion/workflow_container.py` | `single` | OneMillion workflow selector. |
-| `OMB_REFLECTION_ROUNDS` | same | — | Reflection rounds. |
-| `OMB_PARALLEL_WORKERS` | same | — | Parallel workers. |
-| `OMB_PDR_ROUNDS` | same | — | PDR rounds for the OneMillion arm. |
-| `OMB_PDR_WIDTH` | same | — | PDR width for the OneMillion arm. |
-| `OMB_TIMEOUT` | same | `600.0`s | Per-request timeout for every sub-agent. |
 
 ## Memory
 
@@ -142,7 +182,9 @@ Owner: `src/simple_agent_lab/evals/protocols.py`. See `docs/agent-native/memory.
 
 ## Trace
 
+`LIVE_TRACE_PATH` is registry-backed (see the generated table above). This
+test-only var is not part of the runtime registry:
+
 | Variable | Owner | Default | Purpose |
 | --- | --- | --- | --- |
-| `LIVE_TRACE_PATH` | `src/simple_agent_lab/trace/live.py` | unset | Bind-mounted path for incremental live trace output. |
 | `E2E_TRACE_PATH` | `tests/e2e/test_live_openai_responses_e2e.py` | unset | Live e2e test trace output path (test-only). |
