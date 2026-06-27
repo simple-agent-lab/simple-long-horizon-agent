@@ -159,7 +159,7 @@ class FlavorSelectionTest(unittest.TestCase):
             model="fake-model",
             context_window=200_000,
         )
-        with _envs({af.AGENT_COMPRESSION_THRESHOLD_ENV: "12345"}):
+        with _envs({config.COMPRESSION_THRESHOLD.name: "12345"}):
             agent = build_flavor_agent(
                 flavor="bash_task_read",
                 provider=provider,

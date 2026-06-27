@@ -39,10 +39,8 @@ from evals.swebench.harness import (  # noqa: E402
     prepare_wheelhouse_for_run,
     resolve_api_kind,
 )
+import simple_agent_lab.config as config  # noqa: E402
 from simple_agent_lab.agent_flavors import (  # noqa: E402
-    AGENT_COMPRESSION_KEEP_RECENT_ENV,
-    AGENT_COMPRESSION_THRESHOLD_ENV,
-    AGENT_COMPRESSION_WINDOW_RATIO_ENV,
     AGENT_FLAVOR_ENV,
     DEFAULT_AGENT_FLAVOR,
 )
@@ -111,9 +109,9 @@ OPENAI_PASSTHROUGH_ENVS = (
     REASONING_EFFORT_ENV,
     OPENAI_REASONING_EFFORT_ENV,
     AGENT_FLAVOR_ENV,
-    AGENT_COMPRESSION_THRESHOLD_ENV,
-    AGENT_COMPRESSION_WINDOW_RATIO_ENV,
-    AGENT_COMPRESSION_KEEP_RECENT_ENV,
+    config.COMPRESSION_THRESHOLD.name,
+    config.COMPRESSION_WINDOW_RATIO.name,
+    config.COMPRESSION_KEEP_RECENT.name,
 )
 
 # Gold / project-identity fields kept out of the agent-visible instance. The

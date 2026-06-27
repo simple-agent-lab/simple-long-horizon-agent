@@ -127,6 +127,32 @@ PDR_ATTEMPT_TURNS = EnvVar(
 )
 
 # --------------------------------------------------------------------------- #
+# agent.compression — context-compression knobs for the default agent.
+# --------------------------------------------------------------------------- #
+COMPRESSION_THRESHOLD = EnvVar(
+    "SAL_AGENT_COMPRESSION_THRESHOLD_TOKENS",
+    None,
+    "agent.compression",
+    "Token threshold that triggers compression; default is window * ratio, "
+    "else a fixed fallback.",
+    as_int(minimum=0),
+)
+COMPRESSION_WINDOW_RATIO = EnvVar(
+    "SAL_AGENT_COMPRESSION_WINDOW_RATIO",
+    0.8,
+    "agent.compression",
+    "Fraction of the context window used as the threshold when none is set.",
+    as_float,
+)
+COMPRESSION_KEEP_RECENT = EnvVar(
+    "SAL_AGENT_COMPRESSION_KEEP_RECENT",
+    4,
+    "agent.compression",
+    "Recent turns kept verbatim during compression.",
+    as_int(minimum=0),
+)
+
+# --------------------------------------------------------------------------- #
 # eval.swebench — SWE-bench container knobs.
 # --------------------------------------------------------------------------- #
 REPO_LANGUAGE = EnvVar(
@@ -144,5 +170,8 @@ REGISTRY: tuple[EnvVar, ...] = (
     PDR_ROUNDS,
     PDR_WIDTH,
     PDR_ATTEMPT_TURNS,
+    COMPRESSION_THRESHOLD,
+    COMPRESSION_WINDOW_RATIO,
+    COMPRESSION_KEEP_RECENT,
     REPO_LANGUAGE,
 )

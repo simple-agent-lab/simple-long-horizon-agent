@@ -5,13 +5,8 @@ import os
 AGENT_FLAVOR_ENV = "AGENT_FLAVOR"
 DEFAULT_AGENT_FLAVOR = "bash"
 
-# Agent-level compression knobs. The names live in this light module (not the
-# heavy `agents.flavors` build layer) so host harnesses can forward them into a
-# container without importing the whole agent/workflow graph. `agents.flavors`
-# imports these back and owns the *reading* + default values.
-AGENT_COMPRESSION_THRESHOLD_ENV = "SAL_AGENT_COMPRESSION_THRESHOLD_TOKENS"
-AGENT_COMPRESSION_WINDOW_RATIO_ENV = "SAL_AGENT_COMPRESSION_WINDOW_RATIO"
-AGENT_COMPRESSION_KEEP_RECENT_ENV = "SAL_AGENT_COMPRESSION_KEEP_RECENT"
+# (Agent-level compression knob names now live in `simple_agent_lab.config`,
+# group agent.compression — the single env-config registry.)
 
 # One-turn/multi-turn agents that the generic in-container runner can build
 # directly from an AgentSpec.

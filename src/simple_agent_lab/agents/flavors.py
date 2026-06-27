@@ -9,7 +9,6 @@ flavor.
 
 from __future__ import annotations
 
-import os
 import subprocess
 import tempfile
 from collections.abc import Callable, Mapping, Sequence
@@ -51,12 +50,11 @@ from .starter import (
     make_agent,
 )
 
-AGENT_COMPRESSION_THRESHOLD_ENV = "SAL_AGENT_COMPRESSION_THRESHOLD_TOKENS"
-AGENT_COMPRESSION_WINDOW_RATIO_ENV = "SAL_AGENT_COMPRESSION_WINDOW_RATIO"
-AGENT_COMPRESSION_KEEP_RECENT_ENV = "SAL_AGENT_COMPRESSION_KEEP_RECENT"
-DEFAULT_AGENT_COMPRESSION_WINDOW_RATIO = 0.8
+# The compression env names + defaults now live in `simple_agent_lab.config`
+# (group agent.compression). This fixed value is the threshold fallback used
+# only when the provider's context window is unknown, so it stays here with the
+# logic that needs it rather than as an env default.
 DEFAULT_AGENT_COMPRESSION_FALLBACK_THRESHOLD_TOKENS = 80_000
-DEFAULT_AGENT_COMPRESSION_KEEP_RECENT = 4
 
 WorkflowRunner = Callable[[str], WorkflowResult]
 PrepareWorkflowWorkspace = Callable[[Path], None]
@@ -452,11 +450,7 @@ def _resolve_context_policy(
     if not enable_default_compression:
         return None
     threshold = _compression_threshold(provider)
-    keep_recent = _env_int(
-        AGENT_COMPRESSION_KEEP_RECENT_ENV,
-        DEFAULT_AGENT_COMPRESSION_KEEP_RECENT,
-        minimum=0,
-    )
+    keep_recent = config.COMPRESSION_KEEP_RECENT.get()
     if threshold <= 0:
         return None
     compressor = make_llm_agent(
@@ -481,43 +475,16 @@ def _resolve_context_policy(
 
 
 def _compression_threshold(provider: Provider) -> int:
-    override = os.environ.get(AGENT_COMPRESSION_THRESHOLD_ENV)
-    if override is not None and override.strip():
-        return _env_int(
-            AGENT_COMPRESSION_THRESHOLD_ENV,
-            DEFAULT_AGENT_COMPRESSION_FALLBACK_THRESHOLD_TOKENS,
-            minimum=0,
-        )
+    override = config.COMPRESSION_THRESHOLD.get(default=None)
+    if override is not None:
+        return override
     window = provider.context_window or default_context_window_book().window_for(
         provider.model
     )
     if not window:
         return DEFAULT_AGENT_COMPRESSION_FALLBACK_THRESHOLD_TOKENS
-    ratio = _env_float(
-        AGENT_COMPRESSION_WINDOW_RATIO_ENV,
-        DEFAULT_AGENT_COMPRESSION_WINDOW_RATIO,
-    )
+    ratio = config.COMPRESSION_WINDOW_RATIO.get()
     return max(1, int(window * ratio))
-
-
-def _env_float(name: str, default: float) -> float:
-    raw = (os.environ.get(name) or "").strip()
-    if not raw:
-        return default
-    try:
-        return float(raw)
-    except ValueError:
-        return default
-
-
-def _env_int(name: str, default: int, *, minimum: int = 1) -> int:
-    raw = (os.environ.get(name) or "").strip()
-    if not raw:
-        return default
-    try:
-        return max(minimum, int(raw))
-    except ValueError:
-        return default
 
 
 def _git(
