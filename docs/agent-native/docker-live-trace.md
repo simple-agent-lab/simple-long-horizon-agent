@@ -81,7 +81,7 @@ state, events = run_agent_with_live_trace(
 From the repo root, serve traces under the host output directory:
 
 ```bash
-bash runs/run_trace_viewer.sh --dir evals/out/swebench_container_runs/<run_id>/<instance_id>/out
+bash runs/demos/run_trace_viewer.sh --dir evals/out/swebench_container_runs/<run_id>/<instance_id>/out
 ```
 
 Or open a single file URL (see ``scripts/run_live_trace_demo.py``).

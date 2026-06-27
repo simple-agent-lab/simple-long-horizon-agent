@@ -2,18 +2,18 @@
 # Run ProgramBench instances in batch through the Suite framework.
 #
 # Usage:
-#   bash runs/run_programbench.sh                            # default instance
-#   bash runs/run_programbench.sh sitkevij__hex.61ae69b      # one instance
-#   bash runs/run_programbench.sh --all --parallel 4         # whole task set
-#   bash runs/run_programbench.sh --filter 'sitkevij.*'      # regex on instance_id
-#   bash runs/run_programbench.sh --slice 0:5                # first 5 instances
+#   bash runs/programbench/run_programbench.sh                            # default instance
+#   bash runs/programbench/run_programbench.sh sitkevij__hex.61ae69b      # one instance
+#   bash runs/programbench/run_programbench.sh --all --parallel 4         # whole task set
+#   bash runs/programbench/run_programbench.sh --filter 'sitkevij.*'      # regex on instance_id
+#   bash runs/programbench/run_programbench.sh --slice 0:5                # first 5 instances
 #
 # Requires Docker, `uv sync --extra programbench`, and a .env with provider
 # credentials. Score afterwards with evals/programbench/evaluate_submissions.py.
 set -euo pipefail
-cd "$(dirname "$0")/.."
-source runs/_python.sh
-source runs/_swebench_uv.sh
+cd "$(dirname "$0")/../.."
+source runs/lib/_python.sh
+source runs/lib/_swebench_uv.sh
 
 DEFAULT_INSTANCE_ID="abishekvashok__cmatrix.5c082c6"
 RUN_ROOT="evals/out/programbench"

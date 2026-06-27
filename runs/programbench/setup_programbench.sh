@@ -7,14 +7,14 @@
 # `:task`. Image names are x86_64 Linux.
 #
 # Usage:
-#   bash runs/setup_programbench.sh <instance-id> [--scoring]
+#   bash runs/programbench/setup_programbench.sh <instance-id> [--scoring]
 #
 # Examples:
-#   bash runs/setup_programbench.sh abishekvashok__cmatrix.5c082c6
-#   bash runs/setup_programbench.sh sitkevij__hex.61ae69b --scoring
+#   bash runs/programbench/setup_programbench.sh abishekvashok__cmatrix.5c082c6
+#   bash runs/programbench/setup_programbench.sh sitkevij__hex.61ae69b --scoring
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 INSTANCE_ID="${1:?Usage: $0 <instance-id> [--scoring]}"
 WANT_SCORING=0
@@ -52,4 +52,4 @@ if [ "$WANT_SCORING" -eq 1 ]; then
 fi
 
 echo "Done. Run the agent with:"
-echo "  bash runs/run_programbench_suite.sh ${INSTANCE_ID}"
+echo "  bash runs/programbench/run_programbench.sh ${INSTANCE_ID}"

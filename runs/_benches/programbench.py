@@ -17,7 +17,7 @@ The agent runs *inside* the container with the model API reachable, but each
 agent bash command runs in a network-isolated namespace (see
 `programbench-reverse-engineering-adapter`). Score the run afterwards with
 evals/programbench/evaluate_submissions.py. For batch / parallel runs over the
-whole task set, see runs/run_programbench.sh.
+whole task set, see runs/programbench/run_programbench.sh.
 """
 
 from __future__ import annotations

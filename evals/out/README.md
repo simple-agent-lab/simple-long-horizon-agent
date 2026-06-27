@@ -55,10 +55,10 @@ through `evals/swebench/`.
 
 ```bash
 # 1. Fetch an instance
-bash runs/setup_swebench_docker.sh sympy__sympy-23824
+bash runs/swebench/setup_swebench_docker.sh sympy__sympy-23824
 
 # 2. Run the agent
-bash runs/run_swebench_suite.sh sympy__sympy-23824
+bash runs/swebench/run_swebench_verified.sh sympy__sympy-23824
 ```
 
 Outputs land under `swebench/<run-id>/<instance-id>/out/`.

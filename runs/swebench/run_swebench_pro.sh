@@ -1,28 +1,29 @@
 #!/usr/bin/env bash
-# Run the agent on SWE-bench Verified through the Suite framework (ADR generic-containerized-eval-framework).
+# Run the agent on SWE-bench Pro through the Suite framework (ADR generic-containerized-eval-framework).
 #
 # Usage:
-#   bash runs/run_swebench_verified.sh                          # default: sympy__sympy-23824
-#   bash runs/run_swebench_verified.sh django__django-16379     # one custom instance
-#   bash runs/run_swebench_verified.sh --all --parallel 4       # full split, 4 at a time
+#   bash runs/swebench/run_swebench_pro.sh                                            # default instance
+#   bash runs/swebench/run_swebench_pro.sh instance_navidrome__navidrome-8e640bb8...  # one custom instance
+#   bash runs/swebench/run_swebench_pro.sh --all --parallel 4                         # full split, 4 at a time
 #
 # Requires Docker, `uv sync --extra swebench`, and a .env with provider credentials.
 # Downloading uncached dataset records uses `datasets`.
 
 set -euo pipefail
-cd "$(dirname "$0")/.."
-source runs/_python.sh
-source runs/_swebench_uv.sh
+cd "$(dirname "$0")/../.."
+source runs/lib/_python.sh
+source runs/lib/_swebench_uv.sh
 
-DATASET="princeton-nlp/SWE-bench_Verified"
+DATASET="ScaleAI/SWE-bench_Pro"
 SPLIT="test"
-DEFAULT_INSTANCE_ID="sympy__sympy-23824"
-INSTANCE_DIR="evals/out/swebench"
-CONTAINER_RUN_ROOT="evals/out/swebench"
-PREDICTION_DIR="evals/out/swebench"
-MODEL_NAME="simple-agent-lab-verified"
-MAX_TURNS=150
-RUN_ID="verified-$(date +%Y%m%d-%H%M%S)"
+DEFAULT_INSTANCE_ID="instance_navidrome__navidrome-8e640bb8580affb7e0ea6225c0bbe240186b6b08"
+INSTANCE_DIR="evals/out/swebench_pro"
+CONTAINER_RUN_ROOT="evals/out/swebench_pro"
+PREDICTION_DIR="evals/out/swebench_pro"
+WHEELHOUSE="evals/out/swebench_pro/wheelhouse/cp311-manylinux"
+MODEL_NAME="simple-agent-lab-pro"
+MAX_TURNS=40
+RUN_ID="pro-$(date +%Y%m%d-%H%M%S)"
 RUN_ALL=0
 PARALLEL=1
 POSITIONAL=()
@@ -170,7 +171,9 @@ run_container() {
     --dotenv .env \
     --max-turns "$MAX_TURNS" \
     --run-id "$RUN_ID" \
+    --agent-flavor "${AGENT_FLAVOR:-bash}" \
     --run-root "$CONTAINER_RUN_ROOT" \
+    --wheelhouse "$WHEELHOUSE" \
     --uv-binary "$SWEBENCH_UV_BIN" \
     --network-mode host \
     --force \
@@ -192,7 +195,7 @@ collect_predictions() {
 
 if [ "$RUN_ALL" -eq 1 ]; then
   fetch_all_instances
-  echo "=== SWE-bench Verified full split ==="
+  echo "=== SWE-bench Pro full split ==="
   echo "Run ID: $RUN_ID"
   echo "Instances: ${#INSTANCE_IDS[@]}"
   echo "Parallel: $PARALLEL"
@@ -201,8 +204,8 @@ if [ "$RUN_ALL" -eq 1 ]; then
   echo "Preparing wheelhouse and Linux uv once before launching batch..."
   swebench_ensure_linux_uv
   "${PYTHON[@]}" - <<'PY'
-from evals.swebench.harness import DEFAULT_WHEELHOUSE, prepare_wheelhouse
-prepare_wheelhouse(DEFAULT_WHEELHOUSE)
+from evals.swebench.harness import DEFAULT_PRO_WHEELHOUSE, prepare_wheelhouse
+prepare_wheelhouse(DEFAULT_PRO_WHEELHOUSE)
 PY
 
   FAIL=0
@@ -233,7 +236,7 @@ else
     INSTANCE_IDS=("${POSITIONAL[0]}")
   fi
   INSTANCE_JSON="$(fetch_one_instance "${INSTANCE_IDS[0]}")"
-  echo "=== SWE-bench Verified: ${INSTANCE_IDS[0]} ==="
+  echo "=== SWE-bench Pro: ${INSTANCE_IDS[0]:0:40}... ==="
   echo "Run ID: $RUN_ID"
   swebench_ensure_linux_uv
   run_container "$INSTANCE_JSON" "${INSTANCE_IDS[0]}" --prepare-wheelhouse

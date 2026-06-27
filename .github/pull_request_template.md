@@ -11,7 +11,7 @@
 
 <!-- Which checks did you run? Paste the relevant output if useful. -->
 
-- [ ] `bash runs/run_ci.sh` passed locally
+- [ ] `bash runs/dev/run_ci.sh` passed locally
 - [ ] Added or updated tests for the changed behavior
 - [ ] Updated the relevant README / docs / ADR alongside the code change
 

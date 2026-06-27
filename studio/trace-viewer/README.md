@@ -30,7 +30,7 @@ load it. This mode needs no server.
 ## Live eval mode (recommended for running evals)
 
 ```bash
-bash runs/run_trace_viewer.sh
+bash runs/demos/run_trace_viewer.sh
 # → http://127.0.0.1:8765
 ```
 
@@ -57,9 +57,9 @@ panel:
 Server flags:
 
 ```bash
-bash runs/run_trace_viewer.sh --port 9000
-bash runs/run_trace_viewer.sh --dir evals/out/swebench_container_runs
-bash runs/run_trace_viewer.sh --host 0.0.0.0      # expose on the network
+bash runs/demos/run_trace_viewer.sh --port 9000
+bash runs/demos/run_trace_viewer.sh --dir evals/out/swebench_container_runs
+bash runs/demos/run_trace_viewer.sh --host 0.0.0.0      # expose on the network
 ```
 
 The server walks recursively and detects trajectories by JSON shape

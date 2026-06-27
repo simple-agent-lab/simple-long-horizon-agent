@@ -3,18 +3,18 @@
 # SWE-bench images for a given instance.
 #
 # Usage:
-#   bash runs/setup_swebench_docker.sh <instance-id>
+#   bash runs/swebench/setup_swebench_docker.sh <instance-id>
 #
 # Example:
-#   bash runs/setup_swebench_docker.sh sympy__sympy-23824
+#   bash runs/swebench/setup_swebench_docker.sh sympy__sympy-23824
 #
 # This script is idempotent: it skips steps that are already done.
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 ROOT="$PWD"
 
-source runs/_python.sh
+source runs/lib/_python.sh
 
 INSTANCE_ID="${1:?Usage: $0 <instance-id>}"
 DATASET="princeton-nlp/SWE-bench_Verified"
@@ -192,4 +192,4 @@ fi
 
 echo ""
 echo "Setup complete! Run the agent with:"
-echo "  bash runs/run_swebench_suite.sh $INSTANCE_ID"
+echo "  bash runs/swebench/run_swebench_verified.sh $INSTANCE_ID"

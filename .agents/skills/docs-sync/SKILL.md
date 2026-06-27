@@ -47,10 +47,10 @@ rg -n "Message|State|Agent|Tool|context_view|run_agent|trajectory|evaluation|tra
 Common checks:
 
 ```bash
-bash runs/run_ci.sh
+bash runs/dev/run_ci.sh
 uv run python -m unittest discover -s tests/unit
 uv run python scripts/lint_docs.py
-bash runs/run_bash_agent_demo.sh
+bash runs/demos/run_bash_agent_demo.sh
 ```
 
 ## Report Format

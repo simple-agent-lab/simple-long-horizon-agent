@@ -37,13 +37,12 @@ class RunsScriptsTest(unittest.TestCase):
 
     def test_swebench_run_scripts_have_valid_bash_syntax(self) -> None:
         scripts = [
-            ROOT / "runs/eval_swebench.sh",
-            ROOT / "runs/setup_swebench_docker.sh",
-            ROOT / "runs/run_swebench_suite.sh",
-            ROOT / "runs/run_swebench_gold_smoke.sh",
-            ROOT / "runs/run_swebench_verified.sh",
-            ROOT / "runs/run_swebench_multilingual.sh",
-            ROOT / "runs/run_swebench_pro.sh",
+            ROOT / "runs/swebench/eval_swebench.sh",
+            ROOT / "runs/swebench/setup_swebench_docker.sh",
+            ROOT / "runs/swebench/run_swebench_gold_smoke.sh",
+            ROOT / "runs/swebench/run_swebench_verified.sh",
+            ROOT / "runs/swebench/run_swebench_multilingual.sh",
+            ROOT / "runs/swebench/run_swebench_pro.sh",
         ]
 
         for script in scripts:
@@ -60,9 +59,9 @@ class RunsScriptsTest(unittest.TestCase):
 
     def test_swebench_run_scripts_support_batch_flags(self) -> None:
         scripts = [
-            ROOT / "runs/run_swebench_verified.sh",
-            ROOT / "runs/run_swebench_multilingual.sh",
-            ROOT / "runs/run_swebench_pro.sh",
+            ROOT / "runs/swebench/run_swebench_verified.sh",
+            ROOT / "runs/swebench/run_swebench_multilingual.sh",
+            ROOT / "runs/swebench/run_swebench_pro.sh",
         ]
 
         for script in scripts:
@@ -77,9 +76,9 @@ class RunsScriptsTest(unittest.TestCase):
 
     def test_swebench_run_scripts_load_provider_settings_from_dotenv(self) -> None:
         scripts = [
-            ROOT / "runs/run_swebench_verified.sh",
-            ROOT / "runs/run_swebench_multilingual.sh",
-            ROOT / "runs/run_swebench_pro.sh",
+            ROOT / "runs/swebench/run_swebench_verified.sh",
+            ROOT / "runs/swebench/run_swebench_multilingual.sh",
+            ROOT / "runs/swebench/run_swebench_pro.sh",
         ]
 
         for script in scripts:
@@ -126,7 +125,7 @@ class RunsScriptsTest(unittest.TestCase):
         }
 
         for script_name, paths in expected_paths.items():
-            text = (ROOT / "runs" / script_name).read_text(encoding="utf-8")
+            text = (ROOT / "runs/swebench" / script_name).read_text(encoding="utf-8")
             with self.subTest(script=script_name):
                 for path in paths:
                     self.assertIn(path, text)
@@ -172,9 +171,8 @@ class RunsScriptsTest(unittest.TestCase):
 
     def test_verified_swebench_entries_do_not_use_lite_dataset(self) -> None:
         files = [
-            ROOT / "runs/setup_swebench_docker.sh",
-            ROOT / "runs/run_swebench_suite.sh",
-            ROOT / "runs/run_swebench_gold_smoke.sh",
+            ROOT / "runs/swebench/setup_swebench_docker.sh",
+            ROOT / "runs/swebench/run_swebench_gold_smoke.sh",
             ROOT / "evals/swebench/evaluate_predictions.py",
             ROOT / "evals/swebench/README.md",
         ]

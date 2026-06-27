@@ -331,9 +331,9 @@ scan dir) and start the viewer:
 
 ```bash
 # run with run_root=Path("evals/out/mysuite"), then:
-bash runs/run_trace_viewer.sh            # scans evals/out/
+bash runs/demos/run_trace_viewer.sh            # scans evals/out/
 # or target a specific tree:
-bash runs/run_trace_viewer.sh --dir evals/out/mysuite
+bash runs/demos/run_trace_viewer.sh --dir evals/out/mysuite
 ```
 
 The demo and tests use a throwaway `tempfile` dir to avoid leaving artifacts; use

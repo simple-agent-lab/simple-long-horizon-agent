@@ -14,8 +14,8 @@ Usage (host with Docker + a built SWE-bench image):
         [--in-env-scoring] [--force]
 
 Reads OPENAI_MODEL / OPENAI_AUTH_TOKEN (and optional OPENAI_BASE_URL) from .env.
-For batch / parallel runs over a whole split, see runs/run_swebench_verified.sh,
-runs/run_swebench_multilingual.sh, and runs/run_swebench_pro.sh.
+For batch / parallel runs over a whole split, see runs/swebench/run_swebench_verified.sh,
+runs/swebench/run_swebench_multilingual.sh, and runs/swebench/run_swebench_pro.sh.
 """
 
 from __future__ import annotations

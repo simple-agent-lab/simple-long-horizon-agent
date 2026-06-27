@@ -2,11 +2,11 @@
 # Local mirror of .github/workflows/ci.yml — run the same checks GitHub runs.
 #
 # Usage:
-#   bash runs/run_ci.sh
+#   bash runs/dev/run_ci.sh
 
 set -e
 export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}src"
-source "$(dirname "$0")/_python.sh"
+source "$(dirname "$0")/../lib/_python.sh"
 
 if ! command -v uv >/dev/null 2>&1; then
   echo "error: uv is required for CI parity. Install: https://docs.astral.sh/uv/" >&2
@@ -34,6 +34,6 @@ printf '\n=== unittest discover -s tests/unit ===\n'
 uv run python -m unittest discover -s tests/unit
 
 printf '\n=== run bash agent demo ===\n'
-bash runs/run_bash_agent_demo.sh
+bash runs/demos/run_bash_agent_demo.sh
 
 printf '\nAll CI checks passed.\n'

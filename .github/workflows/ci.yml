@@ -32,7 +32,7 @@ jobs:
       - name: Run unit tests
         run: uv run python -m unittest discover -s tests/unit
       - name: Run example smoke
-        run: bash runs/run_bash_agent_demo.sh
+        run: bash runs/demos/run_bash_agent_demo.sh
 
   type-check:
     name: ty / src

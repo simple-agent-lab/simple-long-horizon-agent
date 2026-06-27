@@ -22,8 +22,8 @@ evals/out/swebench_multilingual/
 ## Generating a Run
 
 ```bash
-bash runs/run_swebench_multilingual.sh
-bash runs/run_swebench_multilingual.sh --all --parallel 4
+bash runs/swebench/run_swebench_multilingual.sh
+bash runs/swebench/run_swebench_multilingual.sh --all --parallel 4
 ```
 
 ## File Sizes

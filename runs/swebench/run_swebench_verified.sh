@@ -1,29 +1,28 @@
 #!/usr/bin/env bash
-# Run the agent on SWE-bench Multilingual through the Suite framework (ADR generic-containerized-eval-framework).
+# Run the agent on SWE-bench Verified through the Suite framework (ADR generic-containerized-eval-framework).
 #
 # Usage:
-#   bash runs/run_swebench_multilingual.sh                          # default: first test instance
-#   bash runs/run_swebench_multilingual.sh owner__repo-123          # one custom instance
-#   bash runs/run_swebench_multilingual.sh --all --parallel 4       # full split, 4 at a time
+#   bash runs/swebench/run_swebench_verified.sh                          # default: sympy__sympy-23824
+#   bash runs/swebench/run_swebench_verified.sh django__django-16379     # one custom instance
+#   bash runs/swebench/run_swebench_verified.sh --all --parallel 4       # full split, 4 at a time
 #
 # Requires Docker, `uv sync --extra swebench`, and a .env with provider credentials.
 # Downloading uncached dataset records uses `datasets`.
 
 set -euo pipefail
-cd "$(dirname "$0")/.."
-source runs/_python.sh
-source runs/_swebench_uv.sh
+cd "$(dirname "$0")/../.."
+source runs/lib/_python.sh
+source runs/lib/_swebench_uv.sh
 
-DATASET="SWE-bench/SWE-bench_Multilingual"
+DATASET="princeton-nlp/SWE-bench_Verified"
 SPLIT="test"
-DEFAULT_INSTANCE_ID="${SWE_BENCH_MULTILINGUAL_DEFAULT_INSTANCE_ID:-}"
-INSTANCE_DIR="evals/out/swebench_multilingual"
-CONTAINER_RUN_ROOT="evals/out/swebench_multilingual"
-PREDICTION_DIR="evals/out/swebench_multilingual"
-WHEELHOUSE="evals/out/swebench_multilingual/wheelhouse/cp311-manylinux"
-MODEL_NAME="simple-agent-lab-multilingual"
+DEFAULT_INSTANCE_ID="sympy__sympy-23824"
+INSTANCE_DIR="evals/out/swebench"
+CONTAINER_RUN_ROOT="evals/out/swebench"
+PREDICTION_DIR="evals/out/swebench"
+MODEL_NAME="simple-agent-lab-verified"
 MAX_TURNS=150
-RUN_ID="multilingual-$(date +%Y%m%d-%H%M%S)"
+RUN_ID="verified-$(date +%Y%m%d-%H%M%S)"
 RUN_ALL=0
 PARALLEL=1
 POSITIONAL=()
@@ -160,18 +159,6 @@ PY
   mapfile -t INSTANCE_IDS < "$ids_file"
 }
 
-ensure_default_instance_id() {
-  if [ -n "$DEFAULT_INSTANCE_ID" ]; then
-    return
-  fi
-  fetch_all_instances
-  if [ "${#INSTANCE_IDS[@]}" -eq 0 ]; then
-    echo "ERROR: ${DATASET} ${SPLIT} returned no instances." >&2
-    exit 1
-  fi
-  DEFAULT_INSTANCE_ID="${INSTANCE_IDS[0]}"
-}
-
 run_container() {
   local instance_json="$1"
   local instance_id="$2"
@@ -183,9 +170,7 @@ run_container() {
     --dotenv .env \
     --max-turns "$MAX_TURNS" \
     --run-id "$RUN_ID" \
-    --agent-flavor "${AGENT_FLAVOR:-bash}" \
     --run-root "$CONTAINER_RUN_ROOT" \
-    --wheelhouse "$WHEELHOUSE" \
     --uv-binary "$SWEBENCH_UV_BIN" \
     --network-mode host \
     --force \
@@ -207,7 +192,7 @@ collect_predictions() {
 
 if [ "$RUN_ALL" -eq 1 ]; then
   fetch_all_instances
-  echo "=== SWE-bench Multilingual full split ==="
+  echo "=== SWE-bench Verified full split ==="
   echo "Run ID: $RUN_ID"
   echo "Instances: ${#INSTANCE_IDS[@]}"
   echo "Parallel: $PARALLEL"
@@ -216,8 +201,8 @@ if [ "$RUN_ALL" -eq 1 ]; then
   echo "Preparing wheelhouse and Linux uv once before launching batch..."
   swebench_ensure_linux_uv
   "${PYTHON[@]}" - <<'PY'
-from evals.swebench.harness import DEFAULT_MULTILINGUAL_WHEELHOUSE, prepare_wheelhouse
-prepare_wheelhouse(DEFAULT_MULTILINGUAL_WHEELHOUSE)
+from evals.swebench.harness import DEFAULT_WHEELHOUSE, prepare_wheelhouse
+prepare_wheelhouse(DEFAULT_WHEELHOUSE)
 PY
 
   FAIL=0
@@ -243,14 +228,12 @@ PY
   fi
 else
   if [ "${#POSITIONAL[@]}" -eq 0 ]; then
-    ensure_default_instance_id
     INSTANCE_IDS=("$DEFAULT_INSTANCE_ID")
-    INSTANCE_JSON="${INSTANCE_JSON:-$(fetch_one_instance "${INSTANCE_IDS[0]}")}"
   else
     INSTANCE_IDS=("${POSITIONAL[0]}")
-    INSTANCE_JSON="$(fetch_one_instance "${INSTANCE_IDS[0]}")"
   fi
-  echo "=== SWE-bench Multilingual: ${INSTANCE_IDS[0]} ==="
+  INSTANCE_JSON="$(fetch_one_instance "${INSTANCE_IDS[0]}")"
+  echo "=== SWE-bench Verified: ${INSTANCE_IDS[0]} ==="
   echo "Run ID: $RUN_ID"
   swebench_ensure_linux_uv
   run_container "$INSTANCE_JSON" "${INSTANCE_IDS[0]}" --prepare-wheelhouse

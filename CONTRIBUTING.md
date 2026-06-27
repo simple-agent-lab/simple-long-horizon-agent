@@ -24,7 +24,7 @@ Before opening a pull request, the same checks that GitHub Actions runs
 should pass locally:
 
 ```bash
-bash runs/run_ci.sh
+bash runs/dev/run_ci.sh
 ```
 
 This runs `ruff format --check .` (format check), `ty check src` (type check),

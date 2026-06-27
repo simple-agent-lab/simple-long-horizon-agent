@@ -32,7 +32,7 @@ when `uv` is installed and fall back to `python3`; they also set `PYTHONPATH=src
 for the current src-layout:
 
 ```bash
-bash runs/run_bash_agent_demo.sh
+bash runs/demos/run_bash_agent_demo.sh
 ```
 
 The same checks (`ruff format --check .`, docs lint, `ty check src`, and the
@@ -89,7 +89,7 @@ Development follows the
 repo itself as the source of truth, make changes small and verifiable, and
 improve docs, examples, scripts, or tests when an agent workflow is ambiguous.
 Concrete day-to-day commands and the quality gate (ruff format, ty, and
-unittest, run by `runs/run_ci.sh` locally and `.github/workflows/ci.yml`
+unittest, run by `runs/dev/run_ci.sh` locally and `.github/workflows/ci.yml`
 remotely) are spelled out in
 [docs/agent-native/development.md](docs/agent-native/development.md).
 
