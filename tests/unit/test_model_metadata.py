@@ -132,6 +132,16 @@ class ContextWindowBookLookupTest(unittest.TestCase):
 
         self.assertEqual(book.window_for("claude-sonnet-4-6"), 200_000)
 
+    def test_dotted_version_key_does_not_match_unrelated_ids(self) -> None:
+        # Regression: a dotted-version key ("glm-5.2") must not produce a bare
+        # "2" alias that substring-matches any unrelated model id containing a
+        # "2". Such an id should miss entirely, not borrow glm-5.2's window.
+        book = ContextWindowBook({"glm-5.2": 1_000_000})
+
+        self.assertEqual(book.window_for("glm-5.2"), 1_000_000)
+        self.assertIsNone(book.window_for("totally-unknown-2-model"))
+        self.assertIsNone(book.window_for("claude-opus-4-2-20260101"))
+
     def test_litellm_env_file_adds_models(self) -> None:
         import os
         import tempfile

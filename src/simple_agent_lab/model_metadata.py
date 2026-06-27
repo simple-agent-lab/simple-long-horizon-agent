@@ -461,8 +461,15 @@ def _model_lookup_names(model: str) -> tuple[str, ...]:
 
     exact = model.strip()
     slash_stripped = exact.split("/")[-1]
+    names = [exact, slash_stripped]
+    # Strip a Bedrock-style provider prefix ("anthropic.claude-opus-4-8" ->
+    # "claude-opus-4-8"). Skip it when the dotted suffix is a *version* fragment
+    # ("glm-5.2" -> "2"): a numeric alias is meaningless on its own and, as a
+    # table key's alias, would substring-match almost any model id in
+    # `window_for`'s fallback and return a wrong window for unrelated models.
     dot_stripped = slash_stripped.split(".")[-1]
-    names = (exact, slash_stripped, dot_stripped)
+    if dot_stripped and not dot_stripped[0].isdigit():
+        names.append(dot_stripped)
     return tuple(dict.fromkeys(name for name in names if name))
 
 
