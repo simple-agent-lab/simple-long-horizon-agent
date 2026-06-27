@@ -4,12 +4,14 @@ OneMillion-Bench is a *rubric-graded Q&A* benchmark, not an agent-in-a-repo
 benchmark, so its mapping onto the generic framework (`SwebenchSuite` is the
 reference) is:
 
-- **Generation** is a single, tool-free model turn: the case's prompt is the
-  task, and ``build_agent`` returns a plain LLM agent (no bash/tools) whose only
-  job is to answer. Because ``extract_result`` cannot see the agent's messages
-  (only the workspace), the agent's ``generate`` is wrapped to persist the final
-  answer to ``model_response.txt`` in the workspace — the analog of SWE-bench
-  writing a ``git diff`` to the filesystem.
+- **Generation** is selected by the ``AGENT_FLAVOR`` env var: ``single``
+  (default) is one tool-free model turn (``build_agent`` returns a plain LLM
+  agent, no bash/tools, whose only job is to answer); a workflow flavor
+  (``reflection`` / ``parallel`` / …) instead returns a multi-agent facade (see
+  ``workflow_container``). Either way, because ``extract_result`` cannot see the
+  agent's messages (only the workspace), the final answer is persisted to
+  ``model_response.txt`` — the analog of SWE-bench writing a ``git diff`` to the
+  filesystem.
 - **Scoring** is the in-environment ``evaluate`` hook (ADR 0020): the host stages
   the case's weighted rubrics via ``eval_inputs`` (gold the agent must not see),
   and this hook calls a *judge* model to grade the response against them,
