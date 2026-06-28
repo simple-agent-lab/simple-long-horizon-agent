@@ -23,7 +23,6 @@ from simple_agent_lab.model_metadata import (
     PRICE_BOOK_ENV,
     default_context_window_book,
 )
-from simple_agent_lab.trace import trace_record
 from simple_agent_lab.trace.run_trace import RunTrace
 
 
@@ -395,13 +394,12 @@ class TraceRecordEmbedsCostTest(unittest.TestCase):
             ],
             messages=[],
         )
-        record = trace_record(trace)
-        self.assertIn("cost", record)
-        cost = record["cost"]
+        # Cost is derived from the event stream (not embedded in v5).
+        cost = trace.run_cost().as_dict()
         self.assertGreaterEqual(cost["total_usd"], 0.0)
         self.assertEqual(cost["calls"], 1)
         # Round-trips through json without error -> genuinely JSON-safe.
-        json.dumps(record)
+        json.dumps(cost)
 
 
 if __name__ == "__main__":

@@ -2776,6 +2776,8 @@ programbench = [
 swebench = [
     { name = "datasets" },
     { name = "docker" },
+    { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "pandas", version = "3.0.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "swebench" },
 ]
 
@@ -2793,6 +2795,7 @@ requires-dist = [
     { name = "docker", marker = "extra == 'swebench'", specifier = ">=7.0.0" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.10.0" },
     { name = "openai", specifier = ">=1.50.0" },
+    { name = "pandas", marker = "extra == 'swebench'", specifier = ">=1.5.0" },
     { name = "programbench", marker = "extra == 'programbench'", specifier = ">=1.0.0" },
     { name = "swebench", marker = "extra == 'swebench'", specifier = ">=3.0.0" },
 ]

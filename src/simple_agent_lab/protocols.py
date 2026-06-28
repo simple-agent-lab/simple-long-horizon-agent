@@ -44,8 +44,12 @@ class EventKind(str, Enum):
 @dataclass(frozen=True, kw_only=True)
 class _BaseEvent:
     # Placeholders; `State.record_event` stamps the real values on append.
+    # `uuid` is a stable, globally-unique id for this event — independent of its
+    # positional `index`, so the append-only stream survives merges/resumes and
+    # an event can be referenced across files (cf. Claude Code's transcript).
     index: int = -1
     elapsed: float = 0.0
+    uuid: str = ""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -59,6 +63,12 @@ class AgentStartEvent(_BaseEvent):
     kind: Literal[EventKind.AGENT_START] = field(
         default=EventKind.AGENT_START, init=False
     )
+    # The agent that started and its (constant, per-agent) system prompt. The
+    # prompt is the one request field not otherwise in the event stream, so it
+    # rides here for readers to build the `agents` registry (schema v5 ADR).
+    # Both default-empty so legacy `AgentStartEvent()` construction still works.
+    agent: AgentName = ""
+    system_prompt: str = ""
 
 
 # Why an agent's run loop stopped. Closed set so static checkers catch
@@ -107,6 +117,12 @@ class ModelRequestEvent(_BaseEvent):
     context_view: dict[str, Any]
     tools: list[dict[str, Any]]
     llm_payload: list[Any]
+    # The agent's system prompt, set only when this call's agent does NOT go
+    # through `run()` (so no `agent_start` carries it) — currently the context
+    # compressor. Lets `collect_agents` register it; empty for normal agents,
+    # whose prompt rides on `agent_start`. Kept out of the serialized record's
+    # bulk because it is constant per agent, recorded once where it's known.
+    system_prompt: str = ""
     # Provider wire-adapter that served this call: ``"fake"`` for the
     # deterministic test adapter, e.g. ``"openai-chat"`` for a real one. A fake
     # call is still a model call, so it is recorded and *tagged* here rather

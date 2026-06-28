@@ -78,19 +78,6 @@ StateInitFn = Callable[["Agent", ContentInput], State]
 TraceStateFn = Callable[["Agent", State], State | None]
 
 
-def records_model_events(agent: "Agent") -> bool:
-    """Return whether this agent should produce model request/response events.
-
-    True for any provider-backed agent — including the ``"fake"`` test adapter,
-    whose calls are recorded and tagged (``ModelRequestEvent.api``) so a
-    consumer can filter fake data downstream. False only for programmatic
-    facades (``llm_provider is None``): their deterministic ``generate`` is not
-    a model call at all, so it must not masquerade as one in the trace.
-    """
-
-    return agent.llm_provider is not None
-
-
 @dataclass
 class Agent:
     name: str
@@ -252,7 +239,9 @@ def run(
         )
         yield from hook_events
 
-    yield state.record_event(AgentStartEvent())
+    yield state.record_event(
+        AgentStartEvent(agent=name, system_prompt=agent.system_prompt)
+    )
     yield from session_hook(HookPoint.SESSION_START)
     final_emitted = False
     # Default outcome; overridden when the loop breaks on `final` or terminate.
@@ -284,44 +273,42 @@ def run(
         if agent.system_prompt:
             llm_payload = [llm_message("system", agent.system_prompt), *llm_payload]
 
-        if records_model_events(agent):
-            api = agent.llm_provider.api if agent.llm_provider is not None else ""
-            yield state.record_event(
-                ModelRequestEvent(
-                    agent=name,
-                    api=api,
-                    visible_count=len(visible),
-                    llm_message_count=len(llm_payload),
-                    context_view=context.as_dict(),
-                    tools=[
-                        {
-                            "name": tool.name,
-                            "description": tool.description,
-                            "parameters": tool.parameters,
-                        }
-                        for tool in tool_by_name.values()
-                    ],
-                    llm_payload=llm_payload,
-                )
+        api = agent.llm_provider.api if agent.llm_provider is not None else ""
+        yield state.record_event(
+            ModelRequestEvent(
+                agent=name,
+                api=api,
+                visible_count=len(visible),
+                llm_message_count=len(llm_payload),
+                context_view=context.as_dict(),
+                tools=[
+                    {
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": tool.parameters,
+                    }
+                    for tool in tool_by_name.values()
+                ],
+                llm_payload=llm_payload,
             )
+        )
 
         output = agent.generate(visible)
         output_tool_calls = message_tool_calls(output)
-        if records_model_events(agent):
-            api = agent.llm_provider.api if agent.llm_provider is not None else ""
-            yield state.record_event(
-                ModelResponseEvent(
-                    agent=name,
-                    api=api,
-                    output_kind=output.kind,
-                    target=output.target,
-                    tool_call_count=len(output_tool_calls),
-                    usage=output.usage
-                    if isinstance(output, AssistantMessage)
-                    else None,
-                    model=output.model if isinstance(output, AssistantMessage) else "",
-                )
+        api = agent.llm_provider.api if agent.llm_provider is not None else ""
+        yield state.record_event(
+            ModelResponseEvent(
+                agent=name,
+                api=api,
+                output_kind=output.kind,
+                target=output.target,
+                tool_call_count=len(output_tool_calls),
+                usage=output.usage
+                if isinstance(output, AssistantMessage)
+                else None,
+                model=output.model if isinstance(output, AssistantMessage) else "",
             )
+        )
 
         yield state.record(output)
 

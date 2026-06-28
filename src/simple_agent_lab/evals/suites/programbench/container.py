@@ -39,10 +39,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from simple_agent_lab.agent_flavors import (
-    SIMPLE_AGENT_FLAVORS,
-    flavor_from_env,
-)
+from simple_agent_lab.agent_flavors import flavor_from_env
 from simple_agent_lab.agents.flavors import ArtifactPut, build_flavor_agent
 from simple_agent_lab.core import Agent
 from simple_agent_lab.hooks import HookContext, HookDecision, HookPoint
@@ -232,8 +229,11 @@ def build_agent(
     via ``--no-network-isolation`` (see ``_isolation_required``), so a run never
     silently loses ProgramBench's anti-cheat.
 
-    For an arm flavor the facade owns the per-step breakdown + sub-traces; this
-    hook only injects the suite-specific net-isolation prefix + trace sink.
+    The simple/workflow split is owned by ``build_flavor_agent``: this hook just
+    injects the suite-specific knobs (net-isolation prefix, submit tool, runtime
+    reminders, and the trace sink) in one call and lets the flavor builder drop
+    whichever ones it does not use (e.g. an arm flavor's facade owns the per-step
+    breakdown + sub-traces, so it uses the trace sink and ignores the tools).
     """
 
     global _network_isolation_active
@@ -258,20 +258,9 @@ def build_agent(
         )
     flavor = flavor_from_env()
     exec_prefix = NET_ISOLATION_PREFIX if isolated else ()
-    if flavor in SIMPLE_AGENT_FLAVORS:
-        return build_flavor_agent(
-            flavor=flavor,
-            name=AGENT_NAME,
-            provider=provider,
-            cwd=cwd,
-            role=AGENT_ROLE,
-            system_prompt=AGENT_SYSTEM_PROMPT,
-            request_extra=request_extra,
-            hooks=_runtime_reminder_hooks(context or {}),
-            tools=(make_submit_tool(),),
-            bash_exec_prefix=exec_prefix,
-        )
-
+    # Pass both the simple-only knobs (hooks/submit tool) and the workflow-only
+    # knob (trace_put) in one call; build_flavor_agent owns the simple/workflow
+    # split and drops whichever knobs the selected flavor does not use.
     return build_flavor_agent(
         flavor=flavor,
         name=AGENT_NAME,
@@ -280,6 +269,8 @@ def build_agent(
         role=AGENT_ROLE,
         system_prompt=AGENT_SYSTEM_PROMPT,
         request_extra=request_extra,
+        hooks=_runtime_reminder_hooks(context or {}),
+        tools=(make_submit_tool(),),
         trace_put=trace_put,
         bash_exec_prefix=exec_prefix,
     )

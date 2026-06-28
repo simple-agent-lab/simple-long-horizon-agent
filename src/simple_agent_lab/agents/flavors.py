@@ -46,7 +46,7 @@ from simple_agent_lab.workflow import (
 )
 
 from .starter import (
-    BASH_TASK_EXPLORER_ADDENDUM,
+    BASH_TASK_ADDENDUM,
     make_agent,
 )
 
@@ -161,29 +161,29 @@ def _build_simple_flavor_agent(
             provider,
             cwd=cwd,
             bash=True,
-            explorer=True,
+            general_purpose=True,
             tools=tools,
             name=name,
             role=role,
-            system_prompt=_with_explorer_addendum(system_prompt),
+            system_prompt=_with_task_addendum(system_prompt),
             context_policy=policy,
             request_extra=request_extra,
             hooks=hooks,
             bash_exec_prefix=bash_exec_prefix,
         )
     if flavor == "bash_task_read":
-        # bash + the dedicated read tool + a task(explorer) sub-agent, so the
-        # parent can read files directly while still delegating wider exploration.
+        # bash + the dedicated read tool + a task(general-purpose) sub-agent, so
+        # the parent can read files directly while still delegating wider work.
         return make_agent(
             provider,
             cwd=cwd,
             bash=True,
             read=True,
-            explorer=True,
+            general_purpose=True,
             tools=tools,
             name=name,
             role=role,
-            system_prompt=_with_explorer_addendum(system_prompt),
+            system_prompt=_with_task_addendum(system_prompt),
             context_policy=policy,
             request_extra=request_extra,
             hooks=hooks,
@@ -429,11 +429,11 @@ def make_workflow_runner_for_flavor(
     )
 
 
-def _with_explorer_addendum(system_prompt: str) -> str:
-    if BASH_TASK_EXPLORER_ADDENDUM in system_prompt:
+def _with_task_addendum(system_prompt: str) -> str:
+    if BASH_TASK_ADDENDUM in system_prompt:
         return system_prompt
     return "\n\n".join(
-        part for part in (system_prompt, BASH_TASK_EXPLORER_ADDENDUM) if part
+        part for part in (system_prompt, BASH_TASK_ADDENDUM) if part
     )
 
 

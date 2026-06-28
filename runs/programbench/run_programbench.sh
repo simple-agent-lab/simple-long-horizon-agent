@@ -23,6 +23,9 @@ RUN_ALL=0
 PARALLEL=1
 FILTER=""
 SLICE=""
+# Image pull policy. Empty = the run_bench default ('never'): opt-in, so a run
+# never silently downloads multi-GB images. `--pull` opts in.
+PULL=""
 POSITIONAL=()
 
 usage() {
@@ -58,6 +61,17 @@ while [ "$#" -gt 0 ]; do
       fi
       SLICE="$2"
       shift 2
+      ;;
+    --pull)
+      # Opt in to downloading images. `--pull` alone = missing; an explicit
+      # `--pull always|never|missing` is honored.
+      if [ "$#" -ge 2 ] && [[ "$2" != -* ]]; then
+        PULL="$2"
+        shift 2
+      else
+        PULL="missing"
+        shift
+      fi
       ;;
     -h|--help)
       usage
@@ -141,13 +155,19 @@ PY
 
 run_one() {
   local instance_id="$1"
-  "${PYTHON[@]}" runs/run_bench.py programbench "$instance_id" \
-    --max-turns "$MAX_TURNS" \
-    --run-id "$RUN_ID" \
-    --run-root "$RUN_ROOT" \
-    --uv-binary "$SWEBENCH_UV_BIN" \
-    --network-mode host \
+  local args=(
+    runs/run_bench.py programbench "$instance_id"
+    --max-turns "$MAX_TURNS"
+    --run-id "$RUN_ID"
+    --run-root "$RUN_ROOT"
+    --uv-binary "$SWEBENCH_UV_BIN"
+    --network-mode host
     --force
+  )
+  if [ -n "$PULL" ]; then
+    args+=(--pull "$PULL")
+  fi
+  "${PYTHON[@]}" "${args[@]}"
 }
 
 running_jobs() {
@@ -155,18 +175,23 @@ running_jobs() {
 }
 
 FAIL=0
+PIDS=()
 for instance_id in "${INSTANCE_IDS[@]}"; do
+  # Throttle to PARALLEL. macOS ships bash 3.2, which has no `wait -n`, so poll
+  # the running-job count and sleep until a slot frees instead.
   while [ "$(running_jobs)" -ge "$PARALLEL" ]; do
-    wait -n || FAIL=$((FAIL + 1))
+    sleep 0.3
   done
   log="${RUN_ROOT}/${RUN_ID}/${instance_id}.log"
   mkdir -p "$(dirname "$log")"
   echo "Starting: ${instance_id}"
   run_one "$instance_id" > "$log" 2>&1 &
+  PIDS+=("$!")
 done
 
-while [ "$(running_jobs)" -gt 0 ]; do
-  wait -n || FAIL=$((FAIL + 1))
+# Drain: wait each launched job and count failures (bash-3.2-safe).
+for pid in "${PIDS[@]}"; do
+  wait "$pid" || FAIL=$((FAIL + 1))
 done
 
 echo ""

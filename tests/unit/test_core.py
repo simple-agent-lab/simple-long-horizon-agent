@@ -686,8 +686,11 @@ class CoreTest(unittest.TestCase):
         summaries = [message for message in state.messages if message.kind == "summary"]
         self.assertEqual(len(summaries), 1)
         self.assertEqual(summaries[0].role, "user")
-        summary_text = message_text(summaries[0])
-        self.assertTrue(summary_text.startswith("compressed old context"))
+        # Full text, not the 120-char one-line preview: the replacement leads
+        # with a continuation preamble, then the compressor's own summary text.
+        summary_text = simple_agent_lab.text_of(summaries[0].content)
+        self.assertTrue(summary_text.startswith("[This session continues"))
+        self.assertIn("compressed old context", summary_text)
         self.assertEqual(
             summaries[0].sidecar["compression"]["model"],
             "compressor-model",
@@ -756,7 +759,8 @@ class CoreTest(unittest.TestCase):
         writer_texts = captured["writer_visible_texts"]
         self.assertEqual(len(writer_texts), 3)
         self.assertEqual(writer_texts[0], "compress context")
-        self.assertTrue(writer_texts[1].startswith("compressed old context"))
+        # The writer sees the fold framed as a continuation of a prior session.
+        self.assertTrue(writer_texts[1].startswith("[This session continues"))
         self.assertEqual(writer_texts[2], "recent note")
         next_view = build_context_view("writer", state.active_context_messages())
         self.assertNotIn(

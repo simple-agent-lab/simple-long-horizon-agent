@@ -51,6 +51,7 @@ class ProgrambenchSuite:
         platform: str = "",
         network_mode: str = "host",
         cap_add: Sequence[str] = ("SYS_ADMIN",),
+        security_opt: tuple[str, ...] = ("seccomp=unconfined",),
         cpus: int | None = 12,
         mem_limit: str | None = "24g",
     ) -> None:
@@ -63,6 +64,10 @@ class ProgrambenchSuite:
         # network namespace; drop it and the container half falls back to
         # un-isolated commands (and says so in the result).
         self.cap_add = tuple(cap_add)
+        # Default seccomp=unconfined so older daemons (whose default profile
+        # predates `clone3`) don't kill the agent's threads — same default as
+        # SwebenchSuite. Pass seccomp=default to restore the daemon's profile.
+        self.security_opt = tuple(security_opt)
         self.cpus = cpus
         self.mem_limit = mem_limit
 
@@ -76,6 +81,7 @@ class ProgrambenchSuite:
             platform=self.platform or None,
             network_mode=self.network_mode or None,
             cap_add=self.cap_add,
+            security_opt=self.security_opt,
             nano_cpus=self.cpus * 1_000_000_000 if self.cpus else None,
             mem_limit=self.mem_limit,
             memswap_limit=self.mem_limit,

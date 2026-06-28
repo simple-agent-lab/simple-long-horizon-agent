@@ -61,7 +61,7 @@ from ..tools import (
     coerce_int,
     text_result,
 )
-from .strategies import DEFAULT_PRESERVE_KINDS, source_note
+from .strategies import DEFAULT_PRESERVE_KINDS, continuation_preamble
 
 COMPACT_TOOL_NAME = "compact"
 
@@ -95,8 +95,8 @@ class AgentCompactStrategy:
       is a no-op, and once the model moves on the request stops being the max,
       so a stale summary can never fold messages it was not written to describe.
 
-    The replacement is the agent's own summary text plus a `source_note` citing
-    the folded transcript indices, so a `recall` tool can fetch the originals.
+    The replacement is a `continuation_preamble` (framing the fold as a handoff
+    from an earlier session) plus the agent's own summary text.
     """
 
     keep_recent: int = 2
@@ -126,7 +126,7 @@ class AgentCompactStrategy:
             compress_indices=compress_indices,
             replacement=make_message(
                 "user",
-                request.summary + "\n\n" + source_note(compress_indices),
+                continuation_preamble() + "\n\n" + request.summary,
                 sender="runtime",
                 target=agent_name,
                 kind="summary",

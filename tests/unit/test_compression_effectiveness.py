@@ -77,16 +77,16 @@ def _run_tool_heavy(policy: ContextPolicy, n_reads: int) -> list:
                     TextBlock(f"read {index}"),
                     ToolCallBlock(f"c{index}", "read_file", {"path": f"f{index}.py"}),
                 ],
-                sender="explorer",
+                sender="general-purpose",
                 target="user",
                 kind="step",
             )
-        return assistant_message("done", sender="explorer", target="user", kind="final")
+        return assistant_message("done", sender="general-purpose", target="user", kind="final")
 
     state = State("explore")
-    state.send("task", "user", "explorer", state.task)
+    state.send("task", "user", "general-purpose", state.task)
     agent = Agent(
-        "explorer",
+        "general-purpose",
         brain,
         tools=(_read_tool(),),
         context_policy=policy,

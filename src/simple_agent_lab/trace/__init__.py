@@ -39,6 +39,7 @@ from .live import (
     run_agent_with_live_trace,
     trace_meta_from_run_trace,
     write_canonical_trace,
+    write_event_stream,
 )
 from .openai_export import (
     append_openai_training_record,
@@ -49,10 +50,12 @@ from .run_trace import (
     RAW_REF_KEY,
     SCHEMA,
     RunTrace,
+    collect_agents,
     event_record,
+    event_stream,
     run_trace_from_state,
     split_raw_from_record,
-    trace_record,
+    trace_header,
 )
 from .spans import (
     Span,
@@ -74,8 +77,10 @@ __all__ = [
     "Span",
     "TraceMeta",
     "append_openai_training_record",
+    "collect_agents",
     "default_stderr_flush_error",
     "event_record",
+    "event_stream",
     "json_safe",
     "live_trace_path_from_env",
     "merge_sub_agent_spans",
@@ -89,9 +94,10 @@ __all__ = [
     "span_record",
     "spans_from_events",
     "split_raw_from_record",
+    "trace_header",
     "trace_meta_from_run_trace",
-    "trace_record",
     "write_canonical_trace",
+    "write_event_stream",
     "write_jsonl",
     "write_jsonl_atomic",
 ]

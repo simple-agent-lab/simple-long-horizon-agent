@@ -89,13 +89,22 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--network-mode", default="host")
     parser.add_argument(
+        "--security-opt",
+        action="append",
+        default=None,
+        help="Docker --security-opt (repeatable). Defaults to seccomp=unconfined; "
+        "pass --security-opt seccomp=default to restore the daemon's profile.",
+    )
+    parser.add_argument(
         "--platform", default="", help="Override docker --platform (e.g. linux/amd64)"
     )
     parser.add_argument(
         "--pull",
         choices=["missing", "always", "never"],
-        default="missing",
-        help="Image pull policy before create.",
+        default="never",
+        help="Image pull policy before create. Default 'never' (opt-in): use "
+        "local images only, so a run never silently downloads multi-GB images. "
+        "Pass 'missing' to download what's absent, or 'always' to force a refresh.",
     )
     parser.add_argument("--dotenv", default=str(ROOT / ".env"))
     parser.add_argument("--run-root", default=None)
@@ -157,11 +166,17 @@ def run(args: argparse.Namespace) -> dict:
     )
     harness.prepare_wheelhouse_for_run(wheelhouse, prepare_all=args.prepare_wheelhouse)
 
+    security_opt = (
+        tuple(args.security_opt)
+        if args.security_opt is not None
+        else ("seccomp=unconfined",)
+    )
     suite = ProgrambenchSuite(
         image_tag=args.image_tag,
         platform=args.platform,
         network_mode=args.network_mode,
         cap_add=() if args.no_network_isolation else ("SYS_ADMIN",),
+        security_opt=security_opt,
         cpus=args.cpus,
         mem_limit=args.mem_limit or None,
     )
@@ -190,6 +205,12 @@ def run(args: argparse.Namespace) -> dict:
     print(f"    image-tag:       {args.image_tag}")
     print(f"    cmd net-isolate: {isolation}")
     print(f"    container:       {name}")
+    if any("seccomp=unconfined" in opt for opt in security_opt):
+        print(
+            "    WARNING: seccomp disabled (seccomp=unconfined) — reduced "
+            "container isolation. Pass --security-opt seccomp=default to "
+            "restore the daemon's profile."
+        )
     print("")
 
     result = run_suite_instance(

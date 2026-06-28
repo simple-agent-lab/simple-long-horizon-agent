@@ -181,16 +181,47 @@ def run_official_harness(args: argparse.Namespace) -> None:
     subprocess.run(command, cwd=run_dir, check=True)
 
 
+def _ensure_pro_evaluator(pro_eval_script: Path) -> None:
+    """Fetch the official scaleapi evaluator on first use, so `--pro
+    --run-official` stays a single command.
+
+    Clones https://github.com/scaleapi/SWE-bench_Pro-os into the script's parent
+    directory when it isn't there yet (only into an empty/absent dir, so a
+    hand-placed checkout is never clobbered). The eval script + its per-instance
+    ``run_scripts`` ride in that repo.
+    """
+
+    if pro_eval_script.exists():
+        return
+    repo_dir = pro_eval_script.parent
+    if repo_dir.exists() and any(repo_dir.iterdir()):
+        return
+    print(f"Fetching official Pro evaluator -> {repo_dir} (scaleapi/SWE-bench_Pro-os)")
+    subprocess.run(
+        [
+            "git",
+            "clone",
+            "--depth",
+            "1",
+            "https://github.com/scaleapi/SWE-bench_Pro-os.git",
+            str(repo_dir),
+        ],
+        check=True,
+    )
+
+
 def run_official_pro_harness(args: argparse.Namespace) -> None:
     """Run the official SWE-bench Pro evaluation harness as a subprocess."""
     if not args.instances:
         raise SystemExit("--instances is required when using --pro --run-official")
     pro_eval_script = Path(args.pro_eval_script)
+    _ensure_pro_evaluator(pro_eval_script)
     if not pro_eval_script.exists():
         raise SystemExit(
             f"Official Pro evaluator not found: {pro_eval_script}\n"
-            "Clone https://github.com/scaleapi/SWE-bench_Pro-os and pass "
-            "--pro-eval-script /path/to/SWE-bench_Pro-os/swe_bench_pro_eval.py"
+            "Auto-clone of https://github.com/scaleapi/SWE-bench_Pro-os failed; "
+            "clone it manually and pass --pro-eval-script "
+            "/path/to/SWE-bench_Pro-os/swe_bench_pro_eval.py"
         )
 
     predictions_path = Path(args.predictions)

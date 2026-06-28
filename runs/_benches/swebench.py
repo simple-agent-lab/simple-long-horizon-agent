@@ -116,8 +116,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--pull",
         choices=["missing", "always", "never"],
-        default="missing",
-        help="Image pull policy before create.",
+        default="never",
+        help="Image pull policy before create. Default 'never' (opt-in): use "
+        "local images only, so a run never silently downloads multi-GB images "
+        "(a full split is hundreds of GB). Pass 'missing' to download what's "
+        "absent, or 'always' to force a refresh.",
     )
     parser.add_argument("--dotenv", default=str(ROOT / ".env"))
     parser.add_argument("--run-root", default=None)

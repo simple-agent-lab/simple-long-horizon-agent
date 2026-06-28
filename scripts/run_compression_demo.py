@@ -125,17 +125,17 @@ def scenario_tool_heavy() -> None:
                     TextBlock(f"Reading {files[index]}."),
                     ToolCallBlock(f"call_{index}", "read_file", {"path": files[index]}),
                 ],
-                sender="explorer",
+                sender="general-purpose",
                 target="user",
                 kind="step",
             )
         return assistant_message(
-            "Done exploring.", sender="explorer", target="user", kind="final"
+            "Done exploring.", sender="general-purpose", target="user", kind="final"
         )
 
     state = State("Explore the runtime and summarize how it works.")
-    state.send("task", "user", "explorer", state.task)
-    agent = Agent("explorer", brain, tools=(read_tool,), context_policy=_policy())
+    state.send("task", "user", "general-purpose", state.task)
+    agent = Agent("general-purpose", brain, tools=(read_tool,), context_policy=_policy())
     events = list(run(agent, state, max_turns=8))
     _report("A: tool-heavy -> ToolCompactStrategy folds (sawtooth)", state, events)
 

@@ -75,7 +75,14 @@ def _ensure_image(client: Any, image: str, platform: str | None, pull: str) -> N
         client.images.get(image)
     except docker.errors.ImageNotFound:
         if pull == "never":
-            raise
+            # Pulling is opt-in so a run never silently downloads multi-GB images
+            # (a full split would be hundreds of GB). Tell the user how to opt in.
+            raise RuntimeError(
+                f"Docker image not present locally: {image}\n"
+                "Image pulling is opt-in to avoid large unexpected downloads. "
+                "Re-run with --pull missing to download it (or --pull always to "
+                "force a refresh)."
+            ) from None
         client.images.pull(image, platform=platform)
 
 

@@ -51,7 +51,7 @@ from ..llm.env import (
 )
 from ..llm.env import provider_from_env as _env_provider_from_env
 from ..state import State
-from ..trace import run_trace_from_state, split_raw_from_record, trace_record
+from ..trace import event_stream, run_trace_from_state
 from .protocols import (
     MEMORY_HOME_ENV,
     MEMORY_NAME_ENV,
@@ -373,13 +373,16 @@ def run_in_container(
                 "result_keys": sorted(src.data.get("result", {})),
             },
         )
-        slim, raw_pool = split_raw_from_record(trace_record(trace))
+        header, lines, raw_pool = event_stream(trace)
         raw_bytes = None
         if raw_pool:
             raw_bytes = "".join(
                 json.dumps(blob, ensure_ascii=False) + "\n" for blob in raw_pool
             ).encode("utf-8")
-        return (json.dumps(slim, ensure_ascii=False) + "\n").encode("utf-8"), raw_bytes
+        trace_bytes = "".join(
+            json.dumps(rec, ensure_ascii=False) + "\n" for rec in (header, *lines)
+        ).encode("utf-8")
+        return trace_bytes, raw_bytes
 
     def put_trace(*, in_progress: bool, trace_state: State | None = None) -> None:
         trace_data, raw_data = trace_artifacts(

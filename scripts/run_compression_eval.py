@@ -120,17 +120,17 @@ def _run_tool_heavy(policy: ContextPolicy, n_reads: int) -> list:
                         f"call_{index}", "read_file", {"path": f"f{index}.py"}
                     ),
                 ],
-                sender="explorer",
+                sender="general-purpose",
                 target="user",
                 kind="step",
             )
         return assistant_message(
-            "Done exploring.", sender="explorer", target="user", kind="final"
+            "Done exploring.", sender="general-purpose", target="user", kind="final"
         )
 
     state = State("Explore the codebase.")
-    state.send("task", "user", "explorer", state.task)
-    agent = Agent("explorer", brain, tools=(read_tool,), context_policy=policy)
+    state.send("task", "user", "general-purpose", state.task)
+    agent = Agent("general-purpose", brain, tools=(read_tool,), context_policy=policy)
     return list(run(agent, state, max_turns=n_reads + 2))
 
 

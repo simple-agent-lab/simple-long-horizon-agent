@@ -35,7 +35,7 @@ from simple_agent_lab.core import Agent
 from simple_agent_lab.llm import Provider
 from simple_agent_lab.llm_agent import make_llm_agent
 from simple_agent_lab.messages import Message, assistant_message, text_of
-from simple_agent_lab.trace import run_trace_from_state, trace_record
+from simple_agent_lab.trace import event_stream, run_trace_from_state
 from simple_agent_lab.workflow import (
     Route,
     StepResult,
@@ -340,11 +340,15 @@ def _step_record(step: StepResult, index: int, workflow_name: str) -> dict[str, 
         producer=f"workflow:{workflow_name}",
         meta={"role": step.role, "name": step.name, "step": index},
     )
+    header, lines, raw_pool = event_stream(trace)
     return {
         "name": step.name,
         "role": step.role,
         "output": step.output,
-        "trace": trace_record(trace),
+        # v5 stream embedded inline for this debug dump: header then event lines,
+        # with the provider raw pool alongside.
+        "trace": [header, *lines],
+        "trace_raw": raw_pool,
     }
 
 

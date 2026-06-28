@@ -223,9 +223,12 @@ class LocalProcessBackendTest(unittest.TestCase):
             bound = store.bind(artifacts.run_dir)
             result = json.loads(bound.get(RESULT_KEY).decode("utf-8"))
             self.assertIn("model_patch", result)
-            trace = json.loads(bound.get(TRACE_KEY).decode("utf-8"))
-            self.assertEqual(trace["meta"]["suite"], "swebench")
-            self.assertFalse(trace["meta"]["in_progress"])
+            # v5 trace is a stream: the header line carries identity + meta.
+            header = json.loads(
+                bound.get(TRACE_KEY).decode("utf-8").splitlines()[0]
+            )
+            self.assertEqual(header["meta"]["suite"], "swebench")
+            self.assertFalse(header["meta"]["in_progress"])
 
     def test_oracle_run_reproduces_gold_patch(self) -> None:
         """Oracle mode applies the gold patch (no model) and extract reproduces it.

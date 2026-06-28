@@ -49,7 +49,7 @@ canonical builder used everywhere, without a declarative config interpreter
    and future resource tools.
 
 3. **Capabilities compose through one front door** (`agents/starter.py`):
-   `agent_session()` turns on bash, read, an explorer `task` tool, skills (a
+   `agent_session()` turns on bash, read, a general-purpose `task` tool, skills (a
    `SkillConfig` flag), and MCP servers (`MCPToolset` entries) in any
    combination. No per-kind class. (Superseded the original four presets — see
    the follow-up note below.)
@@ -88,7 +88,7 @@ The original four preset constructors (`bash_session`, `bash_task_session`,
 `skill_session`, `mcp_session`) implied the kinds were mutually exclusive, but
 they are not — an agent commonly needs skills **and** MCP tools at once. They
 are replaced by a single composable `agent_session()` that enables capabilities
-additively (bash/read/explorer/skills/mcp/extra tools). The runtime
+additively (bash/read/general_purpose/skills/mcp/extra tools). The runtime
 (`AgentSession`), `Toolset`/`MCPToolset`, `SkillConfig`, and the plain-`Agent`
 back-compat factories (`make_bash_agent`, `make_bash_task_agent`) are unchanged.
 
@@ -96,9 +96,9 @@ back-compat factories (`make_bash_agent`, `make_bash_task_agent`) are unchanged.
 
 Two symmetric front doors now exist, sharing the same capability flags:
 `make_agent()` builds a stateless `Agent` from resource-free capabilities
-(bash/read/explorer/tools), and `agent_session()` adds the session-only
+(bash/read/general_purpose/tools), and `agent_session()` adds the session-only
 capabilities (skills, MCP). The two named factories (`make_bash_agent`,
-`make_bash_task_agent`) and the explorer wiring inside `agent_session()` are now
+`make_bash_task_agent`) and the general-purpose wiring inside `agent_session()` are now
 thin reuses of `make_agent` via a shared `_assemble_static_tools` helper, so the
 tool-assembly logic lives in one place.
 

@@ -16,8 +16,8 @@ sections (see ADR `run-profile-file`):
 
 ```json
 {
-  "env": { "AGENT_FLAVOR": "pdr", "SAL_WORKFLOW_PDR_WIDTH": "3" },
-  "run": { "max-turns": 200, "network-mode": "host", "prepare-wheelhouse": true }
+  "env": { "REASONING_EFFORT": "high" },
+  "run": { "agent-flavor": "loop", "max-turns": 200, "network-mode": "host" }
 }
 ```
 
@@ -29,7 +29,7 @@ sections (see ADR `run-profile-file`):
 It is a *bundle* of the two existing surfaces (`.env` + CLI), not a new schema,
 so there is no second source of truth. Keep secrets in `.env`; commit only
 `runs/profiles/*.example.json` (the rest are gitignored). Each benchmark ships a
-default example to copy and edit: `swebench-pdr.example.json`,
+default example to copy and edit: `swebench-loop.example.json`,
 `programbench.example.json`, and `onemillion.example.json` (the OneMillion
 multi-agent workflows are a flavor of that one bench — `--agent-flavor`).
 

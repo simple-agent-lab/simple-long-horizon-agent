@@ -130,7 +130,7 @@ class RunProfileTest(unittest.TestCase):
 # benchmark example forces a script mapping (and gets its run keys validated).
 ROOT = Path(__file__).resolve().parents[2]
 EXAMPLE_TO_SCRIPT = {
-    "swebench-pdr.example.json": "runs/_benches/swebench.py",
+    "swebench-loop.example.json": "runs/_benches/swebench.py",
     "programbench.example.json": "runs/_benches/programbench.py",
     "onemillion.example.json": "runs/_benches/onemillion.py",
 }

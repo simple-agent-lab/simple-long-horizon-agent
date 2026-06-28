@@ -18,11 +18,11 @@ from ..messages import normalize_content, text_of
 from ..model_metadata import PriceBook, RunCost
 from ..protocols import Event
 from .jsonl import json_safe
-from .spans import Span, merge_sub_agent_spans, span_record, spans_from_events
+from .spans import Span, merge_sub_agent_spans, spans_from_events
 from .training import ModelTurn, model_turns_from_events
 
 
-SCHEMA = "simple-agent-lab.trajectory.v3"
+SCHEMA = "simple-agent-lab.trajectory.v5"
 
 
 @dataclass(frozen=True)
@@ -88,41 +88,41 @@ def run_trace_from_state(
 
 
 def event_record(event: Event) -> dict[str, Any]:
-    """Serialize one runtime event into a JSON-safe record.
+    """Serialize one runtime event into a JSON-safe line for the event stream.
 
-    `Event.kind` is a real `Literal[...]` dataclass field, so the
-    discriminator is preserved by `asdict` and no manual patching is
-    needed here -- this is a thin alias over `json_safe` that keeps the
-    canonical name for external callers and tests.
+    Drops the reconstructable per-turn `llm_payload` (the reader rebuilds the
+    request from the message events + the `agents` registry, or reads the
+    verbatim wire from the external pool). The small `system_prompt` that rides
+    on `agent_start` / the compressor's `model_request` is kept, so readers can
+    build `agents`. `Event.kind` is a real `Literal[...]`, so the discriminator
+    survives `json_safe` with no manual patching.
     """
 
-    return json_safe(event)
+    record = json_safe(event)
+    record.pop("llm_payload", None)
+    return record
 
 
 RAW_REF_KEY = "raw_ref"
 
 
-def split_raw_from_record(
-    record: Mapping[str, Any],
-) -> tuple[dict[str, Any], list[Any]]:
-    """Externalize provider ``raw`` snapshots from a serialized trace record.
+def split_raw_from_record(record: Any) -> tuple[Any, list[Any]]:
+    """Externalize provider ``raw`` snapshots from serialized event lines.
 
-    The provider request/response snapshot stashed on every assistant message's
-    ``sidecar["raw"]`` is duplicated across the record's ``messages``,
-    ``events`` and ``model_turns`` views, and each turn re-embeds the whole
-    growing request history — so a long run's record balloons quadratically (a
-    single SWE-bench rollout reached ~200 MB, an unopenable single-line JSON).
+    The provider request/response snapshot on each model output's
+    ``sidecar["raw"]`` re-embeds the whole growing request history every turn —
+    so inlining it balloons a trace (a single SWE-bench rollout reached ~200 MB).
     The blob is debug-only: the viewer shows it just in the on-demand "Wire
     debug" panel. So we lift it out instead of storing it inline.
 
-    Every ``{"raw": {"request"/"response": ...}}`` is replaced in place with a
-    light ``{"raw": {"raw_ref": <int>}}`` pointer, and the distinct blobs are
-    returned as a content-deduplicated pool — the identical copies across the
-    three views collapse to one, and identical blobs across turns share a slot.
-    Callers persist the slim record beside a ``*.raw.jsonl`` pool file (one blob
-    per line, indexed by ``raw_ref``); the viewer resolves the pointer against
-    that file on demand. Returns ``(slim_record, pool)``; ``pool`` is empty when
-    the record carried no raw blobs (so callers can skip writing the sidecar).
+    Walks the given node (the v5 event-line list, or any dict/list) and replaces
+    every ``{"raw": {"request"/"response": ...}}`` with a light
+    ``{"raw": {"raw_ref": <int>}}`` pointer, returning the distinct blobs as a
+    content-deduplicated pool (identical blobs share a slot). Callers persist the
+    slim lines beside a ``*.raw.jsonl`` pool file (one blob per line, indexed by
+    ``raw_ref``); the viewer resolves the pointer against that file on demand.
+    Returns ``(slim, pool)``; ``pool`` is empty when there were no raw blobs (so
+    callers can skip writing the sidecar).
     """
 
     pool: list[Any] = []
@@ -160,73 +160,72 @@ def split_raw_from_record(
     return walk(record), pool
 
 
-# Per-turn input payloads that are fully reconstructable from `messages` +
-# event ordering, so they need not be persisted. Three views each re-embed the
-# whole growing request history every turn, so a long run's record balloons
-# ~quadratically (a ripgrep rollout reached 176 MB, of which 172 MB was these
-# three lists; the real data — `messages` — was 1.5 MB).
-#   * `llm_payload`   on each `model_request` event
-#   * `input_messages` on each `model_turns` entry
-#   * `input`         on each `model_call` span
-# The trace viewer rebuilds the payload on demand from the `message` events
-# (`synthesizeLlmPayload`), so emptying these costs no information the file
-# didn't already carry once in `messages`. The system prompt is the lone
-# exception — it lives only in `llm_payload[0]`, not in `messages`, so the
-# viewer shows a synthesized ``You are {agent}.`` placeholder; the real prompt
-# stays in source. Training/span views are recomputed from live in-memory
-# events at write time, never read back from the slimmed file.
-_RECONSTRUCTABLE_PAYLOAD_KEYS = ("llm_payload", "input_messages")
+def collect_agents(events: Any) -> dict[str, str]:
+    """Build the ``agent -> system_prompt`` registry from an event stream.
 
+    The prompt rides on the event that introduces an agent: ``agent_start`` for
+    every ``run()`` agent (main and each sub-agent — the latter nested under
+    message-event sidecars), and the compressor's ``model_request`` (it has no
+    ``agent_start``). First non-empty entry per agent wins.
 
-def slim_payloads_from_record(record: dict[str, Any]) -> dict[str, Any]:
-    """Empty reconstructable per-turn input payloads from a serialized record.
-
-    Returns a new record with `llm_payload` / `input_messages` lists (anywhere,
-    including nested sub-agent events) and `model_call` span `input` lists
-    replaced by ``[]``. The counts needed to rebuild them (`llm_message_count`,
-    `request_event_index`, …) are left intact. See the module note above.
+    This is a *reader* helper: the v5 file does not persist the registry — this
+    and the viewer's JS twin derive it from the stream, so a system prompt is
+    always the real one and never fabricated. See ADR trajectory-schema-v5.
     """
 
-    def walk(node: Any) -> Any:
+    agents: dict[str, str] = {}
+
+    def walk(node: Any) -> None:
         if isinstance(node, dict):
-            is_model_call = node.get("kind") == "model_call"
-            return {
-                key: (
-                    []
-                    if key in _RECONSTRUCTABLE_PAYLOAD_KEYS
-                    or (key == "input" and is_model_call)
-                    else walk(value)
-                )
-                for key, value in node.items()
-            }
-        if isinstance(node, list):
-            return [walk(item) for item in node]
-        return node
+            if node.get("kind") in ("agent_start", "model_request"):
+                name = node.get("agent")
+                prompt = node.get("system_prompt")
+                if name and prompt and name not in agents:
+                    agents[name] = prompt
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
 
-    return walk(record)
+    walk(events)
+    return agents
 
 
-def trace_record(trace: RunTrace) -> dict[str, Any]:
-    """Serialize a RunTrace into a JSON-safe dict for export.
 
-    The exported record is *slim*: the per-turn input payloads that every
-    writer would otherwise re-embed each turn (see `slim_payloads_from_record`)
-    are emptied here, at the single canonical serialization point, so every
-    consumer — eval harness, workflow sub-traces, live flushes — stays small
-    without each having to remember to slim. The viewer rebuilds the payloads
-    from `messages` on demand.
+def trace_header(trace: RunTrace) -> dict[str, Any]:
+    """The first line of a v5 trajectory stream: run identity + metadata.
+
+    Carries no arrays: ``messages`` / ``spans`` / ``model_turns`` / ``cost`` and
+    the ``agents`` registry are all derived by readers from the event lines that
+    follow (the viewer already recomputes spans/turns from events). ``task`` is a
+    one-line preview only — the full task is the first event's ``task`` message, so
+    the header never re-stores the whole (possibly multi-KB) task. See ADR
+    trajectory-schema-v5.
     """
-    record = {
+
+    return {
         "schema": SCHEMA,
         "type": "trajectory",
         "trace_id": trace.trace_id,
         "producer": trace.producer,
         "task": trace.task,
-        "events": [event_record(e) for e in trace.events],
-        "messages": json_safe(trace.messages),
-        "spans": json_safe([span_record(s) for s in trace.spans()]),
-        "model_turns": json_safe(trace.model_turns()),
-        "cost": trace.run_cost().as_dict(),
         "meta": trace.meta,
     }
-    return slim_payloads_from_record(record)
+
+
+def event_stream(
+    trace: RunTrace,
+) -> tuple[dict[str, Any], list[dict[str, Any]], list[Any]]:
+    """Serialize a RunTrace into ``(header, event_lines, raw_pool)``.
+
+    ``event_lines`` is the append-only body (one ``event_record`` per event,
+    with ``llm_payload`` dropped); ``split_raw_from_record`` externalizes each
+    event's verbatim provider ``raw`` snapshot into ``raw_pool`` (written to the
+    sibling ``*.raw.jsonl``), leaving a ``{raw_ref}`` pointer. Writers emit
+    ``header`` then the event lines as JSONL; the live writer appends only the
+    new tail each flush. See ADR trajectory-schema-v5.
+    """
+
+    lines, pool = split_raw_from_record([event_record(e) for e in trace.events])
+    return trace_header(trace), lines, pool

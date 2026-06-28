@@ -65,7 +65,7 @@ The real difference between "plain run" and "skills run" is **how the initial
 ## Consequences
 
 - The two axes are now explicit and orthogonal: **state initialization** (a
-  build-time property of the agent — bash, read, explorer, skills) versus
+  build-time property of the agent — bash, read, general_purpose, skills) versus
   **resource lifetime** (a `with`-scoped concern — MCP). Skills sit firmly on
   the first axis.
 - `make_skill_agent` is footgun-free: there is no "bare agent that forgets its

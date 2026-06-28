@@ -17,9 +17,8 @@ from simple_agent_lab.protocols import (
 )
 from simple_agent_lab.state import State
 from simple_agent_lab.trace import (
+    event_stream,
     run_trace_from_state,
-    split_raw_from_record,
-    trace_record,
 )
 
 from .base import WorkflowResult, state_output_tokens
@@ -81,7 +80,7 @@ def write_workflow_subagent_traces(
             "model": _state_model(step.state),
         }
         try:
-            record = trace_record(
+            header, lines, raw_pool = event_stream(
                 run_trace_from_state(
                     state=step.state,
                     trace_id=f"{workflow}.{index:02d}.{label}",
@@ -89,12 +88,14 @@ def write_workflow_subagent_traces(
                     meta=meta,
                 )
             )
-            # Provider raw snapshots are duplicated across turns and can make
-            # records huge; keep the main record slim and write raw blobs beside it.
-            slim, raw_pool = split_raw_from_record(record)
+            # The v5 stream: a header line then one line per event; provider raw
+            # snapshots are externalized to the sibling pool beside it.
             put(
                 f"out/{subpath}",
-                (json.dumps(slim, ensure_ascii=False) + "\n").encode("utf-8"),
+                "".join(
+                    json.dumps(rec, ensure_ascii=False) + "\n"
+                    for rec in (header, *lines)
+                ).encode("utf-8"),
             )
             if raw_pool:
                 put(

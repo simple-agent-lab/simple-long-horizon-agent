@@ -38,7 +38,7 @@ from simple_agent_lab.agents.flavors import (
     build_flavor_agent,
     make_workflow_runner_for_flavor,
 )
-from simple_agent_lab.agents.starter import BASH_TASK_EXPLORER_ADDENDUM
+from simple_agent_lab.agents.starter import BASH_TASK_ADDENDUM
 from simple_agent_lab.compression import SummarizeStrategy
 from simple_agent_lab.evals.stores import container_store_from_env
 from simple_agent_lab.evals.suites.swebench import container as wc
@@ -114,11 +114,11 @@ class FlavorSelectionTest(unittest.TestCase):
     def test_agent_spec_keeps_capability_prompt_out_of_suite(self) -> None:
         with _envs({AGENT_FLAVOR_ENV: "bash_task_read"}):
             self.assertNotIn(
-                BASH_TASK_EXPLORER_ADDENDUM,
+                BASH_TASK_ADDENDUM,
                 wc.agent_spec().system_prompt,
             )
 
-    def test_agent_flavor_builder_adds_explorer_addendum_for_task_flavors(
+    def test_agent_flavor_builder_adds_task_addendum_for_task_flavors(
         self,
     ) -> None:
         for flavor in ("bash_task", "bash_task_read"):
@@ -129,7 +129,7 @@ class FlavorSelectionTest(unittest.TestCase):
                 name="x",
                 system_prompt="BASE",
             )
-            self.assertIn(BASH_TASK_EXPLORER_ADDENDUM, agent.system_prompt)
+            self.assertIn(BASH_TASK_ADDENDUM, agent.system_prompt)
 
     def test_bash_task_read_defaults_to_llm_compression(self) -> None:
         provider = Provider(
@@ -370,11 +370,19 @@ class SubAgentTraceTest(unittest.TestCase):
             subprocess.run(["rm", "-rf", str(d)], check=False)
 
     def _sub_traces(self) -> list[dict]:
+        # Each sub-trace file is a v5 stream (a header line + one line per event);
+        # assemble each FILE into one trace so callers count traces, not lines.
         out = []
         for p in sorted((self.store / "out" / "sub").glob("*.jsonl")):
-            for line in p.read_text(encoding="utf-8").splitlines():
-                if line.strip():
-                    out.append(json.loads(line))
+            records = [
+                json.loads(line)
+                for line in p.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            if not records:
+                continue
+            header, *events = records
+            out.append({**header, "events": events})
         return out
 
     def test_loop_arm_writes_one_sub_trace_with_io(self) -> None:
@@ -399,8 +407,14 @@ class SubAgentTraceTest(unittest.TestCase):
         # continuation conversation.
         self.assertEqual(len(traces), 1)
         # The trace carries the worker's real messages: the bash tool call and
-        # its tool result (the inputs/outputs that were invisible before).
-        kinds = {m.get("kind") for t in traces for m in t.get("messages", [])}
+        # its tool result (the inputs/outputs that were invisible before). In v5
+        # the messages live on `message` events.
+        kinds = {
+            (e.get("message") or {}).get("kind")
+            for t in traces
+            for e in t["events"]
+            if e.get("kind") == "message"
+        }
         self.assertIn("tool_result", kinds)
         blob = json.dumps(traces[0])
         self.assertIn("bash", blob)
@@ -446,7 +460,7 @@ class ComposeTraceStateTest(unittest.TestCase):
         self.assertIs(agent.trace_state(state), state)
 
     def test_builds_one_tool_call_node_per_subagent(self) -> None:
-        from simple_agent_lab.trace import run_trace_from_state, trace_record
+        from simple_agent_lab.trace import event_stream, run_trace_from_state
 
         overview = [
             {
@@ -480,26 +494,25 @@ class ComposeTraceStateTest(unittest.TestCase):
             agent_name=wc.AGENT_NAME,
         )
         self.assertIsNotNone(composed)
-        rec = trace_record(
-            run_trace_from_state(
-                state=composed, trace_id="pdr.overview", producer="t", meta={}
-            )
+        trace = run_trace_from_state(
+            state=composed, trace_id="pdr.overview", producer="t", meta={}
         )
-        tool_spans = [s for s in rec["spans"] if s["kind"] == "tool_call"]
+        tool_spans = [s for s in trace.spans() if s.kind == "tool_call"]
         self.assertEqual(len(tool_spans), 2)  # one per sub-agent, not one big span
         self.assertEqual(
-            [s["attributes"]["tool_name"] for s in tool_spans],
+            [(s.attributes or {})["tool_name"] for s in tool_spans],
             ["attempt", "finalizer"],
         )
         # The node summary points at the drill-down file (no embedded sub_events).
-        blob = json.dumps(rec)
+        header, lines, _pool = event_stream(trace)
+        blob = json.dumps([header, *lines])
         self.assertIn("out/sub/00_attempt.jsonl", blob)
         self.assertNotIn("sub_events", blob)
         # Tiny: a structural tree, not the re-embedded sub-agent logs.
         self.assertLess(len(blob), 50_000)
 
     def test_workflow_agent_trace_state_uses_subagent_overview(self) -> None:
-        from simple_agent_lab.trace import run_trace_from_state, trace_record
+        from simple_agent_lab.trace import run_trace_from_state
 
         with _envs(
             {
@@ -519,12 +532,10 @@ class ComposeTraceStateTest(unittest.TestCase):
                 pass
 
         composed = agent.trace_state(state)
-        rec = trace_record(
-            run_trace_from_state(
-                state=composed, trace_id="loop.overview", producer="t", meta={}
-            )
+        trace = run_trace_from_state(
+            state=composed, trace_id="loop.overview", producer="t", meta={}
         )
-        tool_spans = [s for s in rec["spans"] if s["kind"] == "tool_call"]
+        tool_spans = [s for s in trace.spans() if s.kind == "tool_call"]
         self.assertTrue(tool_spans)
 
 

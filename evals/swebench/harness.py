@@ -36,6 +36,7 @@ if str(SRC) not in sys.path:
 # `simple_agent_lab.llm.env` (single source of truth). This host-side harness
 # only forwards these names into the container; the container half reads them
 # via the same module. See ADR consolidate-provider-env.
+import simple_agent_lab.config as config  # noqa: E402
 from simple_agent_lab.agent_flavors import (  # noqa: E402
     AGENT_FLAVORS,
     DEFAULT_AGENT_FLAVOR as _DEFAULT_AGENT_FLAVOR,
@@ -92,6 +93,10 @@ OPENAI_PASSTHROUGH_ENVS = (
     API_KIND_ENV,
     REASONING_EFFORT_ENV,
     OPENAI_REASONING_EFFORT_ENV,
+    # Every registered config knob (compression threshold, workflow widths, …),
+    # so the in-container agent honours any host `.env` setting without each new
+    # knob having to be added here by hand. See ADR centralized-env-config.
+    *(var.name for var in config.REGISTRY),
 )
 PRIVATE_INSTANCE_FIELDS = {
     "patch",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import time
+import uuid as _uuid
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
@@ -23,6 +24,12 @@ from .protocols import (
 )
 
 EventT = TypeVar("EventT", bound=Event)
+
+
+def _new_uuid() -> str:
+    """A fresh per-event id (standard UUID4 string), stamped on `record_event`."""
+
+    return str(_uuid.uuid4())
 
 
 @dataclass
@@ -130,7 +137,7 @@ class State:
         chronological metadata.
         """
         stamped = dataclasses.replace(
-            event, index=len(self.events), elapsed=self._elapsed()
+            event, index=len(self.events), elapsed=self._elapsed(), uuid=_new_uuid()
         )
         self.events.append(stamped)
         self.snapshot.apply(stamped)
@@ -145,7 +152,7 @@ class State:
         """
 
         stamped = dataclasses.replace(
-            event, index=len(self.events), elapsed=max(0.0, elapsed)
+            event, index=len(self.events), elapsed=max(0.0, elapsed), uuid=_new_uuid()
         )
         self.events.append(stamped)
         self.snapshot.apply(stamped)

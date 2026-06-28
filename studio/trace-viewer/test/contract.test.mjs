@@ -35,7 +35,12 @@ function loadTraceSchema() {
 }
 
 function loadFixture() {
-  return JSON.parse(readFileSync(SAMPLE, "utf8").trim());
+  // v5 fixture is a JSONL stream: a header line then one line per event. Assemble
+  // it into the in-memory trace the accessors run against.
+  const records = readFileSync(SAMPLE, "utf8")
+    .trim().split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l));
+  const [header, ...events] = records;
+  return { ...header, events: events.filter((e) => e && e.kind) };
 }
 
 const TraceSchema = loadTraceSchema();

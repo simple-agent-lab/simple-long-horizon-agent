@@ -18,6 +18,10 @@ source runs/lib/_swebench_uv.sh
 VARIANT="verified"
 RUN_ALL=0
 PARALLEL=1
+# Image pull policy. Empty = the run_bench default ('never'): opt-in, so a run
+# never silently downloads multi-GB images. `--pull` opts in (a full split is
+# hundreds of GB, so this is deliberately not the default).
+PULL=""
 POSITIONAL=()
 FETCH_PYTHON=()
 
@@ -46,6 +50,17 @@ while [ "$#" -gt 0 ]; do
       fi
       PARALLEL="$2"
       shift 2
+      ;;
+    --pull)
+      # Opt in to downloading images. `--pull` alone = missing; an explicit
+      # `--pull always|never|missing` is honored.
+      if [ "$#" -ge 2 ] && [[ "$2" != -* ]]; then
+        PULL="$2"
+        shift 2
+      else
+        PULL="missing"
+        shift
+      fi
       ;;
     -h|--help)
       usage
@@ -240,6 +255,9 @@ run_container() {
   if [ -n "$WHEELHOUSE" ]; then
     args+=(--wheelhouse "$WHEELHOUSE")
   fi
+  if [ -n "$PULL" ]; then
+    args+=(--pull "$PULL")
+  fi
   "${PYTHON[@]}" "${args[@]}" "$@"
 }
 
@@ -275,18 +293,23 @@ harness.prepare_wheelhouse(getattr(harness, os.environ["WHEELHOUSE_CONST"]))
 PY
 
   FAIL=0
+  PIDS=()
   for instance_id in "${INSTANCE_IDS[@]}"; do
+    # Throttle to PARALLEL. macOS ships bash 3.2, which has no `wait -n`, so poll
+    # the running-job count and sleep until a slot frees instead.
     while [ "$(running_jobs)" -ge "$PARALLEL" ]; do
-      wait -n || FAIL=$((FAIL + 1))
+      sleep 0.3
     done
     log="${CONTAINER_RUN_ROOT}/${RUN_ID}/${instance_id}.log"
     mkdir -p "$(dirname "$log")"
     echo "Starting: ${instance_id}"
     run_container "$INSTANCE_JSON" "$instance_id" > "$log" 2>&1 &
+    PIDS+=("$!")
   done
 
-  while [ "$(running_jobs)" -gt 0 ]; do
-    wait -n || FAIL=$((FAIL + 1))
+  # Drain: wait each launched job and count failures (bash-3.2-safe).
+  for pid in "${PIDS[@]}"; do
+    wait "$pid" || FAIL=$((FAIL + 1))
   done
 
   collect_predictions

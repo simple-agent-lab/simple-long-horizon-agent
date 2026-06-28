@@ -100,19 +100,15 @@ def format_index_ranges(indices: Sequence[int]) -> str:
     return ", ".join(ranges)
 
 
-def source_note(indices: Sequence[int]) -> str:
-    """Provenance footer naming the transcript messages a replacement folded.
 
-    `State` is append-only, so compression never deletes the originals — it
-    only removes them from the active view. This line tells the model where
-    they live; the `recall` tool (`simple_agent_lab.tools.recall`) reads the
-    citation back and fetches the originals by index. Summaries cite, recall
-    retrieves: compression becomes recoverable instead of lossy.
-    """
+def continuation_preamble() -> str:
+ 
     return (
-        f"[Compressed from transcript messages {format_index_ranges(indices)}. "
-        "Originals are retrievable by index via the `recall` tool when it is "
-        "available.]"
+        "[This session continues a previous one. Its earlier context was "
+        "compressed into the summary below; treat that summary as established "
+        "working memory carried over from the previous session — its facts, "
+        "decisions, and progress already hold — and resume the task from there "
+        "rather than restarting or re-deriving what it records.]"
     )
 
 
@@ -160,8 +156,7 @@ class ToolCompactStrategy:
             replacement=make_message(
                 "user",
                 _format_compact_summary(active, old, self.preview_chars)
-                + "\n"
-                + source_note(compress_indices),
+                + "\n",
                 sender="runtime",
                 target=agent_name,
                 kind="summary",
@@ -295,46 +290,43 @@ class SummarizeStrategy:
                 llm_message("system", self.compressor.system_prompt),
                 *llm_payload,
             ]
-        # Imported lazily: `core` imports this module at load time, so a
-        # top-level `from ..core import ...` would be a circular import.
-        from ..core import records_model_events
-
-        record_model_events = records_model_events(self.compressor)
         compressor_provider = self.compressor.llm_provider
         api = compressor_provider.api if compressor_provider is not None else ""
         trace_events: tuple[ModelRequestEvent | ModelResponseEvent, ...] = ()
-        if record_model_events:
-            request_event = ModelRequestEvent(
-                agent=self.compressor.name,
-                api=api,
-                visible_count=len(compressor_context.messages),
-                llm_message_count=len(llm_payload),
-                context_view=compressor_context.as_dict(),
-                tools=[
-                    {
-                        "name": tool.name,
-                        "description": tool.description,
-                        "parameters": tool.parameters,
-                    }
-                    for tool in self.compressor.tools
-                ],
-                llm_payload=llm_payload,
-            )
+
+        request_event = ModelRequestEvent(
+            agent=self.compressor.name,
+            api=api,
+            # The compressor does not go through `run()`, so no `agent_start`
+            # carries its prompt — record it here so `collect_agents` sees it.
+            system_prompt=self.compressor.system_prompt,
+            visible_count=len(compressor_context.messages),
+            llm_message_count=len(llm_payload),
+            context_view=compressor_context.as_dict(),
+            tools=[
+                {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters,
+                }
+                for tool in self.compressor.tools
+            ],
+            llm_payload=llm_payload,
+        )
         started = time.monotonic()
         output = self.compressor.generate(compressor_messages)
         elapsed = time.monotonic() - started
-        if record_model_events:
-            response_event = ModelResponseEvent(
-                agent=self.compressor.name,
-                api=api,
-                output_kind=output.kind,
-                target=output.target,
-                tool_call_count=len(tool_calls_of(output.content)),
-                usage=output.usage if isinstance(output, AssistantMessage) else None,
-                model=output.model if isinstance(output, AssistantMessage) else "",
-                elapsed=elapsed,
-            )
-            trace_events = (request_event, response_event)
+        response_event = ModelResponseEvent(
+            agent=self.compressor.name,
+            api=api,
+            output_kind=output.kind,
+            target=output.target,
+            tool_call_count=len(tool_calls_of(output.content)),
+            usage=output.usage if isinstance(output, AssistantMessage) else None,
+            model=output.model if isinstance(output, AssistantMessage) else "",
+            elapsed=elapsed,
+        )
+        trace_events = (request_event, response_event)
         summary_text = _output_text(output).strip() or (
             "Context was compressed, but the compressor returned no text."
         )
@@ -343,7 +335,10 @@ class SummarizeStrategy:
             compress_indices=compress_indices,
             replacement=make_message(
                 "user",
-                summary_text + "\n\n" + source_note(compress_indices),
+                continuation_preamble()
+                + "\n\n"
+                + summary_text
+                + "\n\n",
                 sender="runtime",
                 target=agent_name,
                 kind="summary",

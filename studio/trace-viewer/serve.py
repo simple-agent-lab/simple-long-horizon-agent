@@ -476,6 +476,11 @@ def read_trace_record_bytes(path: Path, line_index: int = 0) -> bytes | None:
         text = path.read_text(encoding="utf-8")
     except OSError:
         return None
+    # A v5 trajectory is a header line + one line per event — the whole file is
+    # one trace, so return all of it. Only an explicit line_index > 0 (selecting
+    # one record in a rare multi-record file) slices to a single record.
+    if line_index == 0:
+        return text.encode("utf-8")
     span = _nth_json_span(text, line_index)
     if span is None:
         return None
@@ -676,6 +681,29 @@ class TraceViewerHandler(BaseHTTPRequestHandler):
                 extra_headers=extra,
             )
             return
+
+        if path == "/api/raw":
+            # The sibling provider raw pool for a trajectory, so the viewer can
+            # auto-resolve `{raw_ref}` pointers (real request/response) without
+            # the user hand-loading `*.raw.jsonl`. Missing sibling (e.g. a
+            # fake/oracle run with no real calls) is not an error — empty pool.
+            query = parse_qs(url.query)
+            raw_path = unquote(query.get("path", [""])[0])
+            if not raw_path:
+                return self._send_json(400, {"error": "missing path"})
+            sidecar = Path(raw_path + ".raw.jsonl").resolve()
+            allowed = self.project_root.resolve()
+            try:
+                sidecar.relative_to(allowed)
+            except ValueError:
+                return self._send_json(403, {"error": "path outside project root"})
+            if not sidecar.exists() or not sidecar.is_file():
+                return self._send_json(200, {"pool": []})
+            try:
+                pool = read_all_records(sidecar)
+            except (OSError, ValueError, json.JSONDecodeError) as e:
+                return self._send_json(400, {"error": f"failed to read raw pool: {e}"})
+            return self._send_json(200, {"pool": pool})
 
         if path == "/api/records":
             query = parse_qs(url.query)

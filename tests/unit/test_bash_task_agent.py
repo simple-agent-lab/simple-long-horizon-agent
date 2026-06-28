@@ -7,9 +7,9 @@ the focus on the wiring this preset introduces:
 
 * parent agent exposes both ``bash`` and ``task`` tools,
 * parent's system prompt is the bash-agent prompt plus a small addendum,
-* task dispatch picks ``subagent_type="explorer"`` and the explorer's
+* task dispatch picks ``subagent_type="general-purpose"`` and the worker's
   bash final message rides back as the parent's tool result,
-* both parent and explorer share the requested ``cwd``.
+* both parent and worker share the requested ``cwd``.
 """
 
 from __future__ import annotations
@@ -28,8 +28,8 @@ from simple_agent_lab import (
 from simple_agent_lab.agents.starter import (
     BASH_AGENT_SYSTEM_PROMPT,
     BASH_TASK_AGENT_SYSTEM_PROMPT,
-    BASH_TASK_EXPLORER_ADDENDUM,
-    EXPLORER_AGENT_DEFAULT_NAME,
+    BASH_TASK_ADDENDUM,
+    GENERAL_PURPOSE_AGENT_DEFAULT_NAME,
     make_bash_task_agent,
 )
 from simple_agent_lab.llm import Provider
@@ -46,35 +46,35 @@ class BashTaskAgentTest(unittest.TestCase):
         tool_names = sorted(tool.name for tool in agent.tools)
         self.assertEqual(tool_names, ["bash", "task"])
 
-    def test_task_tool_lists_only_the_explorer_subagent(self) -> None:
+    def test_task_tool_lists_only_the_general_purpose_subagent(self) -> None:
         agent = make_bash_task_agent(FAKE_PROVIDER, cwd=ROOT)
 
         task_tool_def = next(tool for tool in agent.tools if tool.name == "task")
         self.assertEqual(
             list(task_tool_def.parameters["properties"]["subagent_type"]["enum"]),
-            [EXPLORER_AGENT_DEFAULT_NAME],
+            [GENERAL_PURPOSE_AGENT_DEFAULT_NAME],
         )
-        self.assertIn(EXPLORER_AGENT_DEFAULT_NAME, task_tool_def.description)
+        self.assertIn(GENERAL_PURPOSE_AGENT_DEFAULT_NAME, task_tool_def.description)
 
     def test_system_prompt_extends_bash_prompt_with_short_addendum(self) -> None:
         self.assertTrue(
             BASH_TASK_AGENT_SYSTEM_PROMPT.startswith(BASH_AGENT_SYSTEM_PROMPT),
             "Composed prompt should reuse the bash-agent prompt as its base.",
         )
-        self.assertIn(BASH_TASK_EXPLORER_ADDENDUM, BASH_TASK_AGENT_SYSTEM_PROMPT)
-        addendum_lines = BASH_TASK_EXPLORER_ADDENDUM.count(". ") + 1
+        self.assertIn(BASH_TASK_ADDENDUM, BASH_TASK_AGENT_SYSTEM_PROMPT)
+        addendum_lines = BASH_TASK_ADDENDUM.count(". ") + 1
         self.assertLessEqual(
             addendum_lines,
             5,
             f"Addendum should stay short; got ~{addendum_lines} sentences.",
         )
 
-    def test_delegating_to_explorer_returns_sub_agent_final_as_tool_result(
+    def test_delegating_to_general_purpose_returns_sub_agent_final_as_tool_result(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp)
-            (workspace / "marker.txt").write_text("explorer-saw-this\n")
+            (workspace / "marker.txt").write_text("worker-saw-this\n")
 
             agent = make_bash_task_agent(FAKE_PROVIDER, cwd=workspace)
             agent.generate = _make_parent_generate(
@@ -93,7 +93,7 @@ class BashTaskAgentTest(unittest.TestCase):
         blocks = tool_results_of(tool_result_msg.content)
         self.assertEqual(len(blocks), 1)
         self.assertEqual(blocks[0].tool_name, "task")
-        self.assertIn("explorer-saw-this", message_text(tool_result_msg))
+        self.assertIn("worker-saw-this", message_text(tool_result_msg))
 
         final = next(
             message for message in reversed(state.messages) if message.kind == "final"
@@ -105,8 +105,8 @@ class BashTaskAgentTest(unittest.TestCase):
 def _make_parent_generate(*, delegated_task: str):
     """Build a tiny deterministic parent generate function.
 
-    Turn 1: emit a single ``task`` tool call asking the explorer to run
-    a small bash command. Turn 2 (after the tool result comes back):
+    Turn 1: emit a single ``task`` tool call asking the general-purpose worker
+    to run a small bash command. Turn 2 (after the tool result comes back):
     emit a one-line final.
     """
 
@@ -122,7 +122,7 @@ def _make_parent_generate(*, delegated_task: str):
                         id="task_1",
                         name="task",
                         arguments={
-                            "subagent_type": EXPLORER_AGENT_DEFAULT_NAME,
+                            "subagent_type": GENERAL_PURPOSE_AGENT_DEFAULT_NAME,
                             "task": delegated_task,
                         },
                     ),

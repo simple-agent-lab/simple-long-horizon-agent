@@ -24,8 +24,8 @@ from simple_agent_lab.llm import Provider
 from simple_agent_lab.messages import Message
 from simple_agent_lab.trace import (
     Span,
+    event_stream,
     spans_from_events,
-    trace_record,
 )
 from simple_agent_lab.trace.spans import _collect_sub_events, _tree_sort
 from simple_agent_lab.tools.bash import (
@@ -225,9 +225,11 @@ class BashToolTest(unittest.TestCase):
         event_kinds = [e.kind.value for e in trace.events]
         self.assertIn("model_request", event_kinds)
         self.assertIn("tool_execution_start", event_kinds)
-        record = trace_record(trace)
-        self.assertEqual(record["events"][0]["kind"], "message")
-        self.assertGreater(len(record["spans"]), 0)
+        header, lines, _pool = event_stream(trace)
+        self.assertEqual(lines[0]["kind"], "message")
+        # Spans are derived by the reader, not embedded in the v5 stream.
+        self.assertNotIn("spans", header)
+        self.assertGreater(len(trace.spans()), 0)
         self.assertEqual(event_record(state.events[0])["kind"], "message")
 
 
@@ -306,7 +308,7 @@ class TraceSpanTest(unittest.TestCase):
         self.assertGreaterEqual(len(turns), 1)
         self.assertTrue(all((t.meta or {}).get("api") == "fake" for t in turns))
 
-    def test_trace_record_includes_spans_and_tagged_model_turns(self) -> None:
+    def test_v5_stream_omits_derived_layers_but_keeps_them_derivable(self) -> None:
         agent = make_bash_agent(provider=FAKE_PROVIDER, cwd=ROOT)
         state, events = agent.run(
             "Use bash to run command: `printf 'rec ok\\n'`",
@@ -320,13 +322,17 @@ class TraceSpanTest(unittest.TestCase):
             trace_id="test.rec",
             producer="tests",
         )
-        record = trace_record(trace)
+        header, lines, _pool = event_stream(trace)
 
-        self.assertIn("spans", record)
-        self.assertIn("model_turns", record)
-        self.assertGreater(len(record["spans"]), 0)
-        self.assertGreater(len(record["model_turns"]), 0)
-        self.assertTrue(all(t["meta"]["api"] == "fake" for t in record["model_turns"]))
+        # v5: spans / model_turns / cost / messages are NOT embedded — the reader
+        # derives them from the event lines (the viewer already does).
+        for key in ("spans", "model_turns", "cost", "messages"):
+            self.assertNotIn(key, header)
+        self.assertTrue(lines and all("kind" in line for line in lines))
+        # …but they remain derivable, and fake turns stay tagged for filtering.
+        turns = trace.model_turns()
+        self.assertGreater(len(turns), 0)
+        self.assertTrue(all((t.meta or {}).get("api") == "fake" for t in turns))
 
     def test_tree_sort_handles_orphans(self) -> None:
         orphan = Span(
@@ -470,10 +476,14 @@ class MergedSpansTest(unittest.TestCase):
         trace = run_trace_from_state(
             state=state, trace_id="test.round_trip", producer="tests"
         )
-        parsed = json.loads(json.dumps(trace_record(trace)))
+        _header, lines, _pool = event_stream(trace)
+        parsed = json.loads(json.dumps(lines))
 
         sub_event_lists: list[list[dict]] = []
-        for msg in parsed["messages"]:
+        for ev in parsed:
+            if ev.get("kind") != "message":
+                continue
+            msg = ev.get("message") or {}
             details = (msg.get("sidecar") or {}).get("details") or {}
             for call_details in details.values():
                 sub_events = call_details.get("sub_events")
