@@ -66,11 +66,6 @@ _TASK_RE = re.compile(r'"task"\s*:\s*"((?:[^"\\]|\\.){0,200})"')
 _INSTANCE_RE = re.compile(r'"instance_id"\s*:\s*"([^"]+)"')
 
 
-# ---------------------------------------------------------------------------
-# Shape detection
-# ---------------------------------------------------------------------------
-
-
 def detect_record_kind(record: object) -> str:
     """Classify one parsed record by its visible shape."""
     if not isinstance(record, dict):
@@ -218,11 +213,6 @@ def _nth_json_span(text: str, n: int) -> tuple[int, int] | None:
         idx = end
         record_num += 1
     return None
-
-
-# ---------------------------------------------------------------------------
-# Scan
-# ---------------------------------------------------------------------------
 
 
 def _walk(root: Path):
@@ -407,11 +397,6 @@ def _safe_head_text(path: Path) -> str:
         return ""
 
 
-# ---------------------------------------------------------------------------
-# Read a single record
-# ---------------------------------------------------------------------------
-
-
 def read_trace_record(path: Path, line_index: int = 0) -> dict | None:
     """Return one parsed record from path.
 
@@ -488,11 +473,6 @@ def read_trace_record_bytes(path: Path, line_index: int = 0) -> bytes | None:
     return text[start:end].encode("utf-8")
 
 
-# ---------------------------------------------------------------------------
-# HTTP server
-# ---------------------------------------------------------------------------
-
-
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".js": "text/javascript; charset=utf-8",
@@ -523,7 +503,6 @@ class TraceViewerHandler(BaseHTTPRequestHandler):
             f"{format % args}\n"
         )
 
-    # ---- compression ---------------------------------------------------
     def _client_accepts_gzip(self) -> bool:
         accept = self.headers.get("Accept-Encoding") or ""
         # Token-list match without parsing q-values — good enough for browsers.

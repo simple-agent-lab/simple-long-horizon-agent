@@ -314,9 +314,6 @@ def build_workflow_agent(
     return Agent(name=AGENT_NAME, generate=generate, role=AGENT_ROLE)
 
 
-# --------------------------------------------------------------------------- #
-# Helpers
-# --------------------------------------------------------------------------- #
 def _task_text(visible: list[Message]) -> str:
     for message in visible:
         if message.kind == "task":

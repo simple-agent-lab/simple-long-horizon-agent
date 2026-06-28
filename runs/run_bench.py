@@ -100,9 +100,6 @@ def _emit_json(obj: Any) -> None:
     print(json.dumps(obj, ensure_ascii=False))
 
 
-# --------------------------------------------------------------------------- #
-# list
-# --------------------------------------------------------------------------- #
 def cmd_list(json_mode: bool) -> int:
     items = [
         {"name": b.name, "description": b.description, "needs_docker": b.needs_docker}
@@ -116,9 +113,6 @@ def cmd_list(json_mode: bool) -> int:
     return 0
 
 
-# --------------------------------------------------------------------------- #
-# <bench> — dispatch to one bench's own parser + run()
-# --------------------------------------------------------------------------- #
 def cmd_bench(name: str, rest: list[str], json_mode: bool) -> int:
     bench = BENCHES[name]
     parser = bench.module._build_parser()
@@ -140,9 +134,6 @@ def cmd_bench(name: str, rest: list[str], json_mode: bool) -> int:
     return int(outcome.get("status_code", 0))
 
 
-# --------------------------------------------------------------------------- #
-# score — reach a bench's official scorer (or note inline scoring)
-# --------------------------------------------------------------------------- #
 def cmd_score(name: str, rest: list[str], json_mode: bool) -> int:
     bench = BENCHES[name]
     scorer = getattr(bench.module, "SCORER", None)
@@ -173,9 +164,6 @@ def cmd_score(name: str, rest: list[str], json_mode: bool) -> int:
     return proc.returncode
 
 
-# --------------------------------------------------------------------------- #
-# oracle — run the gold/model-free reference solution (sugar for --provider oracle)
-# --------------------------------------------------------------------------- #
 def _provider_accepts_oracle(parser: argparse.ArgumentParser) -> bool:
     for action in parser._actions:
         if "--provider" in action.option_strings:
@@ -200,9 +188,6 @@ def cmd_oracle(name: str, rest: list[str], json_mode: bool) -> int:
     return cmd_bench(name, ["--provider", "oracle", *rest], json_mode)
 
 
-# --------------------------------------------------------------------------- #
-# setup — environment probe (+ optional oracle smoke)
-# --------------------------------------------------------------------------- #
 def _check(name: str, ok: bool, detail: str, *, warn_only: bool = False) -> dict:
     return {
         "check": name,
@@ -381,9 +366,6 @@ def cmd_setup(names: list[str], oracle: bool, json_mode: bool) -> int:
     return 0 if report["ok"] else 1
 
 
-# --------------------------------------------------------------------------- #
-# all — run a manifest of benches, each as an isolated subprocess
-# --------------------------------------------------------------------------- #
 def _parse_last_json(text: str) -> dict | None:
     for line in reversed(text.strip().splitlines()):
         line = line.strip()
@@ -448,9 +430,6 @@ def cmd_all(manifest_path: str, parallel: int, json_mode: bool) -> int:
     return 0 if combined["ok"] else 1
 
 
-# --------------------------------------------------------------------------- #
-# entry
-# --------------------------------------------------------------------------- #
 def main(argv: list[str] | None = None) -> int:
     raw = list(sys.argv[1:] if argv is None else argv)
     if not raw or raw[0] in ("-h", "--help"):

@@ -37,7 +37,6 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         if delay > 0:
             time.sleep(delay)
 
-    # Text phase.
     for i in range(0, len(text), chunk):
         _pace()
         yield StreamEvent(kind="text_delta", payload={"delta": text[i : i + chunk]})
