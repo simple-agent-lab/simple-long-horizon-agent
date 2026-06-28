@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _load_run_swebench_suite_module():
-    path = ROOT / "runs/run_swebench_suite.py"
+    path = ROOT / "runs/_benches/swebench.py"
     spec = importlib.util.spec_from_file_location("sal_run_swebench_suite", path)
     assert spec is not None
     module = importlib.util.module_from_spec(spec)
@@ -37,13 +37,10 @@ class RunsScriptsTest(unittest.TestCase):
 
     def test_swebench_run_scripts_have_valid_bash_syntax(self) -> None:
         scripts = [
-            ROOT / "runs/eval_swebench.sh",
-            ROOT / "runs/setup_swebench_docker.sh",
-            ROOT / "runs/run_swebench_suite.sh",
-            ROOT / "runs/run_swebench_gold_smoke.sh",
-            ROOT / "runs/run_swebench_verified.sh",
-            ROOT / "runs/run_swebench_multilingual.sh",
-            ROOT / "runs/run_swebench_pro.sh",
+            ROOT / "runs/swebench/eval_swebench.sh",
+            ROOT / "runs/swebench/setup_swebench_docker.sh",
+            ROOT / "runs/swebench/run_swebench_gold_smoke.sh",
+            ROOT / "runs/swebench/run_swebench.sh",
         ]
 
         for script in scripts:
@@ -59,55 +56,36 @@ class RunsScriptsTest(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_swebench_run_scripts_support_batch_flags(self) -> None:
-        scripts = [
-            ROOT / "runs/run_swebench_verified.sh",
-            ROOT / "runs/run_swebench_multilingual.sh",
-            ROOT / "runs/run_swebench_pro.sh",
-        ]
-
-        for script in scripts:
-            text = script.read_text(encoding="utf-8")
-            with self.subTest(script=script.name):
-                self.assertIn("--all", text)
-                self.assertIn("--parallel", text)
-                self.assertIn("FETCH_PYTHON", text)
-                self.assertIn("--extra swebench", text)
-                self.assertIn("wait -n", text)
-                self.assertIn("--collect-predictions", text)
+        text = (ROOT / "runs/swebench/run_swebench.sh").read_text(encoding="utf-8")
+        self.assertIn("--all", text)
+        self.assertIn("--parallel", text)
+        self.assertIn("FETCH_PYTHON", text)
+        self.assertIn("--extra swebench", text)
+        self.assertIn("wait -n", text)
+        self.assertIn("--collect-predictions", text)
 
     def test_swebench_run_scripts_load_provider_settings_from_dotenv(self) -> None:
-        scripts = [
-            ROOT / "runs/run_swebench_verified.sh",
-            ROOT / "runs/run_swebench_multilingual.sh",
-            ROOT / "runs/run_swebench_pro.sh",
-        ]
+        text = (ROOT / "runs/swebench/run_swebench.sh").read_text(encoding="utf-8")
+        self.assertIn("--dotenv .env", text)
 
-        for script in scripts:
-            text = script.read_text(encoding="utf-8")
-            with self.subTest(script=script.name):
-                self.assertIn("--dotenv .env", text)
+    def test_swebench_variants_cover_all_three_splits(self) -> None:
+        """The one runner parametrizes all three splits via --variant."""
+        text = (ROOT / "runs/swebench/run_swebench.sh").read_text(encoding="utf-8")
+        for variant in ("verified", "multilingual", "pro"):
+            self.assertIn(variant, text, f"missing --variant case: {variant}")
+        self.assertIn("princeton-nlp/SWE-bench_Verified", text)
+        self.assertIn("SWE-bench/SWE-bench_Multilingual", text)
+        self.assertIn("ScaleAI/SWE-bench_Pro", text)
 
     def test_swebench_run_scripts_use_flat_suite_output_layout(self) -> None:
         expected_paths = {
-            "run_swebench_verified.sh": [
-                'INSTANCE_DIR="evals/out/swebench"',
-                'CONTAINER_RUN_ROOT="evals/out/swebench"',
-                'PREDICTION_DIR="evals/out/swebench"',
-                "instance_${instance_id}.jsonl",
-            ],
-            "run_swebench_pro.sh": [
-                'INSTANCE_DIR="evals/out/swebench_pro"',
-                'CONTAINER_RUN_ROOT="evals/out/swebench_pro"',
-                'PREDICTION_DIR="evals/out/swebench_pro"',
+            "run_swebench.sh": [
+                'OUT_ROOT="evals/out/swebench"',
+                'OUT_ROOT="evals/out/swebench_multilingual"',
+                'OUT_ROOT="evals/out/swebench_pro"',
                 'WHEELHOUSE="evals/out/swebench_pro/wheelhouse/cp311-manylinux"',
-                "instance_${instance_id}.jsonl",
-                '--wheelhouse "$WHEELHOUSE"',
-            ],
-            "run_swebench_multilingual.sh": [
-                'INSTANCE_DIR="evals/out/swebench_multilingual"',
-                'CONTAINER_RUN_ROOT="evals/out/swebench_multilingual"',
-                'PREDICTION_DIR="evals/out/swebench_multilingual"',
                 'WHEELHOUSE="evals/out/swebench_multilingual/wheelhouse/cp311-manylinux"',
+                'INSTANCE_DIR="$OUT_ROOT"',
                 "instance_${instance_id}.jsonl",
                 '--wheelhouse "$WHEELHOUSE"',
             ],
@@ -126,7 +104,7 @@ class RunsScriptsTest(unittest.TestCase):
         }
 
         for script_name, paths in expected_paths.items():
-            text = (ROOT / "runs" / script_name).read_text(encoding="utf-8")
+            text = (ROOT / "runs/swebench" / script_name).read_text(encoding="utf-8")
             with self.subTest(script=script_name):
                 for path in paths:
                     self.assertIn(path, text)
@@ -172,9 +150,8 @@ class RunsScriptsTest(unittest.TestCase):
 
     def test_verified_swebench_entries_do_not_use_lite_dataset(self) -> None:
         files = [
-            ROOT / "runs/setup_swebench_docker.sh",
-            ROOT / "runs/run_swebench_suite.sh",
-            ROOT / "runs/run_swebench_gold_smoke.sh",
+            ROOT / "runs/swebench/setup_swebench_docker.sh",
+            ROOT / "runs/swebench/run_swebench_gold_smoke.sh",
             ROOT / "evals/swebench/evaluate_predictions.py",
             ROOT / "evals/swebench/README.md",
         ]
@@ -183,6 +160,47 @@ class RunsScriptsTest(unittest.TestCase):
             text = path.read_text(encoding="utf-8")
             with self.subTest(path=path.relative_to(ROOT)):
                 self.assertNotIn("SWE-bench_Lite", text)
+
+    def test_runs_toplevel_is_whitelisted(self) -> None:
+        """`runs/` top level stays tidy: only the public entry + known subdirs.
+
+        Guards the reorg — a new ad-hoc script must go into a concern subdir
+        (swebench/ programbench/ demos/ dev/), the internal _benches/, or the
+        profiles/ lib/ data dirs, not loose at the top.
+        """
+        allowed_files = {
+            "run_bench.py",
+            "README.md",
+            "bench-manifest.example.json",
+        }
+        allowed_dirs = {
+            "_benches",
+            "profiles",
+            "lib",
+            "swebench",
+            "programbench",
+            "demos",
+            "dev",
+        }
+        for entry in (ROOT / "runs").iterdir():
+            if entry.name.startswith(".") or entry.name == "__pycache__":
+                continue
+            with self.subTest(entry=entry.name):
+                if entry.is_dir():
+                    self.assertIn(
+                        entry.name,
+                        allowed_dirs,
+                        f"unexpected top-level dir runs/{entry.name}/ — add it to "
+                        "allowed_dirs only if it's a real concern group.",
+                    )
+                else:
+                    self.assertIn(
+                        entry.name,
+                        allowed_files,
+                        f"unexpected top-level file runs/{entry.name} — the only "
+                        "public entry is run_bench.py; per-bench logic goes in "
+                        "runs/_benches/ and scripts in a concern subdir.",
+                    )
 
 
 if __name__ == "__main__":

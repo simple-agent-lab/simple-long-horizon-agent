@@ -43,11 +43,11 @@ type-checker limitations, and only with a one-line comment explaining why.
 
 ## Local CI
 
-`runs/run_ci.sh` is the canonical local pre-push gate. It mirrors the remote
+`runs/dev/run_ci.sh` is the canonical local pre-push gate. It mirrors the remote
 workflow exactly:
 
 ```bash
-bash runs/run_ci.sh
+bash runs/dev/run_ci.sh
 ```
 
 The script:
@@ -60,7 +60,7 @@ The script:
 5. Runs `uv run python scripts/lint_docs.py`.
 6. Runs `uv run ty check src`.
 7. Runs `uv run python -m unittest discover -s tests/unit`.
-8. Runs `bash runs/run_bash_agent_demo.sh` so the public teaching demo stays runnable.
+8. Runs `bash runs/demos/run_bash_agent_demo.sh` so the public teaching demo stays runnable.
 9. Prints `All CI checks passed.` only if every step exited `0`.
 
 If you want the same checks individually (e.g. while iterating on one of
@@ -94,7 +94,7 @@ advisory but expected.
 When extending the gate (e.g. a linter, a smoke test, a doc check):
 
 1. Make it runnable via `uv run` so it picks up the dev environment.
-2. Add it to `runs/run_ci.sh` first, exactly as you'd want it to run in CI.
+2. Add it to `runs/dev/run_ci.sh` first, exactly as you'd want it to run in CI.
 3. Add a matching step to `.github/workflows/ci.yml`. Keep the local script
    and the workflow in lockstep — divergence is the surest way for "passes
    locally, fails in CI" surprises to creep in.

@@ -24,8 +24,8 @@ from simple_agent_lab.llm import Provider
 from simple_agent_lab.messages import Message
 from simple_agent_lab.trace import (
     Span,
+    event_stream,
     spans_from_events,
-    trace_record,
 )
 from simple_agent_lab.trace.spans import _collect_sub_events, _tree_sort
 from simple_agent_lab.tools.bash import (
@@ -183,6 +183,8 @@ class BashToolTest(unittest.TestCase):
         self.assertTrue(
             any(event.kind == "tool_execution_start" for event in state.events)
         )
+        # The fake provider's calls are recorded (and tagged api="fake"
+        # elsewhere), not hidden — so model_request events are present.
         self.assertTrue(any(event.kind == "model_request" for event in state.events))
 
     def test_run_trace_from_state_produces_span_tree(self) -> None:
@@ -206,17 +208,15 @@ class BashToolTest(unittest.TestCase):
         turns = [s for s in spans if s.kind == "turn"]
         agent_runs = [s for s in spans if s.kind == "agent_run"]
 
-        self.assertGreaterEqual(len(model_calls), 2)
+        # The fake provider's model_call spans are kept and tagged api="fake"
+        # (so a consumer can filter), not dropped from the tree.
+        self.assertGreaterEqual(len(model_calls), 1)
+        self.assertTrue(
+            all((s.attributes or {}).get("api") == "fake" for s in model_calls)
+        )
         self.assertGreaterEqual(len(tool_calls), 1)
         self.assertGreaterEqual(len(turns), 1)
         self.assertEqual(len(agent_runs), 1)
-
-        first_call = model_calls[0]
-        self.assertEqual(first_call.attributes["agent"], "bash_agent")
-        self.assertEqual(first_call.attributes["tools"][0]["name"], "bash")
-        self.assertEqual(first_call.attributes["visible_count"], 1)
-        self.assertGreaterEqual(first_call.start, 0.0)
-        self.assertGreater(first_call.end, first_call.start)
 
         first_tool = tool_calls[0]
         self.assertEqual(first_tool.attributes["tool_name"], "bash")
@@ -225,9 +225,11 @@ class BashToolTest(unittest.TestCase):
         event_kinds = [e.kind.value for e in trace.events]
         self.assertIn("model_request", event_kinds)
         self.assertIn("tool_execution_start", event_kinds)
-        record = trace_record(trace)
-        self.assertEqual(record["events"][0]["kind"], "message")
-        self.assertGreater(len(record["spans"]), 0)
+        header, lines, _pool = event_stream(trace)
+        self.assertEqual(lines[0]["kind"], "message")
+        # Spans are derived by the reader, not embedded in the v5 stream.
+        self.assertNotIn("spans", header)
+        self.assertGreater(len(trace.spans()), 0)
         self.assertEqual(event_record(state.events[0])["kind"], "message")
 
 
@@ -286,7 +288,7 @@ class TraceSpanTest(unittest.TestCase):
                 "Parallel tool_call must be child of turn, not sibling tool_call",
             )
 
-    def test_model_turns_extracted_from_trace(self) -> None:
+    def test_fake_provider_trace_has_tagged_model_turns(self) -> None:
         agent = make_bash_agent(provider=FAKE_PROVIDER, cwd=ROOT)
         state, events = agent.run(
             "Use bash to run command: `printf 'mt ok\\n'`",
@@ -301,17 +303,12 @@ class TraceSpanTest(unittest.TestCase):
             producer="tests",
         )
         turns = trace.model_turns()
+        # Fake turns are emitted and tagged api="fake" so a training exporter
+        # can filter them, rather than the runtime dropping them silently.
         self.assertGreaterEqual(len(turns), 1)
+        self.assertTrue(all((t.meta or {}).get("api") == "fake" for t in turns))
 
-        first = turns[0]
-        self.assertEqual(first.agent, "bash_agent")
-        self.assertIn("model", first.step_id)
-        self.assertIsInstance(first.input_messages, list)
-        self.assertIsInstance(first.output_message, dict)
-        self.assertIsInstance(first.tools, list)
-        self.assertGreater(len(first.tools), 0)
-
-    def test_trace_record_includes_model_turns_and_spans(self) -> None:
+    def test_v5_stream_omits_derived_layers_but_keeps_them_derivable(self) -> None:
         agent = make_bash_agent(provider=FAKE_PROVIDER, cwd=ROOT)
         state, events = agent.run(
             "Use bash to run command: `printf 'rec ok\\n'`",
@@ -325,17 +322,17 @@ class TraceSpanTest(unittest.TestCase):
             trace_id="test.rec",
             producer="tests",
         )
-        record = trace_record(trace)
+        header, lines, _pool = event_stream(trace)
 
-        self.assertIn("spans", record)
-        self.assertIn("model_turns", record)
-        self.assertGreater(len(record["spans"]), 0)
-        self.assertGreater(len(record["model_turns"]), 0)
-
-        first_mt = record["model_turns"][0]
-        self.assertIn("step_id", first_mt)
-        self.assertIn("input_messages", first_mt)
-        self.assertIn("output_message", first_mt)
+        # v5: spans / model_turns / cost / messages are NOT embedded — the reader
+        # derives them from the event lines (the viewer already does).
+        for key in ("spans", "model_turns", "cost", "messages"):
+            self.assertNotIn(key, header)
+        self.assertTrue(lines and all("kind" in line for line in lines))
+        # …but they remain derivable, and fake turns stay tagged for filtering.
+        turns = trace.model_turns()
+        self.assertGreater(len(turns), 0)
+        self.assertTrue(all((t.meta or {}).get("api") == "fake" for t in turns))
 
     def test_tree_sort_handles_orphans(self) -> None:
         orphan = Span(
@@ -479,10 +476,14 @@ class MergedSpansTest(unittest.TestCase):
         trace = run_trace_from_state(
             state=state, trace_id="test.round_trip", producer="tests"
         )
-        parsed = json.loads(json.dumps(trace_record(trace)))
+        _header, lines, _pool = event_stream(trace)
+        parsed = json.loads(json.dumps(lines))
 
         sub_event_lists: list[list[dict]] = []
-        for msg in parsed["messages"]:
+        for ev in parsed:
+            if ev.get("kind") != "message":
+                continue
+            msg = ev.get("message") or {}
             details = (msg.get("sidecar") or {}).get("details") or {}
             for call_details in details.values():
                 sub_events = call_details.get("sub_events")

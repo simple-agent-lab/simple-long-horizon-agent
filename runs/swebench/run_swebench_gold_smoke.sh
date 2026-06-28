@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 ROOT="$PWD"
 RUN_ID="validate-gold"
 OFFICIAL_OUTPUT_DIR="$ROOT/evals/out/swebench_official/$RUN_ID"
 
-source runs/_python.sh
+source runs/lib/_python.sh
 
 "${PYTHON[@]}" - <<'PY'
 import importlib.util

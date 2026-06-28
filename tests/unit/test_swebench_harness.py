@@ -30,13 +30,11 @@ from evals.swebench.harness import (
     is_swebench_pro,
     is_swebench_pro_instance,
     load_instance,
-    load_mcp_config_payload,
     prediction_record,
     prepare_project_wheel,
     prepare_wheelhouse,
     prepare_wheelhouse_for_run,
     resolve_api_kind,
-    resolve_mcp_config_path,
     resolve_workdir,
     sanitized_instance,
 )
@@ -288,43 +286,6 @@ class SwebenchHarnessTest(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "Unsupported API_KIND"):
             resolve_api_kind("unknown-api")
 
-    def test_resolve_mcp_config_path_prefers_cli_then_env(self) -> None:
-        with mock.patch.dict("os.environ", {}, clear=True):
-            self.assertIsNone(resolve_mcp_config_path(None))
-            self.assertEqual(resolve_mcp_config_path("cli.json"), "cli.json")
-
-        with mock.patch.dict("os.environ", {"MCP_CONFIG": "env.json"}, clear=True):
-            self.assertEqual(resolve_mcp_config_path(None), "env.json")
-            self.assertEqual(resolve_mcp_config_path("cli.json"), "cli.json")
-
-    def test_load_mcp_config_payload_validates_and_returns_json_object(self) -> None:
-        payload = {
-            "servers": [
-                {
-                    "name": "workspace",
-                    "transport": "stdio",
-                    "command": "python",
-                    "args": ["-m", "server"],
-                    "cwd": "/testbed",
-                }
-            ]
-        }
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "mcp.json"
-            path.write_text(json.dumps(payload), encoding="utf-8")
-
-            loaded = load_mcp_config_payload(path)
-
-        self.assertEqual(loaded, payload)
-
-    def test_load_mcp_config_payload_rejects_invalid_config(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "mcp.json"
-            path.write_text('{"servers": [{"name": "bad"}]}', encoding="utf-8")
-
-            with self.assertRaisesRegex(SystemExit, "MCP config"):
-                load_mcp_config_payload(path)
-
     def test_load_instance_accepts_instances_wrapper(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "instances.json"
@@ -388,6 +349,49 @@ class SwebenchHarnessTest(unittest.TestCase):
             if "download" in command
         ]
         self.assertEqual(download_platforms, ["manylinux2014_x86_64"])
+
+    def test_prepare_wheelhouse_provisions_offline_linux_cpython_311(self) -> None:
+        calls: list[list[str]] = []
+
+        def runner(command: list[str]) -> None:
+            calls.append(command)
+
+        # Even on a macOS host (the common dev setup), the provisioned interpreter
+        # targets the FIXED container platform (Linux x86_64 glibc), so the
+        # wheelhouse carries the Python the Linux containers actually run.
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch("evals.swebench.harness.shutil.which", return_value="/fake/uv"),
+            mock.patch("evals.swebench.harness.sys.platform", "darwin"),
+        ):
+            prepare_wheelhouse(Path(tmp), runner=runner)
+            uv_python = str(Path(tmp) / "uv-python")
+        self.assertEqual(
+            calls[-1],
+            [
+                "/fake/uv",
+                "python",
+                "install",
+                "--install-dir",
+                uv_python,
+                "cpython-3.11-linux-x86_64-gnu",
+            ],
+        )
+
+    def test_prepare_wheelhouse_skips_python_provision_without_uv(self) -> None:
+        calls: list[list[str]] = []
+
+        def runner(command: list[str]) -> None:
+            calls.append(command)
+
+        # No uv on PATH: nothing to provision with (the bootstrap then falls back
+        # to the container's own download path).
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch("evals.swebench.harness.shutil.which", return_value=None),
+        ):
+            prepare_wheelhouse(Path(tmp), runner=runner)
+        self.assertFalse(any("install" in c and "python" in c for c in calls))
 
     def test_locked_requirements_pin_core_runtime_and_exclude_extra(self) -> None:
         uv = shutil.which("uv")

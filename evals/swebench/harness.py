@@ -7,7 +7,8 @@ provider environment, the offline wheelhouse build, and prediction shaping for
 the official harness.
 
 `SwebenchSuite` (`suite.py`) consumes the image/launch helpers; the run entry
-(`runs/run_swebench_suite.py`) consumes instance loading + env + wheelhouse prep;
+(`runs/_benches/swebench.py`, via `runs/run_bench.py swebench`) consumes
+instance loading + env + wheelhouse prep;
 `evaluate_predictions.py` consumes the test spec + prediction shaping. The agent
 loop itself lives in the wheel (`simple_agent_lab.evals.in_container` + the
 SWE-bench container half), so nothing here launches or talks to a container.
@@ -35,16 +36,23 @@ if str(SRC) not in sys.path:
 # `simple_agent_lab.llm.env` (single source of truth). This host-side harness
 # only forwards these names into the container; the container half reads them
 # via the same module. See ADR consolidate-provider-env.
+import simple_agent_lab.config as config  # noqa: E402
+from simple_agent_lab.agent_flavors import (  # noqa: E402
+    AGENT_FLAVORS,
+    DEFAULT_AGENT_FLAVOR as _DEFAULT_AGENT_FLAVOR,
+)
 from simple_agent_lab.llm.env import (  # noqa: E402
     API_KIND_ENV,
     OPENAI_AUTH_ENV,
     OPENAI_BASE_URL_ENV,
     OPENAI_LOG_ID_ENV,
     OPENAI_MODEL_ENV,
+    OPENAI_REASONING_EFFORT_ENV,
     OPENAI_SESSION_ID_ENV,
+    REASONING_EFFORT_ENV,
 )
 
-# Re-exported so the run entry (`runs/run_swebench_suite.py`) keeps calling
+# Re-exported so the run entry (`runs/_benches/swebench.py`) keeps calling
 # `harness.load_dotenv`; the implementation is owned by `llm.env`.
 from simple_agent_lab.llm.env import load_dotenv as load_dotenv  # noqa: E402,F401
 
@@ -64,15 +72,16 @@ DEFAULT_MULTILINGUAL_WHEELHOUSE = (
 DEFAULT_PRO_RUN_ROOT = ROOT / "evals/out/swebench_pro"
 DEFAULT_PRO_WHEELHOUSE = ROOT / "evals/out/swebench_pro/wheelhouse/cp311-manylinux"
 DEFAULT_UV_BINARY = shutil.which("uv") or ""
-MCP_CONFIG_ENV = "MCP_CONFIG"
-# Reasoning depth knob read by the in-container provider. Without forwarding
-# these, the agent silently runs at the endpoint's default (no/low reasoning)
-# even when the operator set OPENAI_REASONING_EFFORT=high in .env.
-REASONING_EFFORT_ENV = "REASONING_EFFORT"
-OPENAI_REASONING_EFFORT_ENV = "OPENAI_REASONING_EFFORT"
+# This suite intentionally accepts only the OpenAI-protocol adapters (not the
+# broader set in `llm.env.API_KIND_CHOICES`), so it is declared locally. The
+# reasoning-effort names are imported above from `llm.env`; forwarding them keeps
+# the in-container agent from silently running at the endpoint's default depth.
 API_KIND_CHOICES = ("openai-chat", "openai-responses")
-AGENT_FLAVOR_CHOICES = ("bash", "bash_task", "bash_skills")
-DEFAULT_AGENT_FLAVOR = "bash"
+# The single agent selector (`--agent-flavor` / AGENT_FLAVOR). The vocabulary is
+# owned by `simple_agent_lab.agent_flavors` so host and container choices cannot
+# drift.
+AGENT_FLAVOR_CHOICES = AGENT_FLAVORS
+DEFAULT_AGENT_FLAVOR = _DEFAULT_AGENT_FLAVOR
 SWE_BENCH_PRO_DATASET_MARKER = "swe-bench_pro"
 SWE_BENCH_MULTILINGUAL_DATASET_MARKER = "swe-bench_multilingual"
 OPENAI_PASSTHROUGH_ENVS = (
@@ -84,6 +93,10 @@ OPENAI_PASSTHROUGH_ENVS = (
     API_KIND_ENV,
     REASONING_EFFORT_ENV,
     OPENAI_REASONING_EFFORT_ENV,
+    # Every registered config knob (compression threshold, workflow widths, …),
+    # so the in-container agent honours any host `.env` setting without each new
+    # knob having to be added here by hand. See ADR centralized-env-config.
+    *(var.name for var in config.REGISTRY),
 )
 PRIVATE_INSTANCE_FIELDS = {
     "patch",
@@ -351,34 +364,6 @@ def resolve_api_kind(value: str | None) -> str:
     return api_kind
 
 
-def resolve_mcp_config_path(value: str | None) -> str | None:
-    """Return the requested MCP config path, preferring CLI over MCP_CONFIG."""
-
-    config = (value or os.environ.get(MCP_CONFIG_ENV) or "").strip()
-    return config or None
-
-
-def load_mcp_config_payload(path: str | Path) -> dict[str, Any]:
-    """Load and validate an MCP config file, returning its JSON object payload."""
-
-    config_path = Path(path)
-    try:
-        text = config_path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise SystemExit(f"MCP config {config_path}: {exc}") from exc
-
-    try:
-        from simple_agent_lab.mcp.config_file import mcp_server_configs_from_json
-
-        mcp_server_configs_from_json(text, source=f"MCP config {config_path}")
-        payload = json.loads(text)
-    except (ValueError, json.JSONDecodeError) as exc:
-        raise SystemExit(f"MCP config {config_path}: {exc}") from exc
-    if not isinstance(payload, dict):
-        raise SystemExit(f"MCP config {config_path}: expected a JSON object")
-    return dict(payload)
-
-
 # --------------------------------------------------------------------------- #
 # Prediction shaping (official harness input record)
 # --------------------------------------------------------------------------- #
@@ -483,6 +468,49 @@ def prepare_wheelhouse(
             else [sys.executable, "-m", "pip", *pip_args]
         )
         run(command)
+
+    _provision_uv_python(path, uv=uv, run=run)
+
+
+_CONTAINER_CPYTHON = "cpython-3.11-linux-x86_64-gnu"
+
+
+def _provision_uv_python(
+    path: Path,
+    *,
+    uv: str | None,
+    run: Callable[[list[str]], None],
+) -> None:
+    """Pre-install the container's CPython 3.11 into ``<path>/uv-python`` (offline).
+
+    Every eval container needs CPython 3.11 (the wheels' target), but most images
+    ship an older Python — so the bootstrap would otherwise have uv download a
+    ~29MB standalone build *inside each container*, over the container network.
+    On slow/locked-down networks that download is the dominant cost and, when it
+    fails, silently degrades to the image's <3.10 Python (the SWE-bench Pro
+    failures we saw). Installing it once here, into a directory mounted alongside
+    the wheelhouse, lets every container resolve ``uv venv --python 3.11`` with
+    ``UV_PYTHON_INSTALL_DIR`` offline.
+
+    The interpreter is requested for the FIXED container target — Linux x86_64
+    glibc — regardless of the host's own platform, exactly like the cp311
+    ``manylinux2014_x86_64`` wheels above (``uv`` cross-downloads it). So a
+    wheelhouse prepared on macOS still carries the Linux 3.11 the containers run.
+    musl images don't use it; the bootstrap's musl branch uses their own python3.
+    """
+
+    if uv is None:
+        return
+    run(
+        [
+            uv,
+            "python",
+            "install",
+            "--install-dir",
+            str(path / "uv-python"),
+            _CONTAINER_CPYTHON,
+        ]
+    )
 
 
 def _export_locked_requirements(

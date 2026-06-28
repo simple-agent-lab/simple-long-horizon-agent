@@ -36,19 +36,29 @@ one `strategy` slot.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from ..context_view import CompressionDecision, CompressionStrategy
+from ..context_view import (
+    CompressionDecision,
+    CompressionStrategy,
+    build_context_view,
+)
+from ..llm.bridge import messages_to_llm_messages
+from ..llm.types import llm_message
 from ..messages import (
     AssistantMessage,
     Message,
+    MessageSidecar,
     MessageKind,
     make_message,
     text_of,
+    tool_calls_of,
     tool_results_of,
 )
+from ..protocols import ModelRequestEvent, ModelResponseEvent
 from .runtime import _active_context_tokens, _tool_partners
 
 if TYPE_CHECKING:
@@ -90,19 +100,14 @@ def format_index_ranges(indices: Sequence[int]) -> str:
     return ", ".join(ranges)
 
 
-def source_note(indices: Sequence[int]) -> str:
-    """Provenance footer naming the transcript messages a replacement folded.
+def continuation_preamble() -> str:
 
-    `State` is append-only, so compression never deletes the originals — it
-    only removes them from the active view. This line tells the model where
-    they live; the `recall` tool (`simple_agent_lab.tools.recall`) reads the
-    citation back and fetches the originals by index. Summaries cite, recall
-    retrieves: compression becomes recoverable instead of lossy.
-    """
     return (
-        f"[Compressed from transcript messages {format_index_ranges(indices)}. "
-        "Originals are retrievable by index via the `recall` tool when it is "
-        "available.]"
+        "[This session continues a previous one. Its earlier context was "
+        "compressed into the summary below; treat that summary as established "
+        "working memory carried over from the previous session — its facts, "
+        "decisions, and progress already hold — and resume the task from there "
+        "rather than restarting or re-deriving what it records.]"
     )
 
 
@@ -148,10 +153,8 @@ class ToolCompactStrategy:
         return CompressionDecision(
             compress_indices=compress_indices,
             replacement=make_message(
-                "system",
-                _format_compact_summary(active, old, self.preview_chars)
-                + "\n"
-                + source_note(compress_indices),
+                "user",
+                _format_compact_summary(active, old, self.preview_chars) + "\n",
                 sender="runtime",
                 target=agent_name,
                 kind="summary",
@@ -250,20 +253,78 @@ class SummarizeStrategy:
         instruction = make_message(
             "user",
             (
-                f"Summarize the older conversation context above for agent "
-                f"{agent_name!r}.\n"
-                "Keep durable facts, decisions, tool results, constraints, "
-                "and unresolved questions. Omit low-value wording. Your "
-                "summary will replace the prior messages while the task and "
-                "recent messages stay visible."
+                f"Compact the older conversation above into working memory for "
+                f"agent {agent_name!r}. It replaces those messages; the task and "
+                "recent messages stay visible.\n\n"
+                "Write a terse, self-contained summary under these headings, "
+                "omitting any that have nothing:\n"
+                "- Goal: the objective plus constraints / acceptance criteria.\n"
+                "- Done: what has been accomplished and verified.\n"
+                "- State: where the work stands now.\n"
+                "- Facts & identifiers: key facts, decisions, and tool results, "
+                "with exact paths, symbols, commands, errors, test names, and "
+                "values kept VERBATIM.\n"
+                "- Open: unresolved questions and blockers.\n"
+                "- Next: the next concrete action(s).\n"
+                "- Tried & rejected: approaches already attempted that failed, "
+                "and why.\n\n"
+                "Preserve facts exactly; never invent. Omit low-value wording."
             ),
             sender="runtime",
             target=self.compressor.name,
             kind="task",
         )
-        output = self.compressor.generate(
-            [message for _, message in to_compress] + [instruction]
+        compressor_messages = [message for _, message in to_compress] + [instruction]
+        compressor_context = build_context_view(
+            self.compressor.name,
+            compressor_messages,
         )
+        llm_payload = messages_to_llm_messages(
+            list(compressor_context.messages),
+            with_header=False,
+        )
+        if self.compressor.system_prompt:
+            llm_payload = [
+                llm_message("system", self.compressor.system_prompt),
+                *llm_payload,
+            ]
+        compressor_provider = self.compressor.llm_provider
+        api = compressor_provider.api if compressor_provider is not None else ""
+        trace_events: tuple[ModelRequestEvent | ModelResponseEvent, ...] = ()
+
+        request_event = ModelRequestEvent(
+            agent=self.compressor.name,
+            api=api,
+            # The compressor does not go through `run()`, so no `agent_start`
+            # carries its prompt — record it here so `collect_agents` sees it.
+            system_prompt=self.compressor.system_prompt,
+            visible_count=len(compressor_context.messages),
+            llm_message_count=len(llm_payload),
+            context_view=compressor_context.as_dict(),
+            tools=[
+                {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters,
+                }
+                for tool in self.compressor.tools
+            ],
+            llm_payload=llm_payload,
+        )
+        started = time.monotonic()
+        output = self.compressor.generate(compressor_messages)
+        elapsed = time.monotonic() - started
+        response_event = ModelResponseEvent(
+            agent=self.compressor.name,
+            api=api,
+            output_kind=output.kind,
+            target=output.target,
+            tool_call_count=len(tool_calls_of(output.content)),
+            usage=output.usage if isinstance(output, AssistantMessage) else None,
+            model=output.model if isinstance(output, AssistantMessage) else "",
+            elapsed=elapsed,
+        )
+        trace_events = (request_event, response_event)
         summary_text = _output_text(output).strip() or (
             "Context was compressed, but the compressor returned no text."
         )
@@ -271,14 +332,36 @@ class SummarizeStrategy:
         return CompressionDecision(
             compress_indices=compress_indices,
             replacement=make_message(
-                "system",
-                summary_text + "\n\n" + source_note(compress_indices),
+                "user",
+                continuation_preamble() + "\n\n" + summary_text + "\n\n",
                 sender="runtime",
                 target=agent_name,
                 kind="summary",
+                sidecar=_compression_sidecar(output),
             ),
             label="summarize",
+            trace_events=trace_events,
         )
+
+
+def _compression_sidecar(output: Message) -> MessageSidecar:
+    sidecar: MessageSidecar = {}
+    raw = output.sidecar.get("raw")
+    if raw:
+        sidecar["raw"] = raw
+    if isinstance(output, AssistantMessage):
+        metadata: dict[str, object] = {"compressor": output.sender}
+        if output.model:
+            metadata["model"] = output.model
+        if output.usage is not None:
+            metadata["usage"] = {
+                "input_tokens": output.usage.input_tokens,
+                "output_tokens": output.usage.output_tokens,
+                "cache_read_tokens": output.usage.cache_read_tokens,
+                "cache_write_tokens": output.usage.cache_write_tokens,
+            }
+        sidecar["compression"] = metadata
+    return sidecar
 
 
 def _output_text(message: Message) -> str:

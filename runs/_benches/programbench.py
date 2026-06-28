@@ -9,7 +9,7 @@ helpers.
 
 Usage (host with Docker + the ProgramBench image pulled):
 
-    uv run python runs/run_programbench_suite.py <instance-id> \
+    uv run python runs/run_bench.py programbench <instance-id> \
         [--max-turns N] [--run-id ID] [--no-network-isolation] [--force]
 
 Reads OPENAI_MODEL / OPENAI_AUTH_TOKEN (and optional OPENAI_BASE_URL) from .env.
@@ -17,7 +17,7 @@ The agent runs *inside* the container with the model API reachable, but each
 agent bash command runs in a network-isolated namespace (see
 `programbench-reverse-engineering-adapter`). Score the run afterwards with
 evals/programbench/evaluate_submissions.py. For batch / parallel runs over the
-whole task set, see runs/run_programbench.sh.
+whole task set, see runs/programbench/run_programbench.sh.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 for path in (ROOT, SRC):
     if str(path) not in sys.path:
@@ -38,6 +38,7 @@ from evals.programbench.suite import ProgrambenchSuite  # noqa: E402
 from simple_agent_lab.evals import (  # noqa: E402
     LocalDirStore,
     LocalDockerBackend,
+    parse_with_profile,
     run_suite_instance,
 )
 from simple_agent_lab.evals.suites.programbench import container  # noqa: E402
@@ -46,10 +47,29 @@ from simple_agent_lab.evals.backends.docker_local import (  # noqa: E402
 )
 from simple_agent_lab.evals.runner import container_name  # noqa: E402
 
+# Identity for the unified entry (runs/run_bench.py). `run(args)` returns a
+# result dict so the dispatcher / dashboard can read a machine-readable outcome.
+NAME = "programbench"
+DESCRIPTION = (
+    "ProgramBench reverse-engineering instance in a Docker container "
+    "(single instance per run; per-command network isolation)."
+)
+# Official scorer reached by `run_bench.py score programbench ...`.
+SCORER = ("evals/programbench/evaluate_submissions.py",)
+
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("instance_id")
+    parser.add_argument(
+        "--profile",
+        default=None,
+        help=(
+            "Path to a JSON run-profile (its `env` fills env gaps, its `run` "
+            "flags are defaults overridable by explicit flags). See ADR "
+            "run-profile-file."
+        ),
+    )
     parser.add_argument("--max-turns", type=int, default=1000)
     parser.add_argument(
         "--wall-time-seconds",
@@ -69,13 +89,22 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--network-mode", default="host")
     parser.add_argument(
+        "--security-opt",
+        action="append",
+        default=None,
+        help="Docker --security-opt (repeatable). Defaults to seccomp=unconfined; "
+        "pass --security-opt seccomp=default to restore the daemon's profile.",
+    )
+    parser.add_argument(
         "--platform", default="", help="Override docker --platform (e.g. linux/amd64)"
     )
     parser.add_argument(
         "--pull",
         choices=["missing", "always", "never"],
-        default="missing",
-        help="Image pull policy before create.",
+        default="never",
+        help="Image pull policy before create. Default 'never' (opt-in): use "
+        "local images only, so a run never silently downloads multi-GB images. "
+        "Pass 'missing' to download what's absent, or 'always' to force a refresh.",
     )
     parser.add_argument("--dotenv", default=str(ROOT / ".env"))
     parser.add_argument("--run-root", default=None)
@@ -86,6 +115,17 @@ def _build_parser() -> argparse.ArgumentParser:
         type=float,
         default=DEFAULT_DOCKER_TIMEOUT_S,
         help="Docker SDK HTTP timeout in seconds for daemon calls.",
+    )
+    parser.add_argument(
+        "--cpus",
+        type=int,
+        default=12,
+        help="Docker CPU limit for the inference container (default: 12).",
+    )
+    parser.add_argument(
+        "--mem-limit",
+        default="24g",
+        help="Docker memory and memory-swap limit for the inference container.",
     )
     parser.add_argument("--prepare-wheelhouse", action="store_true")
     parser.add_argument("--keep-container", action="store_true")
@@ -105,9 +145,7 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
-    args = _build_parser().parse_args()
-
+def run(args: argparse.Namespace) -> dict:
     instance = harness.load_instance(args.instance_id)
 
     if args.provider == "openai":
@@ -128,11 +166,19 @@ def main() -> None:
     )
     harness.prepare_wheelhouse_for_run(wheelhouse, prepare_all=args.prepare_wheelhouse)
 
+    security_opt = (
+        tuple(args.security_opt)
+        if args.security_opt is not None
+        else ("seccomp=unconfined",)
+    )
     suite = ProgrambenchSuite(
         image_tag=args.image_tag,
         platform=args.platform,
         network_mode=args.network_mode,
         cap_add=() if args.no_network_isolation else ("SYS_ADMIN",),
+        security_opt=security_opt,
+        cpus=args.cpus,
+        mem_limit=args.mem_limit or None,
     )
     backend = LocalDockerBackend(
         pull=args.pull,
@@ -153,10 +199,18 @@ def main() -> None:
     print(
         f"    wall-time:       {args.wall_time_seconds}s ({args.wall_time_seconds / 3600:.1f}h)"
     )
+    print(f"    docker cpus:     {args.cpus}")
+    print(f"    docker memory:   {args.mem_limit}")
     print(f"    run-id:          {args.run_id}")
     print(f"    image-tag:       {args.image_tag}")
     print(f"    cmd net-isolate: {isolation}")
     print(f"    container:       {name}")
+    if any("seccomp=unconfined" in opt for opt in security_opt):
+        print(
+            "    WARNING: seccomp disabled (seccomp=unconfined) — reduced "
+            "container isolation. Pass --security-opt seccomp=default to "
+            "restore the daemon's profile."
+        )
     print("")
 
     result = run_suite_instance(
@@ -185,8 +239,17 @@ def main() -> None:
         "    score it: uv run python evals/programbench/evaluate_submissions.py "
         f"--run-root {run_root} --run-id {args.run_id}"
     )
-    if result.status_code != 0:
-        raise SystemExit(result.status_code)
+    return {
+        "bench": NAME,
+        "status_code": result.status_code,
+        "run_dir": str(result.run_dir),
+        "result_path": str(result.run_dir / "out" / "result.json"),
+        "summary": None,
+    }
+
+
+def main() -> None:
+    raise SystemExit(run(parse_with_profile(_build_parser()))["status_code"])
 
 
 def _force_remove(name: str) -> None:

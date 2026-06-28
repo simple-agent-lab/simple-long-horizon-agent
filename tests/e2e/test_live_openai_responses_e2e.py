@@ -9,7 +9,7 @@ from pathlib import Path
 from simple_agent_lab.agents.starter import make_bash_agent
 from simple_agent_lab.llm import Provider
 from simple_agent_lab.llm.env import load_dotenv, provider_from_env
-from simple_agent_lab.trace import run_trace_from_state, trace_record
+from simple_agent_lab.trace import event_stream, run_trace_from_state
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -67,8 +67,9 @@ def write_trace_if_requested(
             },
         },
     )
+    header, lines, _pool = event_stream(trace)
     path.write_text(
-        json.dumps(trace_record(trace), ensure_ascii=False, indent=2) + "\n",
+        "".join(json.dumps(rec, ensure_ascii=False) + "\n" for rec in (header, *lines)),
         encoding="utf-8",
     )
 

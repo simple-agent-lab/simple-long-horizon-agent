@@ -6,12 +6,12 @@ resources, assembles the full tool list, builds an ``Agent`` via the existing
 :func:`~simple_agent_lab.llm_agent.make_llm_agent`, and runs it through
 ``agent.run``. The composable
 :func:`agent_session` front door configures that session by combining
-capabilities (bash, read, explorer, skills, MCP) additively.
+capabilities (bash, read, general_purpose, skills, MCP) additively.
 
 The capabilities differ only by their tool list and an optional skills flag —
-there is no per-kind class. The explorer sub-agent is an ordinary ``task``
-tool entry, and ``mcp`` servers are ``MCPToolset`` entries the session opens
-and closes.
+there is no per-kind class. The general-purpose sub-agent is an ordinary
+``task`` tool entry, and ``mcp`` servers are ``MCPToolset`` entries the session
+opens and closes.
 
 :func:`make_agent` is the definition-layer twin of :func:`agent_session`: same
 resource-free capability flags, but it returns a bare ``Agent`` you run
@@ -236,31 +236,30 @@ BASH_TASK_AGENT_DEFAULT_ROLE = (
 )
 # Small addendum bolted onto the bash-agent system prompt so the parent
 # inherits all of its phrasing and only learns the extra `task` affordance.
-BASH_TASK_EXPLORER_ADDENDUM = (
-    "You also have a `task` tool that delegates a sub-task to a bash "
-    'worker (`subagent_type="explorer"`); strongly prefer it for any '
-    "investigation step (locating relevant code, mapping how a feature "
-    "is used, reading a long file, tracing a failing test). Use `bash` "
-    "directly only for the actual edits and the focused tests you run "
-    "to verify them — not for exploration."
+BASH_TASK_ADDENDUM = (
+    "You also have a `task` tool that delegates a self-contained sub-task "
+    "to a worker agent and returns its final summary. It fits investigation "
+    "steps well (locating relevant code, mapping how a feature is used, "
+    "reading a long file, tracing a failing test), since it keeps your own "
+    "context focused. Decide for yourself when delegating is worth it versus "
+    "running `bash` directly, based on the task's size and how much "
+    "exploration it needs."
 )
-BASH_TASK_AGENT_SYSTEM_PROMPT = (
-    BASH_AGENT_SYSTEM_PROMPT + "\n\n" + BASH_TASK_EXPLORER_ADDENDUM
-)
+BASH_TASK_AGENT_SYSTEM_PROMPT = BASH_AGENT_SYSTEM_PROMPT + "\n\n" + BASH_TASK_ADDENDUM
 
-EXPLORER_AGENT_DEFAULT_NAME = "explorer"
-EXPLORER_AGENT_DEFAULT_ROLE = (
-    "Run focused bash exploration in the workspace and return a short "
-    "summary of what was found."
+GENERAL_PURPOSE_AGENT_DEFAULT_NAME = "general-purpose"
+GENERAL_PURPOSE_AGENT_DEFAULT_ROLE = (
+    "Handle a delegated sub-task end to end with bash — investigate, make "
+    "the needed edits, run focused checks — then return a short summary."
 )
-EXPLORER_AGENT_SYSTEM_PROMPT = (
-    "You are a bash-using exploration sub-agent. Your job is to satisfy "
-    "the delegated task by running bash commands (parallel reads when the "
-    "steps are independent), then return a short final summary that the "
-    "parent can use to plan its next edit. Prefer narrow tools (`grep -n`, "
-    "`head`/`tail`, `sed -n 'A,Bp'`, `find`) over dumping whole files. "
-    "Do NOT attempt edits — only investigate. Stop as soon as you have "
-    "the evidence the task asks for."
+GENERAL_PURPOSE_AGENT_SYSTEM_PROMPT = (
+    "You are a general-purpose bash-using sub-agent. Satisfy the delegated "
+    "task by running bash commands (parallel reads when the steps are "
+    "independent): investigate the workspace, make any edits the task calls "
+    "for, and run the focused checks needed to verify them. Prefer narrow "
+    "tools (`grep -n`, `head`/`tail`, `sed -n 'A,Bp'`, `find`) over dumping "
+    "whole files. When done, return a short final summary the parent can act "
+    "on. Stop as soon as the task is satisfied."
 )
 DEFAULT_TASK_MAX_TURNS = 70
 
@@ -280,12 +279,12 @@ MCP_ADDENDUM = (
 
 
 def compose_agent_system_prompt(
-    *, bash: bool, explorer: bool, skills: bool, mcp: bool
+    *, bash: bool, general_purpose: bool, skills: bool, mcp: bool
 ) -> str:
     """Build a system prompt by appending capability fragments to the base.
 
-    The base is always the bash-agent prompt; ``explorer``/``skills``/``mcp``
-    each append their fragment in that fixed order. Callers that pass an
+    The base is always the bash-agent prompt; ``general_purpose``/``skills``/
+    ``mcp`` each append their fragment in that fixed order. Callers that pass an
     explicit ``system_prompt`` bypass this entirely. When ``bash`` is false the
     base still reads as the bash prompt, so a bash-less agent should supply its
     own ``system_prompt`` (see the design spec's edge-case note).
@@ -293,8 +292,8 @@ def compose_agent_system_prompt(
 
     del bash  # base is unconditional today; kept for signature symmetry
     parts = [BASH_AGENT_SYSTEM_PROMPT]
-    if explorer:
-        parts.append(BASH_TASK_EXPLORER_ADDENDUM)
+    if general_purpose:
+        parts.append(BASH_TASK_ADDENDUM)
     if skills:
         parts.append(SKILLS_ADDENDUM)
     if mcp:
@@ -308,32 +307,36 @@ def _assemble_static_tools(
     cwd: str | Path | None,
     bash: bool,
     read: bool,
-    explorer: bool,
+    general_purpose: bool,
     tools: Sequence[AgentTool],
     request_extra: Mapping[str, Any] | None,
+    general_purpose_context_policy: ContextPolicy | None = None,
+    bash_exec_prefix: tuple[str, ...] = (),
 ) -> list[AgentTool]:
     """Build the resource-free tool list shared by `make_agent`/`agent_session`.
 
-    Order is deterministic: bash, read, the explorer `task` tool, then any
-    caller-supplied `tools`. The explorer is an ordinary bash sub-agent wrapped
-    as a `task` tool — exactly how a parent delegates today.
+    Order is deterministic: bash, read, the general-purpose `task` tool, then
+    any caller-supplied `tools`. The general-purpose worker is an ordinary bash
+    sub-agent wrapped as a `task` tool — exactly how a parent delegates today.
     """
 
     assembled: list[AgentTool] = []
     if bash:
-        assembled.append(make_bash_tool(cwd=cwd))
+        assembled.append(make_bash_tool(cwd=cwd, exec_prefix=bash_exec_prefix))
     if read:
         assembled.append(make_read_tool(cwd=cwd))
-    if explorer:
-        explorer_agent = make_agent(
+    if general_purpose:
+        worker_agent = make_agent(
             provider,
             cwd=cwd,
-            name=EXPLORER_AGENT_DEFAULT_NAME,
-            role=EXPLORER_AGENT_DEFAULT_ROLE,
-            system_prompt=EXPLORER_AGENT_SYSTEM_PROMPT,
+            name=GENERAL_PURPOSE_AGENT_DEFAULT_NAME,
+            role=GENERAL_PURPOSE_AGENT_DEFAULT_ROLE,
+            system_prompt=GENERAL_PURPOSE_AGENT_SYSTEM_PROMPT,
+            context_policy=general_purpose_context_policy,
             request_extra=request_extra,
+            bash_exec_prefix=bash_exec_prefix,
         )
-        assembled.append(task_tool([explorer_agent], max_turns=DEFAULT_TASK_MAX_TURNS))
+        assembled.append(task_tool([worker_agent], max_turns=DEFAULT_TASK_MAX_TURNS))
     assembled.extend(tools)
     return assembled
 
@@ -344,7 +347,7 @@ def make_agent(
     cwd: str | Path | None = None,
     bash: bool = True,
     read: bool = False,
-    explorer: bool = False,
+    general_purpose: bool = False,
     tools: Sequence[AgentTool] = (),
     name: str = DEFAULT_AGENT_NAME,
     role: str = "",
@@ -353,11 +356,12 @@ def make_agent(
     request_extra: Mapping[str, Any] | None = None,
     init_state: StateInitFn | None = None,
     hooks: HookMap | None = None,
+    bash_exec_prefix: tuple[str, ...] = (),
 ) -> Agent:
     """Build a stateless `Agent` by composing resource-free capabilities.
 
     The definition-layer twin of :func:`agent_session`: it shares the same
-    ``bash``/``read``/``explorer``/``tools`` flags and prompt composition but
+    ``bash``/``read``/``general_purpose``/``tools`` flags and prompt composition but
     returns a bare ``Agent`` you run yourself (``agent.run(...)``). It omits
     ``mcp_servers`` on purpose — those own a live resource and so require the
     :class:`AgentSession` runner. Skills, by contrast, are state initialization (see
@@ -371,13 +375,15 @@ def make_agent(
         cwd=cwd,
         bash=bash,
         read=read,
-        explorer=explorer,
+        general_purpose=general_purpose,
         tools=tools,
         request_extra=request_extra,
+        general_purpose_context_policy=context_policy,
+        bash_exec_prefix=bash_exec_prefix,
     )
     if system_prompt is None:
         system_prompt = compose_agent_system_prompt(
-            bash=bash, explorer=explorer, skills=False, mcp=False
+            bash=bash, general_purpose=general_purpose, skills=False, mcp=False
         )
     return make_llm_agent(
         name=name,
@@ -401,7 +407,7 @@ def make_skill_agent(
     skills: Sequence[SkillMetadata] | None = None,
     preload: Sequence[str] = (),
     read: bool = True,
-    explorer: bool = False,
+    general_purpose: bool = False,
     tools: Sequence[AgentTool] = (),
     name: str = DEFAULT_AGENT_NAME,
     role: str = "",
@@ -409,6 +415,7 @@ def make_skill_agent(
     context_policy: ContextPolicy | None = None,
     request_extra: Mapping[str, Any] | None = None,
     hooks: HookMap | None = None,
+    bash_exec_prefix: tuple[str, ...] = (),
 ) -> Agent:
     """Build a bare, skills-aware `Agent` — the skills twin of `make_bash_agent`.
 
@@ -432,14 +439,14 @@ def make_skill_agent(
     )
     if system_prompt is None:
         system_prompt = compose_agent_system_prompt(
-            bash=True, explorer=explorer, skills=True, mcp=False
+            bash=True, general_purpose=general_purpose, skills=True, mcp=False
         )
     return make_agent(
         provider,
         cwd=cwd,
         bash=True,
         read=read,
-        explorer=explorer,
+        general_purpose=general_purpose,
         tools=tools,
         name=name,
         role=role,
@@ -448,6 +455,7 @@ def make_skill_agent(
         request_extra=request_extra,
         init_state=_skills_init_state(config),
         hooks=hooks,
+        bash_exec_prefix=bash_exec_prefix,
     )
 
 
@@ -457,7 +465,7 @@ def agent_session(
     cwd: str | Path | None = None,
     bash: bool = True,
     read: bool = False,
-    explorer: bool = False,
+    general_purpose: bool = False,
     skills: "SkillConfig | bool" = False,
     mcp_servers: Sequence["MCPServerConfig"] = (),
     tools: Sequence[AgentTool] = (),
@@ -470,12 +478,14 @@ def agent_session(
     hooks: HookMap | None = None,
     request_extra: Mapping[str, Any] | None = None,
     max_turns: int = 10,
+    bash_exec_prefix: tuple[str, ...] = (),
 ) -> AgentSession:
     """Build one `AgentSession` by composing capabilities additively.
 
     Each capability is independent and combinable: ``bash``/``read`` add their
-    local tools, ``explorer`` adds a `task` tool delegating to a bash explorer,
-    ``tools`` appends arbitrary `AgentTool`s, ``mcp_servers`` each become an
+    local tools, ``general_purpose`` adds a `task` tool delegating to a
+    general-purpose bash worker, ``tools`` appends arbitrary `AgentTool`s,
+    ``mcp_servers`` each become an
     `MCPToolset` the session opens/closes, and ``skills`` (``True`` for defaults
     or a `SkillConfig`) installs a state initializer on the built agent.
     Enabling skills implies the read tool (a skill reads its SKILL.md before
@@ -503,9 +513,11 @@ def agent_session(
         cwd=cwd,
         bash=bash,
         read=read or skills_enabled,
-        explorer=explorer,
+        general_purpose=general_purpose,
         tools=tools,
         request_extra=request_extra,
+        general_purpose_context_policy=context_policy,
+        bash_exec_prefix=bash_exec_prefix,
     )
 
     toolsets: list[Toolset] = [
@@ -516,7 +528,7 @@ def agent_session(
     if system_prompt is None:
         system_prompt = compose_agent_system_prompt(
             bash=bash,
-            explorer=explorer,
+            general_purpose=general_purpose,
             skills=skills_enabled,
             mcp=bool(mcp_servers),
         )
@@ -569,8 +581,10 @@ def make_bash_agent(
     name: str = BASH_AGENT_DEFAULT_NAME,
     role: str = BASH_AGENT_DEFAULT_ROLE,
     system_prompt: str = BASH_AGENT_SYSTEM_PROMPT,
+    context_policy: ContextPolicy | None = None,
     request_extra: Mapping[str, Any] | None = None,
     hooks: HookMap | None = None,
+    bash_exec_prefix: tuple[str, ...] = (),
 ) -> Agent:
     """Build a bash-using `Agent` — `make_agent` with the bash-agent defaults."""
 
@@ -581,8 +595,10 @@ def make_bash_agent(
         name=name,
         role=role,
         system_prompt=system_prompt,
+        context_policy=context_policy,
         request_extra=request_extra,
         hooks=hooks,
+        bash_exec_prefix=bash_exec_prefix,
     )
 
 
@@ -593,37 +609,43 @@ def make_bash_task_agent(
     name: str = BASH_TASK_AGENT_DEFAULT_NAME,
     role: str = BASH_TASK_AGENT_DEFAULT_ROLE,
     system_prompt: str = BASH_TASK_AGENT_SYSTEM_PROMPT,
-    explorer_name: str = EXPLORER_AGENT_DEFAULT_NAME,
-    explorer_role: str = EXPLORER_AGENT_DEFAULT_ROLE,
-    explorer_system_prompt: str = EXPLORER_AGENT_SYSTEM_PROMPT,
+    general_purpose_name: str = GENERAL_PURPOSE_AGENT_DEFAULT_NAME,
+    general_purpose_role: str = GENERAL_PURPOSE_AGENT_DEFAULT_ROLE,
+    general_purpose_system_prompt: str = GENERAL_PURPOSE_AGENT_SYSTEM_PROMPT,
     task_max_turns: int = DEFAULT_TASK_MAX_TURNS,
+    context_policy: ContextPolicy | None = None,
     request_extra: Mapping[str, Any] | None = None,
     hooks: HookMap | None = None,
+    bash_exec_prefix: tuple[str, ...] = (),
 ) -> Agent:
-    """Build a parent `Agent` with bash + task(explorer) tools.
+    """Build a parent `Agent` with bash + task(general-purpose) tools.
 
-    Unlike ``make_agent(explorer=True)`` (which uses the fixed explorer
-    defaults), this keeps the explorer's name/role/prompt and the task turn
-    budget configurable, so it builds the explorer explicitly and passes it as
-    a `task` tool via ``tools=``.
+    Unlike ``make_agent(general_purpose=True)`` (which uses the fixed
+    general-purpose defaults), this keeps the worker's name/role/prompt and the
+    task turn budget configurable, so it builds the worker explicitly and passes
+    it as a `task` tool via ``tools=``.
     """
 
-    explorer = make_agent(
+    worker = make_agent(
         provider,
         cwd=cwd,
-        name=explorer_name,
-        role=explorer_role,
-        system_prompt=explorer_system_prompt,
+        name=general_purpose_name,
+        role=general_purpose_role,
+        system_prompt=general_purpose_system_prompt,
+        context_policy=context_policy,
         request_extra=request_extra,
+        bash_exec_prefix=bash_exec_prefix,
     )
     return make_agent(
         provider,
         cwd=cwd,
         bash=True,
-        tools=[task_tool([explorer], max_turns=task_max_turns)],
+        tools=[task_tool([worker], max_turns=task_max_turns)],
         name=name,
         role=role,
         system_prompt=system_prompt,
+        context_policy=context_policy,
         request_extra=request_extra,
         hooks=hooks,
+        bash_exec_prefix=bash_exec_prefix,
     )

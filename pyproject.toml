@@ -34,6 +34,9 @@ swebench = [
     "datasets>=2.0.0",
     "docker>=7.0.0",
     "swebench>=3.0.0",
+    # The official SWE-bench Pro evaluator (scaleapi/SWE-bench_Pro-os) imports
+    # pandas; bundling it here keeps `--pro --run-official` a single command.
+    "pandas>=1.5.0",
 ]
 programbench = [
     # docker-py drives LocalDockerBackend; programbench is the official scorer

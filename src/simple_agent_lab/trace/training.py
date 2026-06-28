@@ -42,6 +42,7 @@ class _PendingTurn:
     request_event_index: int
     visible_count: int
     model_message_count: int
+    api: str
 
 
 def model_turns_from_events(
@@ -68,6 +69,7 @@ def model_turns_from_events(
                 request_event_index=event.index,
                 visible_count=event.visible_count,
                 model_message_count=event.llm_message_count,
+                api=event.api,
             )
             continue
 
@@ -90,6 +92,10 @@ def model_turns_from_events(
                     "model_message_count": pending.model_message_count,
                     "request_event_index": pending.request_event_index,
                     "message_event_index": event.index,
+                    # Provider that served the call ("fake" for the test
+                    # adapter): a fake turn is emitted and tagged so a training
+                    # exporter can drop it, rather than the runtime hiding it.
+                    "api": pending.api,
                 },
             )
         )

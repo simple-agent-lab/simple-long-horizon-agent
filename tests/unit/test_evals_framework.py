@@ -35,21 +35,12 @@ from simple_agent_lab.evals import (
     Suite,
     run_suite_instance,
 )
-from simple_agent_lab.evals.protocols import MCP_KEY
 
 # Internal helpers live in their own modules, not the top-level facade.
 from simple_agent_lab.evals.runner import build_command, container_name
 from simple_agent_lab.evals.stores import HttpArtifactClient
 
 SWEBENCH_CONTAINER = "simple_agent_lab.evals.suites.swebench.container"
-try:
-    import mcp  # noqa: F401
-
-    HAS_MCP = True
-except ImportError:  # pragma: no cover - exercised only without the extra
-    HAS_MCP = False
-
-_MCP_SKIP_REASON = "mcp extra not installed (install with: uv sync --extra mcp)"
 
 
 class _DemoSuite:
@@ -111,44 +102,6 @@ class OrchestrationTest(unittest.TestCase):
             self.assertFalse((artifacts.run_dir / "out" / "prediction.jsonl").exists())
             result = json.loads((artifacts.run_dir / RESULT_KEY).read_text())
             self.assertEqual(result["answer"], "42")
-
-    def test_run_suite_instance_stages_mcp_config_separately(self) -> None:
-        instance = {"instance_id": "demo-1", "problem": "p", "gold": "SECRET"}
-        mcp_config = {
-            "servers": [
-                {
-                    "name": "workspace",
-                    "transport": "stdio",
-                    "command": "python",
-                    "args": ["-m", "server"],
-                    "cwd": "/testbed",
-                }
-            ]
-        }
-
-        def on_run(spec: RunSpec, store) -> None:
-            agent_input = json.loads(store.get(INSTANCE_KEY).decode("utf-8"))
-            staged_mcp = json.loads(store.get(MCP_KEY).decode("utf-8"))
-            self.assertNotIn("servers", agent_input)
-            self.assertEqual(staged_mcp, mcp_config)
-            store.put(TRACE_KEY, b'{"meta": {"suite": "demo"}}\n')
-            store.put(RESULT_KEY, b'{"answer": "ok"}\n')
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp).resolve()
-            artifacts = run_suite_instance(
-                suite=_DemoSuite(),
-                instance=instance,
-                backend=FakeBackend(on_run=on_run),
-                store=LocalDirStore(root),
-                run_root=root,
-                run_id="run-x",
-                provider="fake",
-                mcp_config=mcp_config,
-            )
-
-            staged = json.loads((artifacts.run_dir / MCP_KEY).read_text())
-            self.assertEqual(staged, mcp_config)
 
     def test_build_command_targets_the_generic_runner(self) -> None:
         spec = RunSpec(
@@ -270,64 +223,10 @@ class LocalProcessBackendTest(unittest.TestCase):
             bound = store.bind(artifacts.run_dir)
             result = json.loads(bound.get(RESULT_KEY).decode("utf-8"))
             self.assertIn("model_patch", result)
-            trace = json.loads(bound.get(TRACE_KEY).decode("utf-8"))
-            self.assertEqual(trace["meta"]["suite"], "swebench")
-            self.assertFalse(trace["meta"]["in_progress"])
-
-    @unittest.skipUnless(HAS_MCP, _MCP_SKIP_REASON)
-    def test_run_suite_instance_in_process_with_mcp_config(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = Path(tmp) / "testbed"
-            repo.mkdir()
-
-            def git(*args: str) -> None:
-                subprocess.run(
-                    ["git", *args], cwd=repo, check=True, capture_output=True
-                )
-
-            git("init")
-            git("config", "user.email", "t@example.invalid")
-            git("config", "user.name", "T")
-            git("config", "commit.gpgsign", "false")
-            (repo / "app.py").write_text("x = 1\n", encoding="utf-8")
-            git("add", "-A")
-            git("commit", "-m", "base")
-
-            root = Path(tmp) / "runs"
-            store = LocalDirStore(root)
-            artifacts = run_suite_instance(
-                suite=_SwebenchLikeSuite(),
-                instance={
-                    "instance_id": "demo__repo-mcp",
-                    "problem_statement": "Inspect the workspace.",
-                    "language": "python",
-                },
-                backend=LocalProcessBackend(workspace=repo),
-                store=store,
-                run_root=root,
-                run_id="mcp",
-                provider="fake",
-                max_turns=1,
-                mcp_config={
-                    "servers": [
-                        {
-                            "name": "workspace",
-                            "transport": "stdio",
-                            "command": sys.executable,
-                            "args": [
-                                "-m",
-                                "simple_agent_lab.mcp.workspace_server",
-                            ],
-                            "cwd": str(repo),
-                        }
-                    ]
-                },
-            )
-
-            self.assertEqual(artifacts.status_code, 0, artifacts.logs)
-            trace = json.loads(store.bind(artifacts.run_dir).get(TRACE_KEY))
-            tools = trace["model_turns"][0]["tools"]
-            self.assertIn("workspace_list_files", {tool["name"] for tool in tools})
+            # v5 trace is a stream: the header line carries identity + meta.
+            header = json.loads(bound.get(TRACE_KEY).decode("utf-8").splitlines()[0])
+            self.assertEqual(header["meta"]["suite"], "swebench")
+            self.assertFalse(header["meta"]["in_progress"])
 
     def test_oracle_run_reproduces_gold_patch(self) -> None:
         """Oracle mode applies the gold patch (no model) and extract reproduces it.

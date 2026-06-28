@@ -96,10 +96,11 @@ def maybe_compress_context(
     active = [
         item for item in state.active_context_items() if policy.is_visible(item[1])
     ]
+    trace_base_elapsed = state.elapsed_seconds()
     decision = policy.strategy(active, agent.name)
     if decision is None:
         return []
-    return list(_apply_decision(agent, state, active, decision))
+    return list(_apply_decision(agent, state, active, decision, trace_base_elapsed))
 
 
 def _apply_decision(
@@ -107,6 +108,7 @@ def _apply_decision(
     state: "State",
     active: list[tuple[int, Message]],
     decision: CompressionDecision,
+    trace_base_elapsed: float = 0.0,
 ) -> Iterator[Event]:
     """Apply one decision and record the resulting `ContextCompressionEvent`.
 
@@ -118,6 +120,12 @@ def _apply_decision(
     compress_set, replacement = _resolve_targets(active, decision)
     if not compress_set:
         return
+
+    for event in decision.trace_events:
+        yield state.record_event_at(
+            event,
+            elapsed=trace_base_elapsed + event.elapsed,
+        )
 
     # New active view: every uncompressed item stays in its original order; the
     # replacement is spliced where the first compressed item was. For a 1->1
@@ -153,6 +161,7 @@ def _apply_decision(
             before_tokens=before_tokens,
             after_tokens=after_tokens,
             strategy=decision.label,
+            start_elapsed=trace_base_elapsed,
         )
     )
 

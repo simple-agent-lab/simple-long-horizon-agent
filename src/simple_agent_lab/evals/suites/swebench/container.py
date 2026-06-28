@@ -13,40 +13,71 @@ SWE-bench-specific and runs *inside* the image:
 - `apply_oracle(workspace, instance)` — optional: apply the gold patch instead
   of running a model, for the framework's deterministic oracle self-check.
 - `evaluate(workspace, instance, *, context)` — optional: in-environment scoring
-  (ADR collapse-scorer-seam-into-run-primitive). Runs the host-staged official eval script in the run environment
-  and captures its log into ``result.json``; the host turns that into a verdict
-  via `evaluate_predictions.reuse_eval_row` (the official grader needs the gold
-  test spec, which lives host-side).
-- `agent_spec()` — optional: the SWE-bench prompt/role and the agent flavor
-  (``bash`` | ``bash_task`` | ``bash_skills``, from the ``AGENT_FLAVOR`` env
-  var). ``bash_skills`` adds the ``read`` tool and advertises any discovered
-  agent skills in the system prompt (ADR add-agent-skills).
+  (ADR collapse-scorer-seam-into-run-primitive). Runs the host-staged official
+  eval script in the run environment and captures its log into ``result.json``;
+  the host turns that into a verdict via `evaluate_predictions.reuse_eval_row`
+  (the official grader needs the gold test spec, which lives host-side).
+- `agent_spec()` / `build_agent()` — the single agent seam, selected by one
+  ``AGENT_FLAVOR`` env var. Simple flavors (``bash`` | ``bash_task`` |
+  ``bash_task_read`` | ``bash_skills``) are built by the generic runner's
+  ``agent_spec`` path (so they keep memory hooks); the multi-agent
+  *workflow arms* (``loop`` | ``pdr``) are built by the shared
+  `agents.flavors` workflow builder. This suite's ``build_agent`` only passes
+  SWE-bench prompt text, workspace cleanup, and trace-recording callbacks.
+
+Why workflow arms live behind a thin facade (and worktrees)
+-----------------------------------------------------------
+An arm (``loop`` / ``pdr``) runs a whole multi-agent choreography to produce one
+patch, so `agents.flavors.build_flavor_agent` returns a facade
+``Agent`` whose single ``generate`` runs the arm, leaves edits in the workspace,
+and returns a short final note — the generic outer loop runs it once. ``pdr``
+fans out concurrent attempts that each edit disk; if they shared one checkout
+they'd clobber each other and the ``git diff`` would be garbage, so every attempt
+gets its own ``git worktree`` (off the baseline commit, outside the workspace)
+and resets it to baseline in an ``init_state`` hook — keeping rounds independent,
+seeded only by the brief.
 
 It imports only the standard library and the installed wheel (`agents`,
-`evals.protocols`, and the sibling `patch` module), so it works inside any
-SWE-bench image with no copied files.
+`evals.*`, `workflow`, `trace`, and the sibling `patch` module), so it works
+inside any SWE-bench image with no copied files.
 """
 
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from simple_agent_lab.agents.starter import BASH_TASK_EXPLORER_ADDENDUM
+import simple_agent_lab.config as config
+from simple_agent_lab.agent_flavors import (
+    AGENT_FLAVORS,
+    SIMPLE_AGENT_FLAVORS,
+    WORKFLOW_AGENT_FLAVORS,
+    flavor_from_env,
+)
+from simple_agent_lab.agents.flavors import (
+    ArtifactPut,
+    build_flavor_agent,
+)
+from simple_agent_lab.core import Agent
 from simple_agent_lab.evals.protocols import AgentSpec
+from simple_agent_lab.llm import Provider
 
 from .patch import (
     git_diff,
     instance_base_commit,
     instance_language,
     prepare_baseline_commit,
+    update_info_exclude,
 )
 
-AGENT_FLAVOR_ENV = "AGENT_FLAVOR"
+# Back-compatible flavor-name aliases for older scripts/tests. The source of
+# truth lives in `simple_agent_lab.agent_flavors`.
+SIMPLE_FLAVORS = SIMPLE_AGENT_FLAVORS
+ARM_FLAVORS = WORKFLOW_AGENT_FLAVORS
+ALL_FLAVORS = AGENT_FLAVORS
 
 AGENT_NAME = "swebench_agent"
 AGENT_ROLE = (
@@ -69,16 +100,16 @@ AGENT_SYSTEM_PROMPT = (
 def agent_spec() -> AgentSpec:
     """SWE-bench agent config; flavor from ``AGENT_FLAVOR``.
 
-    ``bash`` | ``bash_task`` | ``bash_skills`` — the generic ``build_agent``
-    resolves the flavor; ``bash_skills`` adds ``read`` + the discovered skills
-    menu (ADR add-agent-skills)."""
+    Used by the generic ``agent_spec`` path for simple flavors; workflow arms
+    are built by ``build_agent`` and never reach here. Capability-specific prompt
+    addenda are owned by the generic runner / agent layer."""
 
-    flavor = os.environ.get(AGENT_FLAVOR_ENV, "bash").strip() or "bash"
-    system_prompt = AGENT_SYSTEM_PROMPT
-    if flavor == "bash_task":
-        system_prompt = system_prompt + "\n\n" + BASH_TASK_EXPLORER_ADDENDUM
+    flavor = flavor_from_env()
     return AgentSpec(
-        name=AGENT_NAME, role=AGENT_ROLE, system_prompt=system_prompt, flavor=flavor
+        name=AGENT_NAME,
+        role=AGENT_ROLE,
+        system_prompt=AGENT_SYSTEM_PROMPT,
+        flavor=flavor,
     )
 
 
@@ -182,7 +213,12 @@ def extract_result(
     *,
     context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Collect the staged `git diff` as the SWE-bench prediction patch."""
+    """Collect the staged `git diff` as the SWE-bench prediction patch.
+
+    For an arm flavor, the generic runner folds in the facade's per-step
+    workflow breakdown after this returns (the facade stashes it on the run
+    state), so this only has to produce the prediction patch.
+    """
 
     context = context or {}
     record = dict(instance)
@@ -233,6 +269,52 @@ def evaluate(
         "eval_log": (proc.stdout or "") + (proc.stderr or ""),
         "eval_exit_code": proc.returncode,
     }
+
+
+def _repo_language() -> str:
+    return config.REPO_LANGUAGE.get()
+
+
+def _prepare_workflow_workspace(workdir: Path) -> None:
+    """Suite-specific cleanup before workflow worktrees fork from the workspace."""
+
+    update_info_exclude(workdir, language=_repo_language())
+
+
+def build_agent(
+    *,
+    provider: Provider,
+    cwd: Path,
+    request_extra: Mapping[str, Any] | None = None,
+    trace_put: ArtifactPut | None = None,
+) -> Agent | None:
+    """Build the arm facade, or None for a simple flavor.
+
+    Returns ``None`` for ``bash`` / ``bash_task_read`` / ``bash_skills`` so the
+    generic runner falls through to the ``agent_spec`` path (which keeps memory
+    hooks). For an arm (``loop`` / ``pdr``) it returns a facade ``Agent``
+    whose single ``generate`` runs the whole arm on the task, leaves edits in the
+    workspace (the prediction `extract_result` reads), and returns a short final
+    message. The arm's per-step breakdown and sub-traces are owned by the facade
+    (it stashes the breakdown on the run state for the generic runner to fold);
+    this hook only injects the suite-specific worktree prep + trace sink.
+    """
+
+    flavor = flavor_from_env()
+    if flavor not in ARM_FLAVORS:
+        return None
+
+    return build_flavor_agent(
+        flavor=flavor,
+        provider=provider,
+        cwd=Path(cwd),
+        name=AGENT_NAME,
+        role=AGENT_ROLE,
+        system_prompt=AGENT_SYSTEM_PROMPT,
+        request_extra=request_extra,
+        prepare_workspace=_prepare_workflow_workspace,
+        trace_put=trace_put,
+    )
 
 
 def _optional(value: Any) -> str:

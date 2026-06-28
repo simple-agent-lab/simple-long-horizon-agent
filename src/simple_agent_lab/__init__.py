@@ -78,6 +78,17 @@ from .messages import (
     tool_results_of,
     user_message,
 )
+from .model_metadata import (
+    ContextWindowBook,
+    CostBreakdown,
+    ModelCost,
+    ModelPrice,
+    PriceBook,
+    RunCost,
+    default_context_window_book,
+    default_price_book,
+    usage_cost,
+)
 from .trace import (
     ModelTurn,
     RunTrace,
@@ -180,6 +191,15 @@ __all__ = [
     "spans_from_events",
     "append_openai_training_record",
     "openai_training_record",
+    "CostBreakdown",
+    "ContextWindowBook",
+    "ModelCost",
+    "ModelPrice",
+    "PriceBook",
+    "RunCost",
+    "default_context_window_book",
+    "default_price_book",
+    "usage_cost",
     "runtime_message",
     "task_tool",
     "tool_result_message",

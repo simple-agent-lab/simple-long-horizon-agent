@@ -24,7 +24,7 @@ the tool result.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Iterator
+from typing import TYPE_CHECKING, Callable, Iterator
 
 from .compression import maybe_compress_context
 from .context_view import (
@@ -58,6 +58,9 @@ from .protocols import (
 from .state import State
 from .tools import AbortFlag, AgentTool, ToolResult, ToolUpdateFn, text_result
 
+if TYPE_CHECKING:
+    from .llm.provider import Provider
+
 
 # An Agent's `generate` produces the next message from the visible context.
 # It takes no other arguments: name/role/tools/etc. are closed over at the
@@ -72,6 +75,7 @@ GenerateFn = Callable[[list[Message]], Message]
 # imports a higher layer: the dependency always points inward (skills imports
 # core, not the reverse).
 StateInitFn = Callable[["Agent", ContentInput], State]
+TraceStateFn = Callable[["Agent", State], State | None]
 
 
 @dataclass
@@ -98,6 +102,10 @@ class Agent:
     # wire; mirrored here purely so `run()` can record it in the request trace
     # alongside the messages. Empty means "no system prompt was sent".
     system_prompt: str = ""
+    # Provider metadata for agents built through `make_llm_agent`. Programmatic
+    # facades leave this unset, so their deterministic `generate` calls do not
+    # masquerade as model calls in traces.
+    llm_provider: Provider | None = None
     # How `run` builds the initial `State` from a task. `None` means the default
     # single-task-message initializer (`_default_init_state`); a `StateInitFn`
     # (e.g. installed by the skills layer) can record extra context messages
@@ -105,6 +113,11 @@ class Agent:
     # is unaffected — it always drives whatever `State` the initializer
     # produced.
     init_state: StateInitFn | None = None
+    # Optional final trace projection. Workflow facades can run many sub-agents
+    # behind one outer `generate`; this lets the agent provide a richer final
+    # trace view without changing the message loop or asking callers to know the
+    # workflow's internals. None means "trace the run state as-is".
+    compose_trace_state: TraceStateFn | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.tools, tuple):
@@ -147,6 +160,14 @@ class Agent:
             abort=abort,
         )
         return state, events
+
+    def trace_state(self, state: State) -> State:
+        """Return the state that should be used for final trace export."""
+
+        if self.compose_trace_state is None:
+            return state
+        composed = self.compose_trace_state(self, state)
+        return composed if composed is not None else state
 
     def resume(
         self,
@@ -218,7 +239,9 @@ def run(
         )
         yield from hook_events
 
-    yield state.record_event(AgentStartEvent())
+    yield state.record_event(
+        AgentStartEvent(agent=name, system_prompt=agent.system_prompt)
+    )
     yield from session_hook(HookPoint.SESSION_START)
     final_emitted = False
     # Default outcome; overridden when the loop breaks on `final` or terminate.
@@ -250,9 +273,11 @@ def run(
         if agent.system_prompt:
             llm_payload = [llm_message("system", agent.system_prompt), *llm_payload]
 
+        api = agent.llm_provider.api if agent.llm_provider is not None else ""
         yield state.record_event(
             ModelRequestEvent(
                 agent=name,
+                api=api,
                 visible_count=len(visible),
                 llm_message_count=len(llm_payload),
                 context_view=context.as_dict(),
@@ -270,9 +295,11 @@ def run(
 
         output = agent.generate(visible)
         output_tool_calls = message_tool_calls(output)
+        api = agent.llm_provider.api if agent.llm_provider is not None else ""
         yield state.record_event(
             ModelResponseEvent(
                 agent=name,
+                api=api,
                 output_kind=output.kind,
                 target=output.target,
                 tool_call_count=len(output_tool_calls),
@@ -450,6 +477,22 @@ def dispatch_tool_calls(
         },
     )
     yield state.record(bundle)
+
+    # POST_TOOL_USE fires only after the provider-required tool-result bundle is
+    # in the transcript. Hooks may append reminder/context messages here without
+    # orphaning the assistant tool_call -> user tool_result pair.
+    for tool_call in tool_calls:
+        _, hook_events = fire_hooks(
+            hooks,
+            HookContext(
+                point=HookPoint.POST_TOOL_USE,
+                agent=target,
+                state=state,
+                tool_call=tool_call,
+            ),
+            state,
+        )
+        yield from hook_events
 
 
 def _execute_one(

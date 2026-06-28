@@ -36,7 +36,7 @@ One-time setup and a single-instance run from scratch:
 uv sync --extra swebench
 
 # 2. Set up Docker (see "Docker Setup" below for details)
-bash runs/setup_swebench_docker.sh sympy__sympy-23824
+bash runs/swebench/setup_swebench_docker.sh sympy__sympy-23824
 
 # 3. Configure .env with your model provider
 cat > .env <<'EOF'
@@ -47,15 +47,7 @@ API_KIND=openai-chat
 EOF
 
 # 4. Fetch an instance, build images, and run the agent
-bash runs/run_swebench_suite.sh sympy__sympy-23824
-```
-
-To enable MCP tools for the same instance, keep the provider settings in `.env`
-and point `MCP_CONFIG` at a separate MCP server config:
-
-```bash
-MCP_CONFIG=evals/swebench/mcp.example.json \
-  bash runs/run_swebench_suite.sh sympy__sympy-23824 3 mcp-smoke bash
+bash runs/swebench/run_swebench.sh sympy__sympy-23824
 ```
 
 ## Docker Setup
@@ -86,7 +78,7 @@ Set the Docker socket for all subsequent commands:
 export DOCKER_HOST=unix://$HOME/.colima/default/docker.sock
 ```
 
-`runs/run_swebench_suite.sh` also probes
+`runs/swebench/run_swebench.sh` also probes
 `~/.docker/run/docker.sock` (Docker Desktop) and the Colima socket above when
 `DOCKER_HOST` is unset, so headless invocations from CI or chat sessions reach
 the right daemon without an explicit export.
@@ -175,7 +167,7 @@ PY
 
 On macOS arm64 with Colima + Rosetta, the base image must be built via the
 `docker run` + `docker commit` workaround. The setup script
-`runs/setup_swebench_docker.sh` handles this automatically.
+`runs/swebench/setup_swebench_docker.sh` handles this automatically.
 
 After building, tag the instance image for the `swebench` namespace that
 `SwebenchSuite` expects (the `--namespace` it passes to `make_test_spec`):
@@ -191,7 +183,7 @@ The convenience scripts handle this automatically.
 
 This command does not install SWE-bench and does not run Docker. It runs the
 focused unit-smoke checks for the containerized adapter (also covered by
-`bash runs/run_ci.sh`):
+`bash runs/dev/run_ci.sh`):
 
 ```bash
 uv run python -m unittest \
@@ -261,63 +253,22 @@ expects, so it is independent of `API_KIND` (`openai-responses` ->
 `OPENAI_REASONING_EFFORT` name is still honored when `REASONING_EFFORT` is unset.
 The run entry also passes `NO_PROXY` and `no_proxy` through when they exist.
 
-MCP server settings live outside `.env`, in a JSON file selected with
-`MCP_CONFIG` or `--mcp-config`. The checked-in example starts the official
-Python Git MCP server inside the SWE-bench container:
-
-```bash
-MCP_CONFIG=evals/swebench/mcp.example.json \
-  bash runs/run_swebench_suite.sh sympy__sympy-23824 3 mcp-smoke bash
-```
-
-The example config is:
-
-```json
-{
-  "servers": [
-    {
-      "name": "git",
-      "transport": "stdio",
-      "command": "/tmp/uv",
-      "args": [
-        "tool",
-        "run",
-        "mcp-server-git",
-        "--repository",
-        "/testbed"
-      ],
-      "cwd": "/testbed",
-      "call_timeout": 30
-    }
-  ]
-}
-```
-
-Stdio MCP servers run inside the benchmark container, so their commands, module
-paths, environment variables, and `cwd` must make sense there. The example uses
-the Linux `uv` binary mounted at `/tmp/uv` by the SWE-bench wrapper, then runs
-`mcp-server-git` through `uv tool run`. The popular official filesystem server
-(`npx -y @modelcontextprotocol/server-filesystem /testbed`) is also a good MCP
-smoke target when the benchmark image has Node.js/npm available. Private or
-local configs can live under the ignored `evals/out/swebench/` tree, for example
-`evals/out/swebench/mcp.local.json`.
-
 The recommended entry points are the run scripts. With no instance argument,
 each script runs a small default instance. Passing one instance id runs that
 instance. Passing `--all` runs the full dataset split; use `--parallel N` to
 limit concurrent Docker/model runs:
 
 ```bash
-bash runs/run_swebench_verified.sh
-bash runs/run_swebench_verified.sh sympy__sympy-23824
-bash runs/run_swebench_verified.sh --all --parallel 4
+bash runs/swebench/run_swebench.sh
+bash runs/swebench/run_swebench.sh sympy__sympy-23824
+bash runs/swebench/run_swebench.sh --all --parallel 4
 
-bash runs/run_swebench_multilingual.sh
-bash runs/run_swebench_multilingual.sh --all --parallel 4
+bash runs/swebench/run_swebench.sh --variant multilingual
+bash runs/swebench/run_swebench.sh --variant multilingual --all --parallel 4
 
-bash runs/run_swebench_pro.sh
-bash runs/run_swebench_pro.sh instance_navidrome__navidrome-8e640bb8580affb7e0ea6225c0bbe240186b6b08
-bash runs/run_swebench_pro.sh --all --parallel 4
+bash runs/swebench/run_swebench.sh --variant pro
+bash runs/swebench/run_swebench.sh --variant pro instance_navidrome__navidrome-8e640bb8580affb7e0ea6225c0bbe240186b6b08
+bash runs/swebench/run_swebench.sh --variant pro --all --parallel 4
 ```
 
 The scripts keep each suite under its own flat output root. SWE-bench Verified
@@ -334,13 +285,12 @@ For a single instance with full control over arguments, call the run entry
 directly on an already-prepared instance JSONL:
 
 ```bash
-bash runs/run_swebench_suite.sh sympy__sympy-23824
+bash runs/swebench/run_swebench.sh sympy__sympy-23824
 # or, equivalently:
-uv run python runs/run_swebench_suite.py sympy__sympy-23824 \
+uv run python runs/run_bench.py swebench sympy__sympy-23824 \
   --instance-json evals/out/swebench/instance_sympy__sympy-23824.jsonl \
   --dataset-name princeton-nlp/SWE-bench_Verified \
   --provider openai --api-kind openai-chat --dotenv .env \
-  --mcp-config evals/swebench/mcp.example.json \
   --max-turns 20 --run-id my-run --agent-flavor bash \
   --network-mode host --force
 ```
@@ -382,13 +332,13 @@ uv sync --extra swebench
 Verify the official setup with the gold patch smoke:
 
 ```bash
-bash runs/run_swebench_gold_smoke.sh
+bash runs/swebench/run_swebench_gold_smoke.sh
 ```
 
 Then evaluate local predictions:
 
 ```bash
-bash runs/eval_swebench.sh \
+bash runs/swebench/eval_swebench.sh \
   --run-official \
   --predictions evals/out/swebench_predictions.jsonl \
   --instance-ids sympy__sympy-23824
@@ -398,7 +348,7 @@ For SWE-bench Pro predictions, pass `--pro` and either run the official Pro
 harness or normalize an existing Pro result file:
 
 ```bash
-bash runs/eval_swebench.sh --pro \
+bash runs/swebench/eval_swebench.sh --pro \
   --predictions evals/out/swebench_pro/swebench_pro_predictions.jsonl \
   --results-json evals/out/swebench_pro_eval/eval_results.json
 ```
@@ -407,22 +357,19 @@ For SWE-bench Multilingual predictions, pass `--multilingual`; it uses the
 standard SWE-bench harness with the Multilingual dataset name:
 
 ```bash
-bash runs/eval_swebench.sh --multilingual --run-official \
+bash runs/swebench/eval_swebench.sh --multilingual --run-official \
   --predictions evals/out/swebench_multilingual/swebench_multilingual_predictions.jsonl
 ```
 
 Official SWE-bench Pro evaluation additionally requires a local checkout of
-`scaleapi/SWE-bench_Pro-os`. The current default expects it at
-`/tmp/SWE-bench_Pro-os`:
-
-```bash
-git clone https://github.com/scaleapi/SWE-bench_Pro-os.git /tmp/SWE-bench_Pro-os
-```
+`scaleapi/SWE-bench_Pro-os`. On first `--pro --run-official` use the harness
+auto-clones it into `evals/out/swebench_pro/official_harness` (and patches the
+docker-py socket timeout up to 600s), so no manual setup is needed.
 
 If your checkout is elsewhere, pass both Pro harness paths explicitly:
 
 ```bash
-bash runs/eval_swebench.sh --pro --run-official \
+bash runs/swebench/eval_swebench.sh --pro --run-official \
   --predictions evals/out/swebench_pro/swebench_pro_predictions.jsonl \
   --instances evals/out/swebench_pro/instance_all-test.jsonl \
   --pro-eval-script /path/to/SWE-bench_Pro-os/swe_bench_pro_eval.py \
@@ -451,7 +398,7 @@ collection.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `rosetta error: failed to open elf` during `docker build` | Rosetta + BuildKit overlay incompatibility | Use `runs/setup_swebench_docker.sh` (builds base via `docker run` + `docker commit`) |
+| `rosetta error: failed to open elf` during `docker build` | Rosetta + BuildKit overlay incompatibility | Use `runs/swebench/setup_swebench_docker.sh` (builds base via `docker run` + `docker commit`) |
 | `CondaHTTPError: HTTP 000 CONNECTION FAILED` | Container has no network | Check `colima status`; restart with `colima start` |
 | `exit code 255` from Miniconda installer | QEMU x86_64 emulation failure | Switch to Rosetta: `colima start --vm-type vz --vz-rosetta` |
 | `Missing SWE-bench image swebench/sweb.eval...` | Namespace mismatch between built images and `SwebenchSuite` | Pass matching `--namespace` or re-tag images (convenience scripts handle this) |

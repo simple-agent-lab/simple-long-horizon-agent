@@ -1,88 +1,68 @@
-"""OneMillion-Bench container half that answers via a multi-agent *workflow*.
+"""OneMillion-Bench multi-agent *generation* (the workflow flavors).
 
-A drop-in alternative to the sibling ``container.py``: the task seam
-(``build_task``), the answer-collection seam (``extract_result``), and the
-rubric ``evaluate`` judge are reused **verbatim**; only *generation* changes —
-instead of a single tool-free model turn, the answer is produced by one of the
-``simple_agent_lab.workflow`` orchestrations (reflection, planner/executor,
-parallel, chain, routing) so they can be compared on the same benchmark.
+A generation-only helper for the single OneMillion suite: ``container.build_agent``
+delegates here when ``AGENT_FLAVOR`` selects a workflow (``reflection`` /
+``planner_executor`` / ``parallel`` / ``chain`` / ``routing`` / ``pdr``) instead
+of the ``single`` tool-free turn. The task seam, answer collection, and rubric
+judge all stay in ``container``; only generation differs.
 
 How a workflow plugs into the generic runner
 --------------------------------------------
 The in-container runner drives exactly **one** ``Agent``
 (``agent.run(task)`` → the core ReAct loop) and reads the answer back from
-``model_response.txt``. A workflow is *several* agent runs, not one agent, so it
-is wrapped behind a **facade ``Agent``** whose ``generate`` runs the whole
-workflow to completion and returns its final answer as a single ``final``
-message (also persisting it to ``model_response.txt``). The facade returns on
-its first turn, so the outer loop stops immediately; all the real multi-agent
-work happens *inside* that one ``generate`` call, each sub-agent driven by the
-same ``core.run`` loop.
+``model_response.txt``. A workflow is *several* agent runs, not one agent, so
+``build_workflow_agent`` wraps it behind a **facade ``Agent``** whose ``generate``
+runs the whole workflow to completion and returns its final answer as a single
+``final`` message (also persisting it to ``model_response.txt`` and the per-step
+breakdown to ``workflow_steps.json``). The facade returns on its first turn, so
+the outer loop stops immediately; all the real multi-agent work happens *inside*
+that one ``generate`` call, each sub-agent driven by the same ``core.run`` loop.
 
-Selection is by the ``OMB_WORKFLOW`` env var (``build_agent`` only receives
-``provider`` / ``cwd`` / ``request_extra``, so the choice rides in the
-environment). ``OMB_REFLECTION_ROUNDS`` and ``OMB_PARALLEL_WORKERS`` tune the
-two parameterized workflows.
+The flavor name arrives from ``container`` (resolved from ``AGENT_FLAVOR``);
+``OMB_REFLECTION_ROUNDS`` / ``OMB_PARALLEL_WORKERS`` / ``OMB_PDR_*`` /
+``OMB_TIMEOUT`` tune the parameterized workflows.
 """
 
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Callable
 
+import simple_agent_lab.config as config
 from simple_agent_lab.core import Agent
-from simple_agent_lab.llm import LLMRequest, Provider, complete_with_retry, llm_message
+from simple_agent_lab.llm import Provider
 from simple_agent_lab.llm_agent import make_llm_agent
 from simple_agent_lab.messages import Message, assistant_message, text_of
-from simple_agent_lab.trace import run_trace_from_state, trace_record
+from simple_agent_lab.trace import event_stream, run_trace_from_state
 from simple_agent_lab.workflow import (
     Route,
     StepResult,
     WorkflowResult,
     make_critic_agent,
+    make_distiller_agent,
     make_planner_agent,
     make_router_agent,
     run_agent,
     run_chain,
     run_parallel,
+    run_pdr,
     run_planner_executor,
     run_reflection,
     run_routing,
 )
 
-# Reuse the single-turn container's task / collection seam. `extract_result` and
-# `evaluate` are wrapped (to add the per-step traces and the raw judge prompt /
-# response); the rest are re-exported so the runner finds them on this module.
-from .container import (  # noqa: F401  (build_task is part of the suite surface)
+# Generation-only helper module for OneMillion: `container.build_agent` delegates
+# here for a workflow flavor (reflection / parallel / …). The task seam, answer
+# collection, and judge live in `container`; this file owns only the multi-agent
+# *generation*. Reuse the shared identity + filenames from `container`.
+from .container import (
     AGENT_NAME,
     AGENT_ROLE,
     RESPONSE_FILENAME,
-    agent_spec,
-    build_task,
-    judge_provider_from_env,
+    WORKFLOW_STEPS_FILENAME,
 )
-from .container import extract_result as _base_extract_result
-from .grading import (
-    build_grading_prompt,
-    convert_scores,
-    parse_grading_response,
-    score_summary,
-)
-
-WORKFLOW_ENV = "OMB_WORKFLOW"
-REFLECTION_ROUNDS_ENV = "OMB_REFLECTION_ROUNDS"
-PARALLEL_WORKERS_ENV = "OMB_PARALLEL_WORKERS"
-# Per-request timeout for every sub-agent. The default LLM request timeout is
-# 60s, far too short for slow high-reasoning models on a long case, so the
-# workflow agents use a generous default that callers can override.
-TIMEOUT_ENV = "OMB_TIMEOUT"
-DEFAULT_TIMEOUT_S = 600.0
-JUDGE_TIMEOUT_S = 600.0
-DEFAULT_WORKFLOW = "single"
-WORKFLOW_STEPS_FILENAME = "workflow_steps.json"
 
 # English answer prompt mirroring OMB's generation intent (direct, complete,
 # never asking the user back). Used by every role that emits the *final* answer.
@@ -103,6 +83,7 @@ WORKFLOW_CHOICES = (
     "parallel",
     "chain",
     "routing",
+    "pdr",
 )
 
 
@@ -136,26 +117,6 @@ def _answer_agent(
     )
 
 
-def _env_int(name: str, default: int, *, minimum: int = 1) -> int:
-    raw = (os.environ.get(name) or "").strip()
-    if not raw:
-        return default
-    try:
-        return max(minimum, int(raw))
-    except ValueError:
-        return default
-
-
-def _env_float(name: str, default: float, *, minimum: float = 1.0) -> float:
-    raw = (os.environ.get(name) or "").strip()
-    if not raw:
-        return default
-    try:
-        return max(minimum, float(raw))
-    except ValueError:
-        return default
-
-
 def make_workflow_runner(
     provider: Provider,
     *,
@@ -164,10 +125,8 @@ def make_workflow_runner(
 ) -> WorkflowRunner:
     """Build the `task -> WorkflowResult` runner for the selected workflow."""
 
-    name = (
-        (workflow or os.environ.get(WORKFLOW_ENV) or DEFAULT_WORKFLOW).strip().lower()
-    )
-    timeout = _env_float(TIMEOUT_ENV, DEFAULT_TIMEOUT_S)
+    name = (workflow or "single").strip().lower()
+    timeout = config.OMB_TIMEOUT.get()
 
     if name == "single":
         agent = _answer_agent(
@@ -194,7 +153,7 @@ def make_workflow_runner(
         critic = make_critic_agent(
             provider, request_extra=request_extra, timeout_seconds=timeout
         )
-        rounds = _env_int(REFLECTION_ROUNDS_ENV, 2)
+        rounds = config.OMB_REFLECTION_ROUNDS.get()
         return lambda task: run_reflection(generator, critic, task, max_rounds=rounds)
 
     if name == "planner_executor":
@@ -214,7 +173,7 @@ def make_workflow_runner(
         return lambda task: run_planner_executor(planner, executor, task)
 
     if name == "parallel":
-        n = _env_int(PARALLEL_WORKERS_ENV, 3)
+        n = config.OMB_PARALLEL_WORKERS.get()
         workers = [
             _answer_agent(
                 provider, f"worker_{i}", request_extra, timeout_seconds=timeout
@@ -284,26 +243,62 @@ def make_workflow_runner(
         )
         return lambda task: run_routing(router, routes, task, default="knowledge")
 
+    if name == "pdr":
+        # Parallel-Distill-Refine: each round runs `width` attempts, distills
+        # them into a findings brief, and conditions the next round on it.
+        rounds = config.OMB_PDR_ROUNDS.get()
+        width = config.OMB_PDR_WIDTH.get()
+        worker = _answer_agent(
+            provider, "attempt", request_extra, timeout_seconds=timeout
+        )
+        distiller = make_distiller_agent(
+            provider, request_extra=request_extra, timeout_seconds=timeout
+        )
+        finalizer = _answer_agent(
+            provider,
+            "finalizer",
+            request_extra,
+            timeout_seconds=timeout,
+            extra_prompt=(
+                "Using the prior findings, write the complete, accurate final answer."
+            ),
+        )
+        return lambda task: run_pdr(
+            worker,
+            distiller,
+            task,
+            rounds=rounds,
+            width=width,
+            finalizer=finalizer,
+            worker_max_turns=1,
+            finalizer_max_turns=1,
+        )
+
     raise SystemExit(
-        f"Unsupported {WORKFLOW_ENV}={name!r}; expected one of {WORKFLOW_CHOICES}."
+        f"Unsupported OneMillion AGENT_FLAVOR={name!r}; "
+        f"expected one of {WORKFLOW_CHOICES}."
     )
 
 
-def build_agent(
+def build_workflow_agent(
     *,
     provider: Provider,
     cwd: Path,
     request_extra: Mapping[str, Any] | None = None,
+    flavor: str,
 ) -> Agent:
-    """A facade `Agent` that answers by running the selected workflow.
+    """A facade `Agent` that answers by running the workflow named by ``flavor``.
 
-    The outer loop calls ``generate`` once; it runs the whole workflow on the
-    case's question and returns the final answer as a single ``final`` message,
-    persisting it to ``model_response.txt`` (the seam ``extract_result`` reads)
-    and the per-step breakdown to ``workflow_steps.json`` for inspection.
+    Called by ``container.build_agent`` for a workflow flavor. The outer loop
+    calls ``generate`` once; it runs the whole workflow on the case's question
+    and returns the final answer as a single ``final`` message, persisting it to
+    ``model_response.txt`` (the seam ``extract_result`` reads) and the per-step
+    breakdown to ``workflow_steps.json`` for inspection.
     """
 
-    run_workflow = make_workflow_runner(provider, request_extra=request_extra)
+    run_workflow = make_workflow_runner(
+        provider, request_extra=request_extra, workflow=flavor
+    )
     response_path = Path(cwd) / RESPONSE_FILENAME
     steps_path = Path(cwd) / WORKFLOW_STEPS_FILENAME
 
@@ -313,103 +308,15 @@ def build_agent(
         text = result.output or ""
         if text.strip():
             response_path.write_text(text, encoding="utf-8")
-        _write_steps(steps_path, result)
+        _write_steps(steps_path, result, flavor)
         return assistant_message(text, sender=AGENT_NAME, target="user", kind="final")
 
     return Agent(name=AGENT_NAME, generate=generate, role=AGENT_ROLE)
 
 
-def extract_result(
-    workspace: Any,
-    instance: Mapping[str, Any],
-    *,
-    context: Mapping[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Collect the answer (base seam) plus the per-step workflow breakdown.
-
-    The facade ``build_agent`` writes ``workflow_steps.json`` into the same
-    workspace; reading it here folds the breakdown into ``result.json`` so it
-    survives after the (ephemeral) workdir is cleaned up.
-    """
-
-    result = dict(_base_extract_result(workspace, instance, context=context))
-    steps = _read_steps(Path(workspace))
-    if steps is not None:
-        result["workflow"] = steps
-    return result
-
-
-def evaluate(
-    workspace: Any,
-    instance: Mapping[str, Any],
-    *,
-    context: Mapping[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Grade with the rubric judge, additionally recording the raw judge I/O.
-
-    Mirrors the base ``container.evaluate`` (same judge, prompt, and scoring)
-    but also returns ``judge_prompt`` and ``judge_raw_response`` so the judge
-    model's full input/output is auditable, not just the parsed verdict.
-    """
-
-    gold = dict((context or {}).get("eval") or {})
-    rubrics = list(gold.get("rubrics") or [])
-    if not rubrics:
-        return {"scored": False, "status": "no_rubrics"}
-
-    prompt = str(
-        gold.get("prompt") or instance.get("prompt") or instance.get("Prompt") or ""
-    )
-    human_scores = dict(gold.get("human_scores") or {})
-    model_response = _read_response(Path(workspace))
-
-    judge = judge_provider_from_env()
-    grading_prompt = build_grading_prompt(prompt, model_response, rubrics, human_scores)
-    judge_text = _judge_complete(judge, grading_prompt)
-
-    raw_results = parse_grading_response(judge_text, rubrics)
-    final_scores = convert_scores(raw_results, rubrics)
-    summary = score_summary(final_scores, rubrics)
-
-    return {
-        "scored": True,
-        "judge_model": judge.model,
-        "model_response_chars": len(model_response),
-        "total_score": summary["total_score"],
-        "max_score": summary["max_score"],
-        "min_score": summary["min_score"],
-        "score": summary["accuracy"],
-        "rubric_scores": {str(k): v for k, v in final_scores.items()},
-        "judge_verdicts": {str(k): v for k, v in raw_results.items()},
-        "judge_prompt": grading_prompt,
-        "judge_raw_response": judge_text,
-    }
-
-
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
-def _read_response(workspace: Path) -> str:
-    try:
-        return (workspace / RESPONSE_FILENAME).read_text(encoding="utf-8")
-    except (FileNotFoundError, OSError):
-        return ""
-
-
-def _judge_complete(provider: Provider, grading_prompt: str) -> str:
-    """One blocking judge call (no tools); transient throttling is retried."""
-
-    request = LLMRequest(
-        provider=provider,
-        messages=[llm_message("user", grading_prompt)],
-        tools=[],
-        system_prompt=None,
-        temperature=0.0,
-        timeout_seconds=JUDGE_TIMEOUT_S,
-    )
-    return complete_with_retry(request).text
-
-
 def _task_text(visible: list[Message]) -> str:
     for message in visible:
         if message.kind == "task":
@@ -433,18 +340,21 @@ def _step_record(step: StepResult, index: int, workflow_name: str) -> dict[str, 
         producer=f"workflow:{workflow_name}",
         meta={"role": step.role, "name": step.name, "step": index},
     )
+    header, lines, raw_pool = event_stream(trace)
     return {
         "name": step.name,
         "role": step.role,
         "output": step.output,
-        "trace": trace_record(trace),
+        # v5 stream embedded inline for this debug dump: header then event lines,
+        # with the provider raw pool alongside.
+        "trace": [header, *lines],
+        "trace_raw": raw_pool,
     }
 
 
-def _write_steps(path: Path, result: WorkflowResult) -> None:
+def _write_steps(path: Path, result: WorkflowResult, workflow_name: str) -> None:
     """Persist each step's output + full sub-agent trace for inspection."""
 
-    workflow_name = os.environ.get(WORKFLOW_ENV) or DEFAULT_WORKFLOW
     try:
         path.write_text(
             json.dumps(
@@ -462,14 +372,3 @@ def _write_steps(path: Path, result: WorkflowResult) -> None:
         )
     except OSError:
         pass
-
-
-def _read_steps(workspace: Path) -> dict[str, Any] | None:
-    try:
-        raw = (workspace / WORKFLOW_STEPS_FILENAME).read_text(encoding="utf-8")
-    except (FileNotFoundError, OSError):
-        return None
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        return None

@@ -32,10 +32,12 @@ from simple_agent_lab.llm.env import (
     OPENAI_BASE_URL_ENV,
     OPENAI_LOG_ID_ENV,
     OPENAI_MODEL_ENV,
+    OPENAI_REASONING_EFFORT_ENV,
     OPENAI_SESSION_ID_ENV,
+    REASONING_EFFORT_ENV,
 )
 
-# Re-exported so the run entry (`runs/run_onemillion_suite.py`) keeps calling
+# Re-exported so the run entry (`runs/_benches/onemillion.py`) keeps calling
 # `harness.load_dotenv`; the implementation is owned by `llm.env`.
 from simple_agent_lab.llm.env import load_dotenv as load_dotenv  # noqa: F401
 
@@ -62,6 +64,11 @@ OPENAI_PASSTHROUGH_ENVS = (
     OPENAI_SESSION_ID_ENV,
     OPENAI_LOG_ID_ENV,
     API_KIND_ENV,
+    # Reasoning depth for the generator, so a run-profile can tune it (matches
+    # the swebench / programbench passthrough). Read from the process env into
+    # the run's provider_env, the source the in-process generator builds from.
+    REASONING_EFFORT_ENV,
+    OPENAI_REASONING_EFFORT_ENV,
 )
 JUDGE_PASSTHROUGH_ENVS = (
     JUDGE_MODEL_ENV,

@@ -110,28 +110,28 @@ class ComposePromptTest(unittest.TestCase):
         )
 
         prompt = compose_agent_system_prompt(
-            bash=True, explorer=False, skills=False, mcp=False
+            bash=True, general_purpose=False, skills=False, mcp=False
         )
         self.assertEqual(prompt, BASH_AGENT_SYSTEM_PROMPT)
 
     def test_appends_fragments_in_order(self) -> None:
         from simple_agent_lab.agents.starter import (
             BASH_AGENT_SYSTEM_PROMPT,
-            BASH_TASK_EXPLORER_ADDENDUM,
+            BASH_TASK_ADDENDUM,
             MCP_ADDENDUM,
             SKILLS_ADDENDUM,
             compose_agent_system_prompt,
         )
 
         prompt = compose_agent_system_prompt(
-            bash=True, explorer=True, skills=True, mcp=True
+            bash=True, general_purpose=True, skills=True, mcp=True
         )
         self.assertEqual(
             prompt,
             "\n\n".join(
                 [
                     BASH_AGENT_SYSTEM_PROMPT,
-                    BASH_TASK_EXPLORER_ADDENDUM,
+                    BASH_TASK_ADDENDUM,
                     SKILLS_ADDENDUM,
                     MCP_ADDENDUM,
                 ]
@@ -146,7 +146,7 @@ class ComposePromptTest(unittest.TestCase):
         )
 
         prompt = compose_agent_system_prompt(
-            bash=True, explorer=False, skills=True, mcp=False
+            bash=True, general_purpose=False, skills=True, mcp=False
         )
         self.assertEqual(prompt, BASH_AGENT_SYSTEM_PROMPT + "\n\n" + SKILLS_ADDENDUM)
 
@@ -290,15 +290,15 @@ class AgentSessionFactoryTest(unittest.TestCase):
             self.assertEqual([t.name for t in session.agent.tools], ["bash"])
             self.assertEqual(session.agent.system_prompt, BASH_AGENT_SYSTEM_PROMPT)
 
-    def test_read_and_explorer_compose_tools_and_prompt(self) -> None:
+    def test_read_and_general_purpose_compose_tools_and_prompt(self) -> None:
         from simple_agent_lab.agents.starter import (
-            BASH_TASK_EXPLORER_ADDENDUM,
-            EXPLORER_AGENT_DEFAULT_NAME,
+            BASH_TASK_ADDENDUM,
+            GENERAL_PURPOSE_AGENT_DEFAULT_NAME,
             agent_session,
         )
 
         with agent_session(
-            FAKE_PROVIDER, cwd=str(ROOT), read=True, explorer=True
+            FAKE_PROVIDER, cwd=str(ROOT), read=True, general_purpose=True
         ) as session:
             self.assertEqual(
                 sorted(t.name for t in session.agent.tools), ["bash", "read", "task"]
@@ -306,9 +306,9 @@ class AgentSessionFactoryTest(unittest.TestCase):
             task = next(t for t in session.agent.tools if t.name == "task")
             self.assertEqual(
                 list(task.parameters["properties"]["subagent_type"]["enum"]),
-                [EXPLORER_AGENT_DEFAULT_NAME],
+                [GENERAL_PURPOSE_AGENT_DEFAULT_NAME],
             )
-            self.assertIn(BASH_TASK_EXPLORER_ADDENDUM, session.agent.system_prompt)
+            self.assertIn(BASH_TASK_ADDENDUM, session.agent.system_prompt)
 
     def test_extra_tools_appended(self) -> None:
         from simple_agent_lab.agents.starter import agent_session
@@ -322,7 +322,7 @@ class AgentSessionFactoryTest(unittest.TestCase):
         from simple_agent_lab.agents.starter import agent_session
 
         with agent_session(
-            FAKE_PROVIDER, cwd=str(ROOT), explorer=True, system_prompt="custom"
+            FAKE_PROVIDER, cwd=str(ROOT), general_purpose=True, system_prompt="custom"
         ) as session:
             self.assertEqual(session.agent.system_prompt, "custom")
 
@@ -372,21 +372,23 @@ class MakeAgentTest(unittest.TestCase):
         self.assertEqual([t.name for t in agent.tools], ["bash"])
         self.assertEqual(agent.system_prompt, BASH_AGENT_SYSTEM_PROMPT)
 
-    def test_read_and_explorer_compose_tools_and_prompt(self) -> None:
+    def test_read_and_general_purpose_compose_tools_and_prompt(self) -> None:
         from simple_agent_lab.agents.starter import (
-            BASH_TASK_EXPLORER_ADDENDUM,
-            EXPLORER_AGENT_DEFAULT_NAME,
+            BASH_TASK_ADDENDUM,
+            GENERAL_PURPOSE_AGENT_DEFAULT_NAME,
             make_agent,
         )
 
-        agent = make_agent(FAKE_PROVIDER, cwd=str(ROOT), read=True, explorer=True)
+        agent = make_agent(
+            FAKE_PROVIDER, cwd=str(ROOT), read=True, general_purpose=True
+        )
         self.assertEqual(sorted(t.name for t in agent.tools), ["bash", "read", "task"])
         task = next(t for t in agent.tools if t.name == "task")
         self.assertEqual(
             list(task.parameters["properties"]["subagent_type"]["enum"]),
-            [EXPLORER_AGENT_DEFAULT_NAME],
+            [GENERAL_PURPOSE_AGENT_DEFAULT_NAME],
         )
-        self.assertIn(BASH_TASK_EXPLORER_ADDENDUM, agent.system_prompt)
+        self.assertIn(BASH_TASK_ADDENDUM, agent.system_prompt)
 
     def test_extra_tools_appended(self) -> None:
         from simple_agent_lab.agents.starter import make_agent
@@ -404,7 +406,7 @@ class MakeAgentTest(unittest.TestCase):
         from simple_agent_lab.agents.starter import make_agent
 
         agent = make_agent(
-            FAKE_PROVIDER, cwd=str(ROOT), explorer=True, system_prompt="custom"
+            FAKE_PROVIDER, cwd=str(ROOT), general_purpose=True, system_prompt="custom"
         )
         self.assertEqual(agent.system_prompt, "custom")
 
@@ -412,7 +414,9 @@ class MakeAgentTest(unittest.TestCase):
         from simple_agent_lab.agents.starter import make_agent
 
         hooks = {HookPoint.SESSION_END: [lambda ctx: None]}
-        agent = make_agent(FAKE_PROVIDER, cwd=str(ROOT), explorer=True, hooks=hooks)
+        agent = make_agent(
+            FAKE_PROVIDER, cwd=str(ROOT), general_purpose=True, hooks=hooks
+        )
 
         self.assertIs(agent.hooks, hooks)
 
@@ -444,10 +448,12 @@ class MakeSkillAgentTest(unittest.TestCase):
         self.assertIsNotNone(menu)
         self.assertIn("echo-fixture", menu.content[0].text)
 
-    def test_explorer_flag_adds_task_tool(self) -> None:
+    def test_general_purpose_flag_adds_task_tool(self) -> None:
         from simple_agent_lab.agents.starter import make_skill_agent
 
-        agent = make_skill_agent(FAKE_PROVIDER, cwd=str(FIXTURE_SKILLS), explorer=True)
+        agent = make_skill_agent(
+            FAKE_PROVIDER, cwd=str(FIXTURE_SKILLS), general_purpose=True
+        )
         self.assertIn("task", [t.name for t in agent.tools])
 
     def test_hooks_attach_to_skill_agent(self) -> None:

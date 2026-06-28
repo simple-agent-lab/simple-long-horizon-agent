@@ -59,7 +59,7 @@ the official tool regardless of the inference-time isolation difference.
 uv sync --extra programbench
 
 # 2. Pull the instance image
-bash runs/setup_programbench.sh abishekvashok__cmatrix.5c082c6
+bash runs/programbench/setup_programbench.sh abishekvashok__cmatrix.5c082c6
 
 # 3. Configure .env with your model provider
 cat > .env <<'EOF'
@@ -70,18 +70,18 @@ API_KIND=openai-chat
 EOF
 
 # 4. Run the agent, then score it
-bash runs/run_programbench_suite.sh abishekvashok__cmatrix.5c082c6
+bash runs/programbench/run_programbench.sh abishekvashok__cmatrix.5c082c6
 uv run python evals/programbench/evaluate_submissions.py --run-id <run-id>
 ```
 
-For the whole task set: `bash runs/run_programbench.sh --all --parallel 4`.
+For the whole task set: `bash runs/programbench/run_programbench.sh --all --parallel 4`.
 
 ## Running the Agent
 
 The agent runs inside the ProgramBench `:task_cleanroom` image, driven through
 `run_suite_instance(ProgrambenchSuite, LocalDockerBackend, LocalDirStore)`. The
 image is a language-toolchain image (c/rust/go/...) that need not ship Python
-3.11, so the run mounts a static Linux `uv` (fetched by `runs/_swebench_uv.sh`)
+3.11, so the run mounts a static Linux `uv` (fetched by `runs/lib/_swebench_uv.sh`)
 and an offline wheelhouse, exactly like SWE-bench.
 
 From the agent's point of view, `/workspace` holds `./executable` + docs and the
@@ -109,7 +109,7 @@ the authoritative per-instance scores via `programbench info`.
 ## Local Adapter Smoke
 
 This does not install `programbench` and does not run Docker — it exercises the
-suite + container half in-process with a fake provider (also in `runs/run_ci.sh`):
+suite + container half in-process with a fake provider (also in `runs/dev/run_ci.sh`):
 
 ```bash
 uv run python -m unittest tests.unit.test_programbench_suite
@@ -123,5 +123,5 @@ uv run python -m unittest tests.unit.test_programbench_suite
 | `ModuleNotFoundError: programbench` during scoring | scorer package not installed | `uv sync --extra programbench` |
 | `programbench: command not found` during final score summary | optional `programbench info` binary not on PATH | `uv sync --extra programbench`, pass `--programbench-info-bin`, or use `--no-info` |
 | `programbench eval` can't download the HF test blobs | gated/private dataset or anonymous rate limit | Set `HF_TOKEN` in `.env` or the environment (the scorer loads `.env`) |
-| Image pull fails | image not on the daemon | `bash runs/setup_programbench.sh <id> --scoring` |
+| Image pull fails | image not on the daemon | `bash runs/programbench/setup_programbench.sh <id> --scoring` |
 | `OPENAI_AUTH_TOKEN` / `OPENAI_MODEL` missing | `.env` not configured | Create `.env` (see Quick Start) |

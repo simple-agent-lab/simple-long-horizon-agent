@@ -1,11 +1,11 @@
 """Recall tool: retrieve compressed-away transcript messages by index.
 
 Compression folds older messages out of the active view, but `State` is
-append-only — the originals never leave `state.messages`. Compression
-replacements cite the indices they folded ("[Compressed from transcript
-messages 2-8 ...]"; see `simple_agent_lab.compression.strategies.source_note`),
-and this tool is the matching retrieval side: the model reads the citation in
-a summary and fetches the originals it needs verbatim. Together they turn
+append-only — the originals never leave `state.messages`. When a compression
+replacement cites the indices it folded ("[Compressed from transcript messages
+2-8 ...]"), this tool is the matching retrieval side: the model reads the
+citation in a summary and fetches the originals it needs verbatim. Together they
+turn
 compression from lossy deletion into recoverable externalization — an agent
 that can recall what a summary dropped can afford aggressive compaction.
 

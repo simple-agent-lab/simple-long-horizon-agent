@@ -4,7 +4,7 @@ Ready-to-run agent builders for Simple Agent Lab.
 
 This package is the public starter layer for building small agents from the core
 runtime. It wires a model provider to common tools such as bash, file reading,
-skills, sub-agent exploration, and MCP servers.
+skills, general-purpose sub-agent delegation, and MCP servers.
 
 Most agents are plain `Agent` values that you run yourself with `agent.run(...)`.
 Use `AgentSession` only when a capability owns a live resource that must be
@@ -23,7 +23,7 @@ provider = Provider(
     api_key_env="ANTHROPIC_API_KEY",
 )
 
-agent = make_agent(provider, cwd=".", read=True, explorer=True)
+agent = make_agent(provider, cwd=".", read=True, general_purpose=True)
 state, events = agent.run("Summarize this project.")
 for _ in events:
     pass
@@ -38,14 +38,16 @@ iterate it to advance the run.
 resource-free pieces you need:
 
 - `read=True` adds the read tool.
-- `explorer=True` adds a `task` tool backed by a small explorer sub-agent.
+- `general_purpose=True` adds a `task` tool backed by a general-purpose
+  sub-agent.
 - `tools=[...]` appends custom `AgentTool` instances.
 - `system_prompt=...` replaces the default composed prompt.
 
 Named plain-agent factories are available for common shapes:
 
 - `make_bash_agent(...)` builds a bash-capable agent.
-- `make_bash_task_agent(...)` builds a bash agent with an explorer sub-agent.
+- `make_bash_task_agent(...)` builds a bash agent with a general-purpose
+  sub-agent.
 - `make_skill_agent(...)` builds a bash+read agent that advertises skills on
   each `agent.run(...)`.
 

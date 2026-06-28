@@ -96,6 +96,7 @@ def make_llm_agent(
         tools=tools_tuple,
         context_policy=context_policy,
         system_prompt=effective_system_prompt,
+        llm_provider=provider,
         init_state=init_state,
         hooks=hooks or {},
     )

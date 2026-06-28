@@ -46,12 +46,12 @@ from simple_agent_lab.protocols import (
 )
 from simple_agent_lab.state import State
 from simple_agent_lab.trace import (
-    TraceMeta,
+    collect_agents,
+    event_record,
     run_trace_from_state,
-    trace_record,
-    write_canonical_trace,
+    trace_header,
 )
-from simple_agent_lab.trace.jsonl import read_jsonl
+from simple_agent_lab.trace.jsonl import read_jsonl, write_jsonl
 
 _VIEWER_DIR = Path(__file__).resolve().parents[2] / "studio" / "trace-viewer"
 SAMPLE_PATH = _VIEWER_DIR / "sample-trace.jsonl"
@@ -63,24 +63,25 @@ _EMBED_OPEN = '<script type="application/json" id="embedded-sample">'
 _EMBED_CLOSE = "</script>"
 
 
-def _read_embedded_sample() -> dict:
+def _read_embedded_sample() -> list:
     html = INDEX_HTML_PATH.read_text(encoding="utf-8")
     start = html.index(_EMBED_OPEN) + len(_EMBED_OPEN)
     end = html.index(_EMBED_CLOSE, start)
     return json.loads(html[start:end].strip())
 
 
-def _write_embedded_sample(record: dict) -> None:
+def _write_embedded_sample(stream: list) -> None:
     html = INDEX_HTML_PATH.read_text(encoding="utf-8")
     start = html.index(_EMBED_OPEN) + len(_EMBED_OPEN)
     end = html.index(_EMBED_CLOSE, start)
-    payload = "\n" + json.dumps(record, ensure_ascii=False) + "\n"
+    payload = "\n" + json.dumps(stream, ensure_ascii=False) + "\n"
     INDEX_HTML_PATH.write_text(html[:start] + payload + html[end:], encoding="utf-8")
 
 
 TRACE_ID = "demo.observatory.001"
 PRODUCER = "demo:trace-viewer"
 MODEL = "demo/observatory-mini"
+API = "openai-chat"
 PARENT = "obs_agent"
 SUB = "search_agent"
 TASK = (
@@ -147,10 +148,11 @@ def _sub_events() -> list[Event]:
                     kind="task",
                 )
             ),
-            AgentStartEvent(),
+            AgentStartEvent(agent=SUB, system_prompt=f"You are {SUB}."),
             TurnStartEvent(agent=SUB),
             ModelRequestEvent(
                 agent=SUB,
+                api=API,
                 visible_count=2,
                 llm_message_count=2,
                 context_view={"input_tokens_estimate": 188},
@@ -159,6 +161,7 @@ def _sub_events() -> list[Event]:
             ),
             ModelResponseEvent(
                 agent=SUB,
+                api=API,
                 output_kind="thought",
                 target=SUB,
                 tool_call_count=1,
@@ -209,6 +212,7 @@ def _sub_events() -> list[Event]:
             TurnEndEvent(agent=SUB),
             ModelResponseEvent(
                 agent=SUB,
+                api=API,
                 output_kind="final",
                 target=PARENT,
                 tool_call_count=0,
@@ -243,11 +247,12 @@ def _build_events() -> list[Event]:
                     kind="task",
                 )
             ),
-            AgentStartEvent(),
+            AgentStartEvent(agent=PARENT, system_prompt=f"You are {PARENT}."),
             # Turn 1 — thinking + bash (ok); carries the wire-debug raw blob.
             TurnStartEvent(agent=PARENT),
             ModelRequestEvent(
                 agent=PARENT,
+                api=API,
                 visible_count=1,
                 llm_message_count=2,
                 context_view={"input_tokens_estimate": 612, "messages": 2},
@@ -262,6 +267,7 @@ def _build_events() -> list[Event]:
             ),
             ModelResponseEvent(
                 agent=PARENT,
+                api=API,
                 output_kind="thought",
                 target=PARENT,
                 tool_call_count=1,
@@ -320,6 +326,7 @@ def _build_events() -> list[Event]:
             TurnStartEvent(agent=PARENT),
             ModelRequestEvent(
                 agent=PARENT,
+                api=API,
                 visible_count=3,
                 llm_message_count=4,
                 context_view={"input_tokens_estimate": 894, "messages": 4},
@@ -328,6 +335,7 @@ def _build_events() -> list[Event]:
             ),
             ModelResponseEvent(
                 agent=PARENT,
+                api=API,
                 output_kind="thought",
                 target=PARENT,
                 tool_call_count=1,
@@ -396,6 +404,7 @@ def _build_events() -> list[Event]:
             TurnStartEvent(agent=PARENT),
             ModelRequestEvent(
                 agent=PARENT,
+                api=API,
                 visible_count=5,
                 llm_message_count=6,
                 context_view={"input_tokens_estimate": 1842, "messages": 6},
@@ -404,6 +413,7 @@ def _build_events() -> list[Event]:
             ),
             ModelResponseEvent(
                 agent=PARENT,
+                api=API,
                 output_kind="thought",
                 target=PARENT,
                 tool_call_count=1,
@@ -471,6 +481,7 @@ def _build_events() -> list[Event]:
             TurnStartEvent(agent=PARENT),
             ModelRequestEvent(
                 agent=PARENT,
+                api=API,
                 visible_count=5,
                 llm_message_count=5,
                 context_view={"input_tokens_estimate": 1432, "messages": 5},
@@ -479,6 +490,7 @@ def _build_events() -> list[Event]:
             ),
             ModelResponseEvent(
                 agent=PARENT,
+                api=API,
                 output_kind="final",
                 target="user",
                 tool_call_count=0,
@@ -514,53 +526,62 @@ def _build_events() -> list[Event]:
 
 
 def _build_state() -> State:
-    return State(task=TASK, events=_build_events())
+    # Hand-built events bypass `record_event`, so stamp deterministic uuids here
+    # (a real run gets random UUID4s) — keeps the golden stable while still
+    # exercising the per-event `uuid` field.
+    events = [
+        dataclasses.replace(e, uuid=f"evt-{i}") for i, e in enumerate(_build_events())
+    ]
+    return State(task=TASK, events=events)
 
 
-def build_sample_record() -> dict:
-    """The canonical trace record, produced through the real serializer."""
-    return trace_record(
-        run_trace_from_state(
-            state=_build_state(), trace_id=TRACE_ID, producer=PRODUCER, meta=META
-        )
+def build_stream() -> list[dict]:
+    """The canonical v5 trajectory stream — a header line then one line per event
+    — produced through the real serializers.
+
+    Provider raw snapshots are kept INLINE (not externalized to a pool) so the
+    embedded fixture is self-contained and the viewer's Wire panel works on it
+    offline.
+    """
+    trace = run_trace_from_state(
+        state=_build_state(), trace_id=TRACE_ID, producer=PRODUCER, meta=META
     )
+    return [trace_header(trace), *[event_record(e) for e in trace.events]]
+
+
+def _assembled(stream: list[dict]) -> dict:
+    """Fold the stream (header + event lines) into the in-memory trace the viewer
+    builds, matching the JS `assembleTrace`."""
+
+    header, *events = stream
+    return {**header, "events": events}
 
 
 class TraceFixtureGoldenTest(unittest.TestCase):
     def test_sample_trace_matches_real_serializer(self) -> None:
-        record = build_sample_record()
+        stream = build_stream()
         if os.environ.get("UPDATE_GOLDEN"):
-            write_canonical_trace(
-                SAMPLE_PATH,
-                state=_build_state(),
-                trace_meta=TraceMeta(
-                    trace_id=TRACE_ID, producer=PRODUCER, meta_fn=lambda: META
-                ),
-            )
+            write_jsonl(SAMPLE_PATH, stream)
             self.skipTest(f"regenerated {SAMPLE_PATH.name}")
-        committed = read_jsonl(SAMPLE_PATH)
         self.assertEqual(
-            len(committed), 1, "sample-trace.jsonl must hold exactly one record"
-        )
-        self.assertEqual(
-            committed[0],
-            record,
+            read_jsonl(SAMPLE_PATH),
+            stream,
             "sample-trace.jsonl drifted from the real trace serializer. If you "
             "renamed/restructured a serialized trace field, the viewer reads it too "
-            "— update the viewer, then regenerate with "
-            "UPDATE_GOLDEN=1 and review the diff.",
+            "— update the viewer, then regenerate with UPDATE_GOLDEN=1 and review "
+            "the diff.",
         )
 
     def test_embedded_sample_matches_real_serializer(self) -> None:
         # The viewer SHOWS the embedded copy (the file is an offline artifact),
         # so it is the one that actually goes stale. Guard it the same way.
-        record = build_sample_record()
+        stream = build_stream()
         if os.environ.get("UPDATE_GOLDEN"):
-            _write_embedded_sample(record)
+            _write_embedded_sample(stream)
             self.skipTest("regenerated embedded-sample in index.html")
         self.assertEqual(
             _read_embedded_sample(),
-            record,
+            stream,
             "the embedded sample in index.html drifted from the real trace "
             "serializer — update the viewer for the schema change, then regenerate "
             "with UPDATE_GOLDEN=1 and review the diff.",
@@ -568,14 +589,14 @@ class TraceFixtureGoldenTest(unittest.TestCase):
 
     def test_file_and_embedded_samples_are_identical(self) -> None:
         # One source of truth: the offline file and the shown embedded copy must
-        # be the same record, so neither can drift independently.
-        self.assertEqual(read_jsonl(SAMPLE_PATH)[0], _read_embedded_sample())
+        # be the same stream, so neither can drift independently.
+        self.assertEqual(read_jsonl(SAMPLE_PATH), _read_embedded_sample())
 
     def test_fixture_exercises_every_viewer_read_path(self) -> None:
         # A generated fixture is only a guard if it contains the slots the viewer
         # reads. Pin those so a future trim can't quietly drop one and let the
         # golden pass while the viewer goes blank.
-        record = build_sample_record()
+        record = _assembled(build_stream())
         msgs = [e["message"] for e in record["events"] if e["kind"] == "message"]
         sidecars = [m.get("sidecar") or {} for m in msgs]
 
@@ -609,12 +630,39 @@ class TraceFixtureGoldenTest(unittest.TestCase):
             "no failing tool call — error rendering path unexercised",
         )
 
-    def test_sample_is_loadable_v3_trajectory(self) -> None:
-        # What the viewer's loader checks: a v3 trajectory record with events.
-        committed = read_jsonl(SAMPLE_PATH)[0]
-        self.assertEqual(committed["schema"], "simple-agent-lab.trajectory.v3")
-        self.assertEqual(committed["type"], "trajectory")
-        self.assertTrue(committed["events"])
+        # v5: the agents registry is DERIVED from the stream (agent_start /
+        # compressor model_request carry system_prompt); the reader — and the
+        # viewer's JS twin — must find a real prompt, and no event keeps the
+        # reconstructable llm_payload.
+        agents = collect_agents(record["events"])
+        self.assertTrue(
+            agents and all(isinstance(p, str) and p for p in agents.values()),
+            "collect_agents found no real system prompt in the event stream",
+        )
+        self.assertFalse(
+            any("llm_payload" in e for e in record["events"]),
+            "an event still carries llm_payload — v5 drops it",
+        )
+
+        # Every event carries a stable, unique uuid (stamped on record_event).
+        uuids = [e["uuid"] for e in record["events"]]
+        self.assertTrue(all(uuids), "an event is missing its uuid")
+        self.assertEqual(len(uuids), len(set(uuids)), "event uuids are not unique")
+
+    def test_sample_is_loadable_v5_stream(self) -> None:
+        # What the viewer's loader checks: a header line (schema, no events) then
+        # one line per event, with an agent system prompt derivable from it.
+        stream = read_jsonl(SAMPLE_PATH)
+        header, events = stream[0], stream[1:]
+        self.assertEqual(header["schema"], "simple-agent-lab.trajectory.v5")
+        self.assertEqual(header["type"], "trajectory")
+        self.assertNotIn("events", header)
+        self.assertTrue(events and all("kind" in e for e in events))
+        self.assertTrue(
+            collect_agents(events),
+            "no agent system prompt derivable from the stream — request "
+            "reconstruction would have nothing real to show",
+        )
 
 
 if __name__ == "__main__":

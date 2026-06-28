@@ -63,20 +63,16 @@ def _skip_whitespace(text: str, idx: int, length: int) -> int:
 
 
 def _dump_records(f: TextIO, records: Iterable[Mapping[str, Any]]) -> None:
-    """Write each record as pretty-printed JSON followed by a newline.
+    """Write each record as one compact JSON line (true JSONL).
 
     The single source of truth for the on-disk shape shared by
-    :func:`write_jsonl` and :func:`write_jsonl_atomic`.
+    :func:`write_jsonl` and :func:`write_jsonl_atomic`. One record per line is
+    what the v5 trajectory stream (header line + one line per event) and the raw
+    pool (one blob per line) need; readers (`read_jsonl`) still accept old
+    pretty-printed records too.
     """
     for record in records:
-        f.write(
-            json.dumps(
-                json_safe(record),
-                ensure_ascii=False,
-                sort_keys=True,
-                indent=2,
-            )
-        )
+        f.write(json.dumps(json_safe(record), ensure_ascii=False, sort_keys=True))
         f.write("\n")
 
 

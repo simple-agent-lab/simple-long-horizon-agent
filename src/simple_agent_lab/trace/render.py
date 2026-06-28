@@ -12,7 +12,8 @@ import dataclasses
 import json
 from typing import Any
 
-from ..messages import AssistantMessage, message_text
+from ..messages import AssistantMessage, TokenUsage, message_text
+from ..model_metadata import PriceBook, RunCost
 from ..protocols import (
     ContextCompressionEvent,
     MessageEvent,
@@ -22,12 +23,23 @@ from ..protocols import (
 from ..state import State
 
 
-def print_trace(state: State, *, raw: bool = False) -> None:
+def print_trace(
+    state: State,
+    *,
+    raw: bool = False,
+    costs: bool = True,
+    price_book: PriceBook | None = None,
+) -> None:
     """Print the standardized trace.
 
     `raw=True` also dumps each model call's `raw` payload -- the provider
     request snapshot (with messages history pruned) and the SDK response
     dump -- so the trace doubles as an HTTP-level diff tool.
+
+    `costs=True` appends a cost summary footer (tokens + dollars, per model)
+    derived from the run's `usage`/`model` primitives via `model_metadata.RunCost`.
+    `price_book` overrides the built-in rate card (defaults to
+    `model_metadata.default_price_book()`, i.e. the table plus any env override).
     """
     print("\ntrace")
     print("-----")
@@ -88,6 +100,44 @@ def print_trace(state: State, *, raw: bool = False) -> None:
                 if field.name not in ("index", "elapsed")
             )
             print(f"{event.index:02d} {t:<10} {kind:<21} {extras}")
+
+    if costs:
+        _print_cost_summary(RunCost.from_run(state.events, state.messages, price_book))
+
+
+def _format_tokens(tokens: TokenUsage) -> str:
+    """The shared per-bucket token line used in both cost rows."""
+    return (
+        f"in={tokens.input_tokens} out={tokens.output_tokens} "
+        f"cache_r={tokens.cache_read_tokens} cache_w={tokens.cache_write_tokens}"
+    )
+
+
+_PRICE_BOOK_HINT = "the SIMPLE_AGENT_LAB_PRICE_BOOK env file or a custom PriceBook"
+
+
+def _print_cost_summary(run_cost: RunCost) -> None:
+    """Render the per-model token + dollar rollup under the event list."""
+    if not run_cost.by_model:
+        return
+    print("\ncost")
+    print("----")
+    print(
+        f"total ${run_cost.total_usd:.4f} "
+        f"over {run_cost.calls} call(s) "
+        f"({_format_tokens(run_cost.total_tokens)})"
+    )
+    for entry in run_cost.by_model:
+        flag = " (unpriced)" if entry.model in run_cost.unpriced_models else ""
+        print(
+            f"  {entry.model:<28} ${entry.cost.total_usd:.4f} "
+            f"x{entry.calls} {_format_tokens(entry.tokens)}{flag}"
+        )
+    if run_cost.unpriced_models:
+        print(
+            "  note: unpriced models contribute $0 — total is a lower bound. "
+            f"Add rates via {_PRICE_BOOK_HINT}."
+        )
 
 
 def _print_raw(raw: Any) -> None:

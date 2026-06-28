@@ -6,8 +6,8 @@ concrete strategies and the runtime that applies them, depending on
 `context_view` one-way.
 
 - `strategies` — the strategy-author surface: `ToolCompactStrategy`,
-  `SummarizeStrategy`, `DEFAULT_PRESERVE_KINDS`, and the `source_note`
-  provenance footer that makes compression recoverable via the `recall` tool.
+  `SummarizeStrategy`, `DEFAULT_PRESERVE_KINDS`, and the `continuation_preamble`
+  that frames a summary fold as a session handoff.
 - `agent_control` — agent-controlled compaction: `make_compact_control` pairs
   a `compact` tool (the model requests compression itself) with the strategy
   that applies the request at the next safe point.
@@ -35,8 +35,8 @@ from .strategies import (
     SummarizeStrategy,
     TieredStrategy,
     ToolCompactStrategy,
+    continuation_preamble,
     format_index_ranges,
-    source_note,
 )
 
 __all__ = [
@@ -47,10 +47,10 @@ __all__ = [
     "SummarizeStrategy",
     "TieredStrategy",
     "ToolCompactStrategy",
+    "continuation_preamble",
     "format_index_ranges",
     "make_compact_control",
     "maybe_compress_context",
-    "source_note",
     "summarize_compression",
     # Re-exported for tests that size an active context directly.
     "_active_context_tokens",

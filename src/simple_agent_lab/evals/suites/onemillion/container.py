@@ -4,12 +4,14 @@ OneMillion-Bench is a *rubric-graded Q&A* benchmark, not an agent-in-a-repo
 benchmark, so its mapping onto the generic framework (`SwebenchSuite` is the
 reference) is:
 
-- **Generation** is a single, tool-free model turn: the case's prompt is the
-  task, and ``build_agent`` returns a plain LLM agent (no bash/tools) whose only
-  job is to answer. Because ``extract_result`` cannot see the agent's messages
-  (only the workspace), the agent's ``generate`` is wrapped to persist the final
-  answer to ``model_response.txt`` in the workspace — the analog of SWE-bench
-  writing a ``git diff`` to the filesystem.
+- **Generation** is selected by the ``AGENT_FLAVOR`` env var: ``single``
+  (default) is one tool-free model turn (``build_agent`` returns a plain LLM
+  agent, no bash/tools, whose only job is to answer); a workflow flavor
+  (``reflection`` / ``parallel`` / …) instead returns a multi-agent facade (see
+  ``workflow_container``). Either way, because ``extract_result`` cannot see the
+  agent's messages (only the workspace), the final answer is persisted to
+  ``model_response.txt`` — the analog of SWE-bench writing a ``git diff`` to the
+  filesystem.
 - **Scoring** is the in-environment ``evaluate`` hook (ADR 0020): the host stages
   the case's weighted rubrics via ``eval_inputs`` (gold the agent must not see),
   and this hook calls a *judge* model to grade the response against them,
@@ -28,10 +30,13 @@ module), so it runs in any eval environment with no copied files.
 
 from __future__ import annotations
 
+import json
+import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from simple_agent_lab.agent_flavors import AGENT_FLAVOR_ENV
 from simple_agent_lab.core import Agent
 from simple_agent_lab.evals.protocols import AgentSpec
 from simple_agent_lab.llm import (
@@ -54,6 +59,42 @@ from .grading import (
 # Where the tool-free generator persists its answer so ``extract_result`` (which
 # only sees the workspace, never the agent state) can collect it.
 RESPONSE_FILENAME = "model_response.txt"
+# A workflow flavor's facade writes its per-step breakdown here; extract_result
+# folds it into result.json when present (single-turn runs leave no such file).
+WORKFLOW_STEPS_FILENAME = "workflow_steps.json"
+
+# OneMillion picks its generation strategy with the shared ``AGENT_FLAVOR`` env
+# (the same "flavor" knob every suite uses); its vocabulary is suite-specific —
+# the tool-free baseline ``single`` plus the multi-agent answer workflows. A
+# workflow flavor swaps a single model turn for one ``simple_agent_lab.workflow``
+# orchestration behind a facade Agent (see ``workflow_container``).
+DEFAULT_OMB_FLAVOR = "single"
+WORKFLOW_FLAVORS = (
+    "reflection",
+    "planner_executor",
+    "parallel",
+    "chain",
+    "routing",
+    "pdr",
+)
+OMB_FLAVORS = (DEFAULT_OMB_FLAVOR, *WORKFLOW_FLAVORS)
+
+
+def flavor_from_env(env: Mapping[str, str] | None = None) -> str:
+    """The OneMillion generation flavor from ``AGENT_FLAVOR`` (default ``single``)."""
+
+    # env-ok: reads the AGENT_FLAVOR foundation name
+    source = os.environ if env is None else env
+    flavor = (
+        source.get(AGENT_FLAVOR_ENV) or DEFAULT_OMB_FLAVOR
+    ).strip().lower() or DEFAULT_OMB_FLAVOR
+    if flavor not in OMB_FLAVORS:
+        raise SystemExit(
+            f"Unsupported {AGENT_FLAVOR_ENV}={flavor!r} for OneMillion-Bench; "
+            f"expected one of {OMB_FLAVORS}."
+        )
+    return flavor
+
 
 AGENT_NAME = "onemillion_agent"
 AGENT_ROLE = "Answer the professional question directly and completely."
@@ -88,13 +129,24 @@ def build_agent(
     cwd: Path,
     request_extra: Mapping[str, Any] | None = None,
 ) -> Agent:
-    """A tool-free LLM agent that answers, persisting its answer to the workspace.
+    """Build the generation agent for the selected ``AGENT_FLAVOR``.
 
-    No tools: the model receives the question and replies once (``end_turn`` ends
-    the loop). ``generate`` is wrapped so the latest assistant text is written to
-    ``model_response.txt`` under ``cwd`` — the seam ``extract_result`` reads,
-    since the container half never sees the agent's state directly.
+    ``single`` (default) returns the tool-free LLM agent below; a workflow flavor
+    (``reflection`` / ``parallel`` / …) returns a facade Agent whose one
+    ``generate`` runs the whole multi-agent workflow. Both persist the final
+    answer to ``model_response.txt`` (the seam ``extract_result`` reads), so the
+    rest of the suite is identical regardless of flavor.
     """
+
+    flavor = flavor_from_env()
+    if flavor in WORKFLOW_FLAVORS:
+        # Lazy import: workflow_container imports this module, so importing it at
+        # top level would be a cycle. It is only needed for workflow flavors.
+        from . import workflow_container
+
+        return workflow_container.build_workflow_agent(
+            provider=provider, cwd=cwd, request_extra=request_extra, flavor=flavor
+        )
 
     agent = make_llm_agent(
         name=AGENT_NAME,
@@ -139,15 +191,25 @@ def extract_result(
     *,
     context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Collect the generated answer as the run's product."""
+    """Collect the generated answer as the run's product.
+
+    For a workflow flavor the facade also writes ``workflow_steps.json`` (each
+    sub-agent's output + full trace); fold it in when present so the per-step
+    breakdown survives the ephemeral workdir. Single-turn runs leave no such
+    file, so the ``workflow`` key is simply absent.
+    """
 
     del context
     response = _read_response(Path(workspace))
-    return {
+    result: dict[str, Any] = {
         "model_response": response,
         "case_id": instance.get("case_id"),
         "instance_id": instance.get("instance_id"),
     }
+    steps = _read_steps(Path(workspace))
+    if steps is not None:
+        result["workflow"] = steps
+    return result
 
 
 # --------------------------------------------------------------------------- #
@@ -194,6 +256,10 @@ def evaluate(
         "score": summary["accuracy"],
         "rubric_scores": {str(k): v for k, v in final_scores.items()},
         "judge_verdicts": {str(k): v for k, v in raw_results.items()},
+        # The judge model's full input/output, so a verdict is auditable, not
+        # just the parsed scores.
+        "judge_prompt": grading_prompt,
+        "judge_raw_response": judge_text,
     }
 
 
@@ -234,6 +300,19 @@ def _read_response(workspace: Path) -> str:
         return (workspace / RESPONSE_FILENAME).read_text(encoding="utf-8")
     except (FileNotFoundError, OSError):
         return ""
+
+
+def _read_steps(workspace: Path) -> dict[str, Any] | None:
+    """The workflow facade's per-step breakdown, or None for single-turn runs."""
+
+    try:
+        raw = (workspace / WORKFLOW_STEPS_FILENAME).read_text(encoding="utf-8")
+    except (FileNotFoundError, OSError):
+        return None
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return None
 
 
 def _first_str(instance: Mapping[str, Any], *keys: str) -> str:
