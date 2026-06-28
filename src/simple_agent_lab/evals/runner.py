@@ -22,7 +22,6 @@ run-directory convention (ADR eval-output-directory-convention) is preserved: on
 from __future__ import annotations
 
 import hashlib
-import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,6 +36,7 @@ from .protocols import (
     RunArtifacts,
     RunSpec,
     Suite,
+    encode_json_line,
 )
 
 GENERIC_RUNNER_MODULE = "simple_agent_lab.evals.in_container"
@@ -189,10 +189,7 @@ def run_suite_instance(
     # so it needs the unredacted record (e.g. the gold patch) in the store.
     record = dict(instance) if provider == "oracle" else suite.task_input(instance)
     bound = store.bind(paths.root)
-    bound.put(
-        INSTANCE_KEY,
-        (json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8"),
-    )
+    bound.put(INSTANCE_KEY, encode_json_line(record, sort_keys=True))
     _stage_eval_inputs(suite, instance, bound)
     binding = bound.container_binding()
 
@@ -246,7 +243,4 @@ def _stage_eval_inputs(
     payload = suite.eval_inputs(instance)
     if not payload:
         return
-    bound.put(
-        EVAL_KEY,
-        (json.dumps(dict(payload), ensure_ascii=False) + "\n").encode("utf-8"),
-    )
+    bound.put(EVAL_KEY, encode_json_line(dict(payload)))

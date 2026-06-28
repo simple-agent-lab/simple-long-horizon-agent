@@ -62,6 +62,7 @@ from .protocols import (
     AgentSpec,
     ArtifactStore,
     ContainerTask,
+    encode_json_line,
 )
 from .stores import container_store_from_env
 
@@ -459,9 +460,7 @@ def run_in_container(
             result.update(dict(verdict))
 
     state.data["result"] = result
-    store.put(
-        RESULT_KEY, (json.dumps(result, ensure_ascii=False) + "\n").encode("utf-8")
-    )
+    store.put(RESULT_KEY, encode_json_line(result))
     # An agent may compose a richer FINAL trace than the bare run state — e.g. a
     # workflow facade whose real work ran in sub-agents folds them into a
     # lightweight tree (one node per sub-agent) for the viewer. Optional + best

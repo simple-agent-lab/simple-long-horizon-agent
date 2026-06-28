@@ -28,6 +28,7 @@ by `container_module` and imported by the in-container runner.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -36,6 +37,21 @@ from typing import Any, Protocol, runtime_checkable
 from simple_agent_lab.agent_flavors import DEFAULT_AGENT_FLAVOR
 
 from ..messages import ContentInput
+
+
+def encode_json_line(obj: Any, *, sort_keys: bool = False) -> bytes:
+    """Serialize `obj` as one UTF-8, newline-terminated JSON line for the store.
+
+    The single place the framework's on-disk JSON convention lives: never escape
+    non-ASCII (`ensure_ascii=False`) and always end with a newline so the store's
+    `.json`/`.jsonl` payloads stay greppable and append-friendly. Pass
+    `sort_keys=True` for records that must be byte-stable across runs.
+    """
+
+    return (json.dumps(obj, ensure_ascii=False, sort_keys=sort_keys) + "\n").encode(
+        "utf-8"
+    )
+
 
 # Fixed artifact keys the framework and the in-container runner agree on. Keys
 # are relative to one instance's run directory, so a store bound to that dir

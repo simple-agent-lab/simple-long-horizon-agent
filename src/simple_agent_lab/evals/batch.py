@@ -37,6 +37,7 @@ from .protocols import (
     RunOutcome,
     RunSpec,
     Suite,
+    encode_json_line,
 )
 from .runner import (
     _run_root_namespace,
@@ -58,9 +59,7 @@ _MIN_POLL_INTERVAL_S = 0.5
 def _write_manifest(batch_store: ArtifactStore, manifest: list[dict[str, Any]]) -> None:
     """Atomically (re)write the whole manifest. Small + atomic, so crash-safe."""
 
-    batch_store.put(
-        BATCH_KEY, (json.dumps(manifest, ensure_ascii=False) + "\n").encode("utf-8")
-    )
+    batch_store.put(BATCH_KEY, encode_json_line(manifest))
 
 
 def _has_result(store: ArtifactStore, run_dir: str) -> bool:
@@ -123,14 +122,7 @@ def submit_dataset(
         bound = store.bind(paths.root)
         bound.put(
             INSTANCE_KEY,
-            (
-                json.dumps(
-                    suite.task_input(instance),
-                    ensure_ascii=False,
-                    sort_keys=True,
-                )
-                + "\n"
-            ).encode("utf-8"),
+            encode_json_line(suite.task_input(instance), sort_keys=True),
         )
         _stage_eval_inputs(suite, instance, bound)
         binding = bound.container_binding()
