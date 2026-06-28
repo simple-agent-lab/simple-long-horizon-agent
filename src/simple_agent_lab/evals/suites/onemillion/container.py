@@ -292,9 +292,6 @@ def _judge_complete(provider: Provider, grading_prompt: str) -> str:
     return complete_with_retry(request).text
 
 
-# --------------------------------------------------------------------------- #
-# Helpers
-# --------------------------------------------------------------------------- #
 def _read_response(workspace: Path) -> str:
     try:
         return (workspace / RESPONSE_FILENAME).read_text(encoding="utf-8")

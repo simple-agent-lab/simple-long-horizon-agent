@@ -116,11 +116,6 @@ def _capture_kwargs() -> dict[str, Any]:
     return {}
 
 
-# ---------------------------------------------------------------------------
-# Anthropic Messages
-# ---------------------------------------------------------------------------
-
-
 def _stub_anthropic(response: Any, captured: dict[str, Any]) -> types.ModuleType:
     module = types.ModuleType("anthropic")
 
@@ -394,11 +389,6 @@ class AnthropicAdapterTest(unittest.TestCase):
         self.assertNotIn("output_config", captured)
 
 
-# ---------------------------------------------------------------------------
-# OpenAI Chat
-# ---------------------------------------------------------------------------
-
-
 def _stub_openai(
     response: Any, captured: dict[str, Any], *, kind: str
 ) -> types.ModuleType:
@@ -657,11 +647,6 @@ class OpenAIChatAdapterTest(unittest.TestCase):
             os.environ.pop("TEST_OPENAI_KEY", None)
             with self.assertRaisesRegex(RuntimeError, "TEST_OPENAI_KEY"):
                 complete(req)
-
-
-# ---------------------------------------------------------------------------
-# OpenAI Responses
-# ---------------------------------------------------------------------------
 
 
 def _responses_response(
