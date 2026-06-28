@@ -104,9 +104,7 @@ class LiveTraceTest(unittest.TestCase):
             # pointer; the blob lands in the sibling pool.
             stream = read_jsonl(path)
             msg_event = next(e for e in stream[1:] if e["kind"] == "message")
-            self.assertEqual(
-                msg_event["message"]["sidecar"]["raw"], {"raw_ref": 0}
-            )
+            self.assertEqual(msg_event["message"]["sidecar"]["raw"], {"raw_ref": 0})
             raw_records = read_jsonl(path.with_name(f"{path.name}.raw.jsonl"))
             self.assertEqual(raw_records[0]["request"]["model"], "m")
 

@@ -81,7 +81,9 @@ def _run_tool_heavy(policy: ContextPolicy, n_reads: int) -> list:
                 target="user",
                 kind="step",
             )
-        return assistant_message("done", sender="general-purpose", target="user", kind="final")
+        return assistant_message(
+            "done", sender="general-purpose", target="user", kind="final"
+        )
 
     state = State("explore")
     state.send("task", "user", "general-purpose", state.task)

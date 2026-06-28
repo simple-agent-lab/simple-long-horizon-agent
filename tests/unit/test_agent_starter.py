@@ -414,7 +414,9 @@ class MakeAgentTest(unittest.TestCase):
         from simple_agent_lab.agents.starter import make_agent
 
         hooks = {HookPoint.SESSION_END: [lambda ctx: None]}
-        agent = make_agent(FAKE_PROVIDER, cwd=str(ROOT), general_purpose=True, hooks=hooks)
+        agent = make_agent(
+            FAKE_PROVIDER, cwd=str(ROOT), general_purpose=True, hooks=hooks
+        )
 
         self.assertIs(agent.hooks, hooks)
 

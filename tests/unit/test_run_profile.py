@@ -131,6 +131,7 @@ class RunProfileTest(unittest.TestCase):
 ROOT = Path(__file__).resolve().parents[2]
 EXAMPLE_TO_SCRIPT = {
     "swebench-loop.example.json": "runs/_benches/swebench.py",
+    "swebench-pro-bash_task.example.json": "runs/_benches/swebench.py",
     "programbench.example.json": "runs/_benches/programbench.py",
     "onemillion.example.json": "runs/_benches/onemillion.py",
 }

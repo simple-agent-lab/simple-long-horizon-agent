@@ -81,6 +81,7 @@ def _append_lines(path: Path, records: Iterable[Mapping[str, Any]]) -> None:
         except OSError:
             pass
 
+
 if TYPE_CHECKING:
     from ..core import Agent
     from ..state import State

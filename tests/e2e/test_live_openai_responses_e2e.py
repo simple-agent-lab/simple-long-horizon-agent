@@ -69,9 +69,7 @@ def write_trace_if_requested(
     )
     header, lines, _pool = event_stream(trace)
     path.write_text(
-        "".join(
-            json.dumps(rec, ensure_ascii=False) + "\n" for rec in (header, *lines)
-        ),
+        "".join(json.dumps(rec, ensure_ascii=False) + "\n" for rec in (header, *lines)),
         encoding="utf-8",
     )
 

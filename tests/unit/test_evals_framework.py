@@ -224,9 +224,7 @@ class LocalProcessBackendTest(unittest.TestCase):
             result = json.loads(bound.get(RESULT_KEY).decode("utf-8"))
             self.assertIn("model_patch", result)
             # v5 trace is a stream: the header line carries identity + meta.
-            header = json.loads(
-                bound.get(TRACE_KEY).decode("utf-8").splitlines()[0]
-            )
+            header = json.loads(bound.get(TRACE_KEY).decode("utf-8").splitlines()[0])
             self.assertEqual(header["meta"]["suite"], "swebench")
             self.assertFalse(header["meta"]["in_progress"])
 

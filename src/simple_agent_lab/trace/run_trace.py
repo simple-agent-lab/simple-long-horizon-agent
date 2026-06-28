@@ -192,7 +192,6 @@ def collect_agents(events: Any) -> dict[str, str]:
     return agents
 
 
-
 def trace_header(trace: RunTrace) -> dict[str, Any]:
     """The first line of a v5 trajectory stream: run identity + metadata.
 

@@ -100,9 +100,8 @@ def format_index_ranges(indices: Sequence[int]) -> str:
     return ", ".join(ranges)
 
 
-
 def continuation_preamble() -> str:
- 
+
     return (
         "[This session continues a previous one. Its earlier context was "
         "compressed into the summary below; treat that summary as established "
@@ -155,8 +154,7 @@ class ToolCompactStrategy:
             compress_indices=compress_indices,
             replacement=make_message(
                 "user",
-                _format_compact_summary(active, old, self.preview_chars)
-                + "\n",
+                _format_compact_summary(active, old, self.preview_chars) + "\n",
                 sender="runtime",
                 target=agent_name,
                 kind="summary",
@@ -335,10 +333,7 @@ class SummarizeStrategy:
             compress_indices=compress_indices,
             replacement=make_message(
                 "user",
-                continuation_preamble()
-                + "\n\n"
-                + summary_text
-                + "\n\n",
+                continuation_preamble() + "\n\n" + summary_text + "\n\n",
                 sender="runtime",
                 target=agent_name,
                 kind="summary",

@@ -81,7 +81,11 @@ class CoreTest(unittest.TestCase):
         self.assertIn("model_response", [event.kind for event in state.events])
         self.assertEqual(state.events[-1].kind, "agent_end")
 
-    def test_programmatic_agent_does_not_emit_model_events(self) -> None:
+    def test_programmatic_agent_emits_untagged_model_events(self) -> None:
+        """A provider-less programmatic agent is still a model call: it is
+        recorded (not dropped), with an empty ``api`` tag since no provider
+        identifies it."""
+
         def writer(visible: list[Message]) -> Message:
             del visible
             return assistant_message(
@@ -97,8 +101,16 @@ class CoreTest(unittest.TestCase):
             pass
 
         kinds = [event.kind for event in state.events]
-        self.assertNotIn("model_request", kinds)
-        self.assertNotIn("model_response", kinds)
+        self.assertIn("model_request", kinds)
+        self.assertIn("model_response", kinds)
+        request = next(
+            event for event in state.events if isinstance(event, ModelRequestEvent)
+        )
+        response = next(
+            event for event in state.events if isinstance(event, ModelResponseEvent)
+        )
+        self.assertEqual(request.api, "")
+        self.assertEqual(response.api, "")
 
     def test_fake_provider_agent_emits_tagged_model_events(self) -> None:
         """A fake call is still a model call: it is recorded and tagged
@@ -735,9 +747,8 @@ class CoreTest(unittest.TestCase):
         ]
         self.assertEqual(len(summary_payloads), 1)
         self.assertEqual(summary_payloads[0].role, "user")
-        # Every summary cites the transcript indices it folded so a recall
-        # tool can fetch the originals back.
-        self.assertIn("[Compressed from transcript messages 1.", summary_text)
+        # The folded transcript indices are tracked on the compression event
+        # (asserted below) so a recall tool can fetch the originals back.
         compression = next(
             event
             for event in state.events

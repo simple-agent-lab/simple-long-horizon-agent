@@ -245,9 +245,7 @@ BASH_TASK_ADDENDUM = (
     "running `bash` directly, based on the task's size and how much "
     "exploration it needs."
 )
-BASH_TASK_AGENT_SYSTEM_PROMPT = (
-    BASH_AGENT_SYSTEM_PROMPT + "\n\n" + BASH_TASK_ADDENDUM
-)
+BASH_TASK_AGENT_SYSTEM_PROMPT = BASH_AGENT_SYSTEM_PROMPT + "\n\n" + BASH_TASK_ADDENDUM
 
 GENERAL_PURPOSE_AGENT_DEFAULT_NAME = "general-purpose"
 GENERAL_PURPOSE_AGENT_DEFAULT_ROLE = (

@@ -432,9 +432,7 @@ def make_workflow_runner_for_flavor(
 def _with_task_addendum(system_prompt: str) -> str:
     if BASH_TASK_ADDENDUM in system_prompt:
         return system_prompt
-    return "\n\n".join(
-        part for part in (system_prompt, BASH_TASK_ADDENDUM) if part
-    )
+    return "\n\n".join(part for part in (system_prompt, BASH_TASK_ADDENDUM) if part)
 
 
 def _resolve_context_policy(
