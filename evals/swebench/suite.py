@@ -43,6 +43,7 @@ class SwebenchSuite:
         network_mode: str = "",
         security_opt: tuple[str, ...] = ("seccomp=unconfined",),
         in_env_scoring: bool = False,
+        mem_limit: str | None = "8g",
     ) -> None:
         self.dataset_name = dataset_name
         self.name = harness.suite_for_instance(
@@ -66,6 +67,13 @@ class SwebenchSuite:
         # hook so the run scores itself in place (grade host-side with
         # `evaluate_predictions.reuse_eval_row`).
         self.in_env_scoring = in_env_scoring
+        # Per-container memory guardrail (docker --memory): caps physical RAM so
+        # one runaway build/test step can't exhaust the host or starve sibling
+        # runs in a parallel batch. memswap_limit is left unset so Docker keeps
+        # its default swap headroom — a brief overshoot degrades instead of
+        # OOM-killing the instance. "8g" covers SWE-bench build/test peaks; pass
+        # None to disable.
+        self.mem_limit = mem_limit
 
     def launch_spec(self, instance: Mapping[str, Any]) -> LaunchSpec:
         record = dict(instance)
@@ -96,6 +104,7 @@ class SwebenchSuite:
             network_mode=self.network_mode or None,
             cap_add=self._cap_add(record),
             security_opt=self.security_opt,
+            mem_limit=self.mem_limit,
         )
 
     def _cap_add(self, record: dict[str, Any]) -> tuple[str, ...]:

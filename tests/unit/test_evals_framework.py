@@ -1244,6 +1244,8 @@ class SwebenchSuiteDriverTest(unittest.TestCase):
         # Pro images carry no test-spec caps (Verified ones come from the spec,
         # which needs the swebench harness installed — not asserted here).
         self.assertEqual(launch_spec.cap_add, ())
+        # Default per-container memory guardrail (docker --memory).
+        self.assertEqual(launch_spec.mem_limit, "8g")
 
     def test_multilingual_suite_name_is_distinct(self) -> None:
         from evals.swebench.suite import SwebenchSuite

@@ -57,8 +57,10 @@ DEFAULT_PRO_EVAL_RESULTS = (
     ROOT / "evals/out/swebench_pro/swebench_pro_eval_results.jsonl"
 )
 DEFAULT_PRO_OFFICIAL_OUTPUT_DIR = ROOT / "evals/out/swebench_pro_official"
-DEFAULT_PRO_EVAL_SCRIPT = Path("/tmp/SWE-bench_Pro-os/swe_bench_pro_eval.py")
-DEFAULT_PRO_SCRIPTS_DIR = Path("/tmp/SWE-bench_Pro-os/run_scripts")
+_PRO_REPO_DIR = ROOT / "evals/out/swebench_pro/official_harness"
+_PRO_REPO_URL = "https://github.com/scaleapi/SWE-bench_Pro-os.git"
+DEFAULT_PRO_EVAL_SCRIPT = _PRO_REPO_DIR / "swe_bench_pro_eval.py"
+DEFAULT_PRO_SCRIPTS_DIR = _PRO_REPO_DIR / "run_scripts"
 DEFAULT_DOCKERHUB_USERNAME = "jefzda"
 EVAL_SCHEMA = "simple-agent-lab.evaluation.v1"
 
@@ -181,33 +183,42 @@ def run_official_harness(args: argparse.Namespace) -> None:
     subprocess.run(command, cwd=run_dir, check=True)
 
 
-def _ensure_pro_evaluator(pro_eval_script: Path) -> None:
-    """Fetch the official scaleapi evaluator on first use, so `--pro
-    --run-official` stays a single command.
+_PRO_DOCKER_TIMEOUT_S = 600
 
-    Clones https://github.com/scaleapi/SWE-bench_Pro-os into the script's parent
-    directory when it isn't there yet (only into an empty/absent dir, so a
-    hand-placed checkout is never clobbered). The eval script + its per-instance
-    ``run_scripts`` ride in that repo.
-    """
 
-    if pro_eval_script.exists():
+def _ensure_pro_repo(target_dir: Path) -> None:
+    """Clone the SWE-bench_Pro-os repo and patch its Docker timeout."""
+    eval_script = target_dir / "swe_bench_pro_eval.py"
+    if eval_script.exists():
         return
-    repo_dir = pro_eval_script.parent
-    if repo_dir.exists() and any(repo_dir.iterdir()):
-        return
-    print(f"Fetching official Pro evaluator -> {repo_dir} (scaleapi/SWE-bench_Pro-os)")
+    target_dir.parent.mkdir(parents=True, exist_ok=True)
+    print(f"Cloning {_PRO_REPO_URL} → {target_dir} ...")
     subprocess.run(
-        [
-            "git",
-            "clone",
-            "--depth",
-            "1",
-            "https://github.com/scaleapi/SWE-bench_Pro-os.git",
-            str(repo_dir),
-        ],
+        ["git", "clone", "--depth", "1", _PRO_REPO_URL, str(target_dir)],
         check=True,
     )
+    if not eval_script.exists():
+        raise SystemExit(
+            f"Clone succeeded but {eval_script} not found — "
+            "the upstream repo layout may have changed."
+        )
+    _patch_pro_docker_timeout(eval_script)
+
+
+def _patch_pro_docker_timeout(eval_script: Path) -> None:
+    """Replace bare ``docker.from_env()`` with a 600s timeout variant.
+
+    The upstream script defaults to docker-py's 60 s socket timeout which is
+    too short for Go projects that compile before running tests.
+    """
+    text = eval_script.read_text(encoding="utf-8")
+    old = "docker.from_env()"
+    new = f"docker.from_env(timeout={_PRO_DOCKER_TIMEOUT_S})"
+    if old not in text:
+        return
+    patched = text.replace(old, new)
+    eval_script.write_text(patched, encoding="utf-8")
+    print(f"Patched {eval_script.name}: docker timeout → {_PRO_DOCKER_TIMEOUT_S}s")
 
 
 def run_official_pro_harness(args: argparse.Namespace) -> None:
@@ -215,14 +226,15 @@ def run_official_pro_harness(args: argparse.Namespace) -> None:
     if not args.instances:
         raise SystemExit("--instances is required when using --pro --run-official")
     pro_eval_script = Path(args.pro_eval_script)
-    _ensure_pro_evaluator(pro_eval_script)
     if not pro_eval_script.exists():
-        raise SystemExit(
-            f"Official Pro evaluator not found: {pro_eval_script}\n"
-            "Auto-clone of https://github.com/scaleapi/SWE-bench_Pro-os failed; "
-            "clone it manually and pass --pro-eval-script "
-            "/path/to/SWE-bench_Pro-os/swe_bench_pro_eval.py"
-        )
+        if pro_eval_script == DEFAULT_PRO_EVAL_SCRIPT:
+            _ensure_pro_repo(_PRO_REPO_DIR)
+        else:
+            raise SystemExit(
+                f"Official Pro evaluator not found: {pro_eval_script}\n"
+                "Pass --pro-eval-script /path/to/swe_bench_pro_eval.py"
+            )
+    _patch_pro_docker_timeout(pro_eval_script)
 
     predictions_path = Path(args.predictions)
     instances_path = Path(args.instances)
@@ -283,6 +295,8 @@ def run_official_pro_harness(args: argparse.Namespace) -> None:
         args.dockerhub_username,
         "--scripts_dir",
         args.scripts_dir,
+        "--num_workers",
+        str(getattr(args, "max_workers", 1)),
         "--use_local_docker",
         "--redo",
     ]

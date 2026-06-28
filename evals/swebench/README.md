@@ -362,12 +362,9 @@ bash runs/swebench/eval_swebench.sh --multilingual --run-official \
 ```
 
 Official SWE-bench Pro evaluation additionally requires a local checkout of
-`scaleapi/SWE-bench_Pro-os`. The current default expects it at
-`/tmp/SWE-bench_Pro-os`:
-
-```bash
-git clone https://github.com/scaleapi/SWE-bench_Pro-os.git /tmp/SWE-bench_Pro-os
-```
+`scaleapi/SWE-bench_Pro-os`. On first `--pro --run-official` use the harness
+auto-clones it into `evals/out/swebench_pro/official_harness` (and patches the
+docker-py socket timeout up to 600s), so no manual setup is needed.
 
 If your checkout is elsewhere, pass both Pro harness paths explicitly:
 
