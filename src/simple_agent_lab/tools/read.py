@@ -37,6 +37,7 @@ from . import (
     ToolResultContent,
     ToolUpdateFn,
     coerce_int,
+    image_mime_for_suffix,
     text_result,
 )
 
@@ -54,14 +55,6 @@ DEFAULT_MAX_ATTACH_BYTES = 5 * 1024 * 1024  # 5 MiB per inlined image
 # dumping a deep tree into context.
 DEFAULT_READ_DIR_MAX_ENTRIES = 200
 DEFAULT_READ_DIR_MAX_DEPTH = 2
-
-_IMAGE_MIME_BY_SUFFIX: dict[str, str] = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".gif": "image/gif",
-    ".webp": "image/webp",
-}
 
 
 @dataclass(frozen=True)
@@ -210,7 +203,7 @@ def read_file(
             details={"path": str(path), "kind": "directory"},
         )
 
-    mime = _IMAGE_MIME_BY_SUFFIX.get(path.suffix.lower())
+    mime = image_mime_for_suffix(path)
     if mime is not None:
         return _read_image(path, raw_path, mime, max_attach_bytes=max_attach_bytes)
 

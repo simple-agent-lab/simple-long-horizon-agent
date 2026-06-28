@@ -23,9 +23,11 @@ from simple_agent_lab.messages import ImageBlock, TextBlock
 from . import (
     AbortFlag,
     AgentTool,
+    IMAGE_MIME_BY_SUFFIX,
     ToolExecutionMode,
     ToolResult,
     ToolUpdateFn,
+    image_mime_for_suffix,
     text_result,
 )
 
@@ -48,14 +50,6 @@ NON_INTERACTIVE_BASH_ENV: dict[str, str] = {
     "LESS": "-R",
     "PIP_PROGRESS_BAR": "off",
     "TQDM_DISABLE": "1",
-}
-
-_IMAGE_MIME_BY_SUFFIX: dict[str, str] = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".gif": "image/gif",
-    ".webp": "image/webp",
 }
 
 
@@ -487,11 +481,11 @@ def _attach_files(
         if not candidate.is_file():
             notes.append(f"attach path {raw!r} is not a file")
             continue
-        mime = _IMAGE_MIME_BY_SUFFIX.get(candidate.suffix.lower())
+        mime = image_mime_for_suffix(candidate)
         if mime is None:
             notes.append(
                 f"attach path {raw!r}: unsupported extension {candidate.suffix!r}"
-                f" (allowed: {sorted(_IMAGE_MIME_BY_SUFFIX)})"
+                f" (allowed: {sorted(IMAGE_MIME_BY_SUFFIX)})"
             )
             continue
         size = candidate.stat().st_size

@@ -12,6 +12,7 @@ through to the LLM access layer without an intermediate translation step.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Literal
 
 from simple_agent_lab.messages import ImageBlock, TextBlock
@@ -20,6 +21,7 @@ from simple_agent_lab.messages import ImageBlock, TextBlock
 __all__ = [
     "AgentTool",
     "AbortFlag",
+    "IMAGE_MIME_BY_SUFFIX",
     "Tool",
     "ToolExecuteFn",
     "ToolExecutionMode",
@@ -27,6 +29,7 @@ __all__ = [
     "ToolResultContent",
     "ToolUpdateFn",
     "coerce_int",
+    "image_mime_for_suffix",
     "task_tool",
     "text_result",
     "tool_result_text",
@@ -40,6 +43,23 @@ ToolExecutionMode = Literal["sequential", "parallel"]
 AbortFlag = Callable[[], bool]
 
 ToolResultContent = tuple[TextBlock | ImageBlock, ...]
+
+# The image extensions tools are willing to inline as attachments, mapped to the
+# MIME type the LLM access layer expects. Shared by the read and bash tools so
+# both honor exactly the same set; widen it here and both pick it up.
+IMAGE_MIME_BY_SUFFIX: dict[str, str] = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+
+
+def image_mime_for_suffix(path: Path) -> str | None:
+    """Return the inline-image MIME type for `path`'s suffix, or None if unsupported."""
+
+    return IMAGE_MIME_BY_SUFFIX.get(path.suffix.lower())
 
 
 @dataclass(frozen=True)
