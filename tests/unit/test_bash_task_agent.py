@@ -69,6 +69,23 @@ class BashTaskAgentTest(unittest.TestCase):
             f"Addendum should stay short; got ~{addendum_lines} sentences.",
         )
 
+    def test_system_prompt_strongly_prefers_task_without_extra_examples(
+        self,
+    ) -> None:
+        self.assertIn("Use `task` aggressively as the default", BASH_TASK_ADDENDUM)
+        self.assertIn(
+            "delegate multiple independent sub-tasks separately", BASH_TASK_ADDENDUM
+        )
+        self.assertIn("When uncertain, delegate", BASH_TASK_ADDENDUM)
+        self.assertNotIn("aggressively and repeatedly", BASH_TASK_ADDENDUM)
+        for example in (
+            "locating relevant code",
+            "reading long files",
+            "tracing failing tests",
+            "collecting evidence before an edit",
+        ):
+            self.assertNotIn(example, BASH_TASK_ADDENDUM)
+
     def test_delegating_to_general_purpose_returns_sub_agent_final_as_tool_result(
         self,
     ) -> None:

@@ -238,12 +238,12 @@ BASH_TASK_AGENT_DEFAULT_ROLE = (
 # inherits all of its phrasing and only learns the extra `task` affordance.
 BASH_TASK_ADDENDUM = (
     "You also have a `task` tool that delegates a self-contained sub-task "
-    "to a worker agent and returns its final summary. It fits investigation "
-    "steps well (locating relevant code, mapping how a feature is used, "
-    "reading a long file, tracing a failing test), since it keeps your own "
-    "context focused. Decide for yourself when delegating is worth it versus "
-    "running `bash` directly, based on the task's size and how much "
-    "exploration it needs."
+    "to a worker agent and returns its final summary. Use `task` aggressively "
+    "as the default for any reasonably self-contained sub-task; delegate "
+    "multiple independent sub-tasks separately instead of handling them "
+    "yourself with `bash`. Use direct `bash` only when delegation would "
+    "clearly be unnecessary or when you must run the final local command "
+    "yourself. When uncertain, delegate."
 )
 BASH_TASK_AGENT_SYSTEM_PROMPT = BASH_AGENT_SYSTEM_PROMPT + "\n\n" + BASH_TASK_ADDENDUM
 

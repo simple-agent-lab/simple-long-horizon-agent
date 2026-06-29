@@ -8,6 +8,7 @@
 #   bash runs/swebench/run_swebench.sh --variant pro --all --parallel 4 # pro, full split, 4 at a time
 #
 # Requires Docker, `uv sync --extra swebench`, and a .env with provider credentials.
+# Optional: set OPENAI_AUTH_TOKEN2 in .env to alternate keys across --all runs.
 # Downloading uncached dataset records uses `datasets`.
 
 set -euo pipefail
@@ -24,9 +25,10 @@ PARALLEL=1
 PULL=""
 POSITIONAL=()
 FETCH_PYTHON=()
+SECONDARY_OPENAI_AUTH_TOKEN=""
 
 usage() {
-  sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 while [ "$#" -gt 0 ]; do
@@ -107,7 +109,7 @@ case "$VARIANT" in
     WHEELHOUSE="evals/out/swebench_pro/wheelhouse/cp311-manylinux"
     WHEELHOUSE_CONST="DEFAULT_PRO_WHEELHOUSE"
     MODEL_NAME="simple-agent-lab-pro"
-    MAX_TURNS=40
+    MAX_TURNS=250
     TITLE="SWE-bench Pro"
     ;;
   *)
@@ -233,6 +235,27 @@ ensure_default_instance_id() {
   DEFAULT_INSTANCE_ID="${INSTANCE_IDS[0]}"
 }
 
+load_secondary_openai_auth_token() {
+  if [ -n "${SECONDARY_OPENAI_AUTH_TOKEN:-}" ]; then
+    return
+  fi
+  if [ -n "${OPENAI_AUTH_TOKEN2:-}" ]; then
+    SECONDARY_OPENAI_AUTH_TOKEN="$OPENAI_AUTH_TOKEN2"
+    return
+  fi
+  if [ ! -f .env ]; then
+    return
+  fi
+  SECONDARY_OPENAI_AUTH_TOKEN="$("${PYTHON[@]}" - <<'PY'
+from simple_agent_lab.llm.env import load_dotenv
+
+env = {}
+load_dotenv(".env", environ=env)
+print(env.get("OPENAI_AUTH_TOKEN2", ""))
+PY
+)"
+}
+
 run_container() {
   local instance_json="$1"
   local instance_id="$2"
@@ -261,6 +284,16 @@ run_container() {
   "${PYTHON[@]}" "${args[@]}" "$@"
 }
 
+run_container_for_index() {
+  local job_index="$1"
+  shift
+  if [ -n "$SECONDARY_OPENAI_AUTH_TOKEN" ] && [ $((job_index % 2)) -eq 1 ]; then
+    OPENAI_AUTH_TOKEN="$SECONDARY_OPENAI_AUTH_TOKEN"
+    export OPENAI_AUTH_TOKEN
+  fi
+  run_container "$@"
+}
+
 running_jobs() {
   jobs -pr | wc -l | tr -d ' '
 }
@@ -276,10 +309,16 @@ collect_predictions() {
 
 if [ "$RUN_ALL" -eq 1 ]; then
   fetch_all_instances
+  load_secondary_openai_auth_token
   echo "=== ${TITLE} full split ==="
   echo "Run ID: $RUN_ID"
   echo "Instances: ${#INSTANCE_IDS[@]}"
   echo "Parallel: $PARALLEL"
+  if [ -n "$SECONDARY_OPENAI_AUTH_TOKEN" ]; then
+    echo "OpenAI auth tokens: 2 (round-robin per instance)"
+  else
+    echo "OpenAI auth tokens: 1"
+  fi
   echo ""
 
   echo "Preparing wheelhouse and Linux uv once before launching batch..."
@@ -294,6 +333,7 @@ PY
 
   FAIL=0
   PIDS=()
+  job_index=0
   for instance_id in "${INSTANCE_IDS[@]}"; do
     # Throttle to PARALLEL. macOS ships bash 3.2, which has no `wait -n`, so poll
     # the running-job count and sleep until a slot frees instead.
@@ -303,8 +343,9 @@ PY
     log="${CONTAINER_RUN_ROOT}/${RUN_ID}/${instance_id}.log"
     mkdir -p "$(dirname "$log")"
     echo "Starting: ${instance_id}"
-    run_container "$INSTANCE_JSON" "$instance_id" > "$log" 2>&1 &
+    run_container_for_index "$job_index" "$INSTANCE_JSON" "$instance_id" > "$log" 2>&1 &
     PIDS+=("$!")
+    job_index=$((job_index + 1))
   done
 
   # Drain: wait each launched job and count failures (bash-3.2-safe).
