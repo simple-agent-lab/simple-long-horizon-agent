@@ -32,6 +32,7 @@ Pass-through request options via `LLMRequest.extra`:
                                            ``LLMRequest.reasoning`` knob,
                                            e.g. {"effort": "low"})
     extra["extra_headers"]: dict          (request headers)
+    extra["include"]      : list[str]
     extra["metadata"]     : dict
     extra["store"]        : bool
     extra["user"]         : str
@@ -115,6 +116,7 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         "reasoning",
         "extra_headers",
         "metadata",
+        "include",
         "store",
         "user",
         "previous_response_id",

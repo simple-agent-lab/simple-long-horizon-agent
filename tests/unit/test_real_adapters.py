@@ -945,6 +945,50 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
 
         self.assertFalse([i for i in captured["input"] if i["type"] == "reasoning"])
 
+    def test_passes_stateful_response_options_without_forcing_include(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(
+            _responses_response(text_blocks=["done"]), captured, kind="responses"
+        )
+        req = LLMRequest(
+            provider=OPENAI_RESPONSES_PROVIDER,
+            messages=[LLMMessage(role="user", content="hi")],
+            extra={"store": True, "previous_response_id": "resp_prev"},
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            complete(req)
+
+        self.assertIs(captured["store"], True)
+        self.assertEqual(captured["previous_response_id"], "resp_prev")
+        self.assertNotIn("include", captured)
+
+    def test_passes_encrypted_reasoning_include_with_stateful_options(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(
+            _responses_response(text_blocks=["done"]), captured, kind="responses"
+        )
+        req = LLMRequest(
+            provider=OPENAI_RESPONSES_PROVIDER,
+            messages=[LLMMessage(role="user", content="hi")],
+            extra={
+                "include": ["reasoning.encrypted_content"],
+                "store": True,
+                "previous_response_id": "resp_prev",
+            },
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            complete(req)
+
+        self.assertEqual(captured["include"], ["reasoning.encrypted_content"])
+        self.assertIs(captured["store"], True)
+        self.assertEqual(captured["previous_response_id"], "resp_prev")
+
     def test_incomplete_max_tokens_maps_to_max_tokens_stop(self) -> None:
         captured: dict[str, Any] = {}
         module = _stub_openai(

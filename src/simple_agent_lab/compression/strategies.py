@@ -59,7 +59,7 @@ from ..messages import (
     tool_results_of,
 )
 from ..protocols import ModelRequestEvent, ModelResponseEvent
-from .runtime import _active_context_tokens, _tool_partners
+from .runtime import _active_context_tokens, _align_tool_pairs, _tool_partners
 
 if TYPE_CHECKING:
     from ..core import Agent
@@ -246,7 +246,9 @@ class SummarizeStrategy:
         droppable = [item for item in active if item[1].kind not in self.preserve_kinds]
         if len(droppable) <= self.keep_recent:
             return None
-        to_compress = droppable[: -self.keep_recent] if self.keep_recent else droppable
+        candidate = droppable[: -self.keep_recent] if self.keep_recent else droppable
+        compress_set = _align_tool_pairs(active, {index for index, _ in candidate})
+        to_compress = [item for item in candidate if item[0] in compress_set]
         if not to_compress:
             return None
 

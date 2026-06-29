@@ -34,6 +34,12 @@ from simple_agent_lab import (
 from simple_agent_lab.compression import summarize_compression
 from simple_agent_lab.llm import Provider
 from simple_agent_lab.messages import TextBlock, ToolCallBlock
+from simple_agent_lab.messages import (
+    ToolResultBlock,
+    message_tool_calls,
+    tool_results_message,
+    tool_results_of,
+)
 from simple_agent_lab.tools import make_recall_tool, tool_result_text
 
 THRESHOLD = 4000
@@ -204,6 +210,143 @@ class RecoverabilityTest(unittest.TestCase):
         )
         self.assertFalse(result.is_error)
         self.assertIn(secret, tool_result_text(result))
+
+
+class ToolPairSafetyTest(unittest.TestCase):
+    def test_summarize_compressor_input_does_not_split_tool_pairs(self) -> None:
+        captured: dict[str, list[Message]] = {}
+
+        def compressor(visible: list[Message]) -> Message:
+            captured["visible"] = visible
+            return assistant_message(
+                "summary", sender="c", target="runtime", kind="final"
+            )
+
+        active = [
+            (0, assistant_message("task", sender="user", target="w", kind="task")),
+            (
+                1,
+                assistant_message(
+                    [ToolCallBlock("call_split", "read_file", {"path": "a.py"})],
+                    sender="w",
+                    target="user",
+                    kind="step",
+                ),
+            ),
+            (
+                2,
+                tool_results_message(
+                    [
+                        ToolResultBlock(
+                            "call_split",
+                            "read_file",
+                            (TextBlock("file contents"),),
+                        )
+                    ],
+                    target="w",
+                ),
+            ),
+        ]
+        strategy = SummarizeStrategy(
+            compressor=Agent("c", compressor),
+            threshold_tokens=1,
+            keep_recent=1,
+        )
+
+        decision = strategy(active, "w")
+
+        self.assertIsNone(decision)
+        self.assertNotIn("visible", captured)
+        seen = captured.get("visible", [])
+        seen_calls = {
+            call.id for message in seen for call in message_tool_calls(message)
+        }
+        seen_results = {
+            block.tool_call_id
+            for message in seen
+            for block in tool_results_of(message.content)
+        }
+        self.assertEqual(seen_calls, seen_results)
+
+    def test_summarize_compressor_input_drops_split_boundary_pair_only(self) -> None:
+        captured: dict[str, list[Message]] = {}
+
+        def compressor(visible: list[Message]) -> Message:
+            captured["visible"] = visible
+            return assistant_message(
+                "summary", sender="c", target="runtime", kind="final"
+            )
+
+        active = [
+            (0, assistant_message("task", sender="user", target="w", kind="task")),
+            (
+                1,
+                assistant_message(
+                    [ToolCallBlock("call_old", "read_file", {"path": "old.py"})],
+                    sender="w",
+                    target="user",
+                    kind="step",
+                ),
+            ),
+            (
+                2,
+                tool_results_message(
+                    [
+                        ToolResultBlock(
+                            "call_old",
+                            "read_file",
+                            (TextBlock("old contents"),),
+                        )
+                    ],
+                    target="w",
+                ),
+            ),
+            (
+                3,
+                assistant_message(
+                    [ToolCallBlock("call_new", "read_file", {"path": "new.py"})],
+                    sender="w",
+                    target="user",
+                    kind="step",
+                ),
+            ),
+            (
+                4,
+                tool_results_message(
+                    [
+                        ToolResultBlock(
+                            "call_new",
+                            "read_file",
+                            (TextBlock("new contents"),),
+                        )
+                    ],
+                    target="w",
+                ),
+            ),
+            (5, assistant_message("tail", sender="w", target="user", kind="step")),
+        ]
+        strategy = SummarizeStrategy(
+            compressor=Agent("c", compressor),
+            threshold_tokens=1,
+            keep_recent=2,
+        )
+
+        decision = strategy(active, "w")
+
+        self.assertIsNotNone(decision)
+        assert decision is not None
+        self.assertEqual(decision.compress_indices, (1, 2))
+        seen = captured["visible"]
+        seen_calls = {
+            call.id for message in seen for call in message_tool_calls(message)
+        }
+        seen_results = {
+            block.tool_call_id
+            for message in seen
+            for block in tool_results_of(message.content)
+        }
+        self.assertEqual(seen_calls, {"call_old"})
+        self.assertEqual(seen_results, {"call_old"})
 
 
 def _run_text_heavy(policy: ContextPolicy, n_steps: int) -> list:
