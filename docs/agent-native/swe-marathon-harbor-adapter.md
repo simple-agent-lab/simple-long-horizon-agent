@@ -44,6 +44,9 @@ Support these inputs explicitly:
 - `SIMPLE_AGENT_LAB_SOURCE`: optional source used inside task containers;
   closed-internet tasks should use a local wheel or source tree mounted into the
   container instead of a network install.
+- `SIMPLE_AGENT_LAB_WHEELHOUSE`: optional local wheelhouse mounted into the
+  task container; the helper uses it to set `SIMPLE_AGENT_LAB_PIP_ARGS` for
+  offline dependency installation.
 
 Any helper script should either use `SWE_MARATHON_TASKS_DIR` or clone into an
 ignored local artifact directory such as `evals/out/swe-marathon/deps/`. It
@@ -55,28 +58,35 @@ the path it created or the path the user explicitly supplied.
 
 The branch has `adapters/harbor_agent.py`, a Harbor `BaseInstalledAgent` that:
 
-- installs Simple Agent Lab in the task container;
+- installs Simple Agent Lab in the task container, using
+  `SIMPLE_AGENT_LAB_SOURCE` when supplied;
 - forwards a Harbor model like `openai/<model_id>` as `OPENAI_MODEL`;
 - maps `OPENAI_AUTH_TOKEN` or `OPENAI_API_KEY` to Simple Agent Lab's
   `OPENAI_AUTH_TOKEN`;
-- runs `make_bash_agent(...)` in the container workspace;
-- logs stdout and stderr to `/logs/agent/sal.log`.
+- forwards provider and trace env such as `OPENAI_BASE_URL`, `API_KIND`,
+  `REASONING_EFFORT`, `OPENAI_SESSION_ID`, and `OPENAI_LOG_ID`;
+- detects the task workspace from `SAL_WORKDIR`, current working directory, and
+  known SWE-Marathon paths such as `/workspace/rust-java-lsp`, `/app/rj-rust`,
+  `/workspace`, and `/app`;
+- runs the selected simple agent flavor (`SAL_AGENT_FLAVOR`, default
+  `bash_task`) through `build_flavor_agent(...)`;
+- logs stdout and stderr to `/logs/agent/sal.log`;
+- writes native Simple Agent Lab trace artifacts under `/logs/agent/sal/`;
+- writes Harbor ATIF `trajectory.json` and backfills `AgentContext` token and
+  cost fields from its final metrics.
 
-That is enough for an early smoke path, but not enough for reliable
-SWE-Marathon runs.
+That is enough for smoke and first CPU SWE-Marathon runs. It is not yet a
+claim that the default agent solves the long-horizon tasks.
 
-Known gaps:
+Remaining gaps:
 
-- The adapter assumes `/app`, while inspected SWE-Marathon tasks also use
-  `/workspace`, `/workspace/rust-java-lsp`, and `/app/rj-rust`.
-- Container install currently depends on network access, which fails for
-  closed-internet tasks unless a local source or wheel is mounted.
-- The adapter forwards only a small env subset and should use Harbor
-  `extra_env` accessors rather than direct `os.environ` reads.
-- It does not write Harbor ATIF `agent/trajectory.json`.
-- It leaves `AgentContext` token and cost fields empty.
-- It only exposes the plain bash agent, while long-horizon tasks may need
-  `bash_task` or `bash_skills`.
+- Closed-internet tasks still need a local source or wheel mounted through
+  `SIMPLE_AGENT_LAB_SOURCE`, plus any dependency wheelhouse required by the
+  target image.
+- ATIF conversion is intentionally lossy; use the native
+  `/logs/agent/sal/trajectory.jsonl` for full replay/debugging.
+- Long-horizon tasks may need stronger flavors, prompt changes, or workflow
+  arms beyond the default `bash_task`.
 
 ## SWE-Marathon Shape
 
@@ -155,12 +165,15 @@ The first useful user-facing command should make these assumptions explicit:
 ```bash
 SWE_MARATHON_TASKS_DIR=... \
 SIMPLE_AGENT_LAB_SOURCE=... \
-harbor run \
-  -p "$SWE_MARATHON_TASKS_DIR/find-network-alignments" \
-  --agent adapters.harbor_agent:SimpleAgentLab \
-  --model openai/<model-id> \
-  --allow-agent-host <model-gateway-host>
+bash runs/swe-marathon/run_swe_marathon.sh find-network-alignments
 ```
 
-The actual helper script may wrap this, but it should preserve the same
-configuration surface instead of baking in local absolute paths.
+The helper preserves the same configuration surface instead of baking in local
+absolute paths. It uses `SWE_MARATHON_TASKS_DIR` when set; otherwise it clones
+`SWE_MARATHON_REPO_URL` into `evals/out/swe-marathon/deps/` and checks out
+`SWE_MARATHON_REF` when provided. It runs `harbor` from `PATH`, or falls back to
+`uvx --from "$HARBOR_SOURCE" harbor`. For local Simple Agent Lab source trees,
+it bind-mounts the source into the task container and passes
+`SIMPLE_AGENT_LAB_SOURCE=/opt/simple-agent-lab/source`. When
+`SIMPLE_AGENT_LAB_WHEELHOUSE` is set, it also bind-mounts that wheelhouse and
+uses `--no-index --find-links` install args for in-container pip.

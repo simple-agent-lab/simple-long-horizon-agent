@@ -41,6 +41,7 @@ class RunsScriptsTest(unittest.TestCase):
             ROOT / "runs/swebench/setup_swebench_docker.sh",
             ROOT / "runs/swebench/run_swebench_gold_smoke.sh",
             ROOT / "runs/swebench/run_swebench.sh",
+            ROOT / "runs/swe-marathon/run_swe_marathon.sh",
         ]
 
         for script in scripts:
@@ -63,6 +64,27 @@ class RunsScriptsTest(unittest.TestCase):
         self.assertIn("--extra swebench", text)
         self.assertIn("wait -n", text)
         self.assertIn("--collect-predictions", text)
+
+    def test_swe_marathon_run_script_has_clean_machine_inputs(self) -> None:
+        text = (ROOT / "runs/swe-marathon/run_swe_marathon.sh").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("SWE_MARATHON_TASKS_DIR", text)
+        self.assertIn("SWE_MARATHON_REPO_URL", text)
+        self.assertIn("SWE_MARATHON_REF", text)
+        self.assertIn("HARBOR_SOURCE", text)
+        self.assertIn("SIMPLE_AGENT_LAB_SOURCE", text)
+        self.assertIn("SIMPLE_AGENT_LAB_WHEELHOUSE", text)
+        self.assertIn("SIMPLE_AGENT_LAB_PIP_ARGS", text)
+        self.assertIn("evals/out/swe-marathon/deps", text)
+        self.assertIn("--agent-import-path", text)
+        self.assertIn("adapters.harbor_agent:SimpleAgentLab", text)
+        self.assertIn("--mounts-json", text)
+        self.assertIn("--jobs-dir", text)
+        self.assertNotIn("--trials-dir", text)
+        self.assertIn("--override-gpus 0", text)
+        self.assertIn("find-network-alignments", text)
 
     def test_swebench_run_scripts_load_provider_settings_from_dotenv(self) -> None:
         text = (ROOT / "runs/swebench/run_swebench.sh").read_text(encoding="utf-8")
@@ -178,6 +200,7 @@ class RunsScriptsTest(unittest.TestCase):
             "profiles",
             "lib",
             "swebench",
+            "swe-marathon",
             "programbench",
             "demos",
             "dev",

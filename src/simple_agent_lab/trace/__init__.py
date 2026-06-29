@@ -14,6 +14,7 @@ splits the work by concern so each piece stays small and readable:
 - ``training`` — ``ModelTurn`` model and provider-neutral training pairs.
 - ``openai_export`` — OpenAI Chat fine-tuning JSONL export (the package's
   one provider-specific module).
+- ``atif`` — a small Harbor ATIF projection for installed-agent runs.
 - ``run_trace`` — ``RunTrace`` value plus the canonical record schema.
 - ``live`` — the IO/concurrency-heavy incremental ("live") export edge.
 
@@ -30,6 +31,7 @@ from .jsonl import (
     write_jsonl,
     write_jsonl_atomic,
 )
+from .atif import ATIF_SCHEMA_VERSION, atif_trajectory_from_run
 from .live import (
     IncrementalTraceWriter,
     LiveTraceSession,
@@ -77,6 +79,8 @@ __all__ = [
     "Span",
     "TraceMeta",
     "append_openai_training_record",
+    "ATIF_SCHEMA_VERSION",
+    "atif_trajectory_from_run",
     "collect_agents",
     "default_stderr_flush_error",
     "event_record",

@@ -14,6 +14,7 @@ runs/
   _benches/                  # internal per-bench modules (imported by run_bench.py)
   lib/                       # shared sourced helpers (_python.sh, _swebench_uv.sh)
   swebench/                  # SWE-bench batch/setup/eval scripts
+  swe-marathon/              # SWE-Marathon through Harbor
   programbench/              # ProgramBench batch/setup scripts
   demos/                     # bash-agent / MCP / trace-viewer demos
   dev/                       # run_ci.sh, run_docs_lint.sh
@@ -46,6 +47,7 @@ bash runs/swebench/run_swebench.sh
 bash runs/swebench/run_swebench.sh --variant multilingual
 bash runs/swebench/run_swebench.sh --variant pro
 bash runs/swebench/eval_swebench.sh
+bash runs/swe-marathon/run_swe_marathon.sh
 ```
 
 `runs/dev/run_ci.sh` mirrors the GitHub Actions workflow at
@@ -125,3 +127,24 @@ bash runs/swebench/eval_swebench.sh --pro --predictions evals/out/swebench_pro/s
 
 See `evals/swebench/README.md` for detailed Docker setup, macOS arm64
 workarounds, and troubleshooting.
+
+## SWE-Marathon (Harbor)
+
+SWE-Marathon runs through Harbor rather than the native Suite framework:
+
+```bash
+SWE_MARATHON_TASKS_DIR=/path/to/swe-marathon \
+SIMPLE_AGENT_LAB_SOURCE="$PWD" \
+SAL_MAX_TURNS=1 \
+bash runs/swe-marathon/run_swe_marathon.sh find-network-alignments
+```
+
+If `SWE_MARATHON_TASKS_DIR` is unset, the script clones
+`SWE_MARATHON_REPO_URL` into `evals/out/swe-marathon/deps/`. If `harbor` is not
+on `PATH`, it runs Harbor through `uvx --from "$HARBOR_SOURCE" harbor`. The
+script mounts a local `SIMPLE_AGENT_LAB_SOURCE` into the task container, can
+mount `SIMPLE_AGENT_LAB_WHEELHOUSE` for offline pip dependencies, and sets
+`--override-gpus 0` so the default smoke path stays CPU-only. Artifacts land
+under `evals/out/swe-marathon/jobs/`; Harbor verifier results are under each
+trial's `verifier/` logs, and the adapter writes `agent/trajectory.json`
+(Harbor ATIF) plus `agent/sal/trajectory.jsonl` (native Simple Agent Lab trace).
