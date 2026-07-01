@@ -71,6 +71,7 @@ from .bridge import (
     messages_to_llm_messages,
     tool_to_llm_tool,
 )
+from .json_extract import extract_json_object
 from .retry import (
     complete_with_retry,
     complete_with_tool_call_retry,
@@ -155,6 +156,7 @@ __all__ = [
     "complete",
     "complete_with_retry",
     "complete_with_tool_call_retry",
+    "extract_json_object",
     "invalid_tool_call_reasons",
     "is_retryable_llm_error",
     "iter_stream",

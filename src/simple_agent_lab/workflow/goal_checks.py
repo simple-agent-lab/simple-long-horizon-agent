@@ -16,14 +16,12 @@ Ways to decide "is the objective verifiably done?":
 
 from __future__ import annotations
 
-import json
-import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from simple_agent_lab.core import Agent
-from simple_agent_lab.llm import Provider
+from simple_agent_lab.llm import Provider, extract_json_object
 from simple_agent_lab.llm_agent import make_llm_agent
 from simple_agent_lab.messages import tool_results_of
 from simple_agent_lab.state import State
@@ -185,23 +183,7 @@ def _judge_prompt(objective: str, transcript: str) -> str:
 
 def _parse_judge_json(output: str) -> dict[str, Any]:
     """Extract the first JSON object from `output`; fall back to done=false."""
-    # Try direct parse first
-    try:
-        parsed = json.loads(output.strip())
-        if isinstance(parsed, dict):
-            return parsed
-    except json.JSONDecodeError:
-        pass
-    # Try to extract the first {...} object from prose
-    match = re.search(r"\{[^{}]*\}", output, re.DOTALL)
-    if match:
-        try:
-            parsed = json.loads(match.group())
-            if isinstance(parsed, dict):
-                return parsed
-        except json.JSONDecodeError:
-            pass
-    return {"done": False, "reason": "parse failure"}
+    return extract_json_object(output) or {"done": False, "reason": "parse failure"}
 
 
 def judge_agent_check(judge: Agent, objective: str) -> CompletionCheck:
