@@ -14,7 +14,7 @@ import inspect
 import json
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Callable, Literal, cast
+from typing import Any, Callable, cast
 
 from simple_agent_lab.agents.flavors import build_flavor_agent
 from simple_agent_lab.compression import SummarizeStrategy, summarize_compression
@@ -32,12 +32,7 @@ from simple_agent_lab.evals.stores import container_store_from_env
 from simple_agent_lab.llm import Provider
 from simple_agent_lab.llm.env import API_KIND_CHOICES, request_extra_from_env
 from simple_agent_lab.llm_agent import make_llm_agent
-from simple_agent_lab.messages import (
-    is_tool_result_message,
-    message_tool_calls,
-    tool_results_of,
-    user_message,
-)
+from simple_agent_lab.messages import tool_results_of
 from simple_agent_lab.protocols import (
     ContextCompressionEvent,
     Event,
@@ -49,6 +44,15 @@ from simple_agent_lab.state import State
 from simple_agent_lab.trace import event_stream, run_trace_from_state
 
 from .container import AGENT_NAME, AGENT_ROLE, AGENT_SYSTEM_PROMPT
+from .repo_session_context import (
+    INVALID_PROMPT_TOOL_RETRY_LIMIT,
+    drop_instance_task_for_invalid_prompt_skip,
+    end_instance_after_invalid_prompt_tool_retry_limit,
+    invalid_prompt_source,
+    is_invalid_prompt_error,
+    repair_active_tool_pairs,
+    replace_latest_tool_exchange_for_invalid_prompt,
+)
 from .repo_session_state import (
     SESSION_CONFIG_KEY,
     SESSION_STATE_INPUT_KEY,
@@ -60,16 +64,7 @@ from .repo_session_state import (
 )
 
 ENCRYPTED_REASONING_INCLUDE = "reasoning.encrypted_content"
-INVALID_PROMPT_TOOL_REMINDER = (
-    "刚刚的工具调用及其输出会触发 invalid_prompt，已从上下文移除。请使用其他命令继续。"
-)
-INVALID_PROMPT_INSTANCE_END_MESSAGE = (
-    "上一道题 {instance_id} 在这里结束；因为工具输出持续触发 invalid_prompt，"
-    "已跳过该实例。继续下一道题。"
-)
-INVALID_PROMPT_TOOL_RETRY_LIMIT = 20
 CONTEXT_WINDOW_RESET_REASON = "context_window_reset"
-InvalidPromptSource = Literal["instance_task", "tool_output", "unknown"]
 
 
 def run_repo_session_in_container(
@@ -131,16 +126,16 @@ def run_repo_session_in_container(
             config=config,
         )
         while status == "ok":
-            _repair_active_tool_pairs(state, agent_name=AGENT_NAME)
+            repair_active_tool_pairs(state, agent_name=AGENT_NAME)
             turn_budget = _remaining_turn_budget(state.events[event_start:], max_turns)
             if turn_budget <= 0:
-                prompt_source = _invalid_prompt_source(state, instance_id=instance_id)
+                prompt_source = invalid_prompt_source(state, instance_id=instance_id)
                 if prompt_source == "tool_output" or invalid_prompt_retries:
-                    _end_instance_after_invalid_prompt_tool_retry_limit(
+                    end_instance_after_invalid_prompt_tool_retry_limit(
                         state, agent_name=AGENT_NAME, instance_id=instance_id
                     )
                 elif prompt_source == "instance_task":
-                    _drop_instance_task_for_invalid_prompt_skip(
+                    drop_instance_task_for_invalid_prompt_skip(
                         state, agent_name=AGENT_NAME, instance_id=instance_id
                     )
                 status = "skipped"
@@ -183,12 +178,12 @@ def run_repo_session_in_container(
                         task=str(task),
                     )
                     continue
-                if not _is_invalid_prompt_error(exc):
+                if not is_invalid_prompt_error(exc):
                     raise
-                prompt_source = _invalid_prompt_source(state, instance_id=instance_id)
+                prompt_source = invalid_prompt_source(state, instance_id=instance_id)
                 provider_error = f"{type(exc).__name__}: {exc}"
                 if prompt_source == "instance_task":
-                    _drop_instance_task_for_invalid_prompt_skip(
+                    drop_instance_task_for_invalid_prompt_skip(
                         state, agent_name=AGENT_NAME, instance_id=instance_id
                     )
                     status = "skipped"
@@ -197,17 +192,17 @@ def run_repo_session_in_container(
                     break
                 if prompt_source == "tool_output" or invalid_prompt_retries:
                     if invalid_prompt_retries >= INVALID_PROMPT_TOOL_RETRY_LIMIT:
-                        _end_instance_after_invalid_prompt_tool_retry_limit(
+                        end_instance_after_invalid_prompt_tool_retry_limit(
                             state, agent_name=AGENT_NAME, instance_id=instance_id
                         )
                         status = "skipped"
                         skip_reason = "invalid_prompt_tool_output_retry_limit"
                         error = provider_error
                         break
-                    if not _replace_latest_tool_exchange_for_invalid_prompt(
+                    if not replace_latest_tool_exchange_for_invalid_prompt(
                         state, agent_name=AGENT_NAME
                     ):
-                        _end_instance_after_invalid_prompt_tool_retry_limit(
+                        end_instance_after_invalid_prompt_tool_retry_limit(
                             state, agent_name=AGENT_NAME, instance_id=instance_id
                         )
                         status = "skipped"
@@ -413,232 +408,6 @@ def _context_kwargs(
     return {"context": context} if "context" in inspect.signature(fn).parameters else {}
 
 
-def _is_invalid_prompt_error(exc: BaseException) -> bool:
-    text = f"{type(exc).__name__}: {exc}".casefold()
-    code = getattr(exc, "code", None)
-    status_code = getattr(exc, "status_code", None)
-    return (
-        "invalid_prompt" in text
-        or "invalid prompt" in text
-        or "-4321" in text
-        or code == -4321
-        or status_code == -4321
-    )
-
-
-def _invalid_prompt_source(state: State, *, instance_id: str) -> InvalidPromptSource:
-    for _, message in reversed(state.active_context_items()):
-        if getattr(message, "role", "") != "user":
-            continue
-        if is_tool_result_message(message):
-            return "tool_output"
-        if _message_swebench_instance_id(message) == instance_id:
-            return "instance_task"
-        return "unknown"
-    return "unknown"
-
-
-def _replace_latest_tool_exchange_for_invalid_prompt(
-    state: State, *, agent_name: str
-) -> bool:
-    active_items = state.active_context_items()
-    tool_result_index: int | None = None
-    tool_call_ids: set[str] = set()
-    for index, message in reversed(active_items):
-        if is_tool_result_message(message):
-            tool_result_index = index
-            tool_call_ids = {
-                block.tool_call_id for block in tool_results_of(message.content)
-            }
-            break
-    if tool_result_index is None:
-        return False
-    dropped = _tool_exchange_indices(active_items, tool_call_ids)
-    if not dropped:
-        return False
-    replacement = user_message(
-        INVALID_PROMPT_TOOL_REMINDER,
-        sender="user",
-        target=agent_name,
-        kind="context",
-    )
-    state.record(replacement)
-    replacement_index = len(state.messages) - 1
-    active_context_indices: list[int] = []
-    inserted = False
-    for index, _ in active_items:
-        if index in dropped:
-            if not inserted:
-                active_context_indices.append(replacement_index)
-                inserted = True
-            continue
-        active_context_indices.append(index)
-    state.record_event(
-        ContextCompressionEvent(
-            agent=agent_name,
-            summary_message_index=replacement_index,
-            compressed_message_indices=sorted(dropped),
-            active_context_indices=active_context_indices,
-            before_tokens=0,
-            after_tokens=0,
-            strategy="invalid-prompt-tool-exchange-replace",
-        )
-    )
-    return True
-
-
-def _tool_exchange_indices(
-    active_items: list[tuple[int, Any]], tool_call_ids: set[str]
-) -> set[int]:
-    wanted = set(tool_call_ids)
-    dropped: set[int] = set()
-    changed = True
-    while changed:
-        changed = False
-        for index, message in active_items:
-            calls = message_tool_calls(message)
-            result_ids = {
-                block.tool_call_id for block in tool_results_of(message.content)
-            }
-            if calls and any(call.id in wanted for call in calls):
-                before = len(wanted)
-                wanted.update(call.id for call in calls)
-                dropped.add(index)
-                changed = changed or len(wanted) != before
-            if result_ids and result_ids & wanted:
-                before = len(wanted)
-                wanted.update(result_ids)
-                dropped.add(index)
-                changed = changed or len(wanted) != before
-    return dropped
-
-
-def _repair_active_tool_pairs(state: State, *, agent_name: str) -> bool:
-    active_items = state.active_context_items()
-    kept = _tool_pair_safe_indices(active_items)
-    if len(kept) == len(active_items):
-        return False
-    dropped = [index for index, _ in active_items if index not in set(kept)]
-    note = user_message(
-        "Removed an incomplete tool call/tool result exchange from context.",
-        sender="user",
-        target=agent_name,
-        kind="context",
-    )
-    state.record(note)
-    note_index = len(state.messages) - 1
-    state.record_event(
-        ContextCompressionEvent(
-            agent=agent_name,
-            summary_message_index=note_index,
-            compressed_message_indices=dropped,
-            active_context_indices=[*kept, note_index],
-            before_tokens=0,
-            after_tokens=0,
-            strategy="tool-pair-orphan-repair",
-        )
-    )
-    return True
-
-
-def _tool_pair_safe_indices(active_items: list[tuple[int, Any]]) -> list[int]:
-    remaining = {index for index, _ in active_items}
-    messages = dict(active_items)
-    changed = True
-    while changed:
-        changed = False
-        call_ids = {
-            call.id
-            for index in remaining
-            for call in message_tool_calls(messages[index])
-        }
-        result_ids = {
-            block.tool_call_id
-            for index in remaining
-            for block in tool_results_of(messages[index].content)
-        }
-        drop: set[int] = set()
-        for index in remaining:
-            calls = message_tool_calls(messages[index])
-            if calls and any(call.id not in result_ids for call in calls):
-                drop.add(index)
-            results = tool_results_of(messages[index].content)
-            if results and any(block.tool_call_id not in call_ids for block in results):
-                drop.add(index)
-        if drop:
-            remaining -= drop
-            changed = True
-    return [index for index, _ in active_items if index in remaining]
-
-
-def _drop_instance_task_for_invalid_prompt_skip(
-    state: State, *, agent_name: str, instance_id: str
-) -> bool:
-    active_items = state.active_context_items()
-    target_index: int | None = None
-    for index, message in reversed(active_items):
-        if (
-            getattr(message, "role", "") == "user"
-            and _message_swebench_instance_id(message) == instance_id
-        ):
-            target_index = index
-            break
-    if target_index is None:
-        return False
-    state.record_event(
-        ContextCompressionEvent(
-            agent=agent_name,
-            summary_message_index=target_index,
-            compressed_message_indices=[target_index],
-            active_context_indices=[
-                index for index, _ in active_items if index != target_index
-            ],
-            before_tokens=0,
-            after_tokens=0,
-            strategy="invalid-prompt-instance-task-drop",
-        )
-    )
-    return True
-
-
-def _end_instance_after_invalid_prompt_tool_retry_limit(
-    state: State, *, agent_name: str, instance_id: str
-) -> bool:
-    active_items = state.active_context_items()
-    if not active_items:
-        return False
-    end_message = user_message(
-        INVALID_PROMPT_INSTANCE_END_MESSAGE.format(instance_id=instance_id),
-        sender="user",
-        target=agent_name,
-        kind="context",
-    )
-    state.record(end_message)
-    end_message_index = len(state.messages) - 1
-    state.record_event(
-        ContextCompressionEvent(
-            agent=agent_name,
-            summary_message_index=end_message_index,
-            compressed_message_indices=[index for index, _ in active_items],
-            active_context_indices=[],
-            before_tokens=0,
-            after_tokens=0,
-            strategy="invalid-prompt-clear-context",
-        )
-    )
-    return True
-
-
-def _message_swebench_instance_id(message: Any) -> str:
-    details = getattr(message, "sidecar", {}).get("details", {})
-    if not isinstance(details, Mapping):
-        return ""
-    swebench = details.get("swebench", {})
-    if not isinstance(swebench, Mapping):
-        return ""
-    return str(swebench.get("instance_id") or "")
-
-
 def _is_context_window_error(exc: BaseException) -> bool:
     text = f"{type(exc).__name__}: {exc}".casefold()
     code = getattr(exc, "code", None)
@@ -668,7 +437,7 @@ def _task_tool_error_texts(event: Any) -> list[str]:
 
 def _message_has_invalid_prompt_task_error(event: Any) -> bool:
     return any(
-        _is_invalid_prompt_error(RuntimeError(text))
+        is_invalid_prompt_error(RuntimeError(text))
         for text in _task_tool_error_texts(event)
     )
 

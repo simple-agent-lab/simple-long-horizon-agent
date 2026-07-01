@@ -1242,13 +1242,13 @@ class RepoSessionInvalidPromptHandlingTest(unittest.TestCase):
     def test_invalid_prompt_error_detection_matches_provider_error_shapes(
         self,
     ) -> None:
-        from runs.swebench.run_swebench_pro_repo_sessions import (
-            _is_invalid_prompt_error,
+        from simple_agent_lab.evals.suites.swebench.repo_session_context import (
+            is_invalid_prompt_error,
         )
 
-        self.assertTrue(_is_invalid_prompt_error(RuntimeError("invalid_prompt")))
-        self.assertTrue(_is_invalid_prompt_error(RuntimeError("code=-4321")))
-        self.assertFalse(_is_invalid_prompt_error(RuntimeError("rate limit")))
+        self.assertTrue(is_invalid_prompt_error(RuntimeError("invalid_prompt")))
+        self.assertTrue(is_invalid_prompt_error(RuntimeError("code=-4321")))
+        self.assertFalse(is_invalid_prompt_error(RuntimeError("rate limit")))
 
     def test_remaining_turn_budget_counts_failed_invalid_prompt_attempts(
         self,
@@ -1284,7 +1284,9 @@ class RepoSessionInvalidPromptHandlingTest(unittest.TestCase):
             append_instance_task,
             start_repo_state,
         )
-        from runs.swebench.run_swebench_pro_repo_sessions import _invalid_prompt_source
+        from simple_agent_lab.evals.suites.swebench.repo_session_context import (
+            invalid_prompt_source,
+        )
 
         state = start_repo_state("acme/widgets", agent_name="swebench_agent")
         append_instance_task(
@@ -1295,7 +1297,7 @@ class RepoSessionInvalidPromptHandlingTest(unittest.TestCase):
         )
 
         self.assertEqual(
-            _invalid_prompt_source(state, instance_id="case-1"),
+            invalid_prompt_source(state, instance_id="case-1"),
             "instance_task",
         )
 
@@ -1306,7 +1308,9 @@ class RepoSessionInvalidPromptHandlingTest(unittest.TestCase):
             append_instance_task,
             start_repo_state,
         )
-        from runs.swebench.run_swebench_pro_repo_sessions import _invalid_prompt_source
+        from simple_agent_lab.evals.suites.swebench.repo_session_context import (
+            invalid_prompt_source,
+        )
 
         state = start_repo_state("acme/widgets", agent_name="swebench_agent")
         append_instance_task(
@@ -1337,7 +1341,7 @@ class RepoSessionInvalidPromptHandlingTest(unittest.TestCase):
         )
 
         self.assertEqual(
-            _invalid_prompt_source(state, instance_id="case-1"),
+            invalid_prompt_source(state, instance_id="case-1"),
             "tool_output",
         )
 
@@ -1348,9 +1352,9 @@ class RepoSessionInvalidPromptHandlingTest(unittest.TestCase):
             append_instance_task,
             start_repo_state,
         )
-        from runs.swebench.run_swebench_pro_repo_sessions import (
+        from simple_agent_lab.evals.suites.swebench.repo_session_context import (
             INVALID_PROMPT_TOOL_REMINDER,
-            _replace_latest_tool_exchange_for_invalid_prompt,
+            replace_latest_tool_exchange_for_invalid_prompt,
         )
 
         state = start_repo_state("acme/widgets", agent_name="swebench_agent")
@@ -1382,7 +1386,7 @@ class RepoSessionInvalidPromptHandlingTest(unittest.TestCase):
         )
 
         self.assertTrue(
-            _replace_latest_tool_exchange_for_invalid_prompt(
+            replace_latest_tool_exchange_for_invalid_prompt(
                 state, agent_name="swebench_agent"
             )
         )
@@ -1417,8 +1421,8 @@ class RepoSessionInvalidPromptHandlingTest(unittest.TestCase):
             append_instance_task,
             start_repo_state,
         )
-        from runs.swebench.run_swebench_pro_repo_sessions import (
-            _repair_active_tool_pairs,
+        from simple_agent_lab.evals.suites.swebench.repo_session_context import (
+            repair_active_tool_pairs,
         )
 
         state = start_repo_state("acme/widgets", agent_name="swebench_agent")
@@ -1438,7 +1442,7 @@ class RepoSessionInvalidPromptHandlingTest(unittest.TestCase):
         )
         state.record(user_message("continue", target="swebench_agent"))
 
-        self.assertTrue(_repair_active_tool_pairs(state, agent_name="swebench_agent"))
+        self.assertTrue(repair_active_tool_pairs(state, agent_name="swebench_agent"))
 
         self.assertFalse(
             any(
@@ -1463,8 +1467,8 @@ class RepoSessionInvalidPromptHandlingTest(unittest.TestCase):
             append_instance_task,
             start_repo_state,
         )
-        from runs.swebench.run_swebench_pro_repo_sessions import (
-            _drop_instance_task_for_invalid_prompt_skip,
+        from simple_agent_lab.evals.suites.swebench.repo_session_context import (
+            drop_instance_task_for_invalid_prompt_skip,
         )
 
         state = start_repo_state("acme/widgets", agent_name="swebench_agent")
@@ -1476,7 +1480,7 @@ class RepoSessionInvalidPromptHandlingTest(unittest.TestCase):
         )
 
         self.assertTrue(
-            _drop_instance_task_for_invalid_prompt_skip(
+            drop_instance_task_for_invalid_prompt_skip(
                 state,
                 agent_name="swebench_agent",
                 instance_id="case-1",
@@ -1511,9 +1515,9 @@ class RepoSessionInvalidPromptHandlingTest(unittest.TestCase):
             append_instance_task,
             start_repo_state,
         )
-        from runs.swebench.run_swebench_pro_repo_sessions import (
-            _end_instance_after_invalid_prompt_tool_retry_limit,
-            _replace_latest_tool_exchange_for_invalid_prompt,
+        from simple_agent_lab.evals.suites.swebench.repo_session_context import (
+            end_instance_after_invalid_prompt_tool_retry_limit,
+            replace_latest_tool_exchange_for_invalid_prompt,
         )
 
         state = start_repo_state("acme/widgets", agent_name="swebench_agent")
@@ -1544,13 +1548,13 @@ class RepoSessionInvalidPromptHandlingTest(unittest.TestCase):
             )
         )
         self.assertTrue(
-            _replace_latest_tool_exchange_for_invalid_prompt(
+            replace_latest_tool_exchange_for_invalid_prompt(
                 state, agent_name="swebench_agent"
             )
         )
 
         self.assertTrue(
-            _end_instance_after_invalid_prompt_tool_retry_limit(
+            end_instance_after_invalid_prompt_tool_retry_limit(
                 state,
                 agent_name="swebench_agent",
                 instance_id="case-1",
