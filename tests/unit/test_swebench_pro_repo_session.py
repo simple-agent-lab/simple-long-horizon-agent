@@ -180,6 +180,68 @@ class SwebenchProRepoSessionPlanningTest(unittest.TestCase):
         self.assertIsNone(args.reasoning_effort)
         self.assertIsNone(args.provider_auth_envs)
 
+    def test_repo_session_runner_accepts_chain_task_as_a_config_mode(self) -> None:
+        from runs.swebench.run_swebench_pro_repo_sessions import (
+            CHAIN_MODEL_NAME,
+            _experiment_config_from_args,
+            build_parser,
+        )
+
+        args = build_parser().parse_args(
+            [
+                "--all",
+                "--agent-flavor",
+                "bash_task",
+                "--compression-strategy",
+                "none",
+            ]
+        )
+        config = _experiment_config_from_args(args, api_kind="openai-responses")
+
+        self.assertEqual(config.agent_flavor, "bash_task")
+        self.assertEqual(config.compression_strategy, "none")
+        self.assertEqual(config.model_name, CHAIN_MODEL_NAME)
+        self.assertEqual(args.max_context_restarts_per_instance, 1)
+
+    def test_default_run_id_is_derived_from_selected_mode(self) -> None:
+        from datetime import datetime
+
+        from runs.swebench.run_swebench_pro_repo_sessions import (
+            _experiment_config_from_args,
+            _resolve_run_id,
+            build_parser,
+        )
+
+        now = datetime(2026, 6, 30, 12, 34, 56)
+        compression_args = build_parser().parse_args(["--all"])
+        compression_config = _experiment_config_from_args(
+            compression_args, api_kind="openai-responses"
+        )
+        chain_args = build_parser().parse_args(
+            [
+                "--all",
+                "--agent-flavor",
+                "bash_task",
+                "--compression-strategy",
+                "none",
+            ]
+        )
+        chain_config = _experiment_config_from_args(
+            chain_args, api_kind="openai-responses"
+        )
+
+        self.assertEqual(
+            _resolve_run_id(compression_args.run_id, compression_config, now=now),
+            "pro-repo-summarize-20260630-123456",
+        )
+        self.assertEqual(
+            _resolve_run_id(chain_args.run_id, chain_config, now=now),
+            "pro-repo-chain-task-20260630-123456",
+        )
+        self.assertEqual(
+            _resolve_run_id("manual-run", chain_config, now=now), "manual-run"
+        )
+
     def test_provider_auth_envs_expand_to_one_slot_per_session(self) -> None:
         from runs.swebench.run_swebench_pro_repo_sessions import (
             _expand_provider_auth_envs,
@@ -329,6 +391,159 @@ class SwebenchProRepoSessionPlanningTest(unittest.TestCase):
         self.assertEqual(config.model, "cli-model")
         self.assertEqual(config.reasoning_effort, "low")
 
+    def test_selected_provider_auth_slot_is_mapped_to_container_primary_auth(
+        self,
+    ) -> None:
+        from runs.swebench.run_swebench_pro_repo_sessions import (
+            _provider_env_for_auth_env,
+        )
+
+        with patch.dict(
+            os.environ,
+            {
+                "OPENAI_MODEL": "model",
+                "OPENAI_AUTH_TOKEN2": "token-2",
+                "OPENAI_BASE_URL": "https://example.invalid/v1",
+                "REASONING_EFFORT": "high",
+            },
+            clear=True,
+        ):
+            env = _provider_env_for_auth_env(
+                "OPENAI_AUTH_TOKEN2",
+                api_kind="openai-responses",
+            )
+
+        self.assertEqual(env["OPENAI_AUTH_TOKEN"], "token-2")
+        self.assertEqual(env["OPENAI_MODEL"], "model")
+        self.assertEqual(env["OPENAI_BASE_URL"], "https://example.invalid/v1")
+        self.assertEqual(env["REASONING_EFFORT"], "high")
+        self.assertEqual(env["API_KIND"], "openai-responses")
+
+    def test_repo_session_config_payload_is_staged_for_container_runner(self) -> None:
+        from evals.swebench.pro_repo_session import (
+            ProRepoExperimentConfig,
+            RepoSessionPart,
+        )
+        from runs.swebench.run_swebench_pro_repo_sessions import (
+            _repo_session_config_payload,
+        )
+
+        session = RepoSessionPart(
+            session_id="acme/widgets#part-1-of-2",
+            repo="acme/widgets",
+            part_index=1,
+            part_count=2,
+            rows=({"instance_id": "case-1"},),
+        )
+        config = ProRepoExperimentConfig(threshold_tokens=123, keep_recent=7)
+
+        payload = _repo_session_config_payload(
+            session,
+            config=config,
+            provider_auth_env="OPENAI_AUTH_TOKEN2",
+            position=1,
+            write_trajectories=False,
+            max_context_restarts_per_instance=1,
+        )
+
+        self.assertEqual(payload["mode"], "compression")
+        self.assertEqual(payload["repo"], "acme/widgets")
+        self.assertEqual(payload["session_id"], "acme/widgets#part-1-of-2")
+        self.assertEqual(payload["part_index"], 1)
+        self.assertEqual(payload["part_count"], 2)
+        self.assertEqual(payload["provider_auth_env"], "OPENAI_AUTH_TOKEN2")
+        self.assertEqual(payload["max_context_restarts_per_instance"], 0)
+        self.assertEqual(payload["config"]["threshold_tokens"], 123)
+        self.assertEqual(payload["config"]["keep_recent"], 7)
+
+    def test_repo_session_config_payload_uses_chain_task_mode_for_bash_task_none(
+        self,
+    ) -> None:
+        from evals.swebench.pro_repo_session import (
+            ProRepoExperimentConfig,
+            RepoSessionPart,
+        )
+        from runs.swebench.run_swebench_pro_repo_sessions import (
+            _repo_session_config_payload,
+        )
+
+        session = RepoSessionPart(
+            session_id="acme/widgets",
+            repo="acme/widgets",
+            part_index=1,
+            part_count=1,
+            rows=({"instance_id": "case-1"},),
+        )
+        config = ProRepoExperimentConfig(
+            agent_flavor="bash_task",
+            compression_strategy="none",
+        )
+
+        payload = _repo_session_config_payload(
+            session,
+            config=config,
+            provider_auth_env="OPENAI_AUTH_TOKEN",
+            position=1,
+            write_trajectories=False,
+            max_context_restarts_per_instance=2,
+        )
+
+        self.assertEqual(payload["mode"], "chain_task")
+        self.assertEqual(payload["config"]["agent_flavor"], "bash_task")
+        self.assertEqual(payload["config"]["compression_strategy"], "none")
+        self.assertEqual(payload["max_context_restarts_per_instance"], 2)
+
+    def test_write_json_replaces_existing_unwritable_artifact(self) -> None:
+        from runs.swebench.run_swebench_pro_repo_sessions import _write_json
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "out" / "result.json"
+            path.parent.mkdir()
+            path.write_text('{"old": true}\n', encoding="utf-8")
+            path.chmod(0o444)
+            try:
+                _write_json(path, {"new": True})
+            finally:
+                path.chmod(0o644)
+
+            self.assertEqual(
+                path.read_text(encoding="utf-8"),
+                '{\n  "new": true\n}\n',
+            )
+
+    def test_plan_manifest_records_selected_agent_and_compression_mode(self) -> None:
+        from runs.swebench.run_swebench_pro_repo_sessions import (
+            _experiment_config_from_args,
+            _plan_groups,
+            build_parser,
+        )
+
+        args = build_parser().parse_args(
+            [
+                "--all",
+                "--agent-flavor",
+                "bash_task",
+                "--compression-strategy",
+                "none",
+            ]
+        )
+        config = _experiment_config_from_args(args, api_kind="openai-responses")
+        rows = [
+            {"instance_id": "a", "repo": "acme/widgets", "base_commit": ""},
+            {"instance_id": "b", "repo": "acme/widgets", "base_commit": ""},
+        ]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            _sessions, manifest = _plan_groups(
+                rows,
+                args=args,
+                run_root=Path(tmp),
+                config=config,
+            )
+
+        self.assertEqual(manifest["config"]["agent_flavor"], "bash_task")
+        self.assertEqual(manifest["config"]["compression_strategy"], "none")
+
 
 class DockerExecBashToolTest(unittest.TestCase):
     def test_docker_runner_executes_command_with_standard_bash_shell(self) -> None:
@@ -443,6 +658,35 @@ class DockerExecBashToolTest(unittest.TestCase):
         runner.remove_container("sal.instance")
 
         self.assertEqual(calls[0], ["docker", "rm", "-f", "sal.instance"])
+
+    def test_prepare_container_baseline_uses_long_timeout_for_large_workspaces(
+        self,
+    ) -> None:
+        from evals.swebench.pro_repo_session import (
+            CurrentContainer,
+            prepare_container_baseline,
+        )
+
+        calls: list[dict[str, object]] = []
+
+        class Docker:
+            def exec(self, **kwargs):
+                calls.append(dict(kwargs))
+                if "git rev-parse HEAD" in str(kwargs["command"]):
+                    return SimpleNamespace(
+                        returncode=0, stdout="baseline-sha\n", stderr=""
+                    )
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        baseline = prepare_container_baseline(
+            Docker(),
+            CurrentContainer(name="sal.instance", workdir="/app"),
+            language="js",
+        )
+
+        self.assertEqual(baseline, "baseline-sha")
+        self.assertEqual(calls[0]["timeout_seconds"], 30)
+        self.assertGreaterEqual(calls[1]["timeout_seconds"], 300)
 
     def test_container_bash_tool_reports_missing_current_container(self) -> None:
         from evals.swebench.pro_repo_session import (
@@ -616,6 +860,345 @@ class RepoSessionStateTest(unittest.TestCase):
 
         self.assertEqual(state.active_context_messages(), [])
         self.assertIn("SWE-bench Pro repo session for acme/widgets", state.task)
+
+
+class RepoSessionStateArtifactTest(unittest.TestCase):
+    def test_session_payload_round_trips_active_context_and_metadata(self) -> None:
+        from evals.swebench.pro_repo_session import (
+            append_instance_task,
+            start_repo_state,
+        )
+        from simple_agent_lab.evals.suites.swebench.repo_session_state import (
+            state_from_session_payload,
+            state_to_session_payload,
+        )
+
+        state = start_repo_state("acme/widgets", agent_name="swebench_agent")
+        state.data["repo_session"]["session_id"] = "acme/widgets#part-1-of-2"
+        append_instance_task(
+            state,
+            agent_name="swebench_agent",
+            instance_id="case-1",
+            task="first problem",
+        )
+        state.record(
+            assistant_message(
+                "first answer",
+                sender="swebench_agent",
+                target="user",
+                kind="final",
+            )
+        )
+        append_instance_task(
+            state,
+            agent_name="swebench_agent",
+            instance_id="case-2",
+            task="second problem",
+        )
+        state.record_event(
+            ContextCompressionEvent(
+                agent="swebench_agent",
+                summary_message_index=2,
+                compressed_message_indices=[0, 1],
+                active_context_indices=[2],
+                before_tokens=100,
+                after_tokens=10,
+                strategy="test-compact",
+            )
+        )
+
+        payload = state_to_session_payload(state)
+        restored = state_from_session_payload(payload)
+
+        self.assertEqual(restored.task, state.task)
+        self.assertEqual(
+            restored.data["repo_session"]["session_id"],
+            "acme/widgets#part-1-of-2",
+        )
+        self.assertEqual(
+            [message_text(message) for message in restored.active_context_messages()],
+            ["second problem"],
+        )
+        active = restored.active_context_messages()[0]
+        self.assertEqual(active.kind, "task")
+        self.assertEqual(
+            active.sidecar["details"]["swebench"]["instance_id"],
+            "case-2",
+        )
+        self.assertLess(len(payload["messages"]), len(state.messages))
+
+
+class RepoSessionInContainerRunnerTest(unittest.TestCase):
+    def test_chain_task_mode_builds_bash_task_agent_without_compression(self) -> None:
+        from simple_agent_lab.agents.starter import BASH_TASK_ADDENDUM
+        from simple_agent_lab.evals.suites.swebench.repo_session_runner import (
+            _build_agent,
+        )
+        from simple_agent_lab.llm.env import FAKE_PROVIDER
+
+        with tempfile.TemporaryDirectory() as tmp:
+            agent = _build_agent(
+                provider=FAKE_PROVIDER,
+                workdir=Path(tmp),
+                request_extra={},
+                config={
+                    "mode": "chain_task",
+                    "config": {
+                        "agent_flavor": "bash_task",
+                        "compression_strategy": "none",
+                    },
+                },
+            )
+
+        self.assertEqual(sorted(tool.name for tool in agent.tools), ["bash", "task"])
+        self.assertIsNotNone(agent.context_policy)
+        self.assertIsNone(agent.context_policy.strategy)
+        self.assertIn(BASH_TASK_ADDENDUM, agent.system_prompt)
+        task = next(tool for tool in agent.tools if tool.name == "task")
+        self.assertEqual(
+            task.parameters["properties"]["subagent_type"]["enum"],
+            ["general-purpose"],
+        )
+
+    def test_chain_context_window_error_detection_matches_provider_shapes(
+        self,
+    ) -> None:
+        from simple_agent_lab.evals.suites.swebench.repo_session_runner import (
+            _is_context_window_error,
+        )
+
+        self.assertTrue(
+            _is_context_window_error(RuntimeError("context_length_exceeded"))
+        )
+        self.assertTrue(
+            _is_context_window_error(RuntimeError("maximum context length"))
+        )
+        self.assertTrue(_is_context_window_error(RuntimeError("too many tokens")))
+        self.assertFalse(_is_context_window_error(RuntimeError("rate limit")))
+
+    def test_chain_task_tool_context_error_result_triggers_window_fallback(
+        self,
+    ) -> None:
+        from simple_agent_lab.evals.suites.swebench.repo_session_runner import (
+            _raise_chain_context_errors,
+        )
+        from simple_agent_lab.messages import tool_result_message
+        from simple_agent_lab.protocols import MessageEvent
+
+        task_error = MessageEvent(
+            message=tool_result_message(
+                "RuntimeError: context_length_exceeded",
+                tool_call_id="call-1",
+                tool_name="task",
+                target="swebench",
+                is_error=True,
+            )
+        )
+        bash_error = MessageEvent(
+            message=tool_result_message(
+                "RuntimeError: context_length_exceeded",
+                tool_call_id="call-2",
+                tool_name="bash",
+                target="swebench",
+                is_error=True,
+            )
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "context_length_exceeded"):
+            _raise_chain_context_errors(task_error, config={"mode": "chain_task"})
+        _raise_chain_context_errors(bash_error, config={"mode": "chain_task"})
+
+    def test_chain_model_request_at_context_limit_triggers_window_fallback(
+        self,
+    ) -> None:
+        from simple_agent_lab.evals.suites.swebench.repo_session_runner import (
+            _raise_chain_context_errors,
+        )
+        from simple_agent_lab.protocols import ModelRequestEvent
+
+        under_limit = ModelRequestEvent(
+            agent="swebench",
+            visible_count=1,
+            llm_message_count=1,
+            context_view={"estimated_tokens": 271_999},
+            tools=[],
+            llm_payload=[],
+        )
+        at_limit = ModelRequestEvent(
+            agent="swebench",
+            visible_count=1,
+            llm_message_count=1,
+            context_view={"estimated_tokens": 272_000},
+            tools=[],
+            llm_payload=[],
+        )
+        config = {
+            "mode": "chain_task",
+            "config": {"context_window_tokens": 272_000},
+        }
+
+        _raise_chain_context_errors(under_limit, config=config)
+        with self.assertRaisesRegex(RuntimeError, "context_length_exceeded"):
+            _raise_chain_context_errors(at_limit, config=config)
+
+    def test_chain_task_tool_invalid_prompt_error_result_triggers_repair_path(
+        self,
+    ) -> None:
+        from simple_agent_lab.evals.suites.swebench.repo_session_runner import (
+            _message_has_invalid_prompt_task_error,
+        )
+        from simple_agent_lab.messages import tool_result_message
+        from simple_agent_lab.protocols import MessageEvent
+
+        task_error = MessageEvent(
+            message=tool_result_message(
+                "BadRequestError: invalid_prompt",
+                tool_call_id="call-1",
+                tool_name="task",
+                target="swebench",
+                is_error=True,
+            )
+        )
+        bash_error = MessageEvent(
+            message=tool_result_message(
+                "BadRequestError: invalid_prompt",
+                tool_call_id="call-2",
+                tool_name="bash",
+                target="swebench",
+                is_error=True,
+            )
+        )
+
+        self.assertTrue(_message_has_invalid_prompt_task_error(task_error))
+        self.assertFalse(_message_has_invalid_prompt_task_error(bash_error))
+
+    def test_runner_continues_state_runs_local_agent_and_writes_artifacts(
+        self,
+    ) -> None:
+        import json
+
+        from evals.swebench.pro_repo_session import (
+            append_instance_task,
+            start_repo_state,
+        )
+        from simple_agent_lab.evals import LocalDirStore, RESULT_KEY
+        from simple_agent_lab.evals.suites.swebench.repo_session_runner import (
+            run_repo_session_in_container,
+        )
+        from simple_agent_lab.evals.suites.swebench.repo_session_state import (
+            SESSION_CONFIG_KEY,
+            SESSION_STATE_INPUT_KEY,
+            SESSION_STATE_OUTPUT_KEY,
+            state_from_session_payload,
+            state_to_session_payload,
+        )
+        from simple_agent_lab.llm.env import FAKE_PROVIDER
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "testbed"
+            repo.mkdir()
+
+            def git(*args: str) -> None:
+                import subprocess
+
+                subprocess.run(
+                    ["git", *args], cwd=repo, check=True, capture_output=True
+                )
+
+            git("init")
+            git("config", "user.email", "t@example.invalid")
+            git("config", "user.name", "T")
+            git("config", "commit.gpgsign", "false")
+            (repo / "app.py").write_text("x = 1\n", encoding="utf-8")
+            git("add", "-A")
+            git("commit", "-m", "base")
+
+            run_dir = Path(tmp) / "run"
+            store = LocalDirStore(run_dir)
+            prior = start_repo_state("acme/widgets", agent_name="swebench_agent")
+            append_instance_task(
+                prior,
+                agent_name="swebench_agent",
+                instance_id="case-0",
+                task="prior repo context",
+            )
+            store.put(
+                SESSION_STATE_INPUT_KEY,
+                (
+                    json.dumps(state_to_session_payload(prior), ensure_ascii=False)
+                    + "\n"
+                ).encode("utf-8"),
+            )
+            store.put(
+                SESSION_CONFIG_KEY,
+                json.dumps(
+                    {
+                        "mode": "compression",
+                        "repo": "acme/widgets",
+                        "session_id": "acme/widgets",
+                        "part_index": 1,
+                        "part_count": 1,
+                        "position": 1,
+                        "instances_in_session": 1,
+                        "provider_auth_env": "OPENAI_AUTH_TOKEN",
+                        "config": {
+                            "compression_strategy": "summarize",
+                            "threshold_tokens": 999999,
+                            "keep_recent": 12,
+                            "preserve_kinds": [
+                                "task",
+                                "system",
+                                "context",
+                                "summary",
+                            ],
+                        },
+                    },
+                    ensure_ascii=False,
+                ).encode("utf-8"),
+            )
+            instance = {
+                "instance_id": "case-1",
+                "repo": "acme/widgets",
+                "problem_statement": (
+                    "Change app.py. <bash>printf 'x = 2\\n' > app.py</bash>"
+                ),
+                "language": "python",
+            }
+
+            result, state = run_repo_session_in_container(
+                instance=instance,
+                provider=FAKE_PROVIDER,
+                workdir=repo,
+                max_turns=2,
+                store=store,
+                trace_id="trace.case-1",
+                producer="suite:swebench_pro",
+                suite_name="swebench_pro",
+                request_extra={},
+            )
+
+            self.assertEqual(result["status"], "ok")
+            self.assertIn("x = 2", result["model_patch"])
+            written_result = json.loads(store.get(RESULT_KEY).decode("utf-8"))
+            self.assertEqual(written_result["model_patch"], result["model_patch"])
+            restored = state_from_session_payload(
+                json.loads(store.get(SESSION_STATE_OUTPUT_KEY).decode("utf-8"))
+            )
+            visible = "\n".join(
+                message_text(message) for message in restored.active_context_messages()
+            )
+            self.assertIn("prior repo context", visible)
+            self.assertTrue(
+                any(
+                    getattr(message, "sidecar", {})
+                    .get("details", {})
+                    .get("swebench", {})
+                    .get("instance_id")
+                    == "case-1"
+                    for message in restored.active_context_messages()
+                )
+            )
+            self.assertIn("case-1", state.data["repo_session"]["last_instance_id"])
 
 
 class RepoSessionTrajectoryOutputTest(unittest.TestCase):

@@ -1,11 +1,15 @@
-"""Run SWE-bench Pro as one compressed agent session per repository.
+"""Run SWE-bench Pro as one part-level goal session per repository part.
 
 This is the experimental runner for studying context compression on long
 SWE-bench Pro sessions. It groups instances by repository, orders each group by
-the timestamp of ``base_commit``, and runs each repository in one persistent
-Simple Agent Lab ``State`` while swapping the active Docker container between
-instances. The host-side agent has only a bash tool; bash executes via
-``docker exec`` in the current instance container.
+the timestamp of ``base_commit``, and runs each task with the agent inside that
+task's SWE-bench Pro instance container. The host only plans sessions, stages
+repo-session artifacts, launches containers through the generic eval backend,
+and passes ``out/session_state.json`` from one instance to the next.
+
+The default mode is ``bash`` + ``summarize``. The no-compression chain-task
+baseline is the same runner with ``--agent-flavor bash_task
+--compression-strategy none``.
 
 Example smoke:
 
@@ -52,36 +56,31 @@ from evals.swebench import harness  # noqa: E402
 from evals.swebench.evaluate_predictions import predictions_from_run_dirs  # noqa: E402
 from evals.swebench.pro_repo_session import (  # noqa: E402
     CommitTimeResolver,
-    CurrentContainer,
+    DEFAULT_MODEL_NAME,
     DEFAULT_PRESERVE_KINDS,
-    DockerCommandRunner,
     ProRepoExperimentConfig,
     RepoSessionPart,
-    append_instance_task,
-    extract_container_patch,
     group_instances_by_repo,
-    make_container_bash_tool,
-    prepare_container_baseline,
     split_repo_session_parts,
     sort_repo_instances,
-    start_repo_state,
 )
-from simple_agent_lab import ContextCompressionEvent, run as run_agent  # noqa: E402
-from simple_agent_lab.compression import summarize_compression  # noqa: E402
+from evals.swebench.suite import SwebenchSuite  # noqa: E402
+from simple_agent_lab import ContextCompressionEvent  # noqa: E402
+from simple_agent_lab.evals import LocalDirStore, LocalDockerBackend  # noqa: E402
+from simple_agent_lab.evals.protocols import RESULT_KEY  # noqa: E402
 from simple_agent_lab.evals.runner import (  # noqa: E402
     container_name,
     prepare_run_directory,
+    run_suite_instance,
 )
-from simple_agent_lab.evals.suites.swebench.container import (  # noqa: E402
-    AGENT_NAME,
-    AGENT_ROLE,
-    AGENT_SYSTEM_PROMPT,
-    build_task,
-)
-from simple_agent_lab.evals.suites.swebench.patch import (  # noqa: E402
-    instance_language,
+from simple_agent_lab.evals.suites.swebench.repo_session_state import (  # noqa: E402
+    SESSION_CONFIG_KEY,
+    SESSION_STATE_INPUT_KEY,
+    SESSION_STATE_OUTPUT_KEY,
 )
 from simple_agent_lab.llm.env import (  # noqa: E402
+    API_KIND_ENV,
+    OPENAI_AUTH_ENV,
     OPENAI_ENV,
     OPENAI_MODEL_ENV,
     OPENAI_REASONING_EFFORT_ENV,
@@ -90,7 +89,6 @@ from simple_agent_lab.llm.env import (  # noqa: E402
     request_extra_from_env,
 )
 from simple_agent_lab.llm.provider import api_kind_defaults  # noqa: E402
-from simple_agent_lab.llm_agent import make_llm_agent  # noqa: E402
 from simple_agent_lab.messages import (  # noqa: E402
     is_tool_result_message,
     message_tool_calls,
@@ -114,6 +112,11 @@ INVALID_PROMPT_INSTANCE_END_MESSAGE = (
 INVALID_PROMPT_TOOL_RETRY_LIMIT = 20
 ENCRYPTED_REASONING_INCLUDE = "reasoning.encrypted_content"
 InvalidPromptSource = Literal["instance_task", "tool_output", "unknown"]
+PRO_REPO_SESSION_RUNNER_MODULE = (
+    "simple_agent_lab.evals.suites.swebench.repo_session_runner"
+)
+CHAIN_MODEL_NAME = "simple-agent-lab-pro-repo-chain-bash-task"
+CONTEXT_WINDOW_RESET_REASON = "context_window_reset"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -141,7 +144,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--run-id",
-        default=f"pro-repo-summarize-{datetime.now().strftime('%Y%m%d-%H%M%S')}",
+        default=None,
+        help="Output run id. Defaults to a timestamped id derived from the mode.",
     )
     parser.add_argument(
         "--model",
@@ -160,6 +164,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--max-turns", type=int, default=ProRepoExperimentConfig.max_turns
+    )
+    parser.add_argument(
+        "--agent-flavor",
+        default=ProRepoExperimentConfig.agent_flavor,
+        choices=("bash", "bash_task"),
+        help="Agent flavor for each repo-session part.",
+    )
+    parser.add_argument(
+        "--compression-strategy",
+        default=ProRepoExperimentConfig.compression_strategy,
+        choices=("summarize", "none"),
+        help="Context strategy for the repo-session continuation.",
+    )
+    parser.add_argument(
+        "--max-context-restarts-per-instance",
+        type=int,
+        default=1,
+        help=(
+            "For bash_task+none mode, how many times to start a fresh "
+            "repo-chain window and retry the current instance after a "
+            "context-window error."
+        ),
     )
     parser.add_argument(
         "--threshold-tokens",
@@ -190,6 +216,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dotenv", default=str(ROOT / ".env"))
     parser.add_argument("--network-mode", default="host")
     parser.add_argument("--mem-limit", default="8g")
+    parser.add_argument("--wheelhouse", default=None)
+    parser.add_argument("--prepare-wheelhouse", action="store_true")
+    parser.add_argument("--uv-binary", default=harness.DEFAULT_UV_BINARY)
+    parser.add_argument(
+        "--pull",
+        default="missing",
+        choices=("missing", "always", "never"),
+        help="Docker image pull policy for SWE-bench Pro instance images.",
+    )
+    parser.add_argument("--keep-container", action="store_true")
+    parser.add_argument("--docker-timeout-seconds", type=float, default=300.0)
     parser.add_argument(
         "--skip-official-eval",
         action="store_true",
@@ -226,11 +263,14 @@ def main() -> None:
     args = build_parser().parse_args()
     if not args.all and not args.repos and not args.instance_json:
         raise SystemExit("Pass --all, --repos REPO..., or --instance-json PATH.")
+    if args.max_context_restarts_per_instance < 0:
+        raise SystemExit("--max-context-restarts-per-instance must be non-negative")
 
     harness.load_dotenv(args.dotenv)
     _apply_provider_env_overrides(args)
     api_kind = harness.resolve_api_kind(args.api_kind)
     config = _experiment_config_from_args(args, api_kind=api_kind)
+    args.run_id = _resolve_run_id(args.run_id, config)
     run_root = Path(args.run_root)
     rows = _load_rows(args)
     sessions, manifest = _plan_groups(rows, args=args, run_root=run_root, config=config)
@@ -238,6 +278,11 @@ def main() -> None:
         raise SystemExit("No SWE-bench Pro instances selected.")
     parallel = _resolve_parallel(args.parallel, session_count=len(sessions))
     manifest["resolved_parallel"] = parallel
+    if _repo_session_mode(config) == "chain_task":
+        manifest["context_window_fallback"] = {
+            "max_restarts_per_instance": args.max_context_restarts_per_instance,
+            "reason": CONTEXT_WINDOW_RESET_REASON,
+        }
     provider_auth_envs = _expand_provider_auth_envs(
         args.provider_auth_envs, session_count=len(sessions)
     )
@@ -255,7 +300,7 @@ def main() -> None:
     )
     _write_json(batch_dir / "experiment.json", manifest)
 
-    print("=== SWE-bench Pro repo-session compression experiment ===")
+    print("=== SWE-bench Pro repo-session part-level goal experiment ===")
     print(f"run_id: {args.run_id}")
     print(f"repos: {manifest['repo_count']}")
     print(f"session_parts: {len(sessions)}")
@@ -272,10 +317,20 @@ def main() -> None:
         f"model: {config.model} api_kind={config.api_kind} "
         f"reasoning={config.reasoning_effort}"
     )
-    print(
-        "compression: summarize "
-        f"threshold={config.threshold_tokens} keep_recent={config.keep_recent}"
-    )
+    print(f"agent: {config.agent_flavor}")
+    if config.compression_strategy == "summarize":
+        print(
+            "compression: summarize "
+            f"threshold={config.threshold_tokens} keep_recent={config.keep_recent}"
+        )
+    else:
+        print("compression: none")
+    if _repo_session_mode(config) == "chain_task":
+        print(
+            "context_window_fallback: "
+            f"restart current instance up to "
+            f"{args.max_context_restarts_per_instance}x"
+        )
     print(f"trajectories: {'full' if args.write_trajectories else 'disabled'}")
     print("")
     if args.plan_only:
@@ -283,11 +338,26 @@ def main() -> None:
         print(f"instances written: {instances_json}")
         return
 
-    providers = _providers_from_auth_envs(
-        provider_auth_envs,
-        api_kind=config.api_kind,
+    wheelhouse = _resolve_wheelhouse(args)
+    harness.prepare_wheelhouse_for_run(
+        wheelhouse,
+        prepare_all=args.prepare_wheelhouse,
+        extras=(),
     )
-    request_extra = _request_extra_for_api_kind(config.api_kind)
+    suite = SwebenchSuite(
+        dataset_name=config.dataset_name,
+        namespace="swebench",
+        network_mode=args.network_mode,
+        mem_limit=args.mem_limit,
+    )
+    backend = LocalDockerBackend(
+        pull=args.pull,
+        keep_container=args.keep_container,
+        wheelhouse=wheelhouse,
+        uv_binary=args.uv_binary or None,
+        docker_timeout_s=args.docker_timeout_seconds,
+    )
+    store = LocalDirStore(run_root)
     prediction_lock = threading.Lock()
 
     failures: list[dict[str, str]] = []
@@ -299,10 +369,11 @@ def main() -> None:
                 session,
                 args=args,
                 config=config,
-                provider=providers[session_auth_envs[session.session_id]],
                 provider_auth_env=session_auth_envs[session.session_id],
-                request_extra=request_extra,
                 run_root=run_root,
+                suite=suite,
+                backend=backend,
+                store=store,
                 predictions_path=predictions_path,
                 prediction_lock=prediction_lock,
             ): session.session_id
@@ -319,9 +390,11 @@ def main() -> None:
                 print(f"[FAIL] {session_id}: {type(exc).__name__}: {exc}", flush=True)
             else:
                 skipped_instances.extend(result.get("skipped_records", []))
+                restarts = int(result.get("context_window_restarts", 0) or 0)
                 print(
                     f"[DONE] {session_id}: {result['instances']} instance(s), "
-                    f"{result['errors']} error(s), {result['skipped']} skipped",
+                    f"{result['errors']} error(s), {result['skipped']} skipped, "
+                    f"{restarts} context restart(s)",
                     flush=True,
                 )
 
@@ -383,7 +456,45 @@ def _experiment_config_from_args(
         threshold_tokens=args.threshold_tokens,
         keep_recent=args.keep_recent,
         preserve_kinds=DEFAULT_PRESERVE_KINDS,
+        agent_flavor=args.agent_flavor,
+        compression_strategy=args.compression_strategy,
+        model_name=_model_name_for_mode(
+            agent_flavor=args.agent_flavor,
+            compression_strategy=args.compression_strategy,
+        ),
     )
+
+
+def _model_name_for_mode(*, agent_flavor: str, compression_strategy: str) -> str:
+    if agent_flavor == "bash" and compression_strategy == "summarize":
+        return DEFAULT_MODEL_NAME
+    if agent_flavor == "bash_task" and compression_strategy == "none":
+        return CHAIN_MODEL_NAME
+    return f"simple-agent-lab-pro-repo-{agent_flavor}-{compression_strategy}"
+
+
+def _repo_session_mode(config: ProRepoExperimentConfig) -> str:
+    if config.agent_flavor == "bash_task" and config.compression_strategy == "none":
+        return "chain_task"
+    return "compression"
+
+
+def _resolve_run_id(
+    value: str | None,
+    config: ProRepoExperimentConfig,
+    *,
+    now: datetime | None = None,
+) -> str:
+    explicit = str(value).strip() if value is not None else ""
+    if explicit:
+        return explicit
+    prefix = (
+        "pro-repo-chain-task"
+        if _repo_session_mode(config) == "chain_task"
+        else "pro-repo-summarize"
+    )
+    timestamp = (now or datetime.now()).strftime("%Y%m%d-%H%M%S")
+    return f"{prefix}-{timestamp}"
 
 
 def _load_rows(args: argparse.Namespace) -> list[dict[str, Any]]:
@@ -588,222 +699,193 @@ def _request_extra_for_api_kind(api_kind: str) -> dict[str, Any]:
     return extra
 
 
+def _resolve_wheelhouse(args: argparse.Namespace) -> Path | None:
+    wheelhouse_arg = args.wheelhouse or str(harness.DEFAULT_PRO_WHEELHOUSE)
+    return Path(wheelhouse_arg).resolve() if wheelhouse_arg else None
+
+
+def _provider_env_for_auth_env(auth_env: str, *, api_kind: str) -> dict[str, str]:
+    """Build the in-container provider env for one assigned auth slot."""
+
+    env: dict[str, str] = {}
+    for name in harness.OPENAI_PASSTHROUGH_ENVS:
+        if name == OPENAI_AUTH_ENV:
+            continue
+        value = os.environ.get(name)
+        if value:
+            env[name] = value.strip()
+    for name in ("NO_PROXY", "no_proxy"):
+        value = os.environ.get(name)
+        if value:
+            env[name] = value
+
+    model = (os.environ.get(OPENAI_MODEL_ENV) or "").strip()
+    token = (os.environ.get(auth_env) or "").strip()
+    missing = []
+    if not model:
+        missing.append(OPENAI_MODEL_ENV)
+    if not token:
+        missing.append(auth_env)
+    if missing:
+        raise SystemExit(
+            "Missing required env vars for SWE-bench Pro container run: "
+            + ", ".join(missing)
+        )
+
+    env[OPENAI_MODEL_ENV] = model
+    env[OPENAI_AUTH_ENV] = token
+    env[API_KIND_ENV] = api_kind
+    return env
+
+
+def _repo_session_config_payload(
+    session: RepoSessionPart,
+    *,
+    config: ProRepoExperimentConfig,
+    provider_auth_env: str,
+    position: int,
+    write_trajectories: bool,
+    max_context_restarts_per_instance: int,
+) -> dict[str, Any]:
+    mode = _repo_session_mode(config)
+    return {
+        "mode": mode,
+        "repo": session.repo,
+        "session_id": session.session_id,
+        "session_display_name": _session_display_name(session),
+        "part_index": session.part_index,
+        "part_count": session.part_count,
+        "position": position,
+        "instances_in_session": len(session.rows),
+        "provider_auth_env": provider_auth_env,
+        "write_trajectories": bool(write_trajectories),
+        "max_context_restarts_per_instance": (
+            max_context_restarts_per_instance if mode == "chain_task" else 0
+        ),
+        "config": config.as_record(),
+    }
+
+
 def _run_repo(
     session: RepoSessionPart,
     *,
     args: argparse.Namespace,
     config: ProRepoExperimentConfig,
-    provider: Any,
     provider_auth_env: str,
-    request_extra: dict[str, Any],
     run_root: Path,
+    suite: SwebenchSuite,
+    backend: LocalDockerBackend,
+    store: LocalDirStore,
     predictions_path: Path,
     prediction_lock: threading.Lock | None,
 ) -> dict[str, Any]:
     repo = session.repo
     rows = list(session.rows)
     session_id = session.session_id
-    docker = DockerCommandRunner()
-    current = CurrentContainer()
-    bash_tool = make_container_bash_tool(current, docker)
-    policy = config.context_policy(provider, request_extra=request_extra)
-    agent = make_llm_agent(
-        name=AGENT_NAME,
-        provider=provider,
-        role=AGENT_ROLE,
-        system_prompt=AGENT_SYSTEM_PROMPT,
-        tools=(bash_tool,),
-        target="user",
-        context_policy=policy,
-        request_extra=request_extra,
-    )
-    state = start_repo_state(_session_display_name(session), agent_name=AGENT_NAME)
+    context_window_restarts_total = 0
     errors = 0
     skipped_records: list[dict[str, Any]] = []
+    session_state_payload: dict[str, Any] | None = None
 
     for position, instance in enumerate(rows, start=1):
         instance_id = str(instance["instance_id"])
         paths = prepare_run_directory(
             run_root=run_root, run_id=args.run_id, instance_id=instance_id
         )
-        sanitized = harness.sanitized_instance(dict(instance))
-        _write_json(paths.input_dir / "instance.json", sanitized)
-        task = build_task(sanitized, workdir=harness.DEFAULT_PRO_WORKDIR)
-        event_start = len(state.events)
-        append_instance_task(
-            state,
-            agent_name=AGENT_NAME,
-            instance_id=instance_id,
-            task=task,
+        config_payload = _repo_session_config_payload(
+            session,
+            config=config,
+            provider_auth_env=provider_auth_env,
+            position=position,
+            write_trajectories=bool(args.write_trajectories),
+            max_context_restarts_per_instance=args.max_context_restarts_per_instance,
         )
-
+        _write_json(
+            paths.input_dir / SESSION_CONFIG_KEY.split("/", 1)[1], config_payload
+        )
+        state_input = paths.input_dir / SESSION_STATE_INPUT_KEY.split("/", 1)[1]
+        if session_state_payload is None:
+            state_input.unlink(missing_ok=True)
+        else:
+            _write_json(state_input, session_state_payload)
         container = container_name(
-            "swebench_pro_repo",
+            _container_suite_name(config),
             instance_id,
             args.run_id,
             namespace=repo,
         )
-        image = harness.docker_image_for_instance(
-            dict(instance),
-            dataset_name=config.dataset_name,
-            namespace="swebench",
-            instance_image_tag="latest",
-            env_image_tag="latest",
-        )
-        workdir = harness.resolve_workdir(
-            "", dict(instance), dataset_name=config.dataset_name
-        )
-        current.name = container
-        current.workdir = workdir
-        status = "ok"
-        error = ""
-        skip_reason = ""
-        baseline = ""
-        patch = ""
-        invalid_prompt_retries = 0
+        result: dict[str, Any]
         try:
             if args.force:
-                docker.remove_container(container)
-            started = docker.start_container(
-                container_name=container,
-                image=image,
-                workdir=workdir,
-                network_mode=args.network_mode,
-                mem_limit=args.mem_limit,
+                _force_remove_container(container)
+            artifacts = run_suite_instance(
+                suite=suite,
+                instance=instance,
+                backend=backend,
+                store=store,
+                run_root=run_root,
+                run_id=args.run_id,
+                provider="openai",
+                api_kind=config.api_kind,
+                max_turns=config.max_turns,
+                provider_env=_provider_env_for_auth_env(
+                    provider_auth_env, api_kind=config.api_kind
+                ),
+                runner_module=PRO_REPO_SESSION_RUNNER_MODULE,
+                package_extras=(),
+                wheelhouse_mount=harness.DEFAULT_WHEELHOUSE_MOUNT,
+                name=container,
             )
-            _ensure_ok(started, f"start {container}")
-            baseline = prepare_container_baseline(
-                docker, current, language=instance_language(dict(instance))
-            )
-            while status == "ok":
-                _repair_active_tool_pairs(state, agent_name=AGENT_NAME)
-                turn_budget = _remaining_turn_budget(
-                    state.events[event_start:], config.max_turns
+            if artifacts.logs:
+                print(
+                    artifacts.logs,
+                    end="" if artifacts.logs.endswith("\n") else "\n",
+                    flush=True,
                 )
-                if turn_budget <= 0:
-                    prompt_source = _invalid_prompt_source(
-                        state, instance_id=instance_id
-                    )
-                    if prompt_source == "tool_output" or invalid_prompt_retries:
-                        _end_instance_after_invalid_prompt_tool_retry_limit(
-                            state,
-                            agent_name=AGENT_NAME,
-                            instance_id=instance_id,
-                        )
-                    elif prompt_source == "instance_task":
-                        _drop_instance_task_for_invalid_prompt_skip(
-                            state,
-                            agent_name=AGENT_NAME,
-                            instance_id=instance_id,
-                        )
-                    status = "skipped"
-                    skip_reason = "invalid_prompt_turn_budget_exhausted"
-                    error = "invalid_prompt retry exhausted this instance's turn budget"
-                    print(
-                        f"[{session_id} #{position}/{len(rows)}] {instance_id}: "
-                        "skipped after invalid_prompt exhausted turn budget",
-                        flush=True,
-                    )
-                    break
-                try:
-                    for event in run_agent(agent, state, max_turns=turn_budget):
-                        if isinstance(event, ContextCompressionEvent):
-                            print(
-                                f"[{session_id} #{position}/{len(rows)}] "
-                                f"compression {event.before_tokens}"
-                                f"->{event.after_tokens}",
-                                flush=True,
-                            )
-                    break
-                except Exception as exc:
-                    if not _is_invalid_prompt_error(exc):
-                        raise
-                    prompt_source = _invalid_prompt_source(
-                        state, instance_id=instance_id
-                    )
-                    provider_error = f"{type(exc).__name__}: {exc}"
-                    if prompt_source == "instance_task":
-                        _drop_instance_task_for_invalid_prompt_skip(
-                            state,
-                            agent_name=AGENT_NAME,
-                            instance_id=instance_id,
-                        )
-                        status = "skipped"
-                        skip_reason = "invalid_prompt_instance_task"
-                        error = provider_error
-                        print(
-                            f"[{session_id} #{position}/{len(rows)}] {instance_id}: "
-                            f"skipped after invalid_prompt on instance task",
-                            flush=True,
-                        )
-                        break
-                    if prompt_source == "tool_output" or invalid_prompt_retries:
-                        if invalid_prompt_retries >= INVALID_PROMPT_TOOL_RETRY_LIMIT:
-                            _end_instance_after_invalid_prompt_tool_retry_limit(
-                                state,
-                                agent_name=AGENT_NAME,
-                                instance_id=instance_id,
-                            )
-                            status = "skipped"
-                            skip_reason = "invalid_prompt_tool_output_retry_limit"
-                            error = provider_error
-                            print(
-                                f"[{session_id} #{position}/{len(rows)}] "
-                                f"{instance_id}: skipped after "
-                                f"{invalid_prompt_retries} invalid_prompt "
-                                "tool-output retries",
-                                flush=True,
-                            )
-                            break
-                        if not _replace_latest_tool_exchange_for_invalid_prompt(
-                            state, agent_name=AGENT_NAME
-                        ):
-                            _end_instance_after_invalid_prompt_tool_retry_limit(
-                                state,
-                                agent_name=AGENT_NAME,
-                                instance_id=instance_id,
-                            )
-                            status = "skipped"
-                            skip_reason = "invalid_prompt_tool_exchange_not_found"
-                            error = provider_error
-                            print(
-                                f"[{session_id} #{position}/{len(rows)}] "
-                                f"{instance_id}: skipped after invalid_prompt "
-                                "with no remaining tool exchange to remove",
-                                flush=True,
-                            )
-                            break
-                        invalid_prompt_retries += 1
-                        print(
-                            f"[{session_id} #{position}/{len(rows)}] {instance_id}: "
-                            "removed invalid_prompt tool exchange and retrying "
-                            f"({invalid_prompt_retries}/"
-                            f"{INVALID_PROMPT_TOOL_RETRY_LIMIT})",
-                            flush=True,
-                        )
-                        continue
-                    raise
-            if status == "ok":
-                patch = extract_container_patch(
-                    docker,
-                    current,
-                    language=instance_language(dict(instance)),
-                    baseline_commit=baseline,
+            result = _load_result_or_error(
+                paths.output_dir / RESULT_KEY.split("/", 1)[1],
+                instance_id=instance_id,
+                session=session,
+                provider_auth_env=provider_auth_env,
+                error=(
+                    ""
+                    if artifacts.status_code == 0
+                    else f"container exited with status {artifacts.status_code}"
+                ),
+            )
+            if artifacts.status_code != 0:
+                result["status"] = "error"
+                result["error"] = result.get("error") or (
+                    f"container exited with status {artifacts.status_code}"
                 )
         except Exception as exc:
-            errors += 1
-            status = "error"
-            error = f"{type(exc).__name__}: {exc}"
+            result = _load_result_or_error(
+                paths.output_dir / RESULT_KEY.split("/", 1)[1],
+                instance_id=instance_id,
+                session=session,
+                provider_auth_env=provider_auth_env,
+                error=f"{type(exc).__name__}: {exc}",
+            )
+            result["status"] = "error"
+            result["error"] = result.get("error") or f"{type(exc).__name__}: {exc}"
             print(
-                f"[{session_id} #{position}/{len(rows)}] {instance_id}: {error}",
+                f"[{session_id} #{position}/{len(rows)}] {instance_id}: "
+                f"{result['error']}",
                 flush=True,
             )
-        finally:
-            docker.remove_container(container)
-            current.name = ""
-            current.workdir = "/app"
 
-        if status == "skipped":
+        result.setdefault("agent_flavor", config.agent_flavor)
+        result.setdefault("compression_strategy", config.compression_strategy)
+        result.setdefault("context_window_restarts", 0)
+        if result.get("status") == "error":
+            errors += 1
+        restarts = int(result.get("context_window_restarts", 0) or 0)
+        context_window_restarts_total += restarts
+        state_output = paths.output_dir / SESSION_STATE_OUTPUT_KEY.split("/", 1)[1]
+        if state_output.exists():
+            session_state_payload = _read_json(state_output)
+
+        if result.get("status") == "skipped":
             skipped_record = {
                 "repo": repo,
                 "session_id": session_id,
@@ -811,30 +893,15 @@ def _run_repo(
                 "part_count": session.part_count,
                 "instance_id": instance_id,
                 "position": position,
-                "reason": skip_reason,
-                "error": error,
-                "invalid_prompt_retries": invalid_prompt_retries,
+                "reason": str(result.get("skip_reason") or ""),
+                "error": str(result.get("error") or ""),
+                "invalid_prompt_retries": int(
+                    result.get("invalid_prompt_retries", 0) or 0
+                ),
+                "context_window_restarts": restarts,
             }
             skipped_records.append(skipped_record)
 
-        metrics = summarize_compression(state.events[event_start:])
-        result = {
-            "model_patch": patch,
-            "instance_id": instance_id,
-            "repo": repo,
-            "session_id": session_id,
-            "session_part_index": session.part_index,
-            "session_part_count": session.part_count,
-            "provider_auth_env": provider_auth_env,
-            "status": status,
-            "error": error,
-            "skip_reason": skip_reason,
-            "invalid_prompt_retries": invalid_prompt_retries,
-            "baseline_commit": baseline,
-            "compression_metrics": metrics.as_dict(),
-            "session_event_start": event_start,
-            "session_event_end": len(state.events),
-        }
         _write_json(paths.output_dir / "result.json", result)
         _write_incremental_predictions(
             predictions_path=predictions_path,
@@ -844,43 +911,9 @@ def _run_repo(
             dataset_name=config.dataset_name,
             lock=prediction_lock,
         )
-        _maybe_write_trace(
-            args,
-            path=paths.trajectory_jsonl,
-            state=state,
-            trace_id=f"{args.run_id}.{instance_id}",
-            meta={
-                "repo": repo,
-                "session_id": session_id,
-                "part_index": session.part_index,
-                "part_count": session.part_count,
-                "instance_id": instance_id,
-                "position": position,
-                "instances_in_session": len(rows),
-                "status": status,
-                "provider_auth_env": provider_auth_env,
-                "compression": config.as_record(),
-            },
-        )
 
     repo_dir = run_root / args.run_id / "_repo_sessions" / _safe_path_part(session_id)
     repo_dir.mkdir(parents=True, exist_ok=True)
-    _maybe_write_trace(
-        args,
-        path=repo_dir / "trajectory.jsonl",
-        state=state,
-        trace_id=f"{args.run_id}.{session_id}",
-        meta={
-            "repo": repo,
-            "session_id": session_id,
-            "part_index": session.part_index,
-            "part_count": session.part_count,
-            "instances": len(rows),
-            "errors": errors,
-            "skipped": len(skipped_records),
-            "provider_auth_env": provider_auth_env,
-        },
-    )
     if skipped_records:
         _write_jsonl_records(repo_dir / "skipped_instances.jsonl", skipped_records)
     _write_json(
@@ -894,6 +927,9 @@ def _run_repo(
             "errors": errors,
             "skipped": len(skipped_records),
             "provider_auth_env": provider_auth_env,
+            "agent_flavor": config.agent_flavor,
+            "compression_strategy": config.compression_strategy,
+            "context_window_restarts": context_window_restarts_total,
         },
     )
     return {
@@ -902,7 +938,14 @@ def _run_repo(
         "skipped": len(skipped_records),
         "provider_auth_env": provider_auth_env,
         "skipped_records": skipped_records,
+        "context_window_restarts": context_window_restarts_total,
     }
+
+
+def _container_suite_name(config: ProRepoExperimentConfig) -> str:
+    if _repo_session_mode(config) == "chain_task":
+        return "swebench_pro_repo_chain_task"
+    return "swebench_pro_repo"
 
 
 def _maybe_write_trace(
@@ -925,6 +968,41 @@ def _maybe_write_trace(
     )
     write_event_stream(path, trace)
     return True
+
+
+def _load_result_or_error(
+    path: Path,
+    *,
+    instance_id: str,
+    session: RepoSessionPart,
+    provider_auth_env: str,
+    error: str,
+) -> dict[str, Any]:
+    if path.exists():
+        return _read_json(path)
+    return {
+        "model_patch": "",
+        "instance_id": instance_id,
+        "repo": session.repo,
+        "session_id": session.session_id,
+        "session_part_index": session.part_index,
+        "session_part_count": session.part_count,
+        "provider_auth_env": provider_auth_env,
+        "status": "error" if error else "ok",
+        "error": error,
+        "skip_reason": "",
+        "invalid_prompt_retries": 0,
+        "context_window_restarts": 0,
+        "chain_window_index": 1,
+        "baseline_commit": "",
+        "compression_metrics": {},
+        "session_event_start": 0,
+        "session_event_end": 0,
+    }
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _write_incremental_predictions(
@@ -1232,6 +1310,16 @@ def _run_official_eval(
     subprocess.run(command, cwd=ROOT, check=True)
 
 
+def _force_remove_container(name: str) -> None:
+    subprocess.run(
+        ["docker", "rm", "-f", name],
+        capture_output=True,
+        check=False,
+        encoding="utf-8",
+        errors="replace",
+    )
+
+
 def _resolve_parallel(value: str, *, session_count: int) -> int:
     if value in {"parts", "repos"}:
         return max(1, session_count)
@@ -1256,10 +1344,15 @@ def _ensure_ok(result: Any, label: str) -> None:
 
 def _write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    tmp = path.with_name(f".{path.name}.tmp-{os.getpid()}-{threading.get_ident()}")
+    try:
+        tmp.write_text(
+            json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def _write_jsonl_records(path: Path, records: list[dict[str, Any]]) -> None:

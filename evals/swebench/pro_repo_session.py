@@ -52,6 +52,7 @@ DEFAULT_REASONING_EFFORT = ""
 DEFAULT_CONTEXT_WINDOW_TOKENS = 272_000
 DEFAULT_THRESHOLD_TOKENS = int(DEFAULT_CONTEXT_WINDOW_TOKENS * 0.8)
 DEFAULT_KEEP_RECENT = 12
+DEFAULT_BASELINE_TIMEOUT_SECONDS = 300
 DEFAULT_PRESERVE_KINDS: tuple[MessageKind, ...] = (
     "task",
     "system",
@@ -759,7 +760,7 @@ def prepare_container_baseline(
             "fi\n"
             "git rev-parse HEAD\n"
         ),
-        timeout_seconds=60,
+        timeout_seconds=DEFAULT_BASELINE_TIMEOUT_SECONDS,
     )
     _raise_on_failure(result, "prepare baseline")
     return str(getattr(result, "stdout", "") or "").strip().splitlines()[-1]

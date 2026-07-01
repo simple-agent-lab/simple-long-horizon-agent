@@ -121,7 +121,7 @@ def build_command(spec: RunSpec) -> tuple[str, ...]:
 
     runner_argv: list[str] = [
         "-m",
-        GENERIC_RUNNER_MODULE,
+        spec.runner_module,
         "--container-module",
         spec.container_module,
         "--suite-name",
@@ -161,6 +161,7 @@ def run_suite_instance(
     max_turns: int = 75,
     wall_time_seconds: float | None = None,
     provider_env: Mapping[str, str] | None = None,
+    runner_module: str = GENERIC_RUNNER_MODULE,
     install: bool = True,
     package_extras: tuple[str, ...] = (),
     wheelhouse_mount: str | None = None,
@@ -205,6 +206,7 @@ def run_suite_instance(
         provider=provider,
         api_kind=api_kind,
         provider_env=dict(provider_env or {}),
+        runner_module=runner_module,
         install=install,
         package_extras=package_extras,
         wheelhouse_mount=wheelhouse_mount,

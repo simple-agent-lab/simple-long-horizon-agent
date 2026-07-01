@@ -37,7 +37,11 @@ from simple_agent_lab.evals import (
 )
 
 # Internal helpers live in their own modules, not the top-level facade.
-from simple_agent_lab.evals.runner import build_command, container_name
+from simple_agent_lab.evals.runner import (
+    GENERIC_RUNNER_MODULE,
+    build_command,
+    container_name,
+)
 from simple_agent_lab.evals.stores import HttpArtifactClient
 
 SWEBENCH_CONTAINER = "simple_agent_lab.evals.suites.swebench.container"
@@ -119,6 +123,24 @@ class OrchestrationTest(unittest.TestCase):
         self.assertEqual(cmd[:2], ("bash", "-lc"))
         self.assertIn("simple_agent_lab.evals.in_container", cmd[-1])
         self.assertIn("--find-links /wh", cmd[-1])
+
+    def test_build_command_can_target_custom_runner_module(self) -> None:
+        custom_runner = "simple_agent_lab.evals.suites.swebench.repo_session_runner"
+        spec = RunSpec(
+            suite_name="swebench_pro",
+            container_module=SWEBENCH_CONTAINER,
+            instance_id="instance_1",
+            launch_spec=LaunchSpec(image="img", workdir="/app"),
+            max_turns=5,
+            provider="fake",
+            api_kind="openai-chat",
+            runner_module=custom_runner,
+        )
+
+        cmd = build_command(spec)
+
+        self.assertIn(custom_runner, cmd[-1])
+        self.assertNotIn(GENERIC_RUNNER_MODULE, cmd[-1])
 
     def test_build_command_installs_mcp_extra_when_requested(self) -> None:
         spec = RunSpec(

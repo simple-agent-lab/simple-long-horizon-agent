@@ -273,6 +273,7 @@ class RunSpec:
     provider: str  # "openai" | "fake"
     api_kind: str
     provider_env: Mapping[str, str] = field(default_factory=dict)
+    runner_module: str = "simple_agent_lab.evals.in_container"
     install: bool = True
     package_extras: tuple[str, ...] = ()
     wheelhouse_mount: str | None = None
