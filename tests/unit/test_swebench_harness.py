@@ -375,6 +375,7 @@ class SwebenchHarnessTest(unittest.TestCase):
                 "--install-dir",
                 uv_python,
                 "cpython-3.11-linux-x86_64-gnu",
+                "cpython-3.11-linux-x86_64-musl",
             ],
         )
 
