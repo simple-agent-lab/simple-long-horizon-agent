@@ -133,7 +133,7 @@ def chain_start_state(*, config: Mapping[str, Any], agent_name: str):
 
     display_name = _chain_display_name(config)
     task = (
-        f"SWE-bench Pro repo chain for {display_name}. Solve instances for "
+        f"Repo chain for {display_name}. Solve instances for "
         "this repository in commit-time order. Carry useful context across "
         "tasks, but each instance's patch must address only the current problem."
     )
@@ -186,7 +186,7 @@ def chain_context_policy(
         name="swebench_compressor",
         provider=provider,
         role=(
-            "Summarize older SWE-bench repo-chain context. Preserve durable "
+            "Summarize older repo-chain context. Preserve durable "
             "facts, decisions, tool results, constraints, file paths, test "
             "signals, and unresolved questions. Omit low-value wording."
         ),
@@ -249,10 +249,10 @@ def build_task(instance: Mapping[str, Any], *, workdir: str) -> str:
     requirements = _optional(instance.get("requirements"))
     interface = _optional(instance.get("interface"))
     lines = [
-        "Solve this SWE-bench instance.",
+        "Solve this repository task.",
         "",
         "## Environment",
-        "- You are running inside the SWE-bench container.",
+        "- You are running inside the repository container.",
         f"- The bash tool runs locally in {workdir}.",
         "- A full Linux shell is available; install missing tools only if strictly needed.",
         "- Always pass non-interactive flags (`-y`, `--no-pager`); avoid editors that wait for input.",

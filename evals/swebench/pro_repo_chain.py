@@ -74,7 +74,7 @@ def start_repo_state(repo: str, *, agent_name: str) -> State:
     """Create the one persistent transcript for a SWE-bench repo chain."""
 
     task = (
-        f"SWE-bench Pro repo chain for {repo}. Solve instances for this "
+        f"Repo chain for {repo}. Solve instances for this "
         "repository in commit-time order. Carry useful context across tasks, "
         "but each instance's patch must address only the current problem."
     )
@@ -401,7 +401,7 @@ class ProRepoExperimentConfig:
             name="swebench_compressor",
             provider=provider,
             role=(
-                "Summarize older SWE-bench repo-chain context. Preserve durable "
+                "Summarize older repo-chain context. Preserve durable "
                 "facts, decisions, tool results, constraints, file paths, test "
                 "signals, and unresolved questions. Omit low-value wording."
             ),
@@ -556,7 +556,7 @@ def make_container_bash_tool(
             return text_result("Bash command aborted before start.", is_error=True)
         if not current.name:
             return text_result(
-                "No active SWE-bench container is attached to this repo chain.",
+                "No active repository container is attached to this repo chain.",
                 is_error=True,
             )
         command = str(args.get("command", "")).strip()

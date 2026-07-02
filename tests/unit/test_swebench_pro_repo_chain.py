@@ -909,7 +909,7 @@ class DockerExecBashToolTest(unittest.TestCase):
         result = tool.execute("call", {"command": "pwd"}, lambda: False, None)
 
         self.assertTrue(result.is_error)
-        self.assertIn("No active SWE-bench container", text_of(result.content))
+        self.assertIn("No active repository container", text_of(result.content))
 
     def test_container_bash_tool_blocks_long_leading_sleep_like_standard_tool(
         self,
@@ -1041,7 +1041,7 @@ class RepoChainStateTest(unittest.TestCase):
         list(run(agent, state, max_turns=1))
 
         visible_text = "\n".join(message_text(m) for m in state.messages)
-        self.assertNotIn("SWE-bench Pro repo chain for acme/widgets", visible_text)
+        self.assertNotIn("Repo chain for acme/widgets", visible_text)
         self.assertIn("first problem", visible_text)
         self.assertIn("second problem", visible_text)
         self.assertGreater(observed_visible_counts[1], observed_visible_counts[0])
@@ -1066,7 +1066,7 @@ class RepoChainStateTest(unittest.TestCase):
         state = start_repo_state("acme/widgets", agent_name="swebench_agent")
 
         self.assertEqual(state.active_context_messages(), [])
-        self.assertIn("SWE-bench Pro repo chain for acme/widgets", state.task)
+        self.assertIn("Repo chain for acme/widgets", state.task)
 
 
 class RepoChainStateArtifactTest(unittest.TestCase):
@@ -1917,7 +1917,7 @@ class RepoChainInvalidPromptHandlingTest(unittest.TestCase):
             state,
             agent_name="swebench_agent",
             instance_id="case-1",
-            task="Solve this SWE-bench instance.",
+            task="Solve this repository task.",
         )
 
         self.assertEqual(_remaining_turn_budget(state.events[event_start:], 3), 3)
@@ -1944,7 +1944,7 @@ class RepoChainInvalidPromptHandlingTest(unittest.TestCase):
             state,
             agent_name="swebench_agent",
             instance_id="case-1",
-            task="Solve this SWE-bench instance.",
+            task="Solve this repository task.",
         )
 
         self.assertEqual(
@@ -1968,7 +1968,7 @@ class RepoChainInvalidPromptHandlingTest(unittest.TestCase):
             state,
             agent_name="swebench_agent",
             instance_id="case-1",
-            task="Solve this SWE-bench instance.",
+            task="Solve this repository task.",
         )
         state.record(
             assistant_message(
@@ -2013,7 +2013,7 @@ class RepoChainInvalidPromptHandlingTest(unittest.TestCase):
             state,
             agent_name="swebench_agent",
             instance_id="case-1",
-            task="Solve this SWE-bench instance.",
+            task="Solve this repository task.",
         )
         state.record(
             assistant_message(
@@ -2081,7 +2081,7 @@ class RepoChainInvalidPromptHandlingTest(unittest.TestCase):
             state,
             agent_name="swebench_agent",
             instance_id="case-1",
-            task="Solve this SWE-bench instance.",
+            task="Solve this repository task.",
         )
         state.record(
             assistant_message(
@@ -2176,7 +2176,7 @@ class RepoChainInvalidPromptHandlingTest(unittest.TestCase):
             state,
             agent_name="swebench_agent",
             instance_id="case-1",
-            task="Solve this SWE-bench instance.",
+            task="Solve this repository task.",
         )
         state.record(
             assistant_message(
