@@ -81,11 +81,11 @@ ALL_FLAVORS = AGENT_FLAVORS
 
 AGENT_NAME = "swebench_agent"
 AGENT_ROLE = (
-    "Work in the local SWE-bench repository. Use bash for inspection, edits, "
+    "Work in the local repository. Use bash for inspection, edits, "
     "and focused tests, then return a concise final note."
 )
 AGENT_SYSTEM_PROMPT = (
-    "You are a software engineer interacting with a SWE-bench instance "
+    "You are a software engineer interacting with a repository "
     "container through the bash tool. Each bash call runs in a fresh shell "
     "rooted at the workspace, so include any cd or env setup in the command "
     "and use non-interactive flags (`-y`, `--no-pager`, avoid `vi`/`nano`). "
