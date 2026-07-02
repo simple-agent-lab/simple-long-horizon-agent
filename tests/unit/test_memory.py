@@ -22,7 +22,7 @@ from simple_agent_lab.memory import (
     Memory,
     MemoryContext,
 )
-from simple_agent_lab.memory.filesystem import sanitize_summary
+from simple_agent_lab.memory.distill import sanitize_summary
 from simple_agent_lab.memory.transcript import extract_memory_text
 from simple_agent_lab.messages import runtime_message
 from simple_agent_lab.protocols import ModelRequestEvent
@@ -263,7 +263,7 @@ class MemoryBaseTest(unittest.TestCase):
 
 class FilesystemMemoryTest(unittest.TestCase):
     def test_filesystem_memory_prompt_preserves_quality_gate(self) -> None:
-        from simple_agent_lab.memory.filesystem import filesystem_distillation_prompt
+        from simple_agent_lab.memory.distill import filesystem_distillation_prompt
 
         payload = FilesystemMemoryPayload(
             task="fix login",
@@ -536,7 +536,7 @@ class FilesystemMemoryTest(unittest.TestCase):
     def test_handbook_rewrite_rejected_when_oversize_keeps_existing(self) -> None:
         # Guard: a rewrite past the size cap is rejected; the prior handbook is kept
         # and a marker records the skip instead of persisting a runaway response.
-        from simple_agent_lab.memory.filesystem import DEFAULT_MAX_HANDBOOK_CHARS
+        from simple_agent_lab.memory.records import DEFAULT_MAX_HANDBOOK_CHARS
 
         with tempfile.TemporaryDirectory() as tmp:
             memory = FilesystemMemory(root=tmp)
@@ -698,7 +698,7 @@ class FilesystemMemoryTest(unittest.TestCase):
 
     def test_distiller_prompt_forbids_raw_line_number_citations(self) -> None:
         # P1: citations must be greppable anchors, never raw line numbers.
-        from simple_agent_lab.memory.filesystem import filesystem_distillation_prompt
+        from simple_agent_lab.memory.distill import filesystem_distillation_prompt
 
         payload = FilesystemMemoryPayload(
             task="fix login",

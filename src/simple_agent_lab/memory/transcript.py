@@ -10,7 +10,6 @@ import json
 from collections.abc import Iterable
 
 from simple_agent_lab.messages import (
-    AssistantMessage,
     ImageBlock,
     Message,
     TextBlock,
@@ -105,63 +104,6 @@ def final_submission_from_state(state: State) -> str:
     return ""
 
 
-def simple_session_summary(
-    messages: Iterable[Message], *, max_chars: int = 2200
-) -> str:
-    """Build a small generic summary without calling a model."""
-
-    messages_list = list(messages)
-    sections: list[str] = []
-    task = first_user_text(messages_list)
-    if task:
-        sections.append("Task: " + _compact(task, 900))
-
-    tools: list[str] = []
-    important: list[str] = []
-    for message in messages_list:
-        if isinstance(message, AssistantMessage):
-            for call in message.tool_calls:
-                tools.append(
-                    _compact(
-                        f"{call.name} {json.dumps(dict(call.arguments), sort_keys=True)}",
-                        180,
-                    )
-                )
-        text = extract_memory_text(message)
-        for line in text.splitlines():
-            lowered = line.lower()
-            if any(
-                marker in lowered
-                for marker in (
-                    "error",
-                    "failed",
-                    "failure",
-                    "exception",
-                    "traceback",
-                    "assert",
-                )
-            ):
-                important.append(_compact(line, 220))
-
-    if tools:
-        sections.append("Tools: " + "; ".join(tools[:18]))
-    if important:
-        sections.append("Important output: " + "; ".join(important[:10]))
-
-    final = next(
-        (
-            extract_memory_text(message)
-            for message in reversed(messages_list)
-            if message.role == "assistant" and message.kind == "final"
-        ),
-        "",
-    )
-    if final:
-        sections.append("Final: " + _compact(final, 500))
-
-    return _compact("\n".join(sections), max_chars)
-
-
 def _visible_blocks_text(blocks: Iterable[TextBlock | ImageBlock]) -> str:
     parts: list[str] = []
     for block in blocks:
@@ -170,10 +112,3 @@ def _visible_blocks_text(blocks: Iterable[TextBlock | ImageBlock]) -> str:
         elif isinstance(block, ImageBlock):
             parts.append(f"[image: {block.mime_type or 'image'}]")
     return "\n".join(parts).strip()
-
-
-def _compact(text: str, limit: int) -> str:
-    collapsed = " ".join(text.split())
-    if len(collapsed) <= limit:
-        return collapsed
-    return collapsed[: max(0, limit - 14)] + "...[truncated]"

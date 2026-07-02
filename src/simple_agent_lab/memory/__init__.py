@@ -12,14 +12,14 @@ from .base import (
     NoMemory,
     memory_context_message,
 )
-from .filesystem import (
+from .distill import make_filesystem_distiller
+from .filesystem import FilesystemMemory
+from .records import (
     DEFAULT_FILESYSTEM_MEMORY_ROOT,
     FilesystemArtifact,
     FilesystemDistillation,
     FilesystemIndexRow,
-    FilesystemMemory,
     FilesystemMemoryPayload,
-    make_filesystem_distiller,
 )
 
 __all__ = [
