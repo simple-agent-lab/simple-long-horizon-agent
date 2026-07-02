@@ -43,8 +43,8 @@ from ..runner import build_command
 # — type checks cleanly; the runtime None-guard, not the type, enforces presence.
 docker: Any = None
 try:  # pragma: no cover - import guard
-    import docker as _docker
-    import docker.errors  # noqa: F401
+    import docker as _docker  # ty: ignore[unresolved-import]
+    import docker.errors  # ty: ignore[unresolved-import]  # noqa: F401
 
     docker = _docker
 except ImportError:  # pragma: no cover - exercised only without the extra

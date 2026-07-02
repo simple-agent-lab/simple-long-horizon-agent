@@ -713,9 +713,7 @@ class SwebenchProRepoChainPlanningTest(unittest.TestCase):
             build_parser,
         )
 
-        args = build_parser().parse_args(
-            ["--all", "--context-window-tokens", "5000"]
-        )
+        args = build_parser().parse_args(["--all", "--context-window-tokens", "5000"])
         config = _experiment_config_from_args(args, api_kind="openai-responses")
 
         self.assertEqual(args.context_window_tokens, 5000)
@@ -1631,8 +1629,7 @@ class RepoChainInContainerRunnerTest(unittest.TestCase):
                 json.loads(store.get(CHAIN_STATE_OUTPUT_KEY).decode("utf-8"))
             )
             visible = "\n".join(
-                message_text(message)
-                for message in restored.active_context_messages()
+                message_text(message) for message in restored.active_context_messages()
             )
             # Earlier instance context is inherited into the current instance.
             self.assertIn("prior repo context", visible)
