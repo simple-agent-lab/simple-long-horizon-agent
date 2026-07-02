@@ -11,7 +11,7 @@ SIMPLE_AGENT_FLAVORS = ("bash", "bash_task", "bash_task_read", "bash_skills")
 
 # Workflow arms are selected with the same AGENT_FLAVOR knob, but suites that
 # support them provide a custom build_agent facade.
-WORKFLOW_AGENT_FLAVORS = ("loop", "pdr")
+WORKFLOW_AGENT_FLAVORS = ("loop", "goal", "pdr")
 
 AGENT_FLAVORS = SIMPLE_AGENT_FLAVORS + WORKFLOW_AGENT_FLAVORS
 

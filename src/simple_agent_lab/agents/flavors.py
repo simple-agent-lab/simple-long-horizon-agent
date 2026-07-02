@@ -1,7 +1,7 @@
 """Build shipped agent flavors from shared flavor names.
 
 This module owns the mapping from a flavor string (``bash``, ``bash_task``,
-``bash_task_read``, ``bash_skills``, ``loop``, ``pdr``) to concrete agent
+``bash_task_read``, ``bash_skills``, ``loop``, ``goal``, ``pdr``) to concrete agent
 capabilities. Runners pass in name/role/prompt/cwd; the agent layer decides
 which tools, prompt addenda, sessions, or workflow choreography implement that
 flavor.
@@ -34,12 +34,16 @@ from simple_agent_lab.workflow import (
     VERIFY_BEFORE_DONE_ADDENDUM,
     VERIFY_CONTINUATION,
     GoalBudgets,
+    ThreadGoalStore,
     WorkflowResult,
     compose_workflow_trace_state,
     executed_completion_check,
+    make_get_goal_tool,
+    make_update_goal_tool,
     make_distiller_agent,
     run_goal_loop,
     run_pdr,
+    run_thread_goal_loop,
     update_goal_tool,
     workflow_steps_breakdown,
     write_workflow_subagent_traces,
@@ -79,12 +83,12 @@ def build_flavor_agent(
 ) -> Agent:
     """Build an Agent for one shipped flavor, simple or workflow.
 
-    Dispatches on the flavor vocabulary: workflow flavors (``loop``, ``pdr``)
-    return a facade Agent that runs the whole arm in its single ``generate``;
-    every other flavor returns a resource-free simple Agent. The workflow-only
-    knobs (``prepare_workspace``/``trace_put``) are ignored by simple flavors,
-    and the simple-only knobs (``hooks``/``tools``) are ignored by workflow
-    flavors.
+    Dispatches on the flavor vocabulary: workflow flavors (``loop``, ``goal``,
+    ``pdr``) return a facade Agent that runs the whole arm in its single
+    ``generate``; every other flavor returns a resource-free simple Agent. The
+    workflow-only knobs (``prepare_workspace``/``trace_put``) are ignored by
+    simple flavors, and the simple-only knobs (``hooks``/``tools``) are ignored
+    by workflow flavors.
     """
 
     if flavor.strip().lower() in WORKFLOW_AGENT_FLAVORS:
@@ -365,6 +369,36 @@ def make_workflow_runner_for_flavor(
 
         return run_loop
 
+    if selected == "goal":
+        loop_turns = config.LOOP_MAX_TURNS.get()
+
+        def run_goal_arm(task: str) -> WorkflowResult:
+            goal_store = ThreadGoalStore()
+            agent = _solver_agent(
+                provider,
+                workdir,
+                request_extra,
+                name=name,
+                role=role,
+                system_prompt=system_prompt,
+                context_policy=context_policy,
+                extra_tools=[
+                    make_get_goal_tool(goal_store),
+                    make_update_goal_tool(goal_store),
+                ],
+                bash_exec_prefix=bash_exec_prefix,
+            )
+            result = run_thread_goal_loop(
+                agent,
+                task,
+                budgets=GoalBudgets(max_turns=loop_turns),
+                inner_max_turns=worker_max_turns,
+                goal_store=goal_store,
+            )
+            return WorkflowResult(output=result.output, steps=result.steps)
+
+        return run_goal_arm
+
     if selected == "pdr":
         rounds = config.PDR_ROUNDS.get()
         width = config.PDR_WIDTH.get()
@@ -590,7 +624,7 @@ def _solver_agent(
 
 
 def _task_text(visible: list[Message]) -> str:
-    for message in visible:
+    for message in reversed(visible):
         if message.kind == "task":
             return text_of(message.content)
     return text_of(visible[0].content) if visible else ""

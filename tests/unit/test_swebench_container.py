@@ -40,6 +40,7 @@ from simple_agent_lab.agents.flavors import (
 )
 from simple_agent_lab.agents.starter import BASH_TASK_ADDENDUM
 from simple_agent_lab.compression import SummarizeStrategy
+from simple_agent_lab.core import run as run_agent
 from simple_agent_lab.evals.stores import container_store_from_env
 from simple_agent_lab.evals.suites.swebench import container as wc
 import simple_agent_lab.config as config
@@ -312,6 +313,41 @@ class ArmRunnerTest(unittest.TestCase):
             result = run(EDIT_TASK)
         self.assertTrue((self.workdir / "marker.txt").exists())
         self.assertTrue(result.steps)
+
+    def test_goal_arm_runs_codex_style_loop_and_edits_workspace(self) -> None:
+        with _envs(
+            {config.LOOP_MAX_TURNS.name: "1", config.WORKER_MAX_TURNS.name: "2"}
+        ):
+            run = make_workflow_runner_for_flavor(
+                "goal",
+                FAKE_PROVIDER,
+                self.workdir,
+                name=wc.AGENT_NAME,
+                role=wc.AGENT_ROLE,
+                system_prompt=wc.AGENT_SYSTEM_PROMPT,
+            )
+            result = run(EDIT_TASK)
+
+        self.assertTrue((self.workdir / "marker.txt").exists())
+        self.assertTrue(result.steps)
+
+    def test_workflow_facade_uses_latest_task_message(self) -> None:
+        state = State("repo session seed")
+        state.send("task", "user", wc.AGENT_NAME, "first instance")
+        state.send("task", "user", wc.AGENT_NAME, EDIT_TASK)
+        with _envs(
+            {
+                AGENT_FLAVOR_ENV: "goal",
+                config.LOOP_MAX_TURNS.name: "1",
+                config.WORKER_MAX_TURNS.name: "2",
+            }
+        ):
+            agent = wc.build_agent(provider=FAKE_PROVIDER, cwd=self.workdir)
+            assert agent is not None
+            for _ in run_agent(agent, state, max_turns=1):
+                pass
+
+        self.assertTrue((self.workdir / "marker.txt").exists())
 
     def test_unknown_arm_raises(self) -> None:
         with self.assertRaises(SystemExit):

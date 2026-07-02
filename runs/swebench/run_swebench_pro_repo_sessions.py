@@ -77,6 +77,7 @@ from simple_agent_lab.evals.suites.swebench.repo_session_state import (  # noqa:
     SESSION_STATE_INPUT_KEY,
     SESSION_STATE_OUTPUT_KEY,
 )
+from simple_agent_lab.agent_flavors import AGENT_FLAVORS  # noqa: E402
 from simple_agent_lab.llm.env import (  # noqa: E402
     API_KIND_ENV,
     OPENAI_AUTH_ENV,
@@ -152,7 +153,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--agent-flavor",
         default=ProRepoExperimentConfig.agent_flavor,
-        choices=("bash", "bash_task"),
+        choices=AGENT_FLAVORS,
         help="Agent flavor for each repo-session part.",
     )
     parser.add_argument(

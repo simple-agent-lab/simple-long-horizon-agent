@@ -203,6 +203,27 @@ class SwebenchProRepoSessionPlanningTest(unittest.TestCase):
         self.assertEqual(config.model_name, CHAIN_MODEL_NAME)
         self.assertEqual(args.max_context_restarts_per_instance, 1)
 
+    def test_repo_session_runner_accepts_goal_workflow_flavor(self) -> None:
+        from runs.swebench.run_swebench_pro_repo_sessions import (
+            _experiment_config_from_args,
+            build_parser,
+        )
+
+        args = build_parser().parse_args(
+            [
+                "--all",
+                "--agent-flavor",
+                "goal",
+                "--compression-strategy",
+                "none",
+            ]
+        )
+        config = _experiment_config_from_args(args, api_kind="openai-responses")
+
+        self.assertEqual(config.agent_flavor, "goal")
+        self.assertEqual(config.compression_strategy, "none")
+        self.assertEqual(config.model_name, "simple-agent-lab-pro-repo-goal-none")
+
     def test_default_run_id_is_derived_from_selected_mode(self) -> None:
         from datetime import datetime
 

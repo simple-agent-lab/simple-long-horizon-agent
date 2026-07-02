@@ -49,6 +49,7 @@ product direction, especially if future contributors may wonder why it was chose
 - [Goal Loop: Autonomous Continue-Until-Verifiably-Done Primitive](20260618-goal-loop.md)
 - [JSON Run-Profile File for Launching an Agent + Bench](20260626-run-profile-file.md)
 - [Trajectory Schema v5 — Append-only Event Stream](20260628-trajectory-schema-v5.md)
+- [Add Codex-Style Thread Goal Loop Beside the Verifier-Driven Goal Loop](20260701-codex-style-thread-goal-loop.md)
 
 ## Proposed
 

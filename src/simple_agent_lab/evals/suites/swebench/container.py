@@ -21,13 +21,13 @@ SWE-bench-specific and runs *inside* the image:
   ``AGENT_FLAVOR`` env var. Simple flavors (``bash`` | ``bash_task`` |
   ``bash_task_read`` | ``bash_skills``) are built by the generic runner's
   ``agent_spec`` path (so they keep memory hooks); the multi-agent
-  *workflow arms* (``loop`` | ``pdr``) are built by the shared
+  *workflow arms* (``loop`` | ``goal`` | ``pdr``) are built by the shared
   `agents.flavors` workflow builder. This suite's ``build_agent`` only passes
   SWE-bench prompt text, workspace cleanup, and trace-recording callbacks.
 
 Why workflow arms live behind a thin facade (and worktrees)
 -----------------------------------------------------------
-An arm (``loop`` / ``pdr``) runs a whole multi-agent choreography to produce one
+An arm (``loop`` / ``goal`` / ``pdr``) runs a whole multi-agent choreography to produce one
 patch, so `agents.flavors.build_flavor_agent` returns a facade
 ``Agent`` whose single ``generate`` runs the arm, leaves edits in the workspace,
 and returns a short final note — the generic outer loop runs it once. ``pdr``
@@ -292,7 +292,7 @@ def build_agent(
 
     Returns ``None`` for ``bash`` / ``bash_task_read`` / ``bash_skills`` so the
     generic runner falls through to the ``agent_spec`` path (which keeps memory
-    hooks). For an arm (``loop`` / ``pdr``) it returns a facade ``Agent``
+    hooks). For an arm (``loop`` / ``goal`` / ``pdr``) it returns a facade ``Agent``
     whose single ``generate`` runs the whole arm on the task, leaves edits in the
     workspace (the prediction `extract_result` reads), and returns a short final
     message. The arm's per-step breakdown and sub-traces are owned by the facade
