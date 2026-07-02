@@ -364,6 +364,7 @@ def _matching_reasoning_item(
         for item in items:
             if _string_or_none(item.get("id")) == signature:
                 return item
+        return None
     return next(iter(items), None)
 
 
@@ -397,9 +398,10 @@ def _encrypted_content_for(
 ) -> str | None:
     if signature:
         for item in items:
-            if item.get("id") == signature:
+            if _string_or_none(item.get("id")) == signature:
                 value = item.get("encrypted_content")
                 return str(value) if value else None
+        return None
     value = next((item.get("encrypted_content") for item in items), None)
     return str(value) if value else None
 

@@ -968,6 +968,55 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
         self.assertEqual(reasoning_item["encrypted_content"], "enc_abc")
         self.assertEqual(captured["include"], ["reasoning.encrypted_content"])
 
+    def test_outbound_ignores_stale_reasoning_extra_for_mismatched_signature(
+        self,
+    ) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(
+            _responses_response(text_blocks=["done"]), captured, kind="responses"
+        )
+        req = LLMRequest(
+            provider=OPENAI_RESPONSES_PROVIDER,
+            messages=[
+                LLMMessage(role="user", content="multiply 23 and 19"),
+                LLMMessage(
+                    role="assistant",
+                    extra={
+                        "openai_responses.reasoning_items": [
+                            {
+                                "type": "reasoning",
+                                "id": "rs_old",
+                                "encrypted_content": "enc_old",
+                            }
+                        ]
+                    },
+                    content=[
+                        ThinkingBlock(
+                            text="23*19 is 437.",
+                            signature="rs_new",
+                        ),
+                        TextBlock(text="437"),
+                    ],
+                ),
+                LLMMessage(role="user", content="thanks"),
+            ],
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            complete(req)
+
+        reasoning_item = next(
+            item for item in captured["input"] if item["type"] == "reasoning"
+        )
+        self.assertEqual(reasoning_item["id"], "rs_new")
+        self.assertEqual(
+            reasoning_item["summary"],
+            [{"type": "summary_text", "text": "23*19 is 437."}],
+        )
+        self.assertNotIn("encrypted_content", reasoning_item)
+
     def test_outbound_replays_encrypted_reasoning_with_empty_summary(self) -> None:
         captured: dict[str, Any] = {}
         module = _stub_openai(

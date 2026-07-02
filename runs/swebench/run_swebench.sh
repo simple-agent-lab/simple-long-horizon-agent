@@ -29,6 +29,10 @@ usage() {
   sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
 }
 
+shell_quote() {
+  printf "%q" "$1"
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --variant)
@@ -125,11 +129,11 @@ PREDICTION_DIR="$OUT_ROOT"
 RUN_ID="${VARIANT}-$(date +%Y%m%d-%H%M%S)"
 
 if ! [[ "$PARALLEL" =~ ^[1-9][0-9]*$ ]]; then
-  echo "ERROR: --parallel must be a positive integer; got ${PARALLEL@Q}." >&2
+  echo "ERROR: --parallel must be a positive integer; got $(shell_quote "$PARALLEL")." >&2
   exit 2
 fi
 if ! [[ "$MAX_TURNS" =~ ^[1-9][0-9]*$ ]]; then
-  echo "ERROR: SWEBENCH_MAX_TURNS must be a positive integer; got ${MAX_TURNS@Q}." >&2
+  echo "ERROR: SWEBENCH_MAX_TURNS must be a positive integer; got $(shell_quote "$MAX_TURNS")." >&2
   exit 2
 fi
 if [ "$RUN_ALL" -eq 1 ] && [ "${#POSITIONAL[@]}" -gt 0 ]; then
