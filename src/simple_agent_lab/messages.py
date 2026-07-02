@@ -478,6 +478,16 @@ def encode_image_data_url(mime: str, data: str) -> str:
     return f"data:{mime or 'image/png'};base64,{data}"
 
 
+def task_text(visible: Sequence[Message]) -> str:
+    """The task text in a visible transcript: the first `kind == "task"`
+    message, falling back to the first message when no task was marked."""
+
+    for message in visible:
+        if message.kind == "task":
+            return text_of(message.content)
+    return text_of(visible[0].content) if visible else ""
+
+
 def message_text(message: Message) -> str:
     """One-line preview of the visible text in `message.content`.
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -17,7 +16,7 @@ from simple_agent_lab.protocols import (
 )
 from simple_agent_lab.state import State
 from simple_agent_lab.trace import (
-    event_stream,
+    event_stream_bytes,
     run_trace_from_state,
 )
 
@@ -80,7 +79,7 @@ def write_workflow_subagent_traces(
             "model": _state_model(step.state),
         }
         try:
-            header, lines, raw_pool = event_stream(
+            stream, raw = event_stream_bytes(
                 run_trace_from_state(
                     state=step.state,
                     trace_id=f"{workflow}.{index:02d}.{label}",
@@ -88,22 +87,9 @@ def write_workflow_subagent_traces(
                     meta=meta,
                 )
             )
-            # The v5 stream: a header line then one line per event; provider raw
-            # snapshots are externalized to the sibling pool beside it.
-            put(
-                f"out/{subpath}",
-                "".join(
-                    json.dumps(rec, ensure_ascii=False) + "\n"
-                    for rec in (header, *lines)
-                ).encode("utf-8"),
-            )
-            if raw_pool:
-                put(
-                    f"out/sub/{index:02d}_{safe}.raw.jsonl",
-                    "".join(
-                        json.dumps(blob, ensure_ascii=False) + "\n" for blob in raw_pool
-                    ).encode("utf-8"),
-                )
+            put(f"out/{subpath}", stream)
+            if raw is not None:
+                put(f"out/sub/{index:02d}_{safe}.raw.jsonl", raw)
             overview.append(
                 {
                     "index": index,

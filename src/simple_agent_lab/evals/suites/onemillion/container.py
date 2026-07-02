@@ -31,12 +31,11 @@ module), so it runs in any eval environment with no copied files.
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from simple_agent_lab.agent_flavors import AGENT_FLAVOR_ENV
+from simple_agent_lab.agent_flavors import flavor_from_env as shared_flavor_from_env
 from simple_agent_lab.core import Agent
 from simple_agent_lab.evals.protocols import AgentSpec
 from simple_agent_lab.llm import (
@@ -83,17 +82,12 @@ OMB_FLAVORS = (DEFAULT_OMB_FLAVOR, *WORKFLOW_FLAVORS)
 def flavor_from_env(env: Mapping[str, str] | None = None) -> str:
     """The OneMillion generation flavor from ``AGENT_FLAVOR`` (default ``single``)."""
 
-    # env-ok: reads the AGENT_FLAVOR foundation name
-    source = os.environ if env is None else env
-    flavor = (
-        source.get(AGENT_FLAVOR_ENV) or DEFAULT_OMB_FLAVOR
-    ).strip().lower() or DEFAULT_OMB_FLAVOR
-    if flavor not in OMB_FLAVORS:
-        raise SystemExit(
-            f"Unsupported {AGENT_FLAVOR_ENV}={flavor!r} for OneMillion-Bench; "
-            f"expected one of {OMB_FLAVORS}."
-        )
-    return flavor
+    return shared_flavor_from_env(
+        flavors=OMB_FLAVORS,
+        default=DEFAULT_OMB_FLAVOR,
+        env=env,
+        label="OneMillion-Bench",
+    )
 
 
 AGENT_NAME = "onemillion_agent"

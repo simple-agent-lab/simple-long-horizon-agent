@@ -34,7 +34,7 @@ import simple_agent_lab.config as config
 from simple_agent_lab.core import Agent
 from simple_agent_lab.llm import Provider
 from simple_agent_lab.llm_agent import make_llm_agent
-from simple_agent_lab.messages import Message, assistant_message, text_of
+from simple_agent_lab.messages import Message, assistant_message, task_text
 from simple_agent_lab.trace import event_stream, run_trace_from_state
 from simple_agent_lab.workflow import (
     Route,
@@ -303,7 +303,7 @@ def build_workflow_agent(
     steps_path = Path(cwd) / WORKFLOW_STEPS_FILENAME
 
     def generate(visible: list[Message]) -> Message:
-        task = _task_text(visible)
+        task = task_text(visible)
         result = run_workflow(task)
         text = result.output or ""
         if text.strip():
@@ -312,13 +312,6 @@ def build_workflow_agent(
         return assistant_message(text, sender=AGENT_NAME, target="user", kind="final")
 
     return Agent(name=AGENT_NAME, generate=generate, role=AGENT_ROLE)
-
-
-def _task_text(visible: list[Message]) -> str:
-    for message in visible:
-        if message.kind == "task":
-            return text_of(message.content)
-    return text_of(visible[0].content) if visible else ""
 
 
 def _step_record(step: StepResult, index: int, workflow_name: str) -> dict[str, Any]:

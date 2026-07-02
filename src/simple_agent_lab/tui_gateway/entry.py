@@ -21,9 +21,10 @@ spewing tracebacks into a dead pipe.
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
+
+from simple_agent_lab.llm.env import load_dotenv
 
 from .server import Gateway
 from .transport import StdioTransport, make_error
@@ -32,36 +33,13 @@ from .transport import StdioTransport, make_error
 ERR_PARSE = -32700
 
 
-def _load_dotenv(path: Path) -> None:
-    """Best-effort, dependency-free ``.env`` loader for the spawning cwd.
-
-    The gateway builds a live provider from env vars (``OPENAI_MODEL`` etc.),
-    but it is spawned as a bare subprocess that does not go through
-    ``uv run --env-file``, so a project ``.env`` would otherwise be ignored.
-    We parse ``KEY=VALUE`` lines here so any UI that spawns the gateway from
-    the project root gets credentials for free. Real environment variables
-    always win — we never override something already set — so this is a
-    fallback, not an authority. Malformed lines are skipped silently; this
-    is convenience, not configuration validation.
-    """
-    if not path.is_file():
-        return
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        key = key.strip()
-        # Strip optional surrounding quotes from the value.
-        value = value.strip().strip("'\"")
-        if key and key not in os.environ:
-            os.environ[key] = value
-
-
 def main() -> int:
-    # Load a project .env from the cwd the UI spawned us in, before any
-    # provider is built. Real env vars take precedence.
-    _load_dotenv(Path.cwd() / ".env")
+    # The gateway builds a live provider from env vars (``OPENAI_MODEL`` etc.),
+    # but it is spawned as a bare subprocess that does not go through
+    # ``uv run --env-file``, so load the project .env from the cwd the UI
+    # spawned us in before any provider is built. Real env vars always win —
+    # load_dotenv never overrides something already set.
+    load_dotenv(Path.cwd() / ".env")
 
     transport = StdioTransport()
     gateway = Gateway(transport)

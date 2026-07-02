@@ -23,7 +23,7 @@ from simple_agent_lab.core import Agent
 from simple_agent_lab.hooks import HookContext, HookMap, HookPoint
 from simple_agent_lab.llm import Provider
 from simple_agent_lab.llm_agent import make_llm_agent
-from simple_agent_lab.messages import Message, assistant_message, text_of
+from simple_agent_lab.messages import Message, assistant_message, task_text
 from simple_agent_lab.model_metadata import default_context_window_book
 from simple_agent_lab.skills import system_prompt_with_skills
 from simple_agent_lab.state import State
@@ -272,7 +272,7 @@ def _build_workflow_flavor_agent(
             prepare_workspace=prepare_workspace,
             bash_exec_prefix=bash_exec_prefix,
         )
-        result = runner(_task_text(visible))
+        result = runner(task_text(visible))
         last_overview = (
             write_workflow_subagent_traces(result, selected, trace_put)
             if trace_put is not None
@@ -587,10 +587,3 @@ def _solver_agent(
         init_state=init_state,
         bash_exec_prefix=bash_exec_prefix,
     )
-
-
-def _task_text(visible: list[Message]) -> str:
-    for message in visible:
-        if message.kind == "task":
-            return text_of(message.content)
-    return text_of(visible[0].content) if visible else ""

@@ -228,3 +228,24 @@ def event_stream(
 
     lines, pool = split_raw_from_record([event_record(e) for e in trace.events])
     return trace_header(trace), lines, pool
+
+
+def event_stream_bytes(trace: RunTrace) -> tuple[bytes, bytes | None]:
+    """Serialize a RunTrace to the v5 on-disk bytes: ``(stream, raw_pool)``.
+
+    ``stream`` is the header line plus one line per event; ``raw_pool`` is the
+    sibling ``*.raw.jsonl`` content, or ``None`` when no event carried a raw
+    provider snapshot. For byte-oriented sinks (artifact stores); path-oriented
+    writers use :func:`simple_agent_lab.trace.live.write_event_stream`.
+    """
+
+    header, lines, pool = event_stream(trace)
+    stream = "".join(
+        json.dumps(record, ensure_ascii=False) + "\n" for record in (header, *lines)
+    ).encode("utf-8")
+    if not pool:
+        return stream, None
+    raw = "".join(json.dumps(blob, ensure_ascii=False) + "\n" for blob in pool).encode(
+        "utf-8"
+    )
+    return stream, raw
