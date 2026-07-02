@@ -35,6 +35,8 @@ Pass-through request options via `LLMRequest.extra`:
     extra["metadata"]     : dict
     extra["store"]        : bool
     extra["user"]         : str
+    extra["include"]      : list[str]     (merged with
+                                           ``reasoning.encrypted_content``)
     extra["previous_response_id"] : str
     extra["top_p"]        : float
 """
@@ -42,6 +44,7 @@ Pass-through request options via `LLMRequest.extra`:
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from typing import Any, Iterator
 
 from ...messages import (
@@ -72,6 +75,10 @@ from ..types import (
 )
 
 
+REASONING_ENCRYPTED_CONTENT = "reasoning.encrypted_content"
+REASONING_ITEMS_EXTRA = "openai_responses.reasoning_items"
+
+
 def stream(req: LLMRequest) -> Iterator[StreamEvent]:
     try:
         from openai import OpenAI
@@ -93,6 +100,7 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
     kwargs: dict[str, Any] = {
         "model": req.provider.model,
         "input": items,
+        "include": _include_with_reasoning_encrypted_content(req.extra.get("include")),
     }
     if req.system_prompt:
         kwargs["instructions"] = req.system_prompt
@@ -176,6 +184,20 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
 def _api_key(req: LLMRequest) -> str | None:
     # OpenAI SDKs reject an empty key; a key-free endpoint gets a placeholder.
     return resolve_api_key(req.provider, placeholder="not-needed")
+
+
+def _include_with_reasoning_encrypted_content(value: Any) -> list[Any]:
+    """Return include items with Responses reasoning continuity enabled."""
+
+    if value is None:
+        include: list[Any] = []
+    elif isinstance(value, str):
+        include = [value]
+    else:
+        include = list(value)
+    if REASONING_ENCRYPTED_CONTENT not in include:
+        include.append(REASONING_ENCRYPTED_CONTENT)
+    return include
 
 
 def _to_responses_input(
@@ -289,19 +311,90 @@ def _reasoning_item(message: LLMMessage) -> dict[str, Any] | None:
 
     Mirrors the inbound shape: one ``summary_text`` part per stored
     `ThinkingBlock`. The original item id (kept on `ThinkingBlock.signature`)
-    is replayed when present so the wire item matches what the model emitted.
+    and encrypted content are replayed when present so the wire item matches
+    what the model emitted.
     """
     blocks = [block for block in message.thinking_blocks if block.text]
-    if not blocks:
+    extra_items = _reasoning_items_from_extra(message.extra)
+    if not blocks and not extra_items:
         return None
-    item: dict[str, Any] = {
-        "type": "reasoning",
-        "summary": [{"type": "summary_text", "text": block.text} for block in blocks],
-    }
     signature = next((block.signature for block in blocks if block.signature), None)
+    extra_item = _matching_reasoning_item(signature, extra_items)
+    if signature is None and extra_item is not None:
+        signature = _string_or_none(extra_item.get("id"))
+    summary = _summary_from_blocks(blocks)
+    if not summary and extra_item is not None:
+        summary = _summary_from_extra(extra_item)
+    encrypted_content = _encrypted_content_for(signature, extra_items)
+    if not summary and not encrypted_content:
+        return None
+    item: dict[str, Any] = {"type": "reasoning"}
+    # Some Responses-compatible endpoints require the `summary` field even when
+    # only encrypted reasoning continuity is available for replay.
+    item["summary"] = summary
     if signature:
         item["id"] = signature
+    if encrypted_content:
+        item["encrypted_content"] = encrypted_content
     return item
+
+
+def _summary_from_blocks(blocks: list[ThinkingBlock]) -> list[dict[str, str]]:
+    return [
+        {"type": "summary_text", "text": block.text} for block in blocks if block.text
+    ]
+
+
+def _matching_reasoning_item(
+    signature: str | None,
+    items: list[Mapping[str, Any]],
+) -> Mapping[str, Any] | None:
+    if signature:
+        for item in items:
+            if _string_or_none(item.get("id")) == signature:
+                return item
+    return next(iter(items), None)
+
+
+def _summary_from_extra(item: Mapping[str, Any]) -> list[dict[str, str]]:
+    raw_summary = item.get("summary")
+    if not isinstance(raw_summary, list):
+        return []
+    summary: list[dict[str, str]] = []
+    for part in raw_summary:
+        if not isinstance(part, Mapping):
+            continue
+        if part.get("type") != "summary_text":
+            continue
+        text = part.get("text")
+        if text is None:
+            continue
+        summary.append({"type": "summary_text", "text": str(text)})
+    return summary
+
+
+def _reasoning_items_from_extra(extra: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    raw_items = extra.get(REASONING_ITEMS_EXTRA)
+    if not isinstance(raw_items, list):
+        return []
+    return [item for item in raw_items if isinstance(item, Mapping)]
+
+
+def _encrypted_content_for(
+    signature: str | None,
+    items: list[Mapping[str, Any]],
+) -> str | None:
+    if signature:
+        for item in items:
+            if item.get("id") == signature:
+                value = item.get("encrypted_content")
+                return str(value) if value else None
+    value = next((item.get("encrypted_content") for item in items), None)
+    return str(value) if value else None
+
+
+def _string_or_none(value: Any) -> str | None:
+    return str(value) if value else None
 
 
 def _to_responses_user_content(message: LLMMessage) -> list[dict[str, Any]]:

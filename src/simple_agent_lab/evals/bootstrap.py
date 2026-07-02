@@ -26,20 +26,27 @@ def _python_setup(wheelhouse_mount: str | None) -> str:
     """Render the Python-discovery preamble, offline-3.11 aware.
 
     When a wheelhouse is mounted, prefer a pre-provisioned uv-managed CPython
-    3.11 under ``<wheelhouse>/uv-python`` (see ``harness.prepare_wheelhouse``):
-    pointing ``UV_PYTHON_INSTALL_DIR`` there lets ``uv venv --python 3.11``
-    resolve OFFLINE, so each container does not download a ~29MB standalone
-    Python over the (often slow or locked-down) container network — a download
-    that, when it failed, used to fall back silently to the image's <3.10 system
-    Python and then break 60 lines later in pip resolution. ``UV_PYTHON_DOWNLOADS
-    =never`` makes that fallback fail fast instead of retrying for an hour.
+    3.11 under ``<wheelhouse>/uv-python`` (see ``harness.prepare_wheelhouse``).
+    The wheelhouse contains CPython-3.11 wheels, so this path must not silently
+    fall back to a different system Python version. ``UV_PYTHON_DOWNLOADS=never``
+    keeps this offline and turns a missing pre-provisioned interpreter into an
+    early, actionable error.
     """
 
-    offline_python = 'OFFLINE_PYTHON=""'
+    offline_python = """
+WHEELHOUSE_PYTHON_REQUIRED=0
+OFFLINE_PYTHON="""
     if wheelhouse_mount:
         uv_py_dir = f"{wheelhouse_mount.rstrip('/')}/uv-python"
         offline_python = f"""
-for _candidate_python in "{uv_py_dir}"/cpython-3.11.*-linux-x86_64-gnu/bin/python3.11; do
+WHEELHOUSE_PYTHON_REQUIRED=1
+if [ "$_IS_MUSL" = 1 ]; then
+  _PYTHON_LIBC="linux-x86_64-musl"
+else
+  _PYTHON_LIBC="linux-x86_64-gnu"
+fi
+OFFLINE_PYTHON=""
+for _candidate_python in "{uv_py_dir}"/cpython-3.11.*-"$_PYTHON_LIBC"/bin/python3.11; do
   if [ -x "$_candidate_python" ]; then OFFLINE_PYTHON="$_candidate_python"; break; fi
 done
 if [ -n "$UV_BIN" ] && [ -d "{uv_py_dir}" ]; then
@@ -61,11 +68,19 @@ fi
 _IS_MUSL=0
 if ldd /bin/sh 2>/dev/null | grep -q musl; then _IS_MUSL=1; fi
 mkdir -p "$(dirname {AGENT_VENV})" 2>/dev/null || true{offline_python}
-if [ -n "$UV_BIN" ]; then
-  "$UV_BIN" venv --python 3.11 {AGENT_VENV} || "$UV_BIN" venv --python python3 {AGENT_VENV}
-  AGENT_PYTHON={AGENT_VENV}/bin/python
-elif [ "$_IS_MUSL" != 1 ] && [ -x "$OFFLINE_PYTHON" ]; then
+if [ -x "$OFFLINE_PYTHON" ]; then
   "$OFFLINE_PYTHON" -m venv {AGENT_VENV}
+  AGENT_PYTHON={AGENT_VENV}/bin/python
+elif [ "$WHEELHOUSE_PYTHON_REQUIRED" = 1 ]; then
+  if command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; sys.exit(0 if sys.version_info[:2] == (3, 11) else 1)' 2>/dev/null; then
+    python3 -m venv {AGENT_VENV}
+    AGENT_PYTHON={AGENT_VENV}/bin/python3
+  else
+    echo "ERROR: wheelhouse installs require CPython 3.11 for ${{_PYTHON_LIBC:-this platform}}; no compatible interpreter was found. Re-run wheelhouse preparation so <wheelhouse>/uv-python contains cpython-3.11.*-${{_PYTHON_LIBC:-linux-x86_64-gnu}}, or run without --wheelhouse to allow an online install." >&2
+    exit 1
+  fi
+elif [ -n "$UV_BIN" ]; then
+  "$UV_BIN" venv --python 3.11 {AGENT_VENV} || "$UV_BIN" venv --python python3 {AGENT_VENV}
   AGENT_PYTHON={AGENT_VENV}/bin/python
 elif [ "$_IS_MUSL" = 1 ]; then
   command -v python3 >/dev/null 2>&1 || {{ echo "ERROR: Alpine has no Python" >&2; exit 1; }}
@@ -77,12 +92,16 @@ else
     else AGENT_PYTHON=python3; fi
   else echo "ERROR: container has no uv and no python3" >&2; exit 1; fi
 fi
-# The agent wheels target CPython 3.11 and simple-agent-lab requires >=3.10. If
-# 3.11 provisioning failed and we fell back to an older system python, fail
-# loudly HERE rather than 60 lines later with an opaque pip resolution error.
-if ! "$AGENT_PYTHON" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
-  echo "ERROR: agent venv Python ($("$AGENT_PYTHON" -V 2>&1)) is < 3.10 -- CPython 3.11 provisioning failed (offline <wheelhouse>/uv-python missing and in-container download blocked)." >&2
-  exit 1
+if [ "$WHEELHOUSE_PYTHON_REQUIRED" = 1 ]; then
+  if ! "$AGENT_PYTHON" -c 'import sys; sys.exit(0 if sys.version_info[:2] == (3, 11) else 1)' 2>/dev/null; then
+    echo "ERROR: wheelhouse installs require CPython 3.11, got $("$AGENT_PYTHON" -V 2>&1)." >&2
+    exit 1
+  fi
+else
+  if ! "$AGENT_PYTHON" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
+    echo "ERROR: agent venv Python ($("$AGENT_PYTHON" -V 2>&1)) is < 3.10." >&2
+    exit 1
+  fi
 fi
 "$AGENT_PYTHON" --version"""
 

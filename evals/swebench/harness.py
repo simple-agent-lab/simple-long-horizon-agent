@@ -472,7 +472,10 @@ def prepare_wheelhouse(
     _provision_uv_python(path, uv=uv, run=run)
 
 
-_CONTAINER_CPYTHON = "cpython-3.11-linux-x86_64-gnu"
+_CONTAINER_CPYTHONS = (
+    "cpython-3.11-linux-x86_64-gnu",
+    "cpython-3.11-linux-x86_64-musl",
+)
 
 
 def _provision_uv_python(
@@ -481,22 +484,22 @@ def _provision_uv_python(
     uv: str | None,
     run: Callable[[list[str]], None],
 ) -> None:
-    """Pre-install the container's CPython 3.11 into ``<path>/uv-python`` (offline).
+    """Pre-install container CPython 3.11 builds into ``<path>/uv-python``.
 
     Every eval container needs CPython 3.11 (the wheels' target), but most images
     ship an older Python — so the bootstrap would otherwise have uv download a
     ~29MB standalone build *inside each container*, over the container network.
     On slow/locked-down networks that download is the dominant cost and, when it
-    fails, silently degrades to the image's <3.10 Python (the SWE-bench Pro
-    failures we saw). Installing it once here, into a directory mounted alongside
-    the wheelhouse, lets every container resolve ``uv venv --python 3.11`` with
-    ``UV_PYTHON_INSTALL_DIR`` offline.
+    fails, risks degrading to the image's system Python and breaking wheel
+    resolution later. Installing it once here, into a directory mounted alongside
+    the wheelhouse, lets every container create the agent venv from a matching
+    CPython 3.11 offline.
 
-    The interpreter is requested for the FIXED container target — Linux x86_64
-    glibc — regardless of the host's own platform, exactly like the cp311
-    ``manylinux2014_x86_64`` wheels above (``uv`` cross-downloads it). So a
-    wheelhouse prepared on macOS still carries the Linux 3.11 the containers run.
-    musl images don't use it; the bootstrap's musl branch uses their own python3.
+    The interpreters are requested for the fixed container targets — Linux x86_64
+    glibc and musl — regardless of the host's own platform, exactly like the
+    cp311 wheels above (``uv`` cross-downloads them). So a wheelhouse prepared on
+    macOS still carries the Linux 3.11 builds the containers run, including
+    Alpine/musl SWE-bench Pro images.
     """
 
     if uv is None:
@@ -508,7 +511,7 @@ def _provision_uv_python(
             "install",
             "--install-dir",
             str(path / "uv-python"),
-            _CONTAINER_CPYTHON,
+            *_CONTAINER_CPYTHONS,
         ]
     )
 

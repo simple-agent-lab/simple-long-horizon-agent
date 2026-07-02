@@ -35,6 +35,7 @@ from simple_agent_lab.evals import (
     Suite,
     run_suite_instance,
 )
+from simple_agent_lab.evals.bootstrap import bootstrap_script
 
 # Internal helpers live in their own modules, not the top-level facade.
 from simple_agent_lab.evals.runner import build_command, container_name
@@ -136,6 +137,50 @@ class OrchestrationTest(unittest.TestCase):
         cmd = build_command(spec)
 
         self.assertIn("simple-agent-lab[mcp]", cmd[-1])
+
+
+class BootstrapScriptTest(unittest.TestCase):
+    def test_wheelhouse_bootstrap_selects_python_for_container_libc(self) -> None:
+        script = bootstrap_script(
+            runner_argv=("-m", "runner"),
+            install=False,
+            wheelhouse_mount="/agent/wheelhouse",
+        )
+
+        self.assertIn('_PYTHON_LIBC="linux-x86_64-musl"', script)
+        self.assertIn('_PYTHON_LIBC="linux-x86_64-gnu"', script)
+        self.assertIn(
+            '"/agent/wheelhouse/uv-python"/cpython-3.11.*-"$_PYTHON_LIBC"'
+            "/bin/python3.11",
+            script,
+        )
+        self.assertIn('"$OFFLINE_PYTHON" -m venv /opt/agent-venv', script)
+        self.assertLess(
+            script.index('if [ -x "$OFFLINE_PYTHON" ]; then'),
+            script.index('elif [ -n "$UV_BIN" ]; then'),
+        )
+
+    def test_wheelhouse_bootstrap_requires_cpython_311(self) -> None:
+        script = bootstrap_script(
+            runner_argv=("-m", "runner"),
+            install=False,
+            wheelhouse_mount="/agent/wheelhouse",
+        )
+
+        self.assertIn("wheelhouse installs require CPython 3.11", script)
+        self.assertIn("sys.version_info[:2] == (3, 11)", script)
+
+    def test_online_bootstrap_keeps_python310_fallback(self) -> None:
+        script = bootstrap_script(
+            runner_argv=("-m", "runner"),
+            install=False,
+            wheelhouse_mount=None,
+        )
+
+        self.assertIn('"$UV_BIN" venv --python 3.11', script)
+        self.assertIn('|| "$UV_BIN" venv --python python3', script)
+        self.assertIn("sys.version_info >= (3, 10)", script)
+        self.assertIn("WHEELHOUSE_PYTHON_REQUIRED=0", script)
 
 
 class HostHttpStoreTest(unittest.TestCase):

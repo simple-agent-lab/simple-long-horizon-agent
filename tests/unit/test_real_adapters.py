@@ -723,6 +723,7 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
         ):
             complete(req)
         self.assertEqual(captured["reasoning"], {"effort": "high"})
+        self.assertEqual(captured["include"], ["reasoning.encrypted_content"])
 
     def test_extra_reasoning_overrides_normalized(self) -> None:
         captured: dict[str, Any] = {}
@@ -741,6 +742,7 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
         ):
             complete(req)
         self.assertEqual(captured["reasoning"], {"effort": "high"})
+        self.assertEqual(captured["include"], ["reasoning.encrypted_content"])
 
     def test_builds_request_with_instructions_and_flat_tools(self) -> None:
         captured: dict[str, Any] = {}
@@ -908,6 +910,217 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
             i for i, item in enumerate(input_items) if item["type"] == "function_call"
         )
         self.assertLess(reasoning_pos, call_pos)
+
+    def test_outbound_replays_reasoning_encrypted_content(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(
+            _responses_response(text_blocks=["done"]), captured, kind="responses"
+        )
+        req = LLMRequest(
+            provider=OPENAI_RESPONSES_PROVIDER,
+            messages=[
+                LLMMessage(role="user", content="multiply 23 and 19"),
+                LLMMessage(
+                    role="assistant",
+                    extra={
+                        "openai_responses.reasoning_items": [
+                            {
+                                "type": "reasoning",
+                                "id": "rs_abc",
+                                "encrypted_content": "enc_abc",
+                            }
+                        ]
+                    },
+                    content=[
+                        ThinkingBlock(
+                            text="23*19 is 437.",
+                            signature="rs_abc",
+                        ),
+                        ToolCall(id="c1", name="bash", arguments={"command": "echo"}),
+                    ],
+                ),
+                LLMMessage(
+                    role="user",
+                    content=[
+                        ToolResultBlock(
+                            tool_call_id="c1",
+                            tool_name="bash",
+                            content=(TextBlock("437"),),
+                        )
+                    ],
+                ),
+            ],
+            tools=[_bash_tool()],
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            complete(req)
+
+        reasoning_item = next(
+            item for item in captured["input"] if item["type"] == "reasoning"
+        )
+        self.assertEqual(
+            reasoning_item["summary"],
+            [{"type": "summary_text", "text": "23*19 is 437."}],
+        )
+        self.assertEqual(reasoning_item["encrypted_content"], "enc_abc")
+        self.assertEqual(captured["include"], ["reasoning.encrypted_content"])
+
+    def test_outbound_replays_encrypted_reasoning_with_empty_summary(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(
+            _responses_response(text_blocks=["done"]), captured, kind="responses"
+        )
+        req = LLMRequest(
+            provider=OPENAI_RESPONSES_PROVIDER,
+            messages=[
+                LLMMessage(role="user", content="multiply 23 and 19"),
+                LLMMessage(
+                    role="assistant",
+                    extra={
+                        "openai_responses.reasoning_items": [
+                            {
+                                "type": "reasoning",
+                                "id": "rs_abc",
+                                "encrypted_content": "enc_abc",
+                            }
+                        ]
+                    },
+                    content=[
+                        ToolCall(id="c1", name="bash", arguments={"command": "echo"})
+                    ],
+                ),
+                LLMMessage(
+                    role="user",
+                    content=[
+                        ToolResultBlock(
+                            tool_call_id="c1",
+                            tool_name="bash",
+                            content=(TextBlock("437"),),
+                        )
+                    ],
+                ),
+            ],
+            tools=[_bash_tool()],
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            complete(req)
+
+        reasoning_item = next(
+            item for item in captured["input"] if item["type"] == "reasoning"
+        )
+        self.assertEqual(reasoning_item["summary"], [])
+        self.assertEqual(reasoning_item["encrypted_content"], "enc_abc")
+
+    def test_outbound_replays_extra_reasoning_summary_without_encrypted_content(
+        self,
+    ) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(
+            _responses_response(text_blocks=["done"]), captured, kind="responses"
+        )
+        req = LLMRequest(
+            provider=OPENAI_RESPONSES_PROVIDER,
+            messages=[
+                LLMMessage(role="user", content="multiply 23 and 19"),
+                LLMMessage(
+                    role="assistant",
+                    extra={
+                        "openai_responses.reasoning_items": [
+                            {
+                                "type": "reasoning",
+                                "id": "rs_abc",
+                                "summary": [
+                                    {
+                                        "type": "summary_text",
+                                        "text": "23*19 is 437.",
+                                    }
+                                ],
+                            }
+                        ]
+                    },
+                    content=[
+                        ToolCall(id="c1", name="bash", arguments={"command": "echo"})
+                    ],
+                ),
+                LLMMessage(
+                    role="user",
+                    content=[
+                        ToolResultBlock(
+                            tool_call_id="c1",
+                            tool_name="bash",
+                            content=(TextBlock("437"),),
+                        )
+                    ],
+                ),
+            ],
+            tools=[_bash_tool()],
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            complete(req)
+
+        reasoning_item = next(
+            item for item in captured["input"] if item["type"] == "reasoning"
+        )
+        self.assertEqual(reasoning_item["id"], "rs_abc")
+        self.assertEqual(
+            reasoning_item["summary"],
+            [{"type": "summary_text", "text": "23*19 is 437."}],
+        )
+        self.assertNotIn("encrypted_content", reasoning_item)
+
+    def test_outbound_skips_extra_reasoning_item_without_summary_or_encrypted(
+        self,
+    ) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(
+            _responses_response(text_blocks=["done"]), captured, kind="responses"
+        )
+        req = LLMRequest(
+            provider=OPENAI_RESPONSES_PROVIDER,
+            messages=[
+                LLMMessage(role="user", content="multiply 23 and 19"),
+                LLMMessage(
+                    role="assistant",
+                    extra={
+                        "openai_responses.reasoning_items": [
+                            {"type": "reasoning", "id": "rs_empty"}
+                        ]
+                    },
+                    content=[
+                        ToolCall(id="c1", name="bash", arguments={"command": "echo"})
+                    ],
+                ),
+                LLMMessage(
+                    role="user",
+                    content=[
+                        ToolResultBlock(
+                            tool_call_id="c1",
+                            tool_name="bash",
+                            content=(TextBlock("437"),),
+                        )
+                    ],
+                ),
+            ],
+            tools=[_bash_tool()],
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            complete(req)
+
+        self.assertFalse(
+            [item for item in captured["input"] if item["type"] == "reasoning"]
+        )
 
     def test_outbound_skips_reasoning_when_replay_disabled(self) -> None:
         """With ``replay_reasoning=False`` no reasoning item is sent, for
@@ -1307,6 +1520,140 @@ class BridgeThinkingPreservationTest(unittest.TestCase):
         self.assertFalse(msg.thinking[0].redacted)
         self.assertEqual(msg.thinking[1].signature, "s2")
         self.assertTrue(msg.thinking[1].redacted)
+
+    def test_responses_encrypted_reasoning_rides_in_message_extra(self) -> None:
+        from simple_agent_lab.llm.bridge import (
+            llm_response_to_assistant_message,
+            message_to_llm_message,
+        )
+        from simple_agent_lab.llm.types import LLMResponse
+        from simple_agent_lab.messages import AssistantMessage
+
+        response = LLMResponse(
+            content=[ThinkingBlock(text="step 1", signature="rs_1")],
+            raw={
+                "response": SimpleNamespace(
+                    output=[
+                        SimpleNamespace(
+                            type="reasoning",
+                            id="rs_1",
+                            encrypted_content="enc_1",
+                        )
+                    ]
+                )
+            },
+        )
+        msg = llm_response_to_assistant_message(
+            response, sender="agent", target="user", kind="final"
+        )
+        assert isinstance(msg, AssistantMessage)
+
+        projected = message_to_llm_message(msg)
+        self.assertEqual(
+            projected.extra["openai_responses.reasoning_items"],
+            [
+                {
+                    "type": "reasoning",
+                    "id": "rs_1",
+                    "encrypted_content": "enc_1",
+                }
+            ],
+        )
+
+    def test_responses_reasoning_summary_and_encrypted_content_ride_in_extra(
+        self,
+    ) -> None:
+        from simple_agent_lab.llm.bridge import (
+            llm_response_to_assistant_message,
+            message_to_llm_message,
+        )
+        from simple_agent_lab.llm.types import LLMResponse
+        from simple_agent_lab.messages import AssistantMessage
+
+        response = LLMResponse(
+            content=[ThinkingBlock(text="step 1", signature="rs_1")],
+            raw={
+                "response": SimpleNamespace(
+                    output=[
+                        SimpleNamespace(
+                            type="reasoning",
+                            id="rs_1",
+                            summary=[
+                                SimpleNamespace(
+                                    type="summary_text",
+                                    text="step 1",
+                                )
+                            ],
+                            encrypted_content="enc_1",
+                        )
+                    ]
+                )
+            },
+        )
+        msg = llm_response_to_assistant_message(
+            response, sender="agent", target="user", kind="final"
+        )
+        assert isinstance(msg, AssistantMessage)
+
+        projected = message_to_llm_message(msg)
+        self.assertEqual(
+            projected.extra["openai_responses.reasoning_items"],
+            [
+                {
+                    "type": "reasoning",
+                    "id": "rs_1",
+                    "summary": [{"type": "summary_text", "text": "step 1"}],
+                    "encrypted_content": "enc_1",
+                }
+            ],
+        )
+
+    def test_responses_reasoning_summary_without_encrypted_content_rides_in_extra(
+        self,
+    ) -> None:
+        from simple_agent_lab.llm.bridge import (
+            llm_response_to_assistant_message,
+            message_to_llm_message,
+        )
+        from simple_agent_lab.llm.types import LLMResponse
+        from simple_agent_lab.messages import AssistantMessage
+
+        response = LLMResponse(
+            content=[ThinkingBlock(text="step 1", signature="rs_1")],
+            raw={
+                "response": SimpleNamespace(
+                    output=[
+                        SimpleNamespace(
+                            type="reasoning",
+                            id="rs_1",
+                            summary=[
+                                SimpleNamespace(
+                                    type="summary_text",
+                                    text="step 1",
+                                )
+                            ],
+                            encrypted_content=None,
+                        )
+                    ]
+                )
+            },
+        )
+        msg = llm_response_to_assistant_message(
+            response, sender="agent", target="user", kind="final"
+        )
+        assert isinstance(msg, AssistantMessage)
+
+        projected = message_to_llm_message(msg)
+        self.assertEqual(
+            projected.extra["openai_responses.reasoning_items"],
+            [
+                {
+                    "type": "reasoning",
+                    "id": "rs_1",
+                    "summary": [{"type": "summary_text", "text": "step 1"}],
+                }
+            ],
+        )
 
 
 class MessageExtraTest(unittest.TestCase):
