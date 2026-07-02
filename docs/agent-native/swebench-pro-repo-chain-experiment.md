@@ -1,0 +1,417 @@
+# SWE-bench Pro Repo-Chain Experiment
+
+This note records the intended SWE-bench Pro experiment configuration and the
+current runner contract. It is an operator handoff for repo-chain runs; the
+source of truth for executable behavior is
+`runs/swebench/run_swebench_pro_repo_chains.py`,
+`simple_agent_lab.evals.chain`, and
+`evals/swebench/pro_repo_chain.py`.
+
+## Design Target
+
+`runs/swebench/run_swebench_pro_repo_chains.py` is the single SWE-bench Pro
+repo-chain runner. One planned chain part is one ordered agent chain: it keeps
+running that part's instances, carrying `out/chain_state.json` forward, until
+the part is exhausted. Baselines that change agent topology, task delegation,
+or context handling are variables of this runner, not separate host scripts.
+
+The supported comparison modes are:
+
+- `--agent-flavor {bash,loop,goal,pdr}`: selects the chain agent. The default
+  `goal` flavor maps to the current `thread_goal_loop`; non-goal flavors are
+  valid repo-chain baselines. In a repo chain the `goal` flavor reuses that same
+  loop but is seeded with the shared chain state, so it inherits earlier
+  instances' context (see "Goal Flavor In A Chain").
+- `--compression-strategy none`: the default; no context summarization. Long
+  chains stay under the window through handoff instead (see "Handoff").
+- `--compression-strategy summarize`: turns on chain compression
+  (`SummarizeStrategy`) and disables handoff.
+- `--handoff` / `--no-handoff`: handoff is on by default; `--no-handoff` runs a
+  no-compression chain "naked" with no context-window protection.
+- `--context-window-tokens N`: handoff trigger threshold (default `272000`).
+- `--task-tool`: adds the task tool to the selected chain agent or workflow
+  solver. Without it, repo-chain flavors use bash only plus any workflow-local
+  control tools.
+
+When `--run-id` is omitted, the runner derives a timestamped prefix from the
+selected variables, such as `pro-repo-chain-none-*` (default goal + none),
+`pro-repo-chain-summarize-*`, or `pro-repo-chain-bash-task-none-*`.
+
+## Objective
+
+Evaluate Simple Agent Lab long repo chains on SWE-bench Pro by running each
+planned repository part as a long-lived agent chain. Instances within a
+repository are ordered by `base_commit` commit timestamp so earlier repository
+context can carry into later tasks. The default variable set studies
+`agent_flavor=goal`, `compression_strategy=none`, and `task_tool=false`;
+the runner also supports non-goal agent flavors, `summarize` compression, and
+task-tool delegation. The four planned baselines are bash, bash + goal,
+bash + goal + compression (`--compression-strategy summarize`), and
+bash + goal + task (`--task-tool`). The three non-compression baselines keep
+long chains under the context window with handoff (default on); only the
+compression baseline uses `summarize` (which turns handoff off).
+
+## Container-Inside Migration Checklist
+
+- Add a generic eval hook for custom in-container runner modules so the Pro
+  repo-chain path can use `run_suite_instance` without forking Docker backend
+  logic.
+- Move repo-chain execution into a wheel-shipped container runner that restores
+  chain state, builds the local in-container agent, runs the current instance,
+  writes `out/result.json`, and emits the next `out/chain_state.json`.
+- Serialize continuation as an artifact contract (`input/chain_state.json` to
+  `out/chain_state.json`) instead of keeping a host-side live `State`.
+- Keep host scripts focused on planning, provider-slot assignment, staging
+  config/state artifacts, launching `run_suite_instance`, collecting results,
+  and refreshing predictions.
+- Fold the task-tool baseline into the same host runner with `mode=repo_chain`,
+  `task_tool=true`, optional compression, selected `agent_flavor`, and
+  context-window handoff metadata.
+- Preserve auth-slot scheduling by copying the selected host token into the
+  container's canonical `OPENAI_AUTH_TOKEN` while recording the original slot in
+  result metadata.
+- Cover the new contract with unit tests for runner-module selection,
+  chain-state round trip, in-container runner smoke, staged config payloads,
+  and prediction refresh.
+
+## Dataset
+
+- Dataset: `ScaleAI/SWE-bench_Pro`
+- Split: `test`
+- Local run root: `evals/out/swebench_pro`
+- Commit ordering cache: `evals/out/swebench_pro/repo-cache`
+- Container runner:
+  `simple_agent_lab.evals.chain`
+
+## Agent And Model
+
+- Agent selection: `--agent-flavor` controls the chain agent. The default
+  `goal` flavor maps to `thread_goal_loop`; `bash`, `loop`, and `pdr` are also
+  supported no-read repo-chain flavors.
+- Tools: repo-chain flavors intentionally exclude the dedicated `read` tool.
+  The baseline tool surface is bash. `--task-tool` adds the task tool to the
+  selected chain agent or workflow solver.
+- Tooling: the agent now runs inside each SWE-bench Pro instance container,
+  through the generic eval backend plus a repo-chain-specific in-container
+  runner. The `bash` tool is the normal local in-container bash tool rooted at
+  the instance workdir. The host no longer keeps a live agent and no longer
+  sends tool commands with `docker exec`.
+- Prompt contract: the main agent name, role, system prompt, and per-instance
+  task prompt are imported from the original SWE-bench container module. The
+  repo-chain state does not inject an extra model-visible repository prompt
+  before the first instance.
+- Model: read from `.env` / environment variable `OPENAI_MODEL`; `--model`
+  only overrides it when explicitly passed.
+- Reasoning effort: read from `REASONING_EFFORT` (or legacy
+  `OPENAI_REASONING_EFFORT`); `--reasoning-effort` only overrides it when
+  explicitly passed.
+- API kind: `openai-responses`
+- Responses request details: include `reasoning.encrypted_content` in
+  Responses requests so encrypted reasoning items are available for replay. Use
+  the existing Responses request-extra passthrough for stateful fields such as
+  `store` and `previous_response_id`; the runner still does not automatically
+  maintain a server-side `previous_response_id` chain.
+- Max turns per instance: `250`
+- Provider auth slots: `--provider-auth-envs` assigns chains to named
+  host env vars such as `OPENAI_AUTH_TOKEN2`. Before launching a container, the
+  host copies the selected token value into the container's canonical
+  `OPENAI_AUTH_TOKEN`, because the provider is now constructed inside the
+  container.
+
+### Goal Flavor In A Chain
+
+The `goal` flavor uses the same `run_thread_goal_loop` inside and outside a
+chain; the repo chain only changes where the loop starts and how each steering
+message is framed:
+
+- Context inheritance: the loop is seeded with the shared chain `State`
+  (the `state=` argument of `run_thread_goal_loop`), so the goal solver resumes
+  on top of every earlier instance's accumulated context from its first segment
+  instead of starting fresh per instance. Its bash turns are recorded on the
+  same chain state, so they carry forward to the next instance.
+- Steering preface: a trusted host preface (`CHAIN_GOAL_PREFACE` in
+  `simple_agent_lab.evals.chain`) is prepended to every steering message. It
+  tells the model this is one long chain of ordered sub-problems, to reuse the
+  accumulated context instead of starting over, and to solve only the current
+  sub-problem.
+- Unchanged mechanics: the goal store, `get_goal`/`update_goal` tools, steering
+  body, and completion rules are identical to the standalone `goal` arm. With
+  `state` and the preface left at their defaults, the chain goal path reproduces
+  the standalone goal behavior exactly.
+- Budgets: the goal loop runs its own segmented budget
+  (`SAL_WORKFLOW_LOOP_MAX_TURNS` outer segments, each up to
+  `SAL_WORKFLOW_WORKER_MAX_TURNS` inner turns). `--max-turns` is the per-instance
+  turn budget for the non-goal `while`-loop flavors and does not cap the goal
+  loop.
+- Shared construction: both the standalone goal arm and the chain goal path
+  build the solver and drive the loop through the single `run_goal_flavor`
+  helper in `simple_agent_lab.agents.flavors`.
+
+## Compression
+
+- Strategy: configured by `--compression-strategy` (default `none`).
+- `none`: the default; no context summarization.
+- `summarize`: existing `SummarizeStrategy`.
+- Compressor model: same provider/model settings as the main agent
+- Compressor agent name: `swebench_compressor`
+- Context window assumption: `272000` tokens
+- Threshold: `217600` tokens (`272000 * 0.8`)
+- Keep recent: `4`
+- Preserve kinds: `task`, `system`, `context`
+- Full `trajectory.jsonl` output: enabled by default; disable only with
+  `--no-write-trajectories`
+
+## Handoff
+
+Handoff is the default context-window mechanism for no-compression chains.
+Rather than reacting to a context-window overflow mid-instance, the runner lets
+each instance finish and resets the window only at the boundary between
+instances.
+
+- Trigger: after an instance finishes with `status == "ok"`, the runner
+  estimates the active context with
+  `estimate_context_tokens(state.active_context_messages())`. If that estimate is
+  at or above `--context-window-tokens` (default `272000`, below the real model
+  window so one more instance fits), and this is not the last instance in the
+  chain part, handoff fires.
+- Handoff document: the just-finished model is asked one more time (a tool-less
+  turn that inherits the instance's visible context) to write a durable handoff
+  document — repository architecture, key files, build/test/run commands and
+  conventions, decisions made, and current state (done / in progress / known
+  issues). See `CHAIN_HANDOFF_PROMPT` in `simple_agent_lab.evals.chain`.
+- Window reset: the next instance starts in a fresh chain state whose only
+  active-context message is that handoff document (prefixed with
+  `CHAIN_HANDOFF_CONTEXT_PREFACE`). The prior transcript is intentionally
+  dropped, so the next window starts small. `chain_window_index` increments at
+  each handoff.
+- Defaults and exclusivity: handoff is on by default. It is disabled when
+  `--compression-strategy summarize` (compression owns the window instead), when
+  `--no-handoff` is passed, or when `--context-window-tokens` is `0`. With
+  `--no-handoff` and `none` compression, the chain runs "naked" with no
+  context-window protection.
+- Failure safety: if the extra handoff turn fails or returns an empty document,
+  the runner logs it and carries the full context forward unchanged rather than
+  dropping the chain.
+- Metrics: each fired handoff records a `ContextCompressionEvent` with strategy
+  `context_window_handoff` on the finished instance, and `result.json` reports
+  `handoff`, `handoff_written`, and `handoff_context_tokens`. Per-chain
+  `summary.json` and the `[DONE]` log line report the handoff count.
+
+## Task-Tool Mode
+
+The task-tool variable is selected through the unified repo-chain runner:
+
+```bash
+uv run --extra swebench python runs/swebench/run_swebench_pro_repo_chains.py \
+  --all \
+  --task-tool \
+  --compression-strategy none \
+  --parallel parts \
+  --provider-auth-envs OPENAI_AUTH_TOKEN:12,OPENAI_AUTH_TOKEN2:11 \
+  --api-kind openai-responses \
+  --max-turns 250 \
+  --run-official-eval
+```
+
+This stages `mode=repo_chain`, the selected `agent_flavor`, and
+`task_tool=true` in `input/chain_config.json`. The container builds the selected
+agent inside the instance container and gives it bash plus task. Context-window
+management defaults to handoff (see "Handoff"), so the instance runs to
+completion and the window is reset at the boundary. Task-tool runs always pair
+with handoff or compression; there is no reactive mid-instance restart.
+
+## Chain Planning
+
+Rows are grouped by `repo`, then sorted inside each repo by commit timestamp.
+After sorting, long repos are split into contiguous chain parts:
+
+- More than 80 instances: 3 parts
+- More than 50 instances: 2 parts
+- 50 or fewer instances: 1 part
+
+The default parallelism is `--parallel parts`, which means one worker per
+planned chain part.
+
+For the current locally cached Pro dataset manifest, the full run has:
+
+- Repositories: 11
+- Instances: 731
+- Planned chain parts / default parallel workers: 23
+
+Per-repo counts used for the 23-part plan:
+
+- `NodeBB/NodeBB`: 44 instances, 1 part
+- `ansible/ansible`: 96 instances, 3 parts
+- `element-hq/element-web`: 56 instances, 2 parts
+- `flipt-io/flipt`: 85 instances, 3 parts
+- `future-architect/vuls`: 62 instances, 2 parts
+- `gravitational/teleport`: 76 instances, 2 parts
+- `internetarchive/openlibrary`: 91 instances, 3 parts
+- `navidrome/navidrome`: 57 instances, 2 parts
+- `protonmail/webclients`: 65 instances, 2 parts
+- `qutebrowser/qutebrowser`: 79 instances, 2 parts
+- `tutao/tutanota`: 20 instances, 1 part
+
+## Output Contract
+
+Each instance writes:
+
+- `input/instance.json`
+- `input/chain_config.json`
+- `input/chain_state.json` when there is prior repo-chain context for this
+  chain part
+- `out/result.json`
+- `out/chain_state.json`
+- `out/trajectory.jsonl` unless `--no-write-trajectories` is set
+
+Each `result.json` includes `model_patch`, status, error fields, chain part
+metadata, compression metrics, the chain event span for that instance, and the
+handoff fields `handoff` (whether handoff was active), `handoff_written`
+(whether this instance reset the window), and `handoff_context_tokens` (the
+estimated active context at the boundary). This means partial runs can still be
+converted into predictions for completed or skipped instances by collecting
+existing `result.json` files.
+
+Repo-chain continuity is an artifact contract, not a host-side live Python
+object. For each chain part, the host passes the previous
+`out/chain_state.json` to the next instance as `input/chain_state.json`.
+The payload carries the active context messages, task seed, and run metadata
+needed to continue the repository chain while keeping the agent loop inside
+the current instance container. Compressed-away inactive transcript entries are
+not carried forward in this continuation artifact; durable information should
+survive through the active summary context. When handoff fires at an instance
+boundary, the outgoing `out/chain_state.json` is reset to carry only the model's
+handoff document (plus chain metadata), so the next window deliberately starts
+without the prior transcript.
+
+The repo-chain runner also refreshes `<run_id>_predictions.jsonl` after each
+completed instance. This file is therefore a partial prediction snapshot while
+the run is active and a final prediction file after all workers finish.
+
+Batch-level outputs include:
+
+- `experiment.json`
+- `instances.jsonl`
+- `<run_id>_predictions.jsonl`
+- `skipped_instances.jsonl` when any instances are skipped
+- `_repo_chains/<chain>/summary.json`
+
+## Invalid Prompt Handling
+
+If the provider raises `invalid_prompt` or code `-4321`, the in-container
+repo-chain runner classifies the latest active user-visible message:
+
+- If it is the current instance prompt, the instance is skipped and that prompt
+  is dropped from active context so the next instance can proceed.
+- If it is a tool output, the latest connected tool-call/tool-result exchange
+  is removed from active context and replaced with a short context note:
+  `Removed invalid_prompt-triggering tool call/output. Use another command.`
+  The model request is then retried.
+- Tool-output invalid-prompt rewrites are capped at 20 per instance.
+- Invalid-prompt retries share the same 250-turn per-instance budget; failed
+  invalid-prompt attempts do not reset the turn budget.
+- If retries exhaust the retry cap or turn budget, the instance is skipped and
+  the active context is cleared so the next instance starts from an empty
+  repo-chain context.
+- Before each model request, the runner repairs active context by dropping any
+  orphan tool call or tool result left by prior context surgery. This protects
+  OpenAI Responses requests from `No tool output found for function call ...`
+  errors caused by incomplete tool pairs.
+
+Skipped instances are recorded in their `result.json` and in
+`skipped_instances.jsonl`.
+
+## Recommended Formal Command
+
+Set `OPENAI_MODEL`, `OPENAI_AUTH_TOKEN`, `OPENAI_AUTH_TOKEN2`, and
+`REASONING_EFFORT` in `.env` or the process environment before launching. Do
+not pass `--model` or `--reasoning-effort` unless intentionally overriding
+those values for one run. The in-container path installs the current
+`simple-agent-lab` wheel into every instance container; use
+`--prepare-wheelhouse` the first time or after dependency changes to refresh the
+offline wheelhouse.
+
+```bash
+uv run --extra swebench python runs/swebench/run_swebench_pro_repo_chains.py \
+  --all \
+  --parallel parts \
+  --provider-auth-envs OPENAI_AUTH_TOKEN:12,OPENAI_AUTH_TOKEN2:11 \
+  --api-kind openai-responses \
+  --max-turns 250 \
+  --run-official-eval
+```
+
+This default command runs the `goal` flavor with no chain compression
+(`--compression-strategy none`). Add `--compression-strategy summarize` for the
+compression baseline, or `--task-tool` for the task-delegation baseline. Because
+the `goal` loop keeps its own segment budget, `--max-turns` here bounds only the
+non-goal `while`-loop flavors (see "Goal Flavor In A Chain").
+
+Full trajectories are written by default. Pass `--no-write-trajectories` only
+when storage cost is unacceptable; long repo chains can grow to hundreds of GB
+because every model request payload can include a large repo-chain context.
+
+## Verification Status
+
+Completed:
+
+- A lightweight single-instance smoke wrote `result.json` and converted it to a
+  predictions JSONL without writing full trajectories
+  (`smoke-responses-20260628-quick`).
+- Unit tests cover planning, long-tail splitting, trajectory default/disable,
+  invalid-prompt classification, invalid-prompt context edits, and turn-budget
+  accounting for invalid-prompt retries.
+- A deterministic low-threshold Responses smoke forced one `summarize`
+  compression and verified the adapter could continue with the compressed
+  active context.
+- A single-instance end-to-end smoke ran the official SWE-bench Pro evaluator
+  path and wrote one eval result (`e2e-responses-20260628-quick`). The instance
+  was unresolved as expected for `max-turns=1`; the path, not score, was the
+  smoke signal.
+- A previous full run was launched as
+  `pro-repo-chain-summarize-responses-20260628-020217` with 23 chain parts,
+  `--parallel parts`, `openai-responses`, and full trajectories disabled; it was
+  later paused, so do not treat it as an active run.
+
+## Paused Run Review Notes
+
+The paused run
+`evals/out/swebench_pro/pro-repo-chain-summarize-responses-20260628-020217` completed
+338 of 731 planned instances before it was stopped. It wrote 317 ok results,
+13 error results, and 8 skipped results; 23 additional instances had staged
+`input/instance.json` files but no `result.json`, matching the 23 interrupted
+workers.
+
+Issues found from the paused run and code review:
+
+- Instance prompts were appended as generic `message` entries, so the
+  compression preserve list did not pin the current problem statement. They are
+  now appended as `task` messages.
+- The paused run used `preserve_kinds=["task", "system", "context"]`, which
+  allowed prior summaries to be summarized again. The current runner now keeps
+  that cascading-summary behavior intentionally.
+- The old invalid-prompt handler rewrote only the latest tool result. In
+  qutebrowser part 1 it produced 164 rewrite events and 8 skipped instances
+  after retrying the same class of prompt 20 times.
+- Two qutebrowser instances failed with `No tool output found for function
+  call ...`, consistent with active context containing an incomplete tool pair.
+- The log contained 20,411 `429` retry lines. Treat provider resource shortage
+  as run-level backpressure when selecting concurrency/auth-token slots rather
+  than as a task-quality signal.
+- Full trajectories were disabled, so the exact prompt payload cannot be
+  reconstructed after interruption. Per-instance results and partial
+  predictions are durable; exact repo-chain resume is not.
+- Some generated or dependency paths appeared in model patches, including
+  `.pb.go` and `vendor/` files. The current ignore approach filters only what
+  Git ignore rules can filter; tracked or force-staged generated files need a
+  separate patch-filtering decision.
+- The Responses adapter supports `store` and `previous_response_id` passthrough,
+  but the repo-chain runner does not automatically maintain a server-side
+  response chain. Current runs are stateless replay runs unless explicit
+  request extras are supplied.
+
+Still useful while a formal run is active:
+
+- Monitor `evals/out/swebench_pro/pro-repo-chain-summarize-responses-20260628-020217.log`
+  for `[DONE]`, `[FAIL]`, compression events, skipped instances, and final
+  predictions/eval output.

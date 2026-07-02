@@ -16,7 +16,7 @@ scorers) stays out of the wheel. See ADR
 
 ```
 src/simple_agent_lab/evals/     ← the ENGINE — ships in the wheel
-    protocols.py runner.py batch.py dataset.py in_container.py bootstrap.py
+    protocols.py runner.py batch.py dataset.py in_container.py chain.py bootstrap.py
     backends/   where a run executes (LocalProcess / LocalDocker / RemoteDocker / Fake)
     stores/     where bytes live   (LocalDir / HostHttp)
     suites/<suite>/   ← each suite's CONTAINER HALF — runs inside the image,
@@ -38,6 +38,11 @@ container half is the thing the agent runs inside the image. The host `suite.py`
 is the readable entry point and names its container half via `container_module`.
 The reference pair is `evals/swebench/suite.py` +
 `simple_agent_lab.evals.suites.swebench.container`.
+
+Ordered multi-instance runs use the generic chain module in the engine:
+`simple_agent_lab.evals.chain` restores `input/chain_state.json`, runs one
+instance, and writes `out/chain_state.json`; suites keep only their
+chain-specific hooks in their container half.
 
 Trajectory collection for shared demos can live outside this directory because
 trajectories are fact records, not scores. Scene-level suite adapters can keep

@@ -101,6 +101,8 @@ eval architecture is the generic containerized framework in
 a suite is one host-side `Suite` plus a container half of two functions, run
 through `run_suite_instance` over swappable `ContainerBackend` (in-process /
 local Docker / remote) and `ArtifactStore` (local dir / host HTTP / S3) seams.
+Ordered multi-instance evals reuse the engine-level `evals.chain` module;
+suites keep benchmark-specific chain hooks in their container half.
 
 ## Non-Goals
 
