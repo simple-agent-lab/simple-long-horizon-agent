@@ -36,7 +36,8 @@ Pass-through request options via `LLMRequest.extra`:
     extra["store"]        : bool
     extra["user"]         : str
     extra["include"]      : list[str]     (merged with
-                                           ``reasoning.encrypted_content``)
+                                           ``reasoning.encrypted_content`` when
+                                           Provider.replay_reasoning is enabled)
     extra["previous_response_id"] : str
     extra["top_p"]        : float
 """
@@ -100,8 +101,13 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
     kwargs: dict[str, Any] = {
         "model": req.provider.model,
         "input": items,
-        "include": _include_with_reasoning_encrypted_content(req.extra.get("include")),
     }
+    include = _include_items(
+        req.extra.get("include"),
+        include_encrypted_reasoning=req.provider.replay_reasoning,
+    )
+    if include is not None:
+        kwargs["include"] = include
     if req.system_prompt:
         kwargs["instructions"] = req.system_prompt
     if tools:
@@ -186,8 +192,12 @@ def _api_key(req: LLMRequest) -> str | None:
     return resolve_api_key(req.provider, placeholder="not-needed")
 
 
-def _include_with_reasoning_encrypted_content(value: Any) -> list[Any]:
-    """Return include items with Responses reasoning continuity enabled."""
+def _include_items(
+    value: Any,
+    *,
+    include_encrypted_reasoning: bool,
+) -> list[Any] | None:
+    """Return Responses include items, optionally enabling reasoning continuity."""
 
     if value is None:
         include: list[Any] = []
@@ -195,9 +205,9 @@ def _include_with_reasoning_encrypted_content(value: Any) -> list[Any]:
         include = [value]
     else:
         include = list(value)
-    if REASONING_ENCRYPTED_CONTENT not in include:
+    if include_encrypted_reasoning and REASONING_ENCRYPTED_CONTENT not in include:
         include.append(REASONING_ENCRYPTED_CONTENT)
-    return include
+    return include or None
 
 
 def _to_responses_input(
@@ -261,15 +271,16 @@ def _to_responses_input(
                     }
                 )
         elif message.role == "assistant":
+            text = text_of(message.content)
+            tool_calls = list(message.tool_calls)
             # Reasoning models served over the Responses API (e.g.
             # deepseek-via-zenmux) reject a follow-up turn whose assistant
             # message had thinking unless the prior reasoning item is
             # echoed back ahead of the message/tool_call it preceded.
-            if include_reasoning:
+            if include_reasoning and (text or tool_calls):
                 reasoning_item = _reasoning_item(message)
                 if reasoning_item is not None:
                     items.append(reasoning_item)
-            text = text_of(message.content)
             if text:
                 items.append(
                     {
@@ -278,7 +289,7 @@ def _to_responses_input(
                         "content": [{"type": "output_text", "text": text}],
                     }
                 )
-            for tool_call in message.tool_calls:
+            for tool_call in tool_calls:
                 items.append(
                     {
                         "type": "function_call",

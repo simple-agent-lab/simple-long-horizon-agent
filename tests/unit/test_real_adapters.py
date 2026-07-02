@@ -1122,6 +1122,45 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
             [item for item in captured["input"] if item["type"] == "reasoning"]
         )
 
+    def test_outbound_skips_orphan_extra_reasoning_item(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(
+            _responses_response(text_blocks=["done"]), captured, kind="responses"
+        )
+        req = LLMRequest(
+            provider=OPENAI_RESPONSES_PROVIDER,
+            messages=[
+                LLMMessage(role="user", content="multiply 23 and 19"),
+                LLMMessage(
+                    role="assistant",
+                    extra={
+                        "openai_responses.reasoning_items": [
+                            {
+                                "type": "reasoning",
+                                "id": "rs_abc",
+                                "encrypted_content": "enc_abc",
+                            }
+                        ]
+                    },
+                    content=[],
+                ),
+                LLMMessage(role="user", content="thanks"),
+            ],
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            complete(req)
+
+        self.assertEqual(
+            [item["type"] for item in captured["input"]],
+            ["message", "message"],
+        )
+        self.assertFalse(
+            [item for item in captured["input"] if item["type"] == "reasoning"]
+        )
+
     def test_outbound_skips_reasoning_when_replay_disabled(self) -> None:
         """With ``replay_reasoning=False`` no reasoning item is sent, for
         endpoints that manage reasoning continuity server-side."""
@@ -1157,6 +1196,32 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
             complete(req)
 
         self.assertFalse([i for i in captured["input"] if i["type"] == "reasoning"])
+        self.assertNotIn("include", captured)
+
+    def test_explicit_include_is_preserved_when_replay_disabled(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(
+            _responses_response(text_blocks=["done"]), captured, kind="responses"
+        )
+        provider = Provider(
+            id="gpt-resp-noreplay",
+            api="openai-responses",
+            model="gpt-test-1",
+            api_key_env="TEST_OPENAI_KEY",
+            replay_reasoning=False,
+        )
+        req = LLMRequest(
+            provider=provider,
+            messages=[LLMMessage(role="user", content="hi")],
+            extra={"include": ["message.input_image.image_url"]},
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            complete(req)
+
+        self.assertEqual(captured["include"], ["message.input_image.image_url"])
 
     def test_incomplete_max_tokens_maps_to_max_tokens_stop(self) -> None:
         captured: dict[str, Any] = {}
