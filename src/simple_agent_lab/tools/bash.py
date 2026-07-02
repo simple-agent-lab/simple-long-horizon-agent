@@ -330,28 +330,28 @@ def format_bash_observation(execution: BashExecution) -> str:
     return "\n".join(lines)
 
 
+# Commands whose exit code 1 is an observation, not a failure (only >= 2 is an
+# error for them), keyed to the note the model should see for exit code 1.
+_EXIT_ONE_MEANINGS = {
+    "grep": "No matches found",
+    "rg": "No matches found",
+    "find": "Some directories were inaccessible",
+    "diff": "Files differ",
+    "test": "Condition is false",
+    "[": "Condition is false",
+}
+
+
 def interpret_command_result(command: str, exit_code: int) -> CommandInterpretation:
     """Interpret exit codes for common shell commands.
 
     `grep`/`rg` no-match and `diff` differences are observations, not failures.
     """
 
-    base_command = _last_base_command(command)
-    if base_command in {"grep", "rg"}:
+    exit_one_meaning = _EXIT_ONE_MEANINGS.get(_last_base_command(command))
+    if exit_one_meaning is not None:
         if exit_code == 1:
-            return CommandInterpretation(False, "No matches found")
-        return CommandInterpretation(exit_code >= 2, _failure_message(exit_code))
-    if base_command == "find":
-        if exit_code == 1:
-            return CommandInterpretation(False, "Some directories were inaccessible")
-        return CommandInterpretation(exit_code >= 2, _failure_message(exit_code))
-    if base_command == "diff":
-        if exit_code == 1:
-            return CommandInterpretation(False, "Files differ")
-        return CommandInterpretation(exit_code >= 2, _failure_message(exit_code))
-    if base_command in {"test", "["}:
-        if exit_code == 1:
-            return CommandInterpretation(False, "Condition is false")
+            return CommandInterpretation(False, exit_one_meaning)
         return CommandInterpretation(exit_code >= 2, _failure_message(exit_code))
     return CommandInterpretation(exit_code != 0, _failure_message(exit_code))
 

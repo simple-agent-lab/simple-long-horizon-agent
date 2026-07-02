@@ -102,13 +102,10 @@ class State:
         if self.events and not self.snapshot.messages:
             self.rebuild_snapshot()
 
-    def _elapsed(self) -> float:
-        return time.monotonic() - self._monotonic_origin
-
     def elapsed_seconds(self) -> float:
         """Current run-relative monotonic time in seconds."""
 
-        return self._elapsed()
+        return time.monotonic() - self._monotonic_origin
 
     @property
     def messages(self) -> list[Message]:
@@ -136,12 +133,7 @@ class State:
         replaced here so every event in `state.events` carries the same
         chronological metadata.
         """
-        stamped = dataclasses.replace(
-            event, index=len(self.events), elapsed=self._elapsed(), uuid=_new_uuid()
-        )
-        self.events.append(stamped)
-        self.snapshot.apply(stamped)
-        return stamped
+        return self.record_event_at(event, elapsed=self.elapsed_seconds())
 
     def record_event_at(self, event: EventT, *, elapsed: float) -> EventT:
         """Append `event` with an explicit run-relative timestamp.

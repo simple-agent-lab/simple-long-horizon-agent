@@ -243,7 +243,18 @@ def run(
         AgentStartEvent(agent=name, system_prompt=agent.system_prompt)
     )
     yield from session_hook(HookPoint.SESSION_START)
-    final_emitted = False
+    # Per-run invariants: the agent's policy, provider, and tool set are frozen
+    # for the duration of `run()`, so compute their request-event shapes once.
+    policy = agent.context_policy or ContextPolicy()
+    api = agent.llm_provider.api if agent.llm_provider is not None else ""
+    tools_payload = [
+        {
+            "name": tool.name,
+            "description": tool.description,
+            "parameters": tool.parameters,
+        }
+        for tool in tool_by_name.values()
+    ]
     # Default outcome; overridden when the loop breaks on `final` or terminate.
     end_reason: AgentEndReason = "max_turns"
     for _ in range(max_turns):
@@ -252,7 +263,6 @@ def run(
             break
         yield state.record_event(TurnStartEvent(agent=name))
 
-        policy = agent.context_policy or ContextPolicy()
         for compression_event in maybe_compress_context(agent, state, policy):
             yield compression_event
 
@@ -273,7 +283,6 @@ def run(
         if agent.system_prompt:
             llm_payload = [llm_message("system", agent.system_prompt), *llm_payload]
 
-        api = agent.llm_provider.api if agent.llm_provider is not None else ""
         yield state.record_event(
             ModelRequestEvent(
                 agent=name,
@@ -281,21 +290,13 @@ def run(
                 visible_count=len(visible),
                 llm_message_count=len(llm_payload),
                 context_view=context.as_dict(),
-                tools=[
-                    {
-                        "name": tool.name,
-                        "description": tool.description,
-                        "parameters": tool.parameters,
-                    }
-                    for tool in tool_by_name.values()
-                ],
+                tools=list(tools_payload),
                 llm_payload=llm_payload,
             )
         )
 
         output = agent.generate(visible)
         output_tool_calls = message_tool_calls(output)
-        api = agent.llm_provider.api if agent.llm_provider is not None else ""
         yield state.record_event(
             ModelResponseEvent(
                 agent=name,
@@ -309,9 +310,6 @@ def run(
         )
 
         yield state.record(output)
-
-        if output.sender == name and output.kind == "final":
-            final_emitted = True
 
         if tool_by_name and output_tool_calls:
             tool_terminated = False
@@ -328,7 +326,9 @@ def run(
 
         yield state.record_event(TurnEndEvent(agent=name))
 
-        if final_emitted:
+        # Checked after tool dispatch so a final message that still carries
+        # tool calls has them executed before the loop ends.
+        if output.sender == name and output.kind == "final":
             end_reason = "done"
             break
 

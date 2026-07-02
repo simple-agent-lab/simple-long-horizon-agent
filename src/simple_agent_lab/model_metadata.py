@@ -393,35 +393,39 @@ def _load_context_window_overrides() -> dict[str, int]:
         _add_window_from_spec(out, str(model), spec)
         models = spec.get("models")
         if isinstance(models, Mapping):
+            # models.dev api.json shape: provider -> models -> per-model spec;
+            # each child id is also reachable as "<provider>/<id>".
             for child_model, child_spec in models.items():
-                if not isinstance(child_spec, Mapping):
-                    continue
-                model_ids = [str(child_model)]
-                if "/" not in str(child_model):
-                    model_ids.append(f"{model}/{child_model}")
-                for key in ("id", "model", "model_id"):
-                    value = child_spec.get(key)
-                    if isinstance(value, str):
-                        model_ids.append(value)
-                        if "/" not in value:
-                            model_ids.append(f"{model}/{value}")
-                _add_window_from_spec(out, model_ids, child_spec)
+                if isinstance(child_spec, Mapping):
+                    _add_window_from_spec(
+                        out, str(child_model), child_spec, prefix=str(model)
+                    )
     return out
 
 
 def _add_window_from_spec(
-    out: dict[str, int], model: str | list[str], spec: Mapping[str, Any]
+    out: dict[str, int],
+    model: str,
+    spec: Mapping[str, Any],
+    *,
+    prefix: str | None = None,
 ) -> None:
-    model_ids = [model] if isinstance(model, str) else list(model)
+    model_ids = [model]
     for key in ("id", "model", "model_id"):
         value = spec.get(key)
         if isinstance(value, str):
             model_ids.append(value)
+    if prefix is not None:
+        model_ids.extend(
+            f"{prefix}/{model_id}"
+            for model_id in tuple(model_ids)
+            if "/" not in model_id
+        )
     window = _window_from_spec(spec)
     if window is None:
         return
     for model_id in model_ids:
-        for alias in _model_lookup_names(str(model_id)):
+        for alias in _model_lookup_names(model_id):
             out[alias] = window
 
 
@@ -434,11 +438,17 @@ def _window_from_spec(spec: Mapping[str, Any]) -> int | None:
         parsed = _positive_int(value)
         if parsed is not None:
             return parsed
-    for key in ("context", "context_window", "max_input_tokens", "max_tokens"):
+    for key in (
+        "context",
+        "context_window",
+        "max_input_tokens",
+        "max_tokens",
+        "max_output_tokens",
+    ):
         parsed = _positive_int(spec.get(key))
         if parsed is not None:
             return parsed
-    return _positive_int(spec.get("max_output_tokens"))
+    return None
 
 
 def _positive_int(value: Any) -> int | None:

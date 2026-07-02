@@ -362,17 +362,15 @@ def _read_text(
     if truncation.truncated:
         end_display = start_display + truncation.output_lines - 1
         next_offset = end_display + 1
-        if truncation.truncated_by == "lines":
-            tail = (
-                f"\n\n[Showing lines {start_display}-{end_display} of "
-                f"{total_file_lines}. Use offset={next_offset} to continue.]"
-            )
-        else:
-            tail = (
-                f"\n\n[Showing lines {start_display}-{end_display} of "
-                f"{total_file_lines} ({format_size(max_bytes)} limit). "
-                f"Use offset={next_offset} to continue.]"
-            )
+        limit_note = (
+            f" ({format_size(max_bytes)} limit)."
+            if truncation.truncated_by == "bytes"
+            else "."
+        )
+        tail = (
+            f"\n\n[Showing lines {start_display}-{end_display} of "
+            f"{total_file_lines}{limit_note} Use offset={next_offset} to continue.]"
+        )
         details["truncation"] = asdict(truncation)
         return text_result(truncation.content + tail, details=details)
 

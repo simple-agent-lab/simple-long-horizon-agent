@@ -22,7 +22,7 @@ in one step inside `simple_agent_lab.llm.bridge`.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeAlias, TypedDict, TypeVar, cast
 
@@ -408,15 +408,13 @@ def tool_result_message(
         content=_normalize_visible(content),
         is_error=is_error,
     )
-    message = UserMessage(
-        content=(block,),
-        sender=sender if sender is not None else TOOL_RESULT_SENDER,
+    return tool_results_message(
+        (block,),
         target=target,
+        sender=sender if sender is not None else TOOL_RESULT_SENDER,
         kind=kind,
-        sidecar=_copy_sidecar(sidecar),
+        sidecar=sidecar,
     )
-    validate_message(message)
-    return message
 
 
 def tool_results_message(
@@ -596,28 +594,17 @@ def make_message(
     sidecar: MessageSidecar | None = None,
 ) -> Message:
     """Construct the right role-specific Message variant."""
-    if role == "user":
-        return user_message(
-            content,
-            sender=sender or "user",
-            target=target or "all",
-            kind=kind,
-            sidecar=sidecar,
-        )
-    if role == "system":
-        return runtime_message(
-            content,
-            sender=sender or "system",
-            target=target or "all",
-            kind=kind,
-            sidecar=sidecar,
-        )
-    if role == "assistant":
-        return assistant_message(
-            content,
-            sender=sender or "assistant",
-            target=target or "all",
-            kind=kind,
-            sidecar=sidecar,
-        )
-    raise ValueError(f"Unknown message role: {role!r}")
+    builders: dict[Role, Callable[..., Message]] = {
+        "user": user_message,
+        "system": runtime_message,
+        "assistant": assistant_message,
+    }
+    builder = builders.get(role)
+    if builder is None:
+        raise ValueError(f"Unknown message role: {role!r}")
+    # Empty sender/target defer to the builder's own defaults
+    # ("user"/"system"/"assistant" and "all") so those live in one place.
+    overrides = {
+        key: value for key, value in (("sender", sender), ("target", target)) if value
+    }
+    return builder(content, kind=kind, sidecar=sidecar, **overrides)
