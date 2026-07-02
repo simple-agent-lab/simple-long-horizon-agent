@@ -125,7 +125,7 @@ class OrchestrationTest(unittest.TestCase):
         self.assertIn("--find-links /wh", cmd[-1])
 
     def test_build_command_can_target_custom_runner_module(self) -> None:
-        custom_runner = "simple_agent_lab.evals.suites.swebench.repo_session_runner"
+        custom_runner = "simple_agent_lab.evals.chain"
         spec = RunSpec(
             suite_name="swebench_pro",
             container_module=SWEBENCH_CONTAINER,
