@@ -247,7 +247,13 @@ class HookFiredEvent(_BaseEvent):
 # The goal loop's lifecycle status. Superset of GoalResult's terminal
 # `GoalStatus`: "active" marks a turn where the loop is still continuing.
 GoalLifecycleStatus: TypeAlias = Literal[
-    "active", "complete", "blocked", "budget_exhausted", "aborted"
+    "active",
+    "complete",
+    "blocked",
+    "budget_exhausted",
+    "budget_limited",
+    "paused",
+    "aborted",
 ]
 
 
@@ -256,10 +262,10 @@ class GoalStatusEvent(_BaseEvent):
     """One goal-loop turn's outcome — an append-only, replay-able record of the
     goal's lifecycle.
 
-    Recorded by `run_goal_loop` (not the inner ReAct loop). `StateSnapshot.apply`
-    ignores it, so it lives only in `state.events` (trace/audit/replay) and never
-    enters the model context. The objective is carried so a goal is fully
-    reconstructable from the log alone.
+    Recorded by goal workflow wrappers (not the inner ReAct loop).
+    `StateSnapshot.apply` ignores it, so it lives only in `state.events`
+    (trace/audit/replay) and never enters the model context. `goal_id` is blank
+    for verifier-driven loops that have no explicit goal object.
     """
 
     kind: Literal[EventKind.GOAL_STATUS] = field(
@@ -270,6 +276,7 @@ class GoalStatusEvent(_BaseEvent):
     turns_used: int
     tokens_used: int = 0
     reason: str = ""
+    goal_id: str = ""
 
 
 Event: TypeAlias = (

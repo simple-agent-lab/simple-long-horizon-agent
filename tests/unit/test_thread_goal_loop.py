@@ -11,8 +11,10 @@ from simple_agent_lab.messages import (
     ToolCallBlock,
     TokenUsage,
 )
+from simple_agent_lab.protocols import GoalStatusEvent
 from simple_agent_lab.workflow import GoalBudgets
 from simple_agent_lab.workflow.thread_goal_loop import (
+    THREAD_GOAL_STORE_DATA_KEY,
     ThreadGoalStore,
     make_get_goal_tool,
     make_update_goal_tool,
@@ -163,6 +165,81 @@ class ThreadGoalLoopTest(unittest.TestCase):
         self.assertTrue(
             all("keep the original objective" in task for task in seen_tasks)
         )
+
+    def test_goal_lifecycle_is_recorded_in_state_events(self):
+        calls = {"n": 0}
+
+        def generate(messages):
+            del messages
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return AssistantMessage(
+                    content=(TextBlock("made progress"),),
+                    sender="goal_agent",
+                    target="user",
+                    kind="final",
+                )
+            return AssistantMessage(
+                content=(
+                    TextBlock("done"),
+                    ToolCallBlock(
+                        "call_done",
+                        "update_goal",
+                        {"status": "complete", "reason": "verified"},
+                    ),
+                ),
+                sender="goal_agent",
+                target="goal_agent",
+                kind="step",
+            )
+
+        result = run_thread_goal_loop(
+            Agent("goal_agent", generate),
+            "record this goal in state",
+            budgets=GoalBudgets(max_turns=5),
+        )
+        state = result.steps[-1].state
+        goal_events = [e for e in state.events if isinstance(e, GoalStatusEvent)]
+
+        self.assertEqual([e.status for e in goal_events], ["active", "complete"])
+        self.assertTrue(
+            all(e.objective == "record this goal in state" for e in goal_events)
+        )
+        self.assertTrue(all(e.goal_id == result.goal.goal_id for e in goal_events))
+        self.assertEqual([e.turns_used for e in goal_events], [1, 2])
+        self.assertNotIn("goal", state.data)
+
+    def test_goal_store_is_attached_to_state_data(self):
+        def generate(messages):
+            del messages
+            return AssistantMessage(
+                content=(
+                    TextBlock("done"),
+                    ToolCallBlock(
+                        "call_done",
+                        "update_goal",
+                        {"status": "complete", "reason": "stored in state"},
+                    ),
+                ),
+                sender="goal_agent",
+                target="goal_agent",
+                kind="step",
+            )
+
+        store = ThreadGoalStore()
+        result = run_thread_goal_loop(
+            Agent("goal_agent", generate),
+            "make state carry the goal store",
+            goal_store=store,
+        )
+        state = result.steps[-1].state
+
+        self.assertIs(state.data[THREAD_GOAL_STORE_DATA_KEY], store)
+        self.assertEqual(
+            store.get_goal(result.goal.goal_id).reason,
+            "stored in state",
+        )
+        self.assertFalse(hasattr(state, "resources"))
 
     def test_loop_stops_when_model_updates_goal_blocked(self):
         def generate(messages):

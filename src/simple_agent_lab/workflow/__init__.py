@@ -89,6 +89,7 @@ from .goal_loop import (
     run_goal_loop,
 )
 from .thread_goal_loop import (
+    THREAD_GOAL_STORE_DATA_KEY,
     ThreadGoal,
     ThreadGoalResult,
     ThreadGoalStatus,
@@ -176,6 +177,7 @@ __all__ = [
     "GoalResult",
     "GoalStatus",
     "run_thread_goal_loop",
+    "THREAD_GOAL_STORE_DATA_KEY",
     "ThreadGoal",
     "ThreadGoalResult",
     "ThreadGoalStatus",

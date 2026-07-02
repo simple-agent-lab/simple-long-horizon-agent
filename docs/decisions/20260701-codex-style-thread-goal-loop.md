@@ -34,6 +34,10 @@ The new loop introduces:
 - `get_goal` and `update_goal` tools over that store.
 - `run_thread_goal_loop`, which creates a goal, steers each continuation from
   the current goal state, and stops on terminal goal status or host-owned limits.
+- The live `ThreadGoalStore` attached to `State.data["thread_goal_store"]`
+  so callers inspecting the final state can find the current control object.
+- `GoalStatusEvent` entries in `state.events`, so the explicit goal's lifecycle
+  is visible in traces without making `state.data` the authority.
 - A `goal` workflow flavor that runs the Codex-style loop, while the existing
   `loop` flavor continues to use verifier-gated `run_goal_loop`.
 
@@ -52,6 +56,9 @@ Model-facing lifecycle control stays narrow: `update_goal` accepts only
   with those tools up front, because `make_llm_agent` closes over tool schemas
   at construction time. The `goal` flavor handles that by creating the goal
   store before constructing its solver agent.
+- A `ThreadGoalStore` still owns current goal state. `State.data` carries that
+  live object for in-process consumers; `State.events` carries an append-only
+  history for trace/replay.
 - The first implementation uses an in-memory store. Persistence across process
   restarts remains a later extension.
 

@@ -19,6 +19,7 @@ from typing import Any, Literal, TypeAlias, cast
 
 from simple_agent_lab.core import Agent
 from simple_agent_lab.messages import ContentInput
+from simple_agent_lab.protocols import GoalLifecycleStatus, GoalStatusEvent
 from simple_agent_lab.state import State
 from simple_agent_lab.tools import (
     AbortFlag,
@@ -47,6 +48,7 @@ ThreadGoalStopReason: TypeAlias = Literal[
 ]
 
 _MODEL_TERMINAL_STATUSES = {"complete", "blocked"}
+THREAD_GOAL_STORE_DATA_KEY = "thread_goal_store"
 
 
 @dataclass(frozen=True)
@@ -350,9 +352,16 @@ def run_thread_goal_loop(
         if goal.status != "active":
             return _result(goal, output, steps, _stop_reason(goal.status))
         if effective_abort():
+            _record_thread_goal_event(
+                state,
+                goal,
+                status="aborted",
+                reason="abort requested",
+            )
             return _result(goal, output, steps, "aborted")
         if budgets.max_turns is not None and goal.turns_used >= budgets.max_turns:
             goal = store.mark_budget_limited(goal.goal_id, reason="turn budget reached")
+            _record_thread_goal_event(state, goal)
             return _result(goal, output, steps, "budget_limited")
 
         task = build_thread_goal_steering(goal)
@@ -371,10 +380,12 @@ def run_thread_goal_loop(
                 max_turns=inner_max_turns,
                 abort=effective_abort,
             )
+        _attach_goal_store(state, store)
         _drain(events, effective_abort)
 
         tokens_used = state_output_tokens(state)
         goal = store.account_turn(goal.goal_id, tokens_used=tokens_used)
+        _record_thread_goal_event(state, goal)
         output = final_output(
             state,
             goal_agent.name,
@@ -389,6 +400,31 @@ def run_thread_goal_loop(
                 state=state,
             )
         )
+
+
+def _attach_goal_store(state: State, store: ThreadGoalStore) -> None:
+    state.data[THREAD_GOAL_STORE_DATA_KEY] = store
+
+
+def _record_thread_goal_event(
+    state: State | None,
+    goal: ThreadGoal,
+    *,
+    status: GoalLifecycleStatus | None = None,
+    reason: str | None = None,
+) -> None:
+    if state is None:
+        return
+    state.record_event(
+        GoalStatusEvent(
+            goal_id=goal.goal_id,
+            objective=goal.objective,
+            status=status or goal.status,
+            turns_used=goal.turns_used,
+            tokens_used=goal.tokens_used,
+            reason=goal.reason if reason is None else reason,
+        )
+    )
 
 
 def _with_goal_tools(agent: Agent, store: ThreadGoalStore, goal_id: str) -> Agent:
