@@ -332,7 +332,7 @@ class ArmRunnerTest(unittest.TestCase):
         self.assertTrue(result.steps)
 
     def test_workflow_facade_uses_latest_task_message(self) -> None:
-        state = State("repo session seed")
+        state = State("repo chain seed")
         state.send("task", "user", wc.AGENT_NAME, "first instance")
         state.send("task", "user", wc.AGENT_NAME, EDIT_TASK)
         with _envs(

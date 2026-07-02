@@ -61,9 +61,13 @@ from simple_agent_lab.agents.flavors import (
     ArtifactPut,
     build_flavor_agent,
 )
+from simple_agent_lab.compression import SummarizeStrategy
+from simple_agent_lab.context_view import ContextPolicy
 from simple_agent_lab.core import Agent
+from simple_agent_lab.evals.chain import start_chain_state
 from simple_agent_lab.evals.protocols import AgentSpec
 from simple_agent_lab.llm import Provider
+from simple_agent_lab.llm_agent import make_llm_agent
 
 from .patch import (
     git_diff,
@@ -111,6 +115,126 @@ def agent_spec() -> AgentSpec:
         system_prompt=AGENT_SYSTEM_PROMPT,
         flavor=flavor,
     )
+
+
+def chain_agent_spec(*, config: Mapping[str, Any]) -> AgentSpec:
+    """SWE-bench agent config for the generic eval-chain runner."""
+
+    return AgentSpec(
+        name=AGENT_NAME,
+        role=AGENT_ROLE,
+        system_prompt=AGENT_SYSTEM_PROMPT,
+        flavor=_chain_agent_flavor(config),
+    )
+
+
+def chain_start_state(*, config: Mapping[str, Any], agent_name: str):
+    """Create the SWE-bench-specific seed state for one repo chain."""
+
+    display_name = _chain_display_name(config)
+    task = (
+        f"SWE-bench Pro repo chain for {display_name}. Solve instances for "
+        "this repository in commit-time order. Carry useful context across "
+        "tasks, but each instance's patch must address only the current problem."
+    )
+    return start_chain_state(
+        task,
+        agent_name=agent_name,
+        metadata={
+            "repo": str(config.get("repo") or ""),
+            "chain_id": str(config.get("chain_id") or ""),
+            "part_index": int(config.get("part_index", 1) or 1),
+            "part_count": int(config.get("part_count", 1) or 1),
+        },
+    )
+
+
+def chain_state_metadata(
+    *, instance: Mapping[str, Any], config: Mapping[str, Any]
+) -> dict[str, Any]:
+    """SWE-bench metadata stored beside the generic chain state."""
+
+    return {
+        "repo": str(config.get("repo") or instance.get("repo") or ""),
+        "chain_id": str(config.get("chain_id") or ""),
+    }
+
+
+def chain_task_details(
+    *, instance: Mapping[str, Any], config: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Attach SWE-bench identity while the generic runner adds chain identity."""
+
+    del config
+    return {
+        "swebench": {"instance_id": str(instance.get("instance_id") or "")},
+    }
+
+
+def chain_context_policy(
+    *,
+    provider: Provider,
+    request_extra: Mapping[str, Any] | None,
+    config: Mapping[str, Any],
+) -> ContextPolicy:
+    """Build SWE-bench's compression policy for chain continuation."""
+
+    if _chain_compression_strategy(config) != "summarize":
+        return ContextPolicy()
+    runtime = _runtime_config(config)
+    compressor = make_llm_agent(
+        name="swebench_compressor",
+        provider=provider,
+        role=(
+            "Summarize older SWE-bench repo-chain context. Preserve durable "
+            "facts, decisions, tool results, constraints, file paths, test "
+            "signals, and unresolved questions. Omit low-value wording."
+        ),
+        request_extra=request_extra,
+    )
+    return ContextPolicy(
+        strategy=SummarizeStrategy(
+            compressor=compressor,
+            threshold_tokens=int(runtime.get("threshold_tokens", 217600) or 217600),
+            keep_recent=int(runtime.get("keep_recent", 4) or 4),
+            preserve_kinds=tuple(
+                runtime.get("preserve_kinds") or ("task", "system", "context")
+            ),
+        )
+    )
+
+
+def chain_result_metadata(
+    *,
+    instance: Mapping[str, Any],
+    config: Mapping[str, Any],
+    context: Mapping[str, Any],
+) -> dict[str, Any]:
+    """SWE-bench fields folded into the generic chain result."""
+
+    chain_id = str(config.get("chain_id") or "")
+    return {
+        "repo": str(config.get("repo") or instance.get("repo") or ""),
+        "chain_id": chain_id,
+        "chain_part_index": int(config.get("part_index", 1) or 1),
+        "chain_part_count": int(config.get("part_count", 1) or 1),
+        "baseline_commit": str(context.get("baseline_commit") or ""),
+    }
+
+
+def chain_trace_metadata(
+    *,
+    instance: Mapping[str, Any],
+    config: Mapping[str, Any],
+    result: Mapping[str, Any],
+) -> dict[str, Any]:
+    """SWE-bench fields added to chain trajectory metadata."""
+
+    del instance
+    return {
+        "repo": str(result.get("repo") or config.get("repo") or ""),
+        "chain_id": str(result.get("chain_id") or config.get("chain_id") or ""),
+    }
 
 
 def build_task(instance: Mapping[str, Any], *, workdir: str) -> str:
@@ -331,3 +455,28 @@ def _optional(value: Any) -> str:
         if isinstance(decoded, str):
             return decoded.strip()
     return text
+
+
+def _runtime_config(config: Mapping[str, Any]) -> Mapping[str, Any]:
+    value = config.get("config")
+    return value if isinstance(value, Mapping) else {}
+
+
+def _chain_agent_flavor(config: Mapping[str, Any]) -> str:
+    return str(_runtime_config(config).get("agent_flavor") or flavor_from_env())
+
+
+def _chain_compression_strategy(config: Mapping[str, Any]) -> str:
+    return str(_runtime_config(config).get("compression_strategy") or "summarize")
+
+
+def _chain_display_name(config: Mapping[str, Any]) -> str:
+    display = str(config.get("chain_display_name") or "")
+    if display:
+        return display
+    repo = str(config.get("repo") or config.get("chain_id") or "unknown")
+    part_index = int(config.get("part_index", 1) or 1)
+    part_count = int(config.get("part_count", 1) or 1)
+    if part_count <= 1:
+        return repo
+    return f"{repo} part {part_index}/{part_count}"
