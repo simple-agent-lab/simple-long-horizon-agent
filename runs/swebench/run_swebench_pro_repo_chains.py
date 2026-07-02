@@ -66,6 +66,10 @@ from evals.swebench.pro_repo_chain import (  # noqa: E402
     sort_repo_instances,
 )
 from evals.swebench.suite import SwebenchSuite  # noqa: E402
+from simple_agent_lab.config import (  # noqa: E402
+    LOOP_MAX_TURNS,
+    WORKER_MAX_TURNS,
+)
 from simple_agent_lab.evals import LocalDirStore, LocalDockerBackend  # noqa: E402
 from simple_agent_lab.evals.protocols import RESULT_KEY  # noqa: E402
 from simple_agent_lab.evals.runner import (  # noqa: E402
@@ -318,6 +322,11 @@ def main() -> None:
     print(
         f"agent: {config.agent_flavor} tools={'bash,task' if config.task_tool else 'bash'}"
     )
+    if config.agent_flavor == "goal":
+        print(
+            f"goal budget: {os.environ[LOOP_MAX_TURNS.name]} segment(s) x "
+            f"{os.environ[WORKER_MAX_TURNS.name]} inner turns"
+        )
     if config.compression_strategy == "summarize":
         print(
             "compression: summarize "
@@ -420,7 +429,15 @@ def main() -> None:
 
 
 def _apply_provider_env_overrides(args: argparse.Namespace) -> None:
-    """Apply explicit CLI provider overrides without masking .env defaults."""
+    """Apply CLI provider and goal turn-budget overrides onto the process env.
+
+    Model and reasoning only override when passed explicitly (``.env`` wins
+    otherwise). For the ``goal`` flavor, ``--max-turns`` drives the goal loop:
+    it maps onto ``SAL_WORKFLOW_WORKER_MAX_TURNS`` (overriding any ``.env`` value)
+    so a single segment runs up to ``--max-turns`` inner turns, and the outer
+    segment count defaults to ``1`` (``.env`` may still raise it). Both reach the
+    container through the config-registry env passthrough.
+    """
 
     model = str(args.model).strip() if args.model is not None else ""
     if model:
@@ -430,6 +447,9 @@ def _apply_provider_env_overrides(args: argparse.Namespace) -> None:
     )
     if reasoning_effort:
         os.environ[REASONING_EFFORT_ENV] = reasoning_effort
+    if args.agent_flavor == "goal":
+        os.environ[WORKER_MAX_TURNS.name] = str(args.max_turns)
+        os.environ.setdefault(LOOP_MAX_TURNS.name, "1")
 
 
 def _experiment_config_from_args(

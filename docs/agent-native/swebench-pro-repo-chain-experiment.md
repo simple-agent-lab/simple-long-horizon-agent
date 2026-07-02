@@ -138,11 +138,14 @@ message is framed:
   body, and completion rules are identical to the standalone `goal` arm. With
   `state` and the preface left at their defaults, the chain goal path reproduces
   the standalone goal behavior exactly.
-- Budgets: the goal loop runs its own segmented budget
-  (`SAL_WORKFLOW_LOOP_MAX_TURNS` outer segments, each up to
-  `SAL_WORKFLOW_WORKER_MAX_TURNS` inner turns). `--max-turns` is the per-instance
-  turn budget for the non-goal `while`-loop flavors and does not cap the goal
-  loop.
+- Budgets: the goal loop runs a segmented budget (`SAL_WORKFLOW_LOOP_MAX_TURNS`
+  outer segments, each up to `SAL_WORKFLOW_WORKER_MAX_TURNS` inner turns). For the
+  `goal` flavor the runner maps `--max-turns` onto `SAL_WORKFLOW_WORKER_MAX_TURNS`
+  (overriding any `.env` value) and defaults `SAL_WORKFLOW_LOOP_MAX_TURNS` to `1`,
+  so one segment runs up to `--max-turns` inner turns; set
+  `SAL_WORKFLOW_LOOP_MAX_TURNS` in `.env` to restore multi-segment goal. For the
+  non-goal `while`-loop flavors, `--max-turns` is the per-instance turn budget
+  directly.
 - Shared construction: both the standalone goal arm and the chain goal path
   build the solver and drive the loop through the single `run_goal_flavor`
   helper in `simple_agent_lab.agents.flavors`.
@@ -343,9 +346,10 @@ uv run --extra swebench python runs/swebench/run_swebench_pro_repo_chains.py \
 
 This default command runs the `goal` flavor with no chain compression
 (`--compression-strategy none`). Add `--compression-strategy summarize` for the
-compression baseline, or `--task-tool` for the task-delegation baseline. Because
-the `goal` loop keeps its own segment budget, `--max-turns` here bounds only the
-non-goal `while`-loop flavors (see "Goal Flavor In A Chain").
+compression baseline, or `--task-tool` for the task-delegation baseline. For the
+`goal` flavor, `--max-turns` sets the goal worker budget
+(`SAL_WORKFLOW_WORKER_MAX_TURNS`) and the outer loop defaults to a single segment
+(`SAL_WORKFLOW_LOOP_MAX_TURNS=1`); see "Goal Flavor In A Chain".
 
 Full trajectories are written by default. Pass `--no-write-trajectories` only
 when storage cost is unacceptable; long repo chains can grow to hundreds of GB

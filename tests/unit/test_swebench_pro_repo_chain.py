@@ -466,6 +466,59 @@ class SwebenchProRepoChainPlanningTest(unittest.TestCase):
         self.assertEqual(config.model, "cli-model")
         self.assertEqual(config.reasoning_effort, "low")
 
+    def test_goal_flavor_maps_max_turns_to_worker_and_defaults_loop_to_one(
+        self,
+    ) -> None:
+        from runs.swebench.run_swebench_pro_repo_chains import (
+            _apply_provider_env_overrides,
+            build_parser,
+        )
+
+        args = build_parser().parse_args(["--all", "--max-turns", "250"])
+
+        with patch.dict(os.environ, {}, clear=True):
+            _apply_provider_env_overrides(args)
+
+            self.assertEqual(os.environ["SAL_WORKFLOW_WORKER_MAX_TURNS"], "250")
+            self.assertEqual(os.environ["SAL_WORKFLOW_LOOP_MAX_TURNS"], "1")
+
+    def test_goal_max_turns_overrides_env_worker_but_loop_env_wins(self) -> None:
+        from runs.swebench.run_swebench_pro_repo_chains import (
+            _apply_provider_env_overrides,
+            build_parser,
+        )
+
+        args = build_parser().parse_args(["--all", "--max-turns", "120"])
+
+        with patch.dict(
+            os.environ,
+            {
+                "SAL_WORKFLOW_WORKER_MAX_TURNS": "40",
+                "SAL_WORKFLOW_LOOP_MAX_TURNS": "6",
+            },
+            clear=True,
+        ):
+            _apply_provider_env_overrides(args)
+
+            self.assertEqual(os.environ["SAL_WORKFLOW_WORKER_MAX_TURNS"], "120")
+            self.assertEqual(os.environ["SAL_WORKFLOW_LOOP_MAX_TURNS"], "6")
+
+    def test_non_goal_flavor_leaves_goal_turn_budget_untouched(self) -> None:
+        from runs.swebench.run_swebench_pro_repo_chains import (
+            _apply_provider_env_overrides,
+            build_parser,
+        )
+
+        args = build_parser().parse_args(
+            ["--all", "--agent-flavor", "bash", "--max-turns", "250"]
+        )
+
+        with patch.dict(os.environ, {}, clear=True):
+            _apply_provider_env_overrides(args)
+
+            self.assertNotIn("SAL_WORKFLOW_WORKER_MAX_TURNS", os.environ)
+            self.assertNotIn("SAL_WORKFLOW_LOOP_MAX_TURNS", os.environ)
+
     def test_selected_provider_auth_slot_is_mapped_to_container_primary_auth(
         self,
     ) -> None:
