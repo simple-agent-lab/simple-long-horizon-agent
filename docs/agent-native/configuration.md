@@ -204,7 +204,7 @@ workflow knobs are registry-backed — see the generated table above.)
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `AGENT_FLAVOR` | `bash` | Agent flavor: `bash`, `bash_task`, `bash_task_read`, `bash_skills`, `loop`, `pdr`. |
+| `AGENT_FLAVOR` | `bash` | Agent flavor: `bash`, `bash_task`, `bash_task_read`, `bash_skills`, `loop`, `goal`, `pdr`. |
 
 ## Suite-specific knobs
 

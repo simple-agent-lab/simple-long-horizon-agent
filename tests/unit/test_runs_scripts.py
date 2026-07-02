@@ -28,10 +28,10 @@ class RunsScriptsTest(unittest.TestCase):
 
         self.assertIn("API_KIND=openai-chat", env_example)
 
-    def test_env_example_includes_optional_second_openai_token(self) -> None:
+    def test_env_example_does_not_advertise_local_second_openai_token(self) -> None:
         env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
 
-        self.assertIn("OPENAI_AUTH_TOKEN2=", env_example)
+        self.assertNotIn("OPENAI_AUTH_TOKEN2", env_example)
 
     def test_swebench_extra_includes_dataset_fetch_dependencies(self) -> None:
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
