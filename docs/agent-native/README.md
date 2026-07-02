@@ -72,6 +72,14 @@ The current source-of-truth layers are:
   binds through core lifecycle hooks, injects model-visible recall context at
   session start, and persists Markdown evidence plus distilled handbooks after
   the run. See `docs/agent-native/memory.md`.
+- `src/simple_agent_lab/evolve/`: the evolution harness — one sequential
+  loop (`run_evolution`) over four callable seams (propose / evaluate /
+  select / accept), an append-only JSONL `Archive` with lineage and
+  accept/reject reasons, `llm_propose` + EVOLVE-BLOCK helpers for LLM-driven
+  mutation, and `agent_task_evaluator` bridging candidates to the core agent
+  runtime. See ADR evolve-harness-with-four-callable-seams and the demos
+  `scripts/run_evolve_demo.py`, `scripts/run_code_evolution_demo.py`,
+  `scripts/run_prompt_evolution_demo.py`.
 - `src/simple_agent_lab/trace/`: the three-layer trace (Event → Span →
   Training) split by concern — `spans.py`/`training.py` (pure event→span/turn
   transforms), `run_trace.py` (record schema), `jsonl.py` (atomic JSONL IO),

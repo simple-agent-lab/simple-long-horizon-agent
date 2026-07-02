@@ -65,3 +65,22 @@ A repeatable check that helps compare agent behavior, correctness, reliability, 
 ## Reference Architecture
 
 An external or internal architecture studied before deciding what Simple Agent Lab should borrow or avoid.
+
+## Candidate
+
+One point in an evolution run's search space: a JSON-able payload (prompt
+text, program source, agent config) plus its lineage (parents, generation,
+the operator that produced it).
+
+## Evolution Archive
+
+The append-only record of an evolution run: every candidate with its
+evaluation and the accept/reject decision and reason, one JSON line each.
+The archive is the audit trail, the resume point, and the dataset a run
+leaves behind.
+
+## Fitness
+
+The scalar an evolution run maximizes, produced by the run's evaluator.
+Richer signals ride alongside it as metrics (structured) and feedback
+(free text shown to the proposer).

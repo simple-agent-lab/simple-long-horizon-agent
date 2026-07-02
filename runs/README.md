@@ -42,6 +42,7 @@ whose `--provider` accepts `oracle`).
 bash runs/dev/run_ci.sh
 bash runs/dev/run_docs_lint.sh
 bash runs/demos/run_bash_agent_demo.sh
+bash runs/demos/run_evolve_demo.sh
 bash runs/swebench/run_swebench.sh
 bash runs/swebench/run_swebench.sh --variant multilingual
 bash runs/swebench/run_swebench.sh --variant pro
