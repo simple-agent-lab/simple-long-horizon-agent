@@ -1,10 +1,10 @@
 """Build shipped agent flavors from shared flavor names.
 
 This module owns the mapping from a flavor string (``bash``, ``bash_task``,
-``bash_task_read``, ``bash_skills``, ``loop``, ``goal``, ``pdr``) to concrete agent
-capabilities. Runners pass in name/role/prompt/cwd; the agent layer decides
-which tools, prompt addenda, sessions, or workflow choreography implement that
-flavor.
+``bash_task_read``, ``bash_skills``, ``loop``, ``goal``, ``pdr``) to concrete
+agent capabilities. Runners pass in name/role/prompt/cwd; the agent layer
+decides which tools, prompt addenda, sessions, or workflow choreography
+implement that flavor.
 """
 
 from __future__ import annotations
@@ -34,6 +34,7 @@ from simple_agent_lab.workflow import (
     VERIFY_BEFORE_DONE_ADDENDUM,
     VERIFY_CONTINUATION,
     GoalBudgets,
+    ThreadGoalResult,
     ThreadGoalStore,
     WorkflowResult,
     compose_workflow_trace_state,
@@ -80,6 +81,8 @@ def build_flavor_agent(
     bash_exec_prefix: tuple[str, ...] = (),
     prepare_workspace: PrepareWorkflowWorkspace | None = None,
     trace_put: ArtifactPut | None = None,
+    solver_read: bool = True,
+    solver_task: bool = False,
 ) -> Agent:
     """Build an Agent for one shipped flavor, simple or workflow.
 
@@ -105,6 +108,8 @@ def build_flavor_agent(
             context_policy=context_policy,
             enable_default_compression=enable_default_compression,
             bash_exec_prefix=bash_exec_prefix,
+            solver_read=solver_read,
+            solver_task=solver_task,
         )
     return _build_simple_flavor_agent(
         flavor=flavor,
@@ -119,6 +124,7 @@ def build_flavor_agent(
         enable_default_compression=enable_default_compression,
         tools=tools,
         bash_exec_prefix=bash_exec_prefix,
+        solver_task=solver_task,
     )
 
 
@@ -136,6 +142,7 @@ def _build_simple_flavor_agent(
     enable_default_compression: bool = True,
     tools: Sequence[AgentTool] = (),
     bash_exec_prefix: tuple[str, ...] = (),
+    solver_task: bool = False,
 ) -> Agent:
     """Build a resource-free Agent for one shipped simple flavor."""
 
@@ -151,10 +158,13 @@ def _build_simple_flavor_agent(
             provider,
             cwd=cwd,
             bash=True,
+            general_purpose=solver_task,
             tools=tools,
             name=name,
             role=role,
-            system_prompt=system_prompt,
+            system_prompt=_with_task_addendum(system_prompt)
+            if solver_task
+            else system_prompt,
             context_policy=policy,
             request_extra=request_extra,
             hooks=hooks,
@@ -232,6 +242,8 @@ def _build_workflow_flavor_agent(
     context_policy: ContextPolicy | None = None,
     enable_default_compression: bool = True,
     bash_exec_prefix: tuple[str, ...] = (),
+    solver_read: bool = True,
+    solver_task: bool = False,
 ) -> Agent:
     """Build the facade Agent for one shipped workflow flavor.
 
@@ -275,6 +287,8 @@ def _build_workflow_flavor_agent(
             context_policy=policy,
             prepare_workspace=prepare_workspace,
             bash_exec_prefix=bash_exec_prefix,
+            solver_read=solver_read,
+            solver_task=solver_task,
         )
         result = runner(_task_text(visible))
         last_overview = (
@@ -313,6 +327,76 @@ def _build_workflow_flavor_agent(
     )
 
 
+def run_goal_flavor(
+    provider: Provider,
+    workdir: Path,
+    request_extra: Mapping[str, Any] | None,
+    *,
+    name: str,
+    role: str,
+    system_prompt: str,
+    context_policy: ContextPolicy | None,
+    bash_exec_prefix: tuple[str, ...] = (),
+    solver_read: bool,
+    solver_task: bool,
+    objective: str,
+    state: State | None = None,
+    steering_preface: str = "",
+    loop_turns: int | None = None,
+    inner_max_turns: int | None = None,
+) -> ThreadGoalResult:
+    """Run the Codex-style ``goal`` flavor and return its ``ThreadGoalResult``.
+
+    Single construction site shared by the standalone ``goal`` workflow facade
+    (``run_goal_arm``) and the repo-chain runner, so both build the identical
+    bash solver + ``get_goal``/``update_goal`` tools and drive the identical
+    ``run_thread_goal_loop``. A chain only needs two extra knobs:
+
+    - ``state``: seed the loop with the shared chain state so the goal solver
+      inherits every earlier instance's context (resumes on it from segment 1).
+    - ``steering_preface``: trusted host framing prepended to each steering
+      message (e.g. "this is one long chain of sub-problems; reuse the context").
+
+    With both left at their defaults this reproduces the standalone ``goal`` arm
+    exactly, so ``goal`` behaves the same inside and outside a chain.
+    """
+
+    goal_store = ThreadGoalStore()
+    agent = _solver_agent(
+        provider,
+        workdir,
+        request_extra,
+        name=name,
+        role=role,
+        system_prompt=system_prompt,
+        context_policy=context_policy,
+        extra_tools=[
+            make_get_goal_tool(goal_store),
+            make_update_goal_tool(goal_store),
+        ],
+        bash_exec_prefix=bash_exec_prefix,
+        read=solver_read,
+        task=solver_task,
+    )
+    return run_thread_goal_loop(
+        agent,
+        objective,
+        budgets=GoalBudgets(
+            max_turns=(
+                loop_turns if loop_turns is not None else config.LOOP_MAX_TURNS.get()
+            )
+        ),
+        inner_max_turns=(
+            inner_max_turns
+            if inner_max_turns is not None
+            else config.WORKER_MAX_TURNS.get()
+        ),
+        goal_store=goal_store,
+        state=state,
+        steering_preface=steering_preface,
+    )
+
+
 def make_workflow_runner_for_flavor(
     flavor: str,
     provider: Provider,
@@ -325,6 +409,8 @@ def make_workflow_runner_for_flavor(
     context_policy: ContextPolicy | None = None,
     prepare_workspace: PrepareWorkflowWorkspace | None = None,
     bash_exec_prefix: tuple[str, ...] = (),
+    solver_read: bool = True,
+    solver_task: bool = False,
 ) -> WorkflowRunner:
     """Build the `task -> WorkflowResult` runner for a workflow flavor."""
 
@@ -346,6 +432,8 @@ def make_workflow_runner_for_flavor(
             extra_tools=[update_goal_tool()],
             extra_prompt=VERIFY_BEFORE_DONE_ADDENDUM,
             bash_exec_prefix=bash_exec_prefix,
+            read=solver_read,
+            task=solver_task,
         )
         completion_check = executed_completion_check(
             cwd=workdir, exec_prefix=bash_exec_prefix
@@ -370,11 +458,9 @@ def make_workflow_runner_for_flavor(
         return run_loop
 
     if selected == "goal":
-        loop_turns = config.LOOP_MAX_TURNS.get()
 
         def run_goal_arm(task: str) -> WorkflowResult:
-            goal_store = ThreadGoalStore()
-            agent = _solver_agent(
+            result = run_goal_flavor(
                 provider,
                 workdir,
                 request_extra,
@@ -382,18 +468,11 @@ def make_workflow_runner_for_flavor(
                 role=role,
                 system_prompt=system_prompt,
                 context_policy=context_policy,
-                extra_tools=[
-                    make_get_goal_tool(goal_store),
-                    make_update_goal_tool(goal_store),
-                ],
                 bash_exec_prefix=bash_exec_prefix,
-            )
-            result = run_thread_goal_loop(
-                agent,
-                task,
-                budgets=GoalBudgets(max_turns=loop_turns),
+                solver_read=solver_read,
+                solver_task=solver_task,
+                objective=task,
                 inner_max_turns=worker_max_turns,
-                goal_store=goal_store,
             )
             return WorkflowResult(output=result.output, steps=result.steps)
 
@@ -428,6 +507,8 @@ def make_workflow_runner_for_flavor(
                         reset_to=baseline,
                         extra_prompt=_workspace_note(worktree),
                         bash_exec_prefix=bash_exec_prefix,
+                        read=solver_read,
+                        task=solver_task,
                     )
                     for i, worktree in enumerate(worktrees)
                 ]
@@ -442,6 +523,8 @@ def make_workflow_runner_for_flavor(
                     system_prompt=system_prompt,
                     context_policy=context_policy,
                     bash_exec_prefix=bash_exec_prefix,
+                    read=solver_read,
+                    task=solver_task,
                 )
                 return run_pdr(
                     attempts,
@@ -600,18 +683,23 @@ def _solver_agent(
     extra_tools: Sequence[Any] = (),
     extra_prompt: str = "",
     bash_exec_prefix: tuple[str, ...] = (),
+    read: bool = True,
+    task: bool = False,
 ) -> Agent:
-    """A bash+read worker rooted at `cwd`."""
+    """A solver worker rooted at `cwd`."""
 
     prompt = system_prompt
     if extra_prompt:
         prompt = f"{prompt}\n\n{extra_prompt}" if prompt else extra_prompt
+    if task:
+        prompt = _with_task_addendum(prompt)
     init_state = _reset_init_state(cwd, reset_to) if reset_to else None
     return make_agent(
         provider,
         cwd=cwd,
         bash=True,
-        read=True,
+        read=read,
+        general_purpose=task,
         tools=list(extra_tools),
         name=name,
         role=role,

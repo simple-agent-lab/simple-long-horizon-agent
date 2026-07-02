@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 
+from simple_agent_lab import message_text
 from simple_agent_lab.core import Agent
 from simple_agent_lab.messages import (
     AssistantMessage,
@@ -307,6 +308,69 @@ class ThreadGoalLoopTest(unittest.TestCase):
         self.assertEqual(result.goal.status, "complete")
         self.assertEqual(agent.tools, ())
         self.assertEqual(seen_tool_names, [()])
+
+    def test_injected_state_resumes_and_inherits_prior_context(self):
+        seed = _final_agent("goal_agent")
+        seed_state, seed_events = seed.run("prior context marker")
+        for _ in seed_events:
+            pass
+        prior_messages = len(seed_state.messages)
+
+        seen_tasks: list[str] = []
+
+        def generate(messages):
+            seen_tasks.append(messages[-1].content[0].text)
+            return AssistantMessage(
+                content=(
+                    TextBlock("done"),
+                    ToolCallBlock("call_done", "update_goal", {"status": "complete"}),
+                ),
+                sender="goal_agent",
+                target="goal_agent",
+                kind="step",
+            )
+
+        result = run_thread_goal_loop(
+            Agent("goal_agent", generate),
+            "solve the current sub-problem",
+            budgets=GoalBudgets(max_turns=3),
+            state=seed_state,
+            steering_preface="LONG CHAIN PREFACE",
+        )
+
+        # Resumes on the SAME state object, so it inherits accumulated context.
+        self.assertIs(result.steps[-1].state, seed_state)
+        self.assertGreater(len(seed_state.messages), prior_messages)
+        text = "\n".join(message_text(m) for m in seed_state.messages)
+        self.assertIn("prior context marker", text)
+        # The steering carried the trusted long-chain preface, then the loop's
+        # own steering body.
+        self.assertTrue(seen_tasks[0].startswith("LONG CHAIN PREFACE"))
+        self.assertIn("Continue working toward the active goal", seen_tasks[0])
+
+    def test_default_state_and_preface_keep_original_behavior(self):
+        seen_tasks: list[str] = []
+
+        def generate(messages):
+            seen_tasks.append(messages[-1].content[0].text)
+            return AssistantMessage(
+                content=(
+                    TextBlock("done"),
+                    ToolCallBlock("call_done", "update_goal", {"status": "complete"}),
+                ),
+                sender="goal_agent",
+                target="goal_agent",
+                kind="step",
+            )
+
+        result = run_thread_goal_loop(
+            Agent("goal_agent", generate),
+            "single instance objective",
+        )
+
+        self.assertEqual(result.goal.status, "complete")
+        # No preface and no injected state: the steering begins exactly as before.
+        self.assertTrue(seen_tasks[0].startswith("Continue working toward"))
 
     def test_token_budget_updates_goal_usage_and_budget_status(self):
         def generate(messages):

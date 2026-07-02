@@ -334,8 +334,21 @@ def run_thread_goal_loop(
     abort: AbortFlag = never_abort,
     inner_max_turns: int = 20,
     goal_store: ThreadGoalStore | None = None,
+    state: State | None = None,
+    steering_preface: str = "",
 ) -> ThreadGoalResult:
-    """Run a Codex-style host-owned loop until goal state stops it."""
+    """Run a Codex-style host-owned loop until goal state stops it.
+
+    When `state` is provided, the goal solver resumes on top of it from the very
+    first segment, so it inherits that state's accumulated context. This is how a
+    repo chain carries earlier instances' context into the goal without changing
+    the loop's mechanics. Default `None` keeps the original behavior: the first
+    segment seeds a fresh state.
+
+    `steering_preface`, when set, is prepended to every steering message as
+    trusted host framing (e.g. "this is one long chain of sub-problems; reuse the
+    context above"). Default empty leaves the steering exactly as before.
+    """
 
     objective_text = as_text(objective)
     store = goal_store or ThreadGoalStore()
@@ -343,7 +356,6 @@ def run_thread_goal_loop(
     goal_agent = _with_goal_tools(agent, store, goal.goal_id)
     effective_abort = _wall_clock_abort(abort, budgets.wall_clock_seconds)
 
-    state: State | None = None
     steps: list[StepResult] = []
     output = ""
 
@@ -365,6 +377,8 @@ def run_thread_goal_loop(
             return _result(goal, output, steps, "budget_limited")
 
         task = build_thread_goal_steering(goal)
+        if steering_preface:
+            task = f"{steering_preface}\n\n{task}"
         if state is None:
             segment_start = 0
             state, events = goal_agent.run(
