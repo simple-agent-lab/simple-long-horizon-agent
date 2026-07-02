@@ -1277,8 +1277,15 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
         module = _stub_openai(
             _responses_response(text_blocks=["done"]), captured, kind="responses"
         )
+        provider = Provider(
+            id="gpt-resp-noreplay",
+            api="openai-responses",
+            model="gpt-test-1",
+            api_key_env="TEST_OPENAI_KEY",
+            replay_reasoning=False,
+        )
         req = LLMRequest(
-            provider=OPENAI_RESPONSES_PROVIDER,
+            provider=provider,
             messages=[LLMMessage(role="user", content="hi")],
             extra={"store": True, "previous_response_id": "resp_prev"},
         )
