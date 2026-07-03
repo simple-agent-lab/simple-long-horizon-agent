@@ -5,10 +5,11 @@
 #   bash runs/swebench/run_swebench.sh [--variant verified|multilingual|pro] [INSTANCE_ID]
 #   bash runs/swebench/run_swebench.sh                                   # verified, default instance
 #   bash runs/swebench/run_swebench.sh django__django-16379             # verified, one instance
+#   bash runs/swebench/run_swebench.sh --ids-file ids.txt --parallel 4  # selected instances
 #   bash runs/swebench/run_swebench.sh --variant pro --all --parallel 4 # pro, full split, 4 at a time
 #
 # Requires Docker, `uv sync --extra swebench`, and a .env with provider credentials.
-# Optional: set OPENAI_AUTH_TOKEN2 in .env to alternate keys across --all runs.
+# Optional: set OPENAI_AUTH_TOKEN2 in .env to alternate keys across batch runs.
 # Downloading uncached dataset records uses `datasets`.
 
 set -euo pipefail
@@ -18,6 +19,7 @@ source runs/lib/_swebench_uv.sh
 
 VARIANT="verified"
 RUN_ALL=0
+IDS_FILE=""
 PARALLEL=1
 # Image pull policy. Empty = the run_bench default ('never'): opt-in, so a run
 # never silently downloads multi-GB images. `--pull` opts in (a full split is
@@ -28,7 +30,7 @@ FETCH_PYTHON=()
 SECONDARY_OPENAI_AUTH_TOKEN=""
 
 usage() {
-  sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 shell_quote() {
@@ -48,6 +50,14 @@ while [ "$#" -gt 0 ]; do
     --all)
       RUN_ALL=1
       shift
+      ;;
+    --ids-file)
+      if [ "$#" -lt 2 ]; then
+        echo "ERROR: --ids-file requires a path." >&2
+        exit 2
+      fi
+      IDS_FILE="$2"
+      shift 2
       ;;
     --parallel)
       if [ "$#" -lt 2 ]; then
@@ -138,12 +148,20 @@ if ! [[ "$MAX_TURNS" =~ ^[1-9][0-9]*$ ]]; then
   echo "ERROR: SWEBENCH_MAX_TURNS must be a positive integer; got $(shell_quote "$MAX_TURNS")." >&2
   exit 2
 fi
-if [ "$RUN_ALL" -eq 1 ] && [ "${#POSITIONAL[@]}" -gt 0 ]; then
-  echo "ERROR: pass either --all or one INSTANCE_ID, not both." >&2
+if [ "$RUN_ALL" -eq 1 ] && [ -n "$IDS_FILE" ]; then
+  echo "ERROR: pass only one of --all or --ids-file." >&2
+  exit 2
+fi
+if { [ "$RUN_ALL" -eq 1 ] || [ -n "$IDS_FILE" ]; } && [ "${#POSITIONAL[@]}" -gt 0 ]; then
+  echo "ERROR: pass only one of --all, --ids-file, or one INSTANCE_ID." >&2
   exit 2
 fi
 if [ "$RUN_ALL" -eq 0 ] && [ "${#POSITIONAL[@]}" -gt 1 ]; then
-  echo "ERROR: pass at most one INSTANCE_ID, or use --all for the full split." >&2
+  echo "ERROR: pass at most one INSTANCE_ID, or use --all/--ids-file for a batch." >&2
+  exit 2
+fi
+if [ -n "$IDS_FILE" ] && [ ! -f "$IDS_FILE" ]; then
+  echo "ERROR: --ids-file does not exist: $(shell_quote "$IDS_FILE")." >&2
   exit 2
 fi
 
@@ -229,6 +247,62 @@ PY
   fi
   INSTANCE_JSON="$all_json"
   mapfile -t INSTANCE_IDS < "$ids_file"
+}
+
+fetch_ids_instances() {
+  local ids_path="$1"
+  local selected_json="${INSTANCE_DIR}/instance_ids-${RUN_ID}.jsonl"
+  local selected_ids="${INSTANCE_DIR}/instance_ids-${RUN_ID}.ids"
+  ensure_fetch_python
+  echo "Fetching selected instances from ${DATASET} ${SPLIT} split..."
+  DATASET="$DATASET" SPLIT="$SPLIT" IDS_FILE="$ids_path" SELECTED_JSON="$selected_json" SELECTED_IDS="$selected_ids" \
+    "${FETCH_PYTHON[@]}" - <<'PY'
+import json
+import os
+from pathlib import Path
+
+from datasets import load_dataset
+
+dataset = os.environ["DATASET"]
+split = os.environ["SPLIT"]
+ids_file = Path(os.environ["IDS_FILE"])
+selected_json = Path(os.environ["SELECTED_JSON"])
+selected_ids = Path(os.environ["SELECTED_IDS"])
+
+ids = []
+seen = set()
+for lineno, raw_line in enumerate(ids_file.read_text(encoding="utf-8").splitlines(), 1):
+    instance_id = raw_line.split("#", 1)[0].strip()
+    if not instance_id:
+        continue
+    if instance_id in seen:
+        raise SystemExit(
+            f"Duplicate instance id in {ids_file} on line {lineno}: {instance_id}"
+        )
+    seen.add(instance_id)
+    ids.append(instance_id)
+
+if not ids:
+    raise SystemExit(f"--ids-file {ids_file} did not contain any instance ids")
+
+rows_by_id = {
+    str(row["instance_id"]): dict(row)
+    for row in load_dataset(dataset, split=split)
+}
+missing = [instance_id for instance_id in ids if instance_id not in rows_by_id]
+if missing:
+    preview = ", ".join(missing[:10])
+    suffix = "" if len(missing) <= 10 else f" ... (+{len(missing) - 10} more)"
+    raise SystemExit(f"Instance id(s) not found in {dataset}: {preview}{suffix}")
+
+selected_json.write_text(
+    "".join(json.dumps(rows_by_id[instance_id]) + "\n" for instance_id in ids),
+    encoding="utf-8",
+)
+selected_ids.write_text("".join(instance_id + "\n" for instance_id in ids), encoding="utf-8")
+PY
+  INSTANCE_JSON="$selected_json"
+  mapfile -t INSTANCE_IDS < "$selected_ids"
 }
 
 ensure_default_instance_id() {
@@ -317,10 +391,16 @@ collect_predictions() {
     --predictions "$pred_out"
 }
 
-if [ "$RUN_ALL" -eq 1 ]; then
-  fetch_all_instances
+if [ "$RUN_ALL" -eq 1 ] || [ -n "$IDS_FILE" ]; then
+  if [ "$RUN_ALL" -eq 1 ]; then
+    fetch_all_instances
+    BATCH_LABEL="full split"
+  else
+    fetch_ids_instances "$IDS_FILE"
+    BATCH_LABEL="ids file: $IDS_FILE"
+  fi
   load_secondary_openai_auth_token
-  echo "=== ${TITLE} full split ==="
+  echo "=== ${TITLE} ${BATCH_LABEL} ==="
   echo "Run ID: $RUN_ID"
   echo "Instances: ${#INSTANCE_IDS[@]}"
   echo "Parallel: $PARALLEL"

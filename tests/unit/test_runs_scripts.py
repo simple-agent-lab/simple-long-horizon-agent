@@ -63,11 +63,29 @@ class RunsScriptsTest(unittest.TestCase):
     def test_swebench_run_scripts_support_batch_flags(self) -> None:
         text = (ROOT / "runs/swebench/run_swebench.sh").read_text(encoding="utf-8")
         self.assertIn("--all", text)
+        self.assertIn("--ids-file", text)
         self.assertIn("--parallel", text)
         self.assertIn("FETCH_PYTHON", text)
         self.assertIn("--extra swebench", text)
         self.assertIn("wait -n", text)
         self.assertIn("--collect-predictions", text)
+
+    def test_swebench_run_script_rejects_missing_ids_file(self) -> None:
+        result = subprocess.run(
+            [
+                "bash",
+                str(ROOT / "runs/swebench/run_swebench.sh"),
+                "--ids-file",
+                str(ROOT / "does-not-exist.ids"),
+            ],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--ids-file does not exist", result.stderr)
 
     def test_swebench_run_scripts_load_provider_settings_from_dotenv(self) -> None:
         text = (ROOT / "runs/swebench/run_swebench.sh").read_text(encoding="utf-8")

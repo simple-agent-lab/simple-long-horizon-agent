@@ -255,19 +255,23 @@ The run entry also passes `NO_PROXY` and `no_proxy` through when they exist.
 
 The recommended entry points are the run scripts. With no instance argument,
 each script runs a small default instance. Passing one instance id runs that
-instance. Passing `--all` runs the full dataset split; use `--parallel N` to
-limit concurrent Docker/model runs:
+instance. Passing `--ids-file PATH` runs a selected subset, one instance id per
+non-empty line (`#` comments are allowed). Passing `--all` runs the full dataset
+split; use `--parallel N` to limit concurrent Docker/model runs:
 
 ```bash
 bash runs/swebench/run_swebench.sh
 bash runs/swebench/run_swebench.sh sympy__sympy-23824
+bash runs/swebench/run_swebench.sh --ids-file evals/out/swebench/ids.txt --parallel 4
 bash runs/swebench/run_swebench.sh --all --parallel 4
 
 bash runs/swebench/run_swebench.sh --variant multilingual
+bash runs/swebench/run_swebench.sh --variant multilingual --ids-file ids.txt --parallel 4
 bash runs/swebench/run_swebench.sh --variant multilingual --all --parallel 4
 
 bash runs/swebench/run_swebench.sh --variant pro
 bash runs/swebench/run_swebench.sh --variant pro instance_navidrome__navidrome-8e640bb8580affb7e0ea6225c0bbe240186b6b08
+bash runs/swebench/run_swebench.sh --variant pro --ids-file ids.txt --parallel 4
 bash runs/swebench/run_swebench.sh --variant pro --all --parallel 4
 ```
 
