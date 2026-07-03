@@ -77,6 +77,29 @@ Supporting choices:
   builds an `Agent` from a candidate, runs it over a task list via
   `workflow.base.run_agent`, and folds per-task scores into an `Evaluation` —
   no parallel agent loop.
+- **A typed component layer rides on the seams (opt-in).** The bare loop is
+  the substrate; the reason to adopt the framework is the reusable layer
+  above it, and that layer must not change the loop or the record shapes:
+  - `ComponentSpec`/`GenomeSpec` (`genome.py`) declare *what evolves* as
+    typed components (text / code / json) with proposer-facing docs,
+    mutability flags, and validation — the "materialize the harness as
+    editable components" move from harness-evolution work. `genome_propose`
+    is the schema-aware proposer: it samples which component to target,
+    ships the component docs in the prompt, and rejects illegal mutations
+    (unparseable JSON, EVOLVE-BLOCK scaffold edits) before they are scored.
+  - `agent_genome` + `build_genome_agent` are the standard genome for
+    "evolve the agent definition": system prompt, an appended instructions
+    block, and per-tool description overrides applied onto real
+    `AgentTool`s via `dataclasses.replace`.
+  - `mix_operators` / `crossover_propose` (`operators.py`) express
+    ShinkaEvolve's patch-type sampling as weighted `ProposeFn`s; each
+    child's archive record names the operator that made it, so operator
+    effectiveness is measurable from the run's own records.
+  - `select_islands` (`select.py`) shows population structure fits the
+    `SelectFn` seam without new record fields: island membership is derived
+    from lineage (seed order, then inherited from the parent), migration is
+    periodic cross-island inspirations, and the whole structure survives
+    `Archive.load` resumes because it is a pure function of the records.
 
 ## Consequences
 
@@ -86,10 +109,11 @@ Supporting choices:
 - The archive JSONL doubles as the experiment log, the resume point, and the
   dataset for later analysis (or training), in line with the trace-first
   direction.
-- Out of scope for v1, deliberately: islands/migration, novelty filtering via
-  embeddings, bandit LLM ensembles, async pipelines, and model-weight
-  training. Each can be layered on (a `SelectFn` owns islands; a `ProposeFn`
-  owns novelty resampling) without changing record shapes.
+- Out of scope for v1, deliberately: novelty filtering via embeddings,
+  bandit LLM ensembles, async pipelines, and model-weight training. Each can
+  be layered on (a `ProposeFn` owns novelty resampling; a wrapper `ProposeFn`
+  owns bandit model choice) without changing record shapes — `select_islands`
+  and `mix_operators` are the existence proofs for that layering claim.
 - The scalar-`fitness` contract is a simplification; multi-objective work
   must encode its trade-off into `fitness` (metrics keep the raw values).
 

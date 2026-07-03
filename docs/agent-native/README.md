@@ -74,11 +74,16 @@ The current source-of-truth layers are:
   the run. See `docs/agent-native/memory.md`.
 - `src/simple_agent_lab/evolve/`: the evolution harness — one sequential
   loop (`run_evolution`) over four callable seams (propose / evaluate /
-  select / accept), an append-only JSONL `Archive` with lineage and
-  accept/reject reasons, `llm_propose` + EVOLVE-BLOCK helpers for LLM-driven
-  mutation, and `agent_task_evaluator` bridging candidates to the core agent
-  runtime. See ADR evolve-harness-with-four-callable-seams and the demos
-  `scripts/run_evolve_demo.py`, `scripts/run_code_evolution_demo.py`,
+  select / accept) and an append-only JSONL `Archive` with lineage and
+  accept/reject reasons. On top of the seams, the opt-in component layer:
+  `GenomeSpec`/`ComponentSpec` + `genome_propose` (typed evolvable
+  components with validation; `genome.py`), the standard `agent_genome` +
+  `build_genome_agent` bridge to real `Agent`s, `mix_operators` /
+  `crossover_propose` (`operators.py`), `select_islands` (lineage-derived
+  islands), EVOLVE-BLOCK code-mutation helpers (`code_blocks.py`), and
+  `agent_task_evaluator`. See ADR evolve-harness-with-four-callable-seams
+  and the demos `scripts/run_evolve_demo.py`,
+  `scripts/run_code_evolution_demo.py`,
   `scripts/run_prompt_evolution_demo.py`.
 - `src/simple_agent_lab/trace/`: the three-layer trace (Event → Span →
   Training) split by concern — `spans.py`/`training.py` (pure event→span/turn

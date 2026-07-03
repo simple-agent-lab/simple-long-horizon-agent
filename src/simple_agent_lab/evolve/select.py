@@ -1,13 +1,17 @@
 """Selection pressure: parent sampling strategies and acceptance policies.
 
-Both seams are deliberately small functions over the archive. Anything more
-elaborate a method needs — islands with migration, novelty-aware sampling,
-beam search — is expressed as a custom `SelectFn`/`AcceptFn` in the
-experiment script, not as harness features.
+Both seams are deliberately small functions over the archive; anything more
+elaborate (novelty-aware sampling, beam search) is a custom
+`SelectFn`/`AcceptFn` in the experiment script, not a harness feature.
 
 Parent samplers return a non-empty sequence: `[parent, *inspirations]`. The
 parent is what the proposer mutates; inspirations are extra high-fitness
 context (ShinkaEvolve's "top-k inspirations") it may borrow ideas from.
+
+`select_islands` shows how far the seam stretches without new record
+fields: island membership is *derived from lineage* (seed order, then
+inherited from the parent), so the population structure lives entirely in
+the selector, stays deterministic, and survives `Archive.load` resumes.
 """
 
 from __future__ import annotations
@@ -109,3 +113,75 @@ def accept_improves_best(
         f"fitness {evaluation.fitness:.4f} <= best {best.evaluation.fitness:.4f}"
         f" ({best.candidate.id})",
     )
+
+
+def _island_of(archive: Archive, num_islands: int) -> dict[str, int]:
+    """Derive every record's island from lineage (no stored island field).
+
+    Seeds (no parents) are dealt round-robin across islands in arrival
+    order; every child lives on its first parent's island. Records are
+    causally ordered (parents precede children), so one forward pass
+    resolves the whole map — including after a resume.
+    """
+
+    islands: dict[str, int] = {}
+    seed_count = 0
+    for record in archive.records:
+        if not record.candidate.parent_ids:
+            islands[record.candidate.id] = seed_count % num_islands
+            seed_count += 1
+        else:
+            islands[record.candidate.id] = islands.get(
+                record.candidate.parent_ids[0], 0
+            )
+    return islands
+
+
+def select_islands(
+    *,
+    num_islands: int = 4,
+    power: float = 2.0,
+    inspirations: int = 2,
+    migration_interval: int = 10,
+) -> SelectFn:
+    """Island-model selection: isolated subpopulations with periodic mixing.
+
+    Proposals rotate round-robin across islands (the next record index picks
+    the island), the parent is rank-power-law sampled *within* that island,
+    and inspirations come from the same island — except every
+    `migration_interval`-th proposal, when the globally best records are
+    offered instead (migration by inspiration, ShinkaEvolve-style). Islands
+    whose population is still empty borrow the whole population, so small
+    early runs behave like `select_weighted`.
+    """
+
+    if num_islands < 1:
+        raise ValueError(f"num_islands must be >= 1, got {num_islands}")
+
+    def select(archive: Archive, rng: random.Random) -> Sequence[EvolutionRecord]:
+        population = archive.population()
+        if not population:
+            raise ValueError("select_islands: archive population is empty")
+        islands = _island_of(archive, num_islands)
+        island = len(archive.records) % num_islands
+        members = [r for r in population if islands[r.candidate.id] == island]
+        if not members:
+            members = population
+
+        ranked = sorted(members, key=lambda r: r.evaluation.fitness)
+        weights = [float(rank + 1) ** power for rank in range(len(ranked))]
+        parent = rng.choices(ranked, weights=weights, k=1)[0]
+
+        migrate = (
+            migration_interval > 0
+            and len(archive.records) % migration_interval == migration_interval - 1
+        )
+        pool = population if migrate else members
+        top_others = sorted(
+            (r for r in pool if r is not parent),
+            key=lambda r: r.evaluation.fitness,
+            reverse=True,
+        )[:inspirations]
+        return [parent, *top_others]
+
+    return select

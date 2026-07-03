@@ -84,3 +84,10 @@ leaves behind.
 The scalar an evolution run maximizes, produced by the run's evaluator.
 Richer signals ride alongside it as metrics (structured) and feedback
 (free text shown to the proposer).
+
+## Genome Component
+
+One typed, evolvable slot in a candidate's payload (text, code, or JSON),
+declared with proposer-facing docs, a mutability flag, and validation. The
+component schema (`GenomeSpec`) is what lets the harness prompt for, check,
+and attribute mutations per component.

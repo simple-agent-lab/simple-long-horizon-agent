@@ -93,7 +93,7 @@ def parse_fields(response: str, fields: Sequence[str]) -> dict[str, str]:
     return found
 
 
-def _proposal_note(response: str) -> str:
+def proposal_note(response: str) -> str:
     """The model's rationale: the response with fenced blocks stripped."""
 
     without_blocks = re.sub(r"```.*?```", "", response, flags=re.DOTALL)
@@ -180,7 +180,7 @@ def llm_propose(
         payload = dict(parents[0].candidate.payload)
         payload.update(changed)
         return Proposal(
-            payload=payload, operator=operator, note=_proposal_note(response)
+            payload=payload, operator=operator, note=proposal_note(response)
         )
 
     return propose
