@@ -141,7 +141,10 @@ class SwebenchProRepoChainPlanningTest(unittest.TestCase):
         self.assertEqual(config.task_tool, False)
         self.assertEqual(config.compression_strategy, "none")
         self.assertEqual(config.handoff, True)
-        self.assertEqual(config.context_window_tokens, 272_000)
+        # Handoff trigger defaults to the summarize threshold (272k * 0.8) so the
+        # two context-management arms fire at the same point.
+        self.assertEqual(config.context_window_tokens, 217_600)
+        self.assertEqual(config.context_window_tokens, config.threshold_tokens)
         self.assertEqual(config.model_name, DEFAULT_MODEL_NAME)
         self.assertEqual(config.preserve_kinds, ("task", "system", "context"))
 
@@ -741,11 +744,11 @@ class SwebenchProRepoChainPlanningTest(unittest.TestCase):
         config = _experiment_config_from_args(args, api_kind="openai-responses")
 
         self.assertTrue(args.handoff)
-        self.assertEqual(args.context_window_tokens, 272_000)
+        self.assertEqual(args.context_window_tokens, 217_600)
         self.assertTrue(config.handoff)
-        self.assertEqual(config.context_window_tokens, 272_000)
+        self.assertEqual(config.context_window_tokens, 217_600)
         self.assertEqual(config.as_record()["handoff"], True)
-        self.assertEqual(config.as_record()["context_window_tokens"], 272_000)
+        self.assertEqual(config.as_record()["context_window_tokens"], 217_600)
 
     def test_no_handoff_flag_disables_handoff(self) -> None:
         from runs.swebench.run_swebench_pro_repo_chains import (
@@ -1705,6 +1708,8 @@ class RepoChainInContainerRunnerTest(unittest.TestCase):
         handoff: bool,
         position: int,
         instances_in_chain: int,
+        max_turns: int = 2,
+        agent_flavor: str = "bash",
     ):
         import json
 
@@ -1769,7 +1774,7 @@ class RepoChainInContainerRunnerTest(unittest.TestCase):
                         "instances_in_chain": instances_in_chain,
                         "provider_auth_env": "OPENAI_AUTH_TOKEN",
                         "config": {
-                            "agent_flavor": "bash",
+                            "agent_flavor": agent_flavor,
                             "solver_read": False,
                             "task_tool": False,
                             "compression_strategy": "none",
@@ -1794,7 +1799,7 @@ class RepoChainInContainerRunnerTest(unittest.TestCase):
                 container_module=SWEBENCH_CONTAINER,
                 provider=FAKE_PROVIDER,
                 workdir=repo,
-                max_turns=2,
+                max_turns=max_turns,
                 store=store,
                 trace_id="trace.case-1",
                 producer="suite:swebench_pro",
@@ -1804,33 +1809,46 @@ class RepoChainInContainerRunnerTest(unittest.TestCase):
             restored = state_from_chain_payload(
                 json.loads(store.get(CHAIN_STATE_OUTPUT_KEY).decode("utf-8"))
             )
-            return result, restored
+            # `restored` is the OUTGOING chain payload (active context only, what
+            # the next window sees); `state` is the full in-container trace.
+            return result, restored, state
 
-    def test_handoff_resets_the_window_when_context_exceeds_budget(self) -> None:
-        result, restored = self._run_bash_instance_with_handoff_config(
+    def test_mid_instance_handoff_continues_same_instance(self) -> None:
+        # Sole instance in the part (so no boundary handoff can fire); a tiny
+        # window forces an in-place reset WHILE the instance is still solving.
+        result, restored, state = self._run_bash_instance_with_handoff_config(
             context_window_tokens=1,
             handoff=True,
             position=1,
-            instances_in_chain=2,
+            instances_in_chain=1,
+            max_turns=4,
         )
 
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["handoff"])
         self.assertTrue(result["handoff_written"])
+        # The window reset mid-instance at least once and kept the SAME instance.
+        self.assertGreaterEqual(result["context_window_handoffs"], 1)
+        self.assertGreaterEqual(result["chain_window_index"], 2)
         self.assertGreater(result["handoff_context_tokens"], 0)
-        self.assertEqual(result["chain_window_index"], 2)
+        # It resumed after the reset and still produced the edit for its own task.
+        self.assertIn("app.py", result["model_patch"])
+        self.assertIn("x = 2", result["model_patch"])
 
+        # The full in-container trace is preserved (nothing is lost), even though
+        # the model's active view was reset.
+        full_trace = "\n".join(message_text(message) for message in state.messages)
+        self.assertIn("prior repo context", full_trace)
+        self.assertIn("HANDOFF FROM EARLIER IN THIS REPO CHAIN", full_trace)
+
+        # The window the instance continues in is seeded with the handoff notes.
         visible = "\n".join(
             message_text(message) for message in restored.active_context_messages()
         )
-        # The next window is seeded ONLY with the handoff notes; the earlier
-        # transcript (and this instance's own work) is intentionally dropped.
         self.assertIn("HANDOFF FROM EARLIER IN THIS REPO CHAIN", visible)
-        self.assertNotIn("prior repo context", visible)
-        self.assertEqual(restored.data["eval_chain"]["window_index"], 2)
 
     def test_no_handoff_when_context_stays_within_budget(self) -> None:
-        result, restored = self._run_bash_instance_with_handoff_config(
+        result, restored, _state = self._run_bash_instance_with_handoff_config(
             context_window_tokens=272_000,
             handoff=True,
             position=1,
@@ -1840,6 +1858,7 @@ class RepoChainInContainerRunnerTest(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["handoff"])
         self.assertFalse(result["handoff_written"])
+        self.assertEqual(result["context_window_handoffs"], 0)
         self.assertEqual(result["chain_window_index"], 1)
 
         visible = "\n".join(
@@ -1849,25 +1868,91 @@ class RepoChainInContainerRunnerTest(unittest.TestCase):
         self.assertNotIn("HANDOFF FROM EARLIER IN THIS REPO CHAIN", visible)
         self.assertIn("prior repo context", visible)
 
-    def test_last_instance_in_chain_skips_handoff_even_over_budget(self) -> None:
-        result, restored = self._run_bash_instance_with_handoff_config(
+    def test_boundary_handoff_starts_next_instance_fresh(self) -> None:
+        # One turn per window means the instance completes its turn without a
+        # mid-instance abort, but ends over the window: the boundary handoff
+        # fires and the NEXT instance starts fresh with only the handoff notes.
+        result, restored, _state = self._run_bash_instance_with_handoff_config(
             context_window_tokens=1,
             handoff=True,
-            position=2,
+            position=1,
             instances_in_chain=2,
+            max_turns=1,
         )
 
         self.assertEqual(result["status"], "ok")
-        self.assertFalse(result["handoff_written"])
-        self.assertEqual(result["chain_window_index"], 1)
+        self.assertTrue(result["handoff_written"])
+        # This is a boundary handoff, not a mid-instance reset.
+        self.assertEqual(result["context_window_handoffs"], 0)
+        self.assertEqual(result["chain_window_index"], 2)
 
         visible = "\n".join(
             message_text(message) for message in restored.active_context_messages()
         )
-        self.assertNotIn("HANDOFF FROM EARLIER IN THIS REPO CHAIN", visible)
+        # The next window is seeded ONLY with the handoff notes; the earlier
+        # transcript is intentionally dropped.
+        self.assertIn("HANDOFF FROM EARLIER IN THIS REPO CHAIN", visible)
+        self.assertNotIn("prior repo context", visible)
+        self.assertEqual(restored.data["eval_chain"]["window_index"], 2)
+
+    def test_last_instance_resets_window_but_skips_boundary_handoff(self) -> None:
+        # The last instance still resets its own window mid-solve (it must stay
+        # under the real model window), but there is no next instance to hand off
+        # to, so no boundary handoff fires.
+        result, restored, state = self._run_bash_instance_with_handoff_config(
+            context_window_tokens=1,
+            handoff=True,
+            position=2,
+            instances_in_chain=2,
+            max_turns=4,
+        )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["handoff_written"])
+        self.assertGreaterEqual(result["context_window_handoffs"], 1)
+        self.assertGreaterEqual(result["chain_window_index"], 2)
+
+        # Mid-instance reset keeps the SAME state going, so the outgoing window
+        # still carries this instance's own task alongside the handoff notes
+        # (a boundary handoff would have produced a doc-only fresh state).
+        visible = "\n".join(
+            message_text(message) for message in restored.active_context_messages()
+        )
+        self.assertIn("HANDOFF FROM EARLIER IN THIS REPO CHAIN", visible)
+        full_trace = "\n".join(message_text(message) for message in state.messages)
+        self.assertIn("prior repo context", full_trace)
+
+    def test_goal_flavor_resets_window_mid_instance(self) -> None:
+        # The goal flavor drives its own loop; verify the mid-instance handoff
+        # wraps it too. A tiny env budget keeps the reset count small.
+        with patch.dict(
+            os.environ,
+            {
+                "SAL_WORKFLOW_LOOP_MAX_TURNS": "1",
+                "SAL_WORKFLOW_WORKER_MAX_TURNS": "2",
+            },
+        ):
+            result, restored, state = self._run_bash_instance_with_handoff_config(
+                context_window_tokens=1,
+                handoff=True,
+                position=1,
+                instances_in_chain=1,
+                max_turns=4,
+                agent_flavor="goal",
+            )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["agent_flavor"], "goal")
+        self.assertTrue(result["handoff_written"])
+        self.assertGreaterEqual(result["context_window_handoffs"], 1)
+        self.assertGreaterEqual(result["chain_window_index"], 2)
+
+        full_trace = "\n".join(message_text(message) for message in state.messages)
+        self.assertIn("prior repo context", full_trace)
+        self.assertIn("HANDOFF FROM EARLIER IN THIS REPO CHAIN", full_trace)
 
     def test_disabled_handoff_runs_naked_over_budget(self) -> None:
-        result, restored = self._run_bash_instance_with_handoff_config(
+        result, restored, _state = self._run_bash_instance_with_handoff_config(
             context_window_tokens=1,
             handoff=False,
             position=1,
@@ -1877,6 +1962,7 @@ class RepoChainInContainerRunnerTest(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertFalse(result["handoff"])
         self.assertFalse(result["handoff_written"])
+        self.assertEqual(result["context_window_handoffs"], 0)
         self.assertEqual(result["chain_window_index"], 1)
 
         visible = "\n".join(

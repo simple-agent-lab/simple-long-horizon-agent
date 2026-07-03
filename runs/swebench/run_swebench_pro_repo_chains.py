@@ -181,10 +181,12 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=ProRepoExperimentConfig.handoff,
         help=(
-            "When context reaches --context-window-tokens, finish the current "
-            "instance, have the model write a handoff document, and start the "
-            "next instance in a fresh window seeded only with that handoff "
-            "(default: enabled). Ignored when --compression-strategy summarize."
+            "When context reaches --context-window-tokens, have the model write "
+            "a handoff document immediately. If the current instance is done, "
+            "the next instance starts in a fresh window seeded with that "
+            "handoff; if it is not done, the SAME instance keeps working in a "
+            "fresh window seeded with the handoff (default: enabled). Ignored "
+            "when --compression-strategy summarize."
         ),
     )
     parser.add_argument(
@@ -193,8 +195,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=ProRepoExperimentConfig.context_window_tokens,
         help=(
             "Handoff trigger: reset the repo-chain window once the estimated "
-            "active context reaches this many tokens (default: 272000; the real "
-            "model window is larger, leaving buffer for one instance)."
+            "active context reaches this many tokens, mid-instance if needed "
+            "(default: 217600 = 272000 * 0.8, the same trigger as the summarize "
+            "--threshold-tokens so handoff and compression are compared fairly; "
+            "the real 272000 window leaves headroom above the trigger)."
         ),
     )
     parser.add_argument(
@@ -394,10 +398,11 @@ def main() -> None:
             else:
                 skipped_instances.extend(result.get("skipped_records", []))
                 handoffs = int(result.get("handoffs", 0) or 0)
+                mid_handoffs = int(result.get("mid_instance_handoffs", 0) or 0)
                 print(
                     f"[DONE] {chain_id}: {result['instances']} instance(s), "
                     f"{result['errors']} error(s), {result['skipped']} skipped, "
-                    f"{handoffs} handoff(s)",
+                    f"{handoffs} handoff(s) ({mid_handoffs} mid-instance)",
                     flush=True,
                 )
 
@@ -791,6 +796,7 @@ def _run_repo(
     rows = list(chain.rows)
     chain_id = chain.chain_id
     handoffs_total = 0
+    mid_instance_handoffs_total = 0
     errors = 0
     skipped_records: list[dict[str, Any]] = []
     chain_state_payload: dict[str, Any] | None = None
@@ -884,10 +890,12 @@ def _run_repo(
         result.setdefault("task_tool", config.task_tool)
         result.setdefault("compression_strategy", config.compression_strategy)
         result.setdefault("handoff_written", False)
+        result.setdefault("context_window_handoffs", 0)
         if result.get("status") == "error":
             errors += 1
         if bool(result.get("handoff_written")):
             handoffs_total += 1
+        mid_instance_handoffs_total += int(result.get("context_window_handoffs", 0) or 0)
         state_output = paths.output_dir / CHAIN_STATE_OUTPUT_KEY.split("/", 1)[1]
         if state_output.exists():
             chain_state_payload = _read_json(state_output)
@@ -939,6 +947,7 @@ def _run_repo(
             "compression_strategy": config.compression_strategy,
             "handoff": config.handoff,
             "handoffs": handoffs_total,
+            "mid_instance_handoffs": mid_instance_handoffs_total,
         },
     )
     return {
@@ -948,6 +957,7 @@ def _run_repo(
         "provider_auth_env": provider_auth_env,
         "skipped_records": skipped_records,
         "handoffs": handoffs_total,
+        "mid_instance_handoffs": mid_instance_handoffs_total,
     }
 
 
@@ -1000,6 +1010,8 @@ def _load_result_or_error(
         "error": error,
         "skip_reason": "",
         "invalid_prompt_retries": 0,
+        "handoff_written": False,
+        "context_window_handoffs": 0,
         "chain_window_index": 1,
         "baseline_commit": "",
         "compression_metrics": {},

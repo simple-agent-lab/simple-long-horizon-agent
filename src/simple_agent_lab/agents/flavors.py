@@ -27,7 +27,7 @@ from simple_agent_lab.messages import Message, assistant_message, text_of
 from simple_agent_lab.model_metadata import default_context_window_book
 from simple_agent_lab.skills import system_prompt_with_skills
 from simple_agent_lab.state import State
-from simple_agent_lab.tools import AgentTool
+from simple_agent_lab.tools import AbortFlag, AgentTool
 from simple_agent_lab.tools.bash import make_bash_tool
 from simple_agent_lab.tools.read import make_read_tool
 from simple_agent_lab.workflow import (
@@ -42,6 +42,7 @@ from simple_agent_lab.workflow import (
     make_get_goal_tool,
     make_update_goal_tool,
     make_distiller_agent,
+    never_abort,
     run_goal_loop,
     run_pdr,
     run_thread_goal_loop,
@@ -344,6 +345,7 @@ def run_goal_flavor(
     steering_preface: str = "",
     loop_turns: int | None = None,
     inner_max_turns: int | None = None,
+    abort: AbortFlag = never_abort,
 ) -> ThreadGoalResult:
     """Run the Codex-style ``goal`` flavor and return its ``ThreadGoalResult``.
 
@@ -359,6 +361,10 @@ def run_goal_flavor(
 
     With both left at their defaults this reproduces the standalone ``goal`` arm
     exactly, so ``goal`` behaves the same inside and outside a chain.
+
+    ``abort`` is forwarded to the goal loop so a caller can stop the run at a
+    turn boundary (the repo chain uses it to break out when the active context
+    reaches the context-window handoff threshold, then reset and resume).
     """
 
     goal_store = ThreadGoalStore()
@@ -394,6 +400,7 @@ def run_goal_flavor(
         goal_store=goal_store,
         state=state,
         steering_preface=steering_preface,
+        abort=abort,
     )
 
 

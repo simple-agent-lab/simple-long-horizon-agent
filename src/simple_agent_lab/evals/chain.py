@@ -20,6 +20,7 @@ from typing import Any, Callable, Literal, cast
 
 from simple_agent_lab.agents.flavors import build_flavor_agent, run_goal_flavor
 from simple_agent_lab.compression import SummarizeStrategy, summarize_compression
+from simple_agent_lab.config import LOOP_MAX_TURNS, WORKER_MAX_TURNS
 from simple_agent_lab.context_view import ContextPolicy, estimate_context_tokens
 from simple_agent_lab.core import Agent, run as run_agent
 from simple_agent_lab.evals.in_container import provider_from_env
@@ -56,15 +57,19 @@ from simple_agent_lab.messages import (
     user_message,
 )
 from simple_agent_lab.protocols import (
+    AgentEndEvent,
+    AgentEndReason,
     ContextCompressionEvent,
     Event,
     MessageEvent,
+    TurnEndEvent,
     TurnStartEvent,
 )
 from simple_agent_lab.state import State
+from simple_agent_lab.tools import AbortFlag
 from simple_agent_lab.trace import event_stream, run_trace_from_state
 from simple_agent_lab.trace.jsonl import json_safe
-from simple_agent_lab.workflow import final_output
+from simple_agent_lab.workflow import final_output, never_abort
 
 CHAIN_DATA_KEY = "eval_chain"
 CHAIN_STATE_INPUT_KEY = "input/chain_state.json"
@@ -92,6 +97,13 @@ CHAIN_GOAL_PREFACE = (
 )
 
 CONTEXT_WINDOW_HANDOFF_REASON = "context_window_handoff"
+
+# Safety net for the mid-instance handoff loop. Each window always runs at least
+# one solver turn before it can reset (see ``_context_window_abort``), so the
+# per-instance turn budget already bounds the number of resets; this cap only
+# guards against a pathological config where the window is smaller than a single
+# turn's growth or the handoff document itself.
+MAX_CONTEXT_WINDOW_HANDOFFS = 100
 
 CHAIN_HANDOFF_ROLE = (
     "You are writing a handoff document for the next engineer, who will keep "
@@ -509,6 +521,9 @@ def run_chain_in_container(
         task=str(task),
         details=_chain_task_details(module, instance=instance, config=config),
     )
+    # The current instance's task message is kept active across mid-instance
+    # handoffs so the reset window still shows what problem to solve.
+    task_message_index = len(state.messages) - 1
 
     status = "ok"
     error = ""
@@ -520,11 +535,13 @@ def run_chain_in_container(
         else 1
     )
     handoff_active = _handoff_active(config)
+    window_limit = _context_window_tokens(config)
     position = int(config.get("position", 0) or 0)
     instances_in_chain = int(config.get("instances_in_chain", 0) or 0)
     is_last_instance = instances_in_chain > 0 and position >= instances_in_chain
     handoff_written = False
     handoff_context_tokens = 0
+    context_window_handoffs = 0
     result_product: dict[str, Any] = {"model_patch": ""}
 
     try:
@@ -535,26 +552,30 @@ def run_chain_in_container(
             # earlier instance's context (the whole point in a repo chain). The
             # goal mechanism is unchanged (same solver, steering, budgets, and
             # update_goal completion); only the starting state and a chain preface
-            # differ. Simple flavors keep the run_agent loop below.
-            run_goal_flavor(
-                provider,
-                workdir,
-                request_extra,
-                name=spec.name,
-                role=spec.role,
-                system_prompt=spec.system_prompt,
-                context_policy=_context_policy(
-                    module,
-                    provider=provider,
-                    request_extra=request_extra,
+            # differ. When handoff is active the loop also resets the context
+            # window mid-instance and keeps solving. Simple flavors keep the
+            # run_agent loop below.
+            chain_window_index, mid_handoffs, mid_before_tokens = (
+                _run_goal_flavor_with_handoffs(
+                    provider,
+                    workdir,
+                    request_extra,
+                    module=module,
+                    spec=spec,
                     config=config,
-                ),
-                solver_read=_solver_read(config),
-                solver_task=_task_tool_enabled(config),
-                objective=str(task),
-                state=state,
-                steering_preface=CHAIN_GOAL_PREFACE,
+                    state=state,
+                    objective=str(task),
+                    handoff_active=handoff_active,
+                    window_limit=window_limit,
+                    chain_window_index=chain_window_index,
+                    task_message_index=task_message_index,
+                    item_id=item_id,
+                )
             )
+            if mid_handoffs:
+                handoff_written = True
+                context_window_handoffs += mid_handoffs
+                handoff_context_tokens = mid_before_tokens
         agent = (
             None
             if flavor == "goal"
@@ -566,9 +587,16 @@ def run_chain_in_container(
                 container_module=container_module,
             )
         )
+        # Turns spent generating handoff docs are overhead, not solver work, so
+        # they are excluded from the instance's turn budget below.
+        handoff_gen_turns = 0
         while status == "ok" and agent is not None:
             repair_active_tool_pairs(state, agent_name=spec.name)
-            turn_budget = _remaining_turn_budget(state.events[event_start:], max_turns)
+            turn_budget = max(
+                0,
+                max_turns
+                - (_count_turns(state.events[event_start:]) - handoff_gen_turns),
+            )
             if turn_budget <= 0:
                 prompt_source = invalid_prompt_source(state, item_id=item_id)
                 if prompt_source == "tool_output" or invalid_prompt_retries:
@@ -583,17 +611,62 @@ def run_chain_in_container(
                 skip_reason = "invalid_prompt_turn_budget_exhausted"
                 error = "invalid_prompt retry exhausted this chain item's turn budget"
                 break
+            since_event_index = len(state.events)
+            window_abort = (
+                _context_window_abort(
+                    state, window_limit, since_event_index=since_event_index
+                )
+                if handoff_active
+                else never_abort
+            )
             try:
-                for event in run_agent(agent, state, max_turns=turn_budget):
+                end_reason: AgentEndReason = "max_turns"
+                for event in run_agent(
+                    agent, state, max_turns=turn_budget, abort=window_abort
+                ):
                     if isinstance(event, ContextCompressionEvent):
                         print(
                             f"[chain] {item_id}: context edit "
                             f"{event.strategy} {event.before_tokens}->{event.after_tokens}",
                             flush=True,
                         )
+                    if isinstance(event, AgentEndEvent):
+                        end_reason = event.reason
                     if _task_tool_enabled(config):
                         if _message_has_invalid_prompt_task_error(event):
                             raise RuntimeError("invalid_prompt surfaced by task tool")
+                # Mid-instance context-window handoff: the run stopped at a turn
+                # boundary because the active context hit the window. Reset the
+                # context in place (keeping the full trace) and keep solving the
+                # SAME instance, as long as turn budget remains.
+                remaining = max_turns - (
+                    _count_turns(state.events[event_start:]) - handoff_gen_turns
+                )
+                if (
+                    handoff_active
+                    and end_reason == "abort"
+                    and remaining > 0
+                    and _over_window(state, window_limit)
+                    and context_window_handoffs < MAX_CONTEXT_WINDOW_HANDOFFS
+                ):
+                    did_reset, gen_turns, before_tokens = (
+                        _apply_context_window_handoff(
+                            provider,
+                            state,
+                            spec,
+                            request_extra,
+                            window_index=chain_window_index + 1,
+                            task_message_index=task_message_index,
+                            item_id=item_id,
+                        )
+                    )
+                    handoff_gen_turns += gen_turns
+                    if did_reset:
+                        chain_window_index += 1
+                        handoff_written = True
+                        handoff_context_tokens = before_tokens
+                        context_window_handoffs += 1
+                        continue
                 break
             except Exception as exc:
                 if not is_invalid_prompt_error(exc):
@@ -640,17 +713,17 @@ def run_chain_in_container(
         status = "error"
         error = f"{type(exc).__name__}: {exc}"
 
-    # Context-window handoff: when this instance finished cleanly and the
-    # accumulated context is at/over the configured window, have the model write
-    # a handoff doc and start the NEXT instance in a fresh window seeded with
-    # only that doc. The finished instance's own trace/metrics still use the
-    # full `state`; only the outgoing chain_state is reset.
+    # Boundary handoff: the instance finished cleanly but its context is still
+    # at/over the window (it completed just as the window filled). Have the model
+    # write a handoff doc and start the NEXT instance in a fresh window seeded
+    # with only that doc. The finished instance's own trace/metrics still use the
+    # full `state`; only the outgoing chain_state is reset. Mid-instance handoffs
+    # (above) instead keep the same instance going, so this fires only for the
+    # "just completed at the boundary -> next problem" case.
     outgoing_state = state
     if status == "ok" and handoff_active and not is_last_instance:
-        handoff_context_tokens = estimate_context_tokens(
-            state.active_context_messages()
-        )
-        if handoff_context_tokens >= _context_window_tokens(config):
+        boundary_tokens = estimate_context_tokens(state.active_context_messages())
+        if boundary_tokens >= _context_window_tokens(config):
             try:
                 doc = _generate_handoff_doc(provider, state, spec, request_extra)
             except Exception as exc:  # never let handoff failure kill the chain
@@ -670,6 +743,7 @@ def run_chain_in_container(
                         window_index=chain_window_index,
                     )
                     handoff_written = True
+                    handoff_context_tokens = boundary_tokens
                     after_tokens = estimate_context_tokens(
                         outgoing_state.active_context_messages()
                     )
@@ -713,6 +787,7 @@ def run_chain_in_container(
         "handoff": handoff_active,
         "handoff_written": handoff_written,
         "handoff_context_tokens": handoff_context_tokens,
+        "context_window_handoffs": context_window_handoffs,
         "chain_window_index": chain_window_index,
         "compression_metrics": metrics.as_dict(),
         "chain_event_start": event_start,
@@ -861,11 +936,12 @@ def _generate_handoff_doc(
     spec: AgentSpec,
     request_extra: Mapping[str, Any] | None,
 ) -> str:
-    """Have the model write a handoff doc from the finished instance's context.
+    """Have the model write a handoff doc from the current context.
 
     Builds a tool-less agent with the SAME name as the solver so it inherits the
     solver's visible context, then resumes one turn on the shared ``state``. The
-    returned text is what seeds the next instance's fresh window.
+    returned text seeds the next window, whether that window continues the same
+    instance (mid-instance handoff) or starts the next one (boundary handoff).
     """
 
     handoff_agent = make_llm_agent(
@@ -905,6 +981,220 @@ def _handoff_reset_state(
         sidecar={"details": {"chain": {"handoff": True}}},
     )
     return state
+
+
+def _count_turns(events: Sequence[Event]) -> int:
+    """Number of solver turns started in ``events`` (one per TurnStartEvent)."""
+
+    return sum(1 for event in events if isinstance(event, TurnStartEvent))
+
+
+def _over_window(state: State, limit: int) -> bool:
+    """True when the active context has reached the context-window limit."""
+
+    if limit <= 0:
+        return False
+    return estimate_context_tokens(state.active_context_messages()) >= limit
+
+
+def _count_completed_turns(events: Sequence[Event]) -> int:
+    """Number of solver turns that fully finished (one per TurnEndEvent)."""
+
+    return sum(1 for event in events if isinstance(event, TurnEndEvent))
+
+
+def _context_window_abort(
+    state: State, limit: int, *, since_event_index: int
+) -> AbortFlag:
+    """Abort flag that trips once the active context reaches ``limit``.
+
+    The core loop checks this at the top of every turn and also passes it into
+    tool execution. It only trips after at least one solver turn has *completed*
+    in the current window (``since_event_index`` marks the window start), which
+    matters twice: every window makes real progress before a reset (so a tiny
+    window can never get stuck resetting without doing any work), and the abort
+    can only fire at a clean turn boundary — never mid-turn, which would kill the
+    in-flight tool call ("aborted before start") and lose that turn's work.
+    """
+
+    def abort() -> bool:
+        if _count_completed_turns(state.events[since_event_index:]) < 1:
+            return False
+        return _over_window(state, limit)
+
+    return abort
+
+
+def _apply_context_window_handoff(
+    provider: Provider,
+    state: State,
+    spec: AgentSpec,
+    request_extra: Mapping[str, Any] | None,
+    *,
+    window_index: int,
+    task_message_index: int | None,
+    item_id: str,
+) -> tuple[bool, int, int]:
+    """Write a handoff doc mid-instance and reset the ACTIVE context in place.
+
+    Unlike the between-instance ``_handoff_reset_state`` (which builds a fresh
+    state for the next instance), this keeps the SAME state so the current
+    instance keeps working after the reset. The full transcript stays in
+    ``state.messages``/``state.events`` for the trace; only the active context
+    the model sees is repointed to the current task plus the fresh handoff doc.
+
+    Returns ``(did_reset, handoff_gen_turns, before_tokens)``. ``did_reset`` is
+    False (and the caller carries the full context forward) when generation
+    fails or returns an empty document.
+    """
+
+    before_tokens = estimate_context_tokens(state.active_context_messages())
+    events_before = len(state.events)
+    try:
+        doc = _generate_handoff_doc(provider, state, spec, request_extra)
+    except Exception as exc:  # never let handoff failure kill the chain
+        print(
+            f"[chain] {item_id}: mid-instance handoff generation failed, "
+            f"carrying full context forward: {type(exc).__name__}: {exc}",
+            flush=True,
+        )
+        return False, _count_turns(state.events[events_before:]), 0
+    gen_turns = _count_turns(state.events[events_before:])
+    if not doc.strip():
+        return False, gen_turns, 0
+
+    prior_active = [index for index, _ in state.active_context_items()]
+    state.send(
+        "context",
+        "user",
+        spec.name,
+        CHAIN_HANDOFF_CONTEXT_PREFACE + doc,
+        sidecar={"details": {"chain": {"handoff": True}}},
+    )
+    doc_index = len(state.messages) - 1
+    keep = [
+        index
+        for index in (task_message_index,)
+        if index is not None and 0 <= index < doc_index
+    ]
+    keep.append(doc_index)
+    dropped = [index for index in prior_active if index not in set(keep)]
+    _chain_data(state)["window_index"] = window_index
+    after_tokens = estimate_context_tokens([state.messages[index] for index in keep])
+    state.record_event(
+        ContextCompressionEvent(
+            agent=spec.name,
+            summary_message_index=doc_index,
+            compressed_message_indices=sorted(dropped),
+            active_context_indices=keep,
+            before_tokens=before_tokens,
+            after_tokens=after_tokens,
+            strategy=CONTEXT_WINDOW_HANDOFF_REASON,
+        )
+    )
+    print(
+        f"[chain] {item_id}: mid-instance context-window handoff "
+        f"{before_tokens}->{after_tokens} (window {window_index})",
+        flush=True,
+    )
+    return True, gen_turns, before_tokens
+
+
+def _goal_total_turn_budget() -> int:
+    """Total inner-turn budget for a goal instance across its context windows.
+
+    The standalone goal loop budget is ``LOOP_MAX_TURNS`` steering segments of
+    ``WORKER_MAX_TURNS`` inner turns each. The repo chain spends that same total
+    across handoff windows instead (each window runs one steering segment), so a
+    handoff never grants extra turns; it only resets the context.
+    """
+
+    return max(1, LOOP_MAX_TURNS.get()) * max(1, WORKER_MAX_TURNS.get())
+
+
+def _run_goal_flavor_with_handoffs(
+    provider: Provider,
+    workdir: Path,
+    request_extra: Mapping[str, Any] | None,
+    *,
+    module: ModuleType,
+    spec: AgentSpec,
+    config: Mapping[str, Any],
+    state: State,
+    objective: str,
+    handoff_active: bool,
+    window_limit: int,
+    chain_window_index: int,
+    task_message_index: int | None,
+    item_id: str,
+) -> tuple[int, int, int]:
+    """Drive the goal flavor, resetting the context window mid-instance.
+
+    Returns ``(chain_window_index, mid_handoffs, last_before_tokens)``. When
+    ``handoff_active`` is False this runs the goal loop exactly as the standalone
+    arm does (one call using the env budgets) so behavior is unchanged.
+    """
+
+    context_policy = _context_policy(
+        module, provider=provider, request_extra=request_extra, config=config
+    )
+    solver_read = _solver_read(config)
+    solver_task = _task_tool_enabled(config)
+
+    def run_segment(abort: AbortFlag, inner_max_turns: int | None) -> Any:
+        return run_goal_flavor(
+            provider,
+            workdir,
+            request_extra,
+            name=spec.name,
+            role=spec.role,
+            system_prompt=spec.system_prompt,
+            context_policy=context_policy,
+            solver_read=solver_read,
+            solver_task=solver_task,
+            objective=objective,
+            state=state,
+            steering_preface=CHAIN_GOAL_PREFACE,
+            loop_turns=1 if inner_max_turns is not None else None,
+            inner_max_turns=inner_max_turns,
+            abort=abort,
+        )
+
+    if not handoff_active:
+        run_segment(never_abort, None)
+        return chain_window_index, 0, 0
+
+    turns_left = _goal_total_turn_budget()
+    mid_handoffs = 0
+    last_before_tokens = 0
+    while True:
+        before_events = len(state.events)
+        abort = _context_window_abort(
+            state, window_limit, since_event_index=before_events
+        )
+        result = run_segment(abort, max(1, turns_left))
+        turns_left -= _count_turns(state.events[before_events:])
+        if result.stop_reason in ("complete", "blocked"):
+            break
+        if turns_left <= 0 or not _over_window(state, window_limit):
+            break
+        if mid_handoffs >= MAX_CONTEXT_WINDOW_HANDOFFS:
+            break
+        did_reset, _gen_turns, before_tokens = _apply_context_window_handoff(
+            provider,
+            state,
+            spec,
+            request_extra,
+            window_index=chain_window_index + 1,
+            task_message_index=task_message_index,
+            item_id=item_id,
+        )
+        if not did_reset:
+            break
+        chain_window_index += 1
+        mid_handoffs += 1
+        last_before_tokens = before_tokens
+    return chain_window_index, mid_handoffs, last_before_tokens
 
 
 def _load_chain_config(store: ArtifactStore) -> dict[str, Any]:
@@ -1216,11 +1506,6 @@ def _chain_display_name(config: Mapping[str, Any]) -> str:
     if part_count <= 1:
         return chain_id
     return f"{chain_id} part {part_index}/{part_count}"
-
-
-def _remaining_turn_budget(events: list[Event], max_turns: int) -> int:
-    used = sum(1 for event in events if isinstance(event, TurnStartEvent))
-    return max(0, max_turns - used)
 
 
 def _context_kwargs(

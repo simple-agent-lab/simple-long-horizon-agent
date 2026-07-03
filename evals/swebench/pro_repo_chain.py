@@ -50,7 +50,13 @@ DEFAULT_SPLIT = "test"
 DEFAULT_MODEL = ""
 DEFAULT_API_KIND = "openai-responses"
 DEFAULT_REASONING_EFFORT = ""
+# The true model context window. Both context-management arms leave headroom
+# below this and trigger at DEFAULT_THRESHOLD_TOKENS (80%) so a window's own
+# work fits before the real limit.
 DEFAULT_CONTEXT_WINDOW_TOKENS = 272_000
+# Shared trigger point for BOTH arms: `summarize` compresses and `handoff`
+# resets the window once the active context reaches this many tokens. Keeping
+# them equal is what makes the handoff-vs-compression comparison fair.
 DEFAULT_THRESHOLD_TOKENS = int(DEFAULT_CONTEXT_WINDOW_TOKENS * 0.8)
 DEFAULT_KEEP_RECENT = 4
 DEFAULT_BASELINE_TIMEOUT_SECONDS = 300
@@ -376,7 +382,11 @@ class ProRepoExperimentConfig:
     api_kind: str = DEFAULT_API_KIND
     reasoning_effort: str = DEFAULT_REASONING_EFFORT
     max_turns: int = 250
-    context_window_tokens: int = DEFAULT_CONTEXT_WINDOW_TOKENS
+    # Handoff trigger. Defaults to the same value as ``threshold_tokens`` (the
+    # summarize trigger) so handoff and compression reset the window at the same
+    # point for a fair comparison; override ``--context-window-tokens`` to study
+    # a different handoff trigger in isolation.
+    context_window_tokens: int = DEFAULT_THRESHOLD_TOKENS
     threshold_tokens: int = DEFAULT_THRESHOLD_TOKENS
     keep_recent: int = DEFAULT_KEEP_RECENT
     preserve_kinds: tuple[MessageKind, ...] = DEFAULT_PRESERVE_KINDS

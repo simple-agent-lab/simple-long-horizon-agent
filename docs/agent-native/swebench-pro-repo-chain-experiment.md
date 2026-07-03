@@ -28,7 +28,8 @@ The supported comparison modes are:
   (`SummarizeStrategy`) and disables handoff.
 - `--handoff` / `--no-handoff`: handoff is on by default; `--no-handoff` runs a
   no-compression chain "naked" with no context-window protection.
-- `--context-window-tokens N`: handoff trigger threshold (default `272000`).
+- `--context-window-tokens N`: handoff trigger threshold (default `217600`,
+  i.e. `272000 * 0.8`, matching the summarize threshold for a fair comparison).
 - `--task-tool`: adds the task tool to the selected chain agent or workflow
   solver. Without it, repo-chain flavors use bash only plus any workflow-local
   control tools.
@@ -166,27 +167,43 @@ message is framed:
 
 ## Handoff
 
-Handoff is the default context-window mechanism for no-compression chains.
-Rather than reacting to a context-window overflow mid-instance, the runner lets
-each instance finish and resets the window only at the boundary between
-instances.
+Handoff is the default context-window mechanism for no-compression chains. The
+runner reacts to the context window *as soon as it is reached* rather than
+waiting for the current instance to finish. When the active context reaches
+`--context-window-tokens`, the model writes a handoff document immediately; the
+chain then either moves on to the next instance (if the current one just
+finished) or keeps working on the SAME instance in a fresh window seeded with
+that handoff.
 
-- Trigger: after an instance finishes with `status == "ok"`, the runner
-  estimates the active context with
-  `estimate_context_tokens(state.active_context_messages())`. If that estimate is
-  at or above `--context-window-tokens` (default `272000`, below the real model
-  window so one more instance fits), and this is not the last instance in the
-  chain part, handoff fires.
-- Handoff document: the just-finished model is asked one more time (a tool-less
-  turn that inherits the instance's visible context) to write a durable handoff
-  document — repository architecture, key files, build/test/run commands and
-  conventions, decisions made, and current state (done / in progress / known
-  issues). See `CHAIN_HANDOFF_PROMPT` in `simple_agent_lab.evals.chain`.
-- Window reset: the next instance starts in a fresh chain state whose only
-  active-context message is that handoff document (prefixed with
-  `CHAIN_HANDOFF_CONTEXT_PREFACE`). The prior transcript is intentionally
-  dropped, so the next window starts small. `chain_window_index` increments at
-  each handoff.
+- Mid-instance trigger: while an instance solves, the runner checks the active
+  context at each turn boundary with
+  `estimate_context_tokens(state.active_context_messages())` (see
+  `_context_window_abort`). It always lets at least one turn run in the current
+  window first, so every window makes progress. Once the estimate reaches
+  `--context-window-tokens` (default `217600` = `272000 * 0.8`, the same trigger
+  as the summarize threshold so the two arms are compared fairly, and below the
+  real `272000` model window so a window's own work fits) and the instance is not
+  yet done, the solver stops at that turn boundary and a handoff fires.
+- In-place window reset: the handoff document is appended and the *active*
+  context is repointed to just the current task plus that document (see
+  `_apply_context_window_handoff`). The full transcript stays in
+  `state.messages`/`state.events` for the trajectory; only what the model sees
+  going forward is reset. The SAME instance then keeps solving in the fresh
+  window. `chain_window_index` increments at each reset, and the instance's
+  overall turn budget is shared across its windows (a handoff never grants extra
+  turns; handoff-generation turns are not charged to the solver budget).
+- Boundary trigger: if an instance instead finishes with `status == "ok"` while
+  its context is still at/over the window (it completed just as the window
+  filled) and it is not the last instance in the chain part, a boundary handoff
+  fires: the next instance starts in a fresh chain state whose only
+  active-context message is the handoff document. This is the "just completed at
+  the boundary -> next problem" case.
+- Handoff document: the model is asked one more time (a tool-less turn that
+  inherits the current visible context) to write a durable handoff document —
+  repository architecture, key files, build/test/run commands and conventions,
+  decisions made, and current state (done / in progress / known issues). See
+  `CHAIN_HANDOFF_PROMPT` and `CHAIN_HANDOFF_CONTEXT_PREFACE` in
+  `simple_agent_lab.evals.chain`.
 - Defaults and exclusivity: handoff is on by default. It is disabled when
   `--compression-strategy summarize` (compression owns the window instead), when
   `--no-handoff` is passed, or when `--context-window-tokens` is `0`. With
@@ -194,11 +211,13 @@ instances.
   context-window protection.
 - Failure safety: if the extra handoff turn fails or returns an empty document,
   the runner logs it and carries the full context forward unchanged rather than
-  dropping the chain.
+  dropping the chain. `MAX_CONTEXT_WINDOW_HANDOFFS` caps resets per instance as a
+  backstop against a pathologically small window.
 - Metrics: each fired handoff records a `ContextCompressionEvent` with strategy
-  `context_window_handoff` on the finished instance, and `result.json` reports
-  `handoff`, `handoff_written`, and `handoff_context_tokens`. Per-chain
-  `summary.json` and the `[DONE]` log line report the handoff count.
+  `context_window_handoff`, and `result.json` reports `handoff`,
+  `handoff_written`, `handoff_context_tokens`, and `context_window_handoffs` (the
+  count of mid-instance resets). Per-chain `summary.json` and the `[DONE]` log
+  line report the handoff count and the mid-instance count.
 
 ## Task-Tool Mode
 
@@ -219,9 +238,9 @@ uv run --extra swebench python runs/swebench/run_swebench_pro_repo_chains.py \
 This stages `mode=repo_chain`, the selected `agent_flavor`, and
 `task_tool=true` in `input/chain_config.json`. The container builds the selected
 agent inside the instance container and gives it bash plus task. Context-window
-management defaults to handoff (see "Handoff"), so the instance runs to
-completion and the window is reset at the boundary. Task-tool runs always pair
-with handoff or compression; there is no reactive mid-instance restart.
+management defaults to handoff (see "Handoff"): the window is reset as soon as it
+is reached, mid-instance if needed, and the instance keeps working in the fresh
+window. Task-tool runs always pair with handoff or compression.
 
 ## Chain Planning
 
@@ -270,8 +289,9 @@ Each instance writes:
 Each `result.json` includes `model_patch`, status, error fields, chain part
 metadata, compression metrics, the chain event span for that instance, and the
 handoff fields `handoff` (whether handoff was active), `handoff_written`
-(whether this instance reset the window), and `handoff_context_tokens` (the
-estimated active context at the boundary). This means partial runs can still be
+(whether this instance reset the window at all), `context_window_handoffs` (how
+many times it reset the window mid-instance), and `handoff_context_tokens` (the
+estimated active context at the last reset). This means partial runs can still be
 converted into predictions for completed or skipped instances by collecting
 existing `result.json` files.
 
@@ -282,8 +302,11 @@ The payload carries the active context messages, task seed, and run metadata
 needed to continue the repository chain while keeping the agent loop inside
 the current instance container. Compressed-away inactive transcript entries are
 not carried forward in this continuation artifact; durable information should
-survive through the active summary context. When handoff fires at an instance
-boundary, the outgoing `out/chain_state.json` is reset to carry only the model's
+survive through the active summary context. After a mid-instance handoff, the
+outgoing `out/chain_state.json` already carries only the current task plus the
+latest handoff document as the active context (the dropped transcript stays in
+the trajectory but not in the continuation). When a boundary handoff fires
+instead, the outgoing `out/chain_state.json` is reset to carry only the model's
 handoff document (plus chain metadata), so the next window deliberately starts
 without the prior transcript.
 
