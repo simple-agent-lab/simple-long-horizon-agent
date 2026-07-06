@@ -162,6 +162,13 @@ message is framed:
 - Threshold: `217600` tokens (`272000 * 0.8`)
 - Keep recent: `4`
 - Preserve kinds: `task`, `system`, `context`
+- Only the current instance prompt remains a pinned `task`; when the next
+  instance starts, prior instance prompts are demoted to ordinary messages so
+  they can be summarized with their solution transcript.
+- A summarize trigger can emit up to two folds: one contiguous span before the
+  current instance prompt, and one contiguous current-instance early-work span
+  after that prompt but before the recent tail. If the current early-work span
+  is empty, it is skipped. Each fold stays on one side of the current task.
 - Full `trajectory.jsonl` output: enabled by default; disable only with
   `--no-write-trajectories`
 
@@ -330,7 +337,7 @@ repo-chain runner classifies the latest active user-visible message:
 - If it is the current instance prompt, the instance is skipped and that prompt
   is dropped from active context so the next instance can proceed.
 - If it is a tool output, the latest connected tool-call/tool-result exchange
-  is removed from active context and replaced with a short context note:
+  is removed from active context and replaced with a short compressible message note:
   `Removed invalid_prompt-triggering tool call/output. Use another command.`
   The model request is then retried.
 - Tool-output invalid-prompt rewrites are capped at 20 per instance.

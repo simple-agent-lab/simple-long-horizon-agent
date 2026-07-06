@@ -31,7 +31,7 @@ from simple_agent_lab import (
     run,
     text_of,
 )
-from simple_agent_lab.compression import summarize_compression
+from simple_agent_lab.compression import maybe_compress_context, summarize_compression
 from simple_agent_lab.llm import Provider
 from simple_agent_lab.messages import TextBlock, ToolCallBlock
 from simple_agent_lab.messages import (
@@ -39,6 +39,7 @@ from simple_agent_lab.messages import (
     message_tool_calls,
     tool_results_message,
     tool_results_of,
+    user_message,
 )
 from simple_agent_lab.tools import make_recall_tool, tool_result_text
 
@@ -347,6 +348,178 @@ class ToolPairSafetyTest(unittest.TestCase):
         }
         self.assertEqual(seen_calls, {"call_old"})
         self.assertEqual(seen_results, {"call_old"})
+
+    def test_summarize_compresses_one_contiguous_span_around_preserved_task(
+        self,
+    ) -> None:
+        captured: dict[str, list[Message]] = {}
+
+        def compressor(visible: list[Message]) -> Message:
+            captured["visible"] = visible
+            return assistant_message(
+                "summary", sender="c", target="runtime", kind="final"
+            )
+
+        active = [
+            (0, user_message("prior task now message " + "x" * 1200, target="w")),
+            (1, assistant_message("prior work " + "y" * 1200, target="user")),
+            (2, user_message("current task", target="w", kind="task")),
+            (3, assistant_message("current early work " + "z" * 100, target="user")),
+            (4, assistant_message("recent one", target="user")),
+            (5, assistant_message("recent two", target="user")),
+        ]
+        strategy = SummarizeStrategy(
+            compressor=Agent("c", compressor),
+            threshold_tokens=1,
+            keep_recent=2,
+            preserve_kinds=("task", "system", "context"),
+        )
+
+        decision = strategy(active, "w")
+
+        self.assertIsNotNone(decision)
+        assert decision is not None
+        self.assertEqual(decision.compress_indices, (0, 1))
+        self.assertEqual(
+            [text_of(message.content) for message in captured["visible"]],
+            [
+                "prior task now message " + "x" * 1200,
+                "prior work " + "y" * 1200,
+                (
+                    "Compact the older conversation above into working memory "
+                    "for agent 'w'. It replaces those messages; the task and "
+                    "recent messages stay visible.\n\n"
+                    "Write a terse, self-contained summary under these "
+                    "headings, omitting any that have nothing:\n"
+                    "- Goal: the objective plus constraints / acceptance "
+                    "criteria.\n"
+                    "- Done: what has been accomplished and verified.\n"
+                    "- State: where the work stands now.\n"
+                    "- Facts & identifiers: key facts, decisions, and tool "
+                    "results, with exact paths, symbols, commands, errors, "
+                    "test names, and values kept VERBATIM.\n"
+                    "- Open: unresolved questions and blockers.\n"
+                    "- Next: the next concrete action(s).\n"
+                    "- Tried & rejected: approaches already attempted that "
+                    "failed, and why.\n\n"
+                    "Preserve facts exactly; never invent. Omit low-value "
+                    "wording."
+                ),
+            ],
+        )
+
+    def test_summarize_runtime_applies_two_spans_around_current_task(
+        self,
+    ) -> None:
+        captured: list[list[str]] = []
+
+        def compressor(visible: list[Message]) -> Message:
+            captured.append([text_of(message.content) for message in visible])
+            return assistant_message(
+                f"summary {len(captured)}",
+                sender="c",
+                target="runtime",
+                kind="final",
+            )
+
+        state = State("chain")
+        state.record(user_message("prior task now message " + "x" * 1200, target="w"))
+        state.record(
+            assistant_message("prior work " + "y" * 1200, sender="w", target="user")
+        )
+        state.record(user_message("current task", target="w", kind="task"))
+        state.record(
+            assistant_message(
+                "current early work " + "z" * 1200,
+                sender="w",
+                target="user",
+            )
+        )
+        state.record(assistant_message("recent one", sender="w", target="user"))
+        state.record(assistant_message("recent two", sender="w", target="user"))
+        policy = ContextPolicy(
+            strategy=SummarizeStrategy(
+                compressor=Agent("c", compressor),
+                threshold_tokens=1,
+                keep_recent=2,
+                preserve_kinds=("task", "system", "context"),
+            )
+        )
+
+        events = maybe_compress_context(
+            Agent(
+                "w", lambda visible: assistant_message("done"), context_policy=policy
+            ),
+            state,
+            policy,
+        )
+
+        folds = [
+            event for event in events if isinstance(event, ContextCompressionEvent)
+        ]
+        self.assertEqual(len(folds), 2)
+        self.assertEqual(
+            [fold.compressed_message_indices for fold in folds],
+            [[0, 1], [3]],
+        )
+        self.assertEqual(
+            [message.kind for message in state.active_context_messages()],
+            ["summary", "task", "summary", "message", "message"],
+        )
+        self.assertEqual(len(captured), 2)
+        self.assertEqual(captured[0][0], "prior task now message " + "x" * 1200)
+        self.assertEqual(captured[0][1], "prior work " + "y" * 1200)
+        self.assertEqual(captured[1][0], "current early work " + "z" * 1200)
+        self.assertNotIn("current task", captured[0])
+        self.assertNotIn("current task", captured[1])
+
+    def test_summarize_runtime_skips_empty_current_early_span(self) -> None:
+        captured: list[list[str]] = []
+
+        def compressor(visible: list[Message]) -> Message:
+            captured.append([text_of(message.content) for message in visible])
+            return assistant_message(
+                "summary", sender="c", target="runtime", kind="final"
+            )
+
+        state = State("chain")
+        state.record(user_message("prior task now message " + "x" * 1200, target="w"))
+        state.record(
+            assistant_message("prior work " + "y" * 1200, sender="w", target="user")
+        )
+        state.record(user_message("current task", target="w", kind="task"))
+        state.record(assistant_message("recent one", sender="w", target="user"))
+        state.record(assistant_message("recent two", sender="w", target="user"))
+        policy = ContextPolicy(
+            strategy=SummarizeStrategy(
+                compressor=Agent("c", compressor),
+                threshold_tokens=1,
+                keep_recent=2,
+                preserve_kinds=("task", "system", "context"),
+            )
+        )
+
+        events = maybe_compress_context(
+            Agent(
+                "w", lambda visible: assistant_message("done"), context_policy=policy
+            ),
+            state,
+            policy,
+        )
+
+        folds = [
+            event for event in events if isinstance(event, ContextCompressionEvent)
+        ]
+        self.assertEqual(len(folds), 1)
+        self.assertEqual(folds[0].compressed_message_indices, [0, 1])
+        self.assertEqual(
+            [message.kind for message in state.active_context_messages()],
+            ["summary", "task", "message", "message"],
+        )
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(captured[0][0], "prior task now message " + "x" * 1200)
+        self.assertEqual(captured[0][1], "prior work " + "y" * 1200)
+        self.assertNotIn("current task", captured[0])
 
 
 def _run_text_heavy(policy: ContextPolicy, n_steps: int) -> list:

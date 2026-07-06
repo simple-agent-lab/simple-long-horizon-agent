@@ -77,6 +77,7 @@ CHAIN_STATE_OUTPUT_KEY = "out/chain_state.json"
 CHAIN_CONFIG_KEY = "input/chain_config.json"
 CHAIN_STATE_SCHEMA = "simple-agent-lab.eval-chain-state.v1"
 ENCRYPTED_REASONING_INCLUDE = "reasoning.encrypted_content"
+CHAIN_TASK_DEMOTE_REASON = "chain-task-demote"
 INVALID_PROMPT_TOOL_REMINDER = (
     "Removed invalid_prompt-triggering tool call/output. Use another command."
 )
@@ -161,9 +162,12 @@ def append_chain_task(
     item_id: str,
     task: str,
     details: Mapping[str, Any] | None = None,
+    demote_prior_tasks: bool = True,
 ) -> None:
     """Append one benchmark item prompt to an existing chain state."""
 
+    if demote_prior_tasks:
+        demote_prior_chain_tasks(state, agent_name=agent_name)
     sidecar_details = {
         "chain": {"item_id": item_id},
         **dict(details or {}),
@@ -175,6 +179,51 @@ def append_chain_task(
         task,
         sidecar={"details": sidecar_details},
     )
+
+
+def demote_prior_chain_tasks(state: State, *, agent_name: str) -> int:
+    """Make already-started chain item prompts compressible.
+
+    Only the current benchmark item should stay pinned as ``kind="task"``.
+    When the next item starts, prior item prompts become ordinary messages so a
+    later summarize pass can fold them together with their solution transcript.
+    The edit is represented as append-only replacement messages plus an active
+    context re-point, preserving the original trace entries for audit.
+    """
+
+    demoted = 0
+    while True:
+        active_items = state.active_context_items()
+        target = next(
+            (
+                (index, message)
+                for index, message in active_items
+                if message.kind == "task" and message_chain_item_id(message)
+            ),
+            None,
+        )
+        if target is None:
+            return demoted
+
+        target_index, message = target
+        replacement = replace(message, kind="message")
+        state.record(replacement)
+        replacement_index = len(state.messages) - 1
+        state.record_event(
+            ContextCompressionEvent(
+                agent=agent_name,
+                summary_message_index=replacement_index,
+                compressed_message_indices=[target_index],
+                active_context_indices=[
+                    replacement_index if index == target_index else index
+                    for index, _ in active_items
+                ],
+                before_tokens=0,
+                after_tokens=0,
+                strategy=CHAIN_TASK_DEMOTE_REASON,
+            )
+        )
+        demoted += 1
 
 
 def state_to_chain_payload(state: State) -> dict[str, Any]:
@@ -289,7 +338,7 @@ def replace_latest_tool_exchange_for_invalid_prompt(
         INVALID_PROMPT_TOOL_REMINDER,
         sender="user",
         target=agent_name,
-        kind="context",
+        kind="message",
     )
     state.record(replacement)
     replacement_index = len(state.messages) - 1
@@ -357,7 +406,7 @@ def repair_active_tool_pairs(state: Any, *, agent_name: str) -> bool:
         "Removed an incomplete tool call/tool result exchange from context.",
         sender="user",
         target=agent_name,
-        kind="context",
+        kind="message",
     )
     state.record(note)
     note_index = len(state.messages) - 1
@@ -451,7 +500,7 @@ def end_chain_item_after_invalid_prompt_tool_retry_limit(
         INVALID_PROMPT_ITEM_END_MESSAGE.format(item_id=item_id),
         sender="user",
         target=agent_name,
-        kind="context",
+        kind="message",
     )
     state.record(end_message)
     end_message_index = len(state.messages) - 1
@@ -513,6 +562,7 @@ def run_chain_in_container(
 
     task = tasks.build_task(instance, workdir=str(workdir))
     item_id = str(instance.get("instance_id") or "?")
+    demote_prior_chain_tasks(state, agent_name=spec.name)
     event_start = len(state.events)
     append_chain_task(
         state,
@@ -520,6 +570,7 @@ def run_chain_in_container(
         item_id=item_id,
         task=str(task),
         details=_chain_task_details(module, instance=instance, config=config),
+        demote_prior_tasks=False,
     )
     # The current instance's task message is kept active across mid-instance
     # handoffs so the reset window still shows what problem to solve.
@@ -649,16 +700,14 @@ def run_chain_in_container(
                     and _over_window(state, window_limit)
                     and context_window_handoffs < MAX_CONTEXT_WINDOW_HANDOFFS
                 ):
-                    did_reset, gen_turns, before_tokens = (
-                        _apply_context_window_handoff(
-                            provider,
-                            state,
-                            spec,
-                            request_extra,
-                            window_index=chain_window_index + 1,
-                            task_message_index=task_message_index,
-                            item_id=item_id,
-                        )
+                    did_reset, gen_turns, before_tokens = _apply_context_window_handoff(
+                        provider,
+                        state,
+                        spec,
+                        request_extra,
+                        window_index=chain_window_index + 1,
+                        task_message_index=task_message_index,
+                        item_id=item_id,
                     )
                     handoff_gen_turns += gen_turns
                     if did_reset:

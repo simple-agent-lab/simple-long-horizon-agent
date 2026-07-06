@@ -1109,7 +1109,21 @@ class RepoChainStateTest(unittest.TestCase):
             in {"one", "two"}
         ]
         self.assertEqual(
-            [message.kind for message in instance_messages], ["task", "task"]
+            [message.kind for message in instance_messages],
+            ["task", "message", "task"],
+        )
+        active_instance_messages = [
+            message
+            for message in state.active_context_messages()
+            if getattr(message, "sidecar", {})
+            .get("details", {})
+            .get("swebench", {})
+            .get("instance_id")
+            in {"one", "two"}
+        ]
+        self.assertEqual(
+            [message.kind for message in active_instance_messages],
+            ["message", "task"],
         )
 
     def test_repo_chain_state_starts_without_extra_model_visible_prompt(
@@ -1124,6 +1138,54 @@ class RepoChainStateTest(unittest.TestCase):
 
 
 class RepoChainStateArtifactTest(unittest.TestCase):
+    def test_appending_new_chain_task_demotes_prior_item_tasks(self) -> None:
+        from evals.swebench.pro_repo_chain import (
+            append_instance_task,
+            start_repo_state,
+        )
+
+        state = start_repo_state("acme/widgets", agent_name="swebench_agent")
+        append_instance_task(
+            state,
+            agent_name="swebench_agent",
+            instance_id="case-1",
+            task="first problem",
+        )
+        state.record(
+            assistant_message(
+                "first answer",
+                sender="swebench_agent",
+                target="user",
+                kind="final",
+            )
+        )
+        append_instance_task(
+            state,
+            agent_name="swebench_agent",
+            instance_id="case-2",
+            task="second problem",
+        )
+
+        active = state.active_context_messages()
+
+        self.assertEqual(
+            [message_text(message) for message in active],
+            [
+                "first problem",
+                "first answer",
+                "second problem",
+            ],
+        )
+        self.assertEqual(active[0].kind, "message")
+        self.assertEqual(active[2].kind, "task")
+        demotions = [
+            event
+            for event in state.events
+            if isinstance(event, ContextCompressionEvent)
+            and event.strategy == "chain-task-demote"
+        ]
+        self.assertEqual(len(demotions), 1)
+
     def test_chain_payload_round_trips_active_context_and_metadata(self) -> None:
         from evals.swebench.pro_repo_chain import (
             append_instance_task,
@@ -1159,9 +1221,9 @@ class RepoChainStateArtifactTest(unittest.TestCase):
         state.record_event(
             ContextCompressionEvent(
                 agent="swebench_agent",
-                summary_message_index=2,
-                compressed_message_indices=[0, 1],
-                active_context_indices=[2],
+                summary_message_index=3,
+                compressed_message_indices=[1, 2],
+                active_context_indices=[3],
                 before_tokens=100,
                 after_tokens=10,
                 strategy="test-compact",
@@ -2193,6 +2255,12 @@ class RepoChainInvalidPromptHandlingTest(unittest.TestCase):
         visible = "\n".join(message_text(m) for m in state.active_context_messages())
         self.assertNotIn("bad provider-triggering output", visible)
         self.assertIn(INVALID_PROMPT_TOOL_REMINDER, visible)
+        reminders = [
+            message
+            for message in state.active_context_messages()
+            if message_text(message) == INVALID_PROMPT_TOOL_REMINDER
+        ]
+        self.assertEqual([message.kind for message in reminders], ["message"])
         self.assertTrue(
             any(
                 isinstance(event, ContextCompressionEvent)
@@ -2239,6 +2307,14 @@ class RepoChainInvalidPromptHandlingTest(unittest.TestCase):
         )
         visible = "\n".join(message_text(m) for m in state.active_context_messages())
         self.assertIn("Removed an incomplete tool call/tool result exchange", visible)
+        notes = [
+            message
+            for message in state.active_context_messages()
+            if message_text(message).startswith(
+                "Removed an incomplete tool call/tool result exchange"
+            )
+        ]
+        self.assertEqual([message.kind for message in notes], ["message"])
         self.assertTrue(
             any(
                 isinstance(event, ContextCompressionEvent)
@@ -2349,6 +2425,7 @@ class RepoChainInvalidPromptHandlingTest(unittest.TestCase):
         )
 
         self.assertEqual(state.active_context_messages(), [])
+        self.assertEqual(state.messages[-1].kind, "message")
         self.assertTrue(
             any(
                 isinstance(event, ContextCompressionEvent)
