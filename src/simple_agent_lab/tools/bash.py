@@ -18,6 +18,7 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
+import simple_agent_lab.config as config
 from simple_agent_lab.messages import ImageBlock, TextBlock
 
 from . import (
@@ -36,6 +37,7 @@ DEFAULT_BASH_TIMEOUT_SECONDS = 30.0
 DEFAULT_BASH_MAX_OUTPUT_CHARS = 4000
 MAX_BASH_TIMEOUT_SECONDS = 60.0
 DEFAULT_BASH_MAX_ATTACH_BYTES = 5 * 1024 * 1024  # 5 MiB per attached image
+DEFAULT_SUBMISSION_MARKER = "COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
 
 # Env vars we inject (additively) into the bash subprocess so that paging tools
 # and progress bars do not blow the model-visible output budget. Mirrors the
@@ -115,7 +117,16 @@ def make_bash_tool(
     if max_output_chars <= 0:
         raise ValueError("max_output_chars must be > 0")
 
+    default_timeout_seconds = config.BASH_DEFAULT_TIMEOUT.get(
+        default=default_timeout_seconds
+    )
+    max_timeout_seconds = config.BASH_MAX_TIMEOUT.get(default=max_timeout_seconds)
+    max_output_chars = config.BASH_MAX_OUTPUT_CHARS.get(default=max_output_chars)
+    if default_timeout_seconds > max_timeout_seconds:
+        default_timeout_seconds = max_timeout_seconds
+
     root = Path(cwd or ".").resolve()
+    submission_marker = str(config.BASH_SUBMISSION_MARKER.get() or "").strip()
 
     def execute(
         call_id: str,
@@ -161,6 +172,22 @@ def make_bash_tool(
                 "Bash command completed, but the run was aborted before observation.",
                 details=asdict(execution),
                 is_error=True,
+            )
+        submission = submitted_output(
+            execution.raw_stdout,
+            marker=submission_marker,
+            exit_code=execution.exit_code,
+        )
+        if submission is not None:
+            details = {
+                **asdict(execution),
+                "submission": submission,
+                "submission_marker": submission_marker,
+            }
+            return text_result(
+                "Submission captured from bash output. Ending the run.",
+                details=details,
+                terminate=True,
             )
         result = bash_execution_to_tool_result(execution)
         attach = args.get("attach")
@@ -210,6 +237,22 @@ def make_bash_tool(
         execution_mode=execution_mode,
         timeout_seconds=max_timeout_seconds + 1,
     )
+
+
+def submitted_output(
+    output: str,
+    *,
+    marker: str,
+    exit_code: int = 0,
+) -> str | None:
+    """Return text after a submission marker, or None when output is ordinary."""
+
+    if exit_code != 0 or not marker:
+        return None
+    lines = output.lstrip().splitlines(keepends=True)
+    if not lines or lines[0].strip() != marker:
+        return None
+    return "".join(lines[1:])
 
 
 def run_bash(

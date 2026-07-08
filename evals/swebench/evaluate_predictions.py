@@ -728,21 +728,26 @@ def predictions_from_run_dirs(
     run_id: str | None = None,
     model_name: str = "simple-agent-lab-containerized",
     dataset_name: str = DEFAULT_DATASET,
+    patch_field: str = "model_patch",
 ) -> list[dict[str, Any]]:
     """Shape generic run dirs into official SWE-bench prediction records.
 
     Generic runs write ``<run-root>/<run-id>/<instance-id>/out/result.json`` with
-    ``{"model_patch": ...}``. The official harness instead wants a predictions
-    JSONL keyed by instance id + model name. This rebuilds that record via
-    `harness.prediction_record` (so Verified, Multilingual, and Pro shapes stay
-    correct), taking the instance id from the staged ``input/instance.json``
-    (falling back to the run-dir name). Empty-patch runs are kept — the harness
-    counts them unresolved, so totals match the launched set. With ``run_id``
-    only that run is collected; without it, every run under ``run_root``.
+    patch fields such as ``model_patch`` (the collected workspace diff) and
+    ``model_submitted_patch`` (the model-authored ``patch.txt`` / submit output).
+    The official harness instead wants a predictions JSONL keyed by instance id
+    + model name. This rebuilds that record via `harness.prediction_record` (so
+    Verified, Multilingual, and Pro shapes stay correct), taking the instance id
+    from the staged ``input/instance.json`` (falling back to the run-dir name).
+    Empty-patch runs are kept — the harness counts them unresolved, so totals
+    match the launched set. With ``run_id`` only that run is collected; without
+    it, every run under ``run_root``.
     """
 
     from evals.swebench import harness
 
+    if not patch_field:
+        raise ValueError("patch_field must not be empty")
     root = Path(run_root)
     search = (root / run_id).glob("*") if run_id else root.glob("*/*")
     predictions: list[dict[str, Any]] = []
@@ -755,7 +760,7 @@ def predictions_from_run_dirs(
             harness.prediction_record(
                 _instance_id_for_run_dir(run_dir),
                 model_name,
-                str(result.get("model_patch", "")),
+                str(result.get(patch_field, "")),
                 dataset_name=dataset_name,
             )
         )
@@ -922,6 +927,15 @@ def build_parser() -> argparse.ArgumentParser:
         default="simple-agent-lab-containerized",
         help="model_name_or_path label written into collected predictions.",
     )
+    parser.add_argument(
+        "--patch-field",
+        default="model_patch",
+        help=(
+            "result.json field to export when collecting predictions. "
+            "Use model_patch for the collected workspace diff or "
+            "model_submitted_patch for the model-authored patch.txt submission."
+        ),
+    )
     return parser
 
 
@@ -967,6 +981,7 @@ def main() -> None:
             run_id=run_id,
             model_name=args.model_name,
             dataset_name=args.dataset_name,
+            patch_field=args.patch_field,
         )
         write_jsonl(args.predictions, predictions)
         empty = sum(

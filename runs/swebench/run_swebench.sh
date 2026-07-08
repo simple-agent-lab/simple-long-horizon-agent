@@ -388,7 +388,16 @@ collect_predictions() {
   "${PYTHON[@]}" evals/swebench/evaluate_predictions.py --collect-predictions \
     --run-root "$CONTAINER_RUN_ROOT" --run-id "$RUN_ID" \
     --dataset-name "$DATASET" --model-name "$MODEL_NAME" \
+    --patch-field model_patch \
     --predictions "$pred_out"
+  if [ "$VARIANT" = "pro" ]; then
+    local submitted_pred_out="${PREDICTION_DIR}/${RUN_ID}_submitted_patch_predictions.jsonl"
+    "${PYTHON[@]}" evals/swebench/evaluate_predictions.py --collect-predictions \
+      --run-root "$CONTAINER_RUN_ROOT" --run-id "$RUN_ID" \
+      --dataset-name "$DATASET" --model-name "${MODEL_NAME}-submitted-patch" \
+      --patch-field model_submitted_patch \
+      --predictions "$submitted_pred_out"
+  fi
 }
 
 if [ "$RUN_ALL" -eq 1 ] || [ -n "$IDS_FILE" ]; then

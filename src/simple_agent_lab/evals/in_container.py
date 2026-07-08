@@ -434,7 +434,9 @@ def run_in_container(
                 last = now
 
     extract = tasks.extract_result
-    result = dict(extract(workdir, instance, **_context_kwargs(extract, context)))
+    result = dict(
+        extract(workdir, instance, **_context_kwargs(extract, context, state=state))
+    )
 
     # A workflow facade stashes its per-step breakdown on the run state at
     # session end; fold it into the result here so every suite reports it
@@ -477,11 +479,20 @@ def run_in_container(
 
 
 def _context_kwargs(
-    fn: Callable[..., Any], context: Mapping[str, Any]
+    fn: Callable[..., Any],
+    context: Mapping[str, Any],
+    *,
+    state: State | None = None,
 ) -> dict[str, Any]:
-    """Pass ``context`` only to hooks that declare it (keeps the surface optional)."""
+    """Pass optional hook context only to hooks that declare it."""
 
-    return {"context": context} if "context" in inspect.signature(fn).parameters else {}
+    parameters = inspect.signature(fn).parameters
+    kwargs: dict[str, Any] = {}
+    if "context" in parameters:
+        kwargs["context"] = context
+    if state is not None and "state" in parameters:
+        kwargs["state"] = state
+    return kwargs
 
 
 def _load_eval_inputs(store: ArtifactStore) -> dict[str, Any]:

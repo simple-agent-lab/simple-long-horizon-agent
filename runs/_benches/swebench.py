@@ -58,6 +58,7 @@ DESCRIPTION = "SWE-bench instance in a Docker container (single instance per run
 # predictions + the official harness). Tests already run in-env with
 # --in-env-scoring; this is the host-side parse into a parity-grade verdict.
 SCORER = ("evals/swebench/evaluate_predictions.py",)
+DEFAULT_SWEBENCH_DOCKER_TIMEOUT_S = 1800.0
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -129,7 +130,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--docker-timeout-seconds",
         type=float,
-        default=DEFAULT_DOCKER_TIMEOUT_S,
+        default=DEFAULT_SWEBENCH_DOCKER_TIMEOUT_S,
         help=(
             "Docker SDK HTTP timeout in seconds for daemon calls such as "
             "pull/create/start/wait."

@@ -5,15 +5,44 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from simple_agent_lab.evals.suites.swebench import container as swebench_container
 from simple_agent_lab.evals.suites.swebench.patch import (
     git_diff,
     instance_base_commit,
     instance_language,
     prepare_baseline_commit,
 )
+from simple_agent_lab.messages import ToolResultBlock, tool_results_message
+from simple_agent_lab.state import State
 
 
 class SwebenchPatchExtractTest(unittest.TestCase):
+    def test_build_task_states_submission_prompt_contract(self) -> None:
+        task = swebench_container.build_task(
+            {
+                "problem_statement": "Fix a parser edge case.",
+                "requirements": "Keep the public API stable.",
+                "interface": "No new interface.",
+            },
+            workdir="/app",
+        )
+
+        self.assertIn(
+            "Before each bash call, briefly state what you are checking or changing.",
+            task,
+        )
+        self.assertIn("Modify configuration or project metadata only", task)
+        self.assertIn(
+            "plus any\n   config or metadata files that the issue explicitly requires.",
+            task,
+        )
+        self.assertIn("If you modify\n`patch.txt` after inspecting it", task)
+        self.assertIn("After submitting, do not continue", task)
+        self.assertIn("<problem_statement>\nFix a parser edge case.", task)
+        self.assertIn("</problem_statement>", task)
+        self.assertIn("<requirements>\nKeep the public API stable.", task)
+        self.assertIn("<interface>\nNo new interface.", task)
+
     def test_git_diff_excludes_generated_build_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = _init_repo(Path(tmp))
@@ -105,6 +134,78 @@ class SwebenchPatchExtractTest(unittest.TestCase):
         self.assertIn("diff --git a/pkg/core.py b/pkg/core.py", patch)
         self.assertNotIn("setup.py", patch)
         self.assertNotIn("build/generated.py", patch)
+
+    def test_extract_result_keeps_collected_and_model_submitted_patches(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = _init_repo(Path(tmp))
+            tracked = repo / "app.py"
+            tracked.write_text("value = 1\n", encoding="utf-8")
+            _git(repo, "add", ".")
+            _git(repo, "commit", "-m", "base")
+            baseline = _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+            tracked.write_text("value = 2\n", encoding="utf-8")
+            state = State("task")
+            state.record(
+                tool_results_message(
+                    [
+                        ToolResultBlock(
+                            tool_call_id="call-1",
+                            tool_name="bash",
+                        )
+                    ],
+                    target="swebench_agent",
+                    sidecar={
+                        "details": {
+                            "call-1": {
+                                "submission": (
+                                    "diff --git a/app.py b/app.py\n"
+                                    "--- a/app.py\n"
+                                    "+++ b/app.py\n"
+                                    "@@\n"
+                                    "-value = 1\n"
+                                    "+value = 2\n"
+                                )
+                            }
+                        }
+                    },
+                )
+            )
+
+            result = swebench_container.extract_result(
+                repo,
+                {"repo": "acme/widgets"},
+                context={"language": "python", "baseline_commit": baseline},
+                state=state,
+            )
+
+        self.assertIn("diff --git a/app.py b/app.py", result["model_patch"])
+        self.assertEqual(result["model_patch_source"], "collected_git_diff")
+        self.assertIn("diff --git a/app.py b/app.py", result["model_submitted_patch"])
+        self.assertEqual(result["model_submitted_patch_source"], "tool_submission")
+
+    def test_extract_result_reads_patch_txt_when_no_submission_event(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = _init_repo(Path(tmp))
+            (repo / "app.py").write_text("value = 1\n", encoding="utf-8")
+            _git(repo, "add", ".")
+            _git(repo, "commit", "-m", "base")
+            (repo / "patch.txt").write_text(
+                "diff --git a/app.py b/app.py\n", encoding="utf-8"
+            )
+
+            result = swebench_container.extract_result(
+                repo,
+                {"repo": "acme/widgets"},
+                context={"language": "python"},
+            )
+
+        self.assertEqual(
+            result["model_submitted_patch"], "diff --git a/app.py b/app.py\n"
+        )
+        self.assertEqual(result["model_submitted_patch_source"], "patch_txt")
 
     def test_instance_helpers_default_verified_to_python_and_read_multilingual(
         self,

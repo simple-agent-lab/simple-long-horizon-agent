@@ -30,12 +30,12 @@ Why workflow arms live behind a thin facade (and worktrees)
 An arm (``loop`` / ``goal`` / ``pdr``) runs a whole multi-agent choreography to produce one
 patch, so `agents.flavors.build_flavor_agent` returns a facade
 ``Agent`` whose single ``generate`` runs the arm, leaves edits in the workspace,
-and returns a short final note — the generic outer loop runs it once. ``pdr``
-fans out concurrent attempts that each edit disk; if they shared one checkout
-they'd clobber each other and the ``git diff`` would be garbage, so every attempt
-gets its own ``git worktree`` (off the baseline commit, outside the workspace)
-and resets it to baseline in an ``init_state`` hook — keeping rounds independent,
-seeded only by the brief.
+and returns control to the generic outer loop. ``pdr`` fans out concurrent
+attempts that each edit disk; if they shared one checkout they'd clobber each
+other and the ``git diff`` would be garbage, so every attempt gets its own
+``git worktree`` (off the baseline commit, outside the workspace) and resets it
+to baseline in an ``init_state`` hook — keeping rounds independent, seeded only
+by the brief.
 
 It imports only the standard library and the installed wheel (`agents`,
 `evals.*`, `workflow`, `trace`, and the sibling `patch` module), so it works
@@ -45,6 +45,7 @@ inside any SWE-bench image with no copied files.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from collections.abc import Mapping
 from pathlib import Path
@@ -68,6 +69,8 @@ from simple_agent_lab.evals.chain import start_chain_state
 from simple_agent_lab.evals.protocols import AgentSpec
 from simple_agent_lab.llm import Provider
 from simple_agent_lab.llm_agent import make_llm_agent
+from simple_agent_lab.state import State
+from simple_agent_lab.tools.bash import DEFAULT_SUBMISSION_MARKER
 
 from .patch import (
     git_diff,
@@ -86,7 +89,7 @@ ALL_FLAVORS = AGENT_FLAVORS
 AGENT_NAME = "swebench_agent"
 AGENT_ROLE = (
     "Work in the local repository. Use bash for inspection, edits, "
-    "and focused tests, then return a concise final note."
+    "and focused tests, then submit the patch with the required marker command."
 )
 AGENT_SYSTEM_PROMPT = (
     "You are a software engineer interacting with a repository "
@@ -94,10 +97,14 @@ AGENT_SYSTEM_PROMPT = (
     "rooted at the workspace, so include any cd or env setup in the command "
     "and use non-interactive flags (`-y`, `--no-pager`, avoid `vi`/`nano`). "
     "Independent read-only bash calls may run in parallel; never run parallel "
-    "writes against the same file. Work from evidence: inspect, reproduce, "
+    "writes against the same file. Before each bash call, briefly state what "
+    "you are checking or changing. Work from evidence: inspect, reproduce, "
     "edit, verify — make a fix that is general and consistent with the "
-    "codebase. Keep command output focused. When the repository is patched, "
-    "return a short final summary; the harness collects git diff separately."
+    "codebase. Keep command output focused: use targeted searches, `head`, "
+    "`tail`, `sed -n`, or redirect long output to a file and inspect relevant "
+    "slices. When the repository is patched, create and inspect `patch.txt`, "
+    "then submit it with the exact command in the task instructions. The "
+    "harness also collects the workspace git diff separately."
 )
 
 
@@ -108,6 +115,7 @@ def agent_spec() -> AgentSpec:
     are built by ``build_agent`` and never reach here. Capability-specific prompt
     addenda are owned by the generic runner / agent layer."""
 
+    _enable_swebench_runtime_defaults()
     flavor = flavor_from_env()
     return AgentSpec(
         name=AGENT_NAME,
@@ -120,6 +128,7 @@ def agent_spec() -> AgentSpec:
 def chain_agent_spec(*, config: Mapping[str, Any]) -> AgentSpec:
     """SWE-bench agent config for the generic eval-chain runner."""
 
+    _enable_swebench_runtime_defaults()
     return AgentSpec(
         name=AGENT_NAME,
         role=AGENT_ROLE,
@@ -256,16 +265,21 @@ def build_task(instance: Mapping[str, Any], *, workdir: str) -> str:
         f"- The bash tool runs locally in {workdir}.",
         "- A full Linux shell is available; install missing tools only if strictly needed.",
         "- Always pass non-interactive flags (`-y`, `--no-pager`); avoid editors that wait for input.",
+        "- Keep command output focused. If output may be long, use selective",
+        "  commands such as `head`, `tail`, `sed -n`, or redirect output to a",
+        "  file and inspect only the relevant slices.",
         "",
         "## What to modify",
-        "- MODIFY: regular source files in the repository.",
-        "- DO NOT MODIFY: tests, reproduction scripts you create, configuration files",
-        "  (pyproject.toml, setup.cfg, tox.ini, etc.) unless code evidence shows the fix",
-        "  belongs there.",
+        "- Default to regular source files in the repository.",
+        "- Modify configuration or project metadata only when the issue explicitly",
+        "  requires it.",
+        "- Do not modify tests or reproduction scripts you create.",
         "- Keep temporary reproduction helpers out of the final diff (write them under",
         "  `/tmp/` or delete them before you stop).",
         "",
         "## Workflow",
+        "Every response before submission must include at least one bash tool call.",
+        "Before each bash call, briefly state what you are checking or changing.",
         "1. Locate the relevant code. Prefer parallel read-only commands",
         "   (`grep -rn`, `find`, `sed -n 'A,Bp'`) over reading whole files.",
         "2. Reproduce the reported behavior with a tiny script when practical.",
@@ -275,17 +289,37 @@ def build_task(instance: Mapping[str, Any], *, workdir: str) -> str:
         "5. Stop as soon as the fix is in place and verified. Do not keep exploring",
         "   once you can describe the change.",
         "",
-        "## Final answer",
-        "Return a short summary of the files you changed and how you verified the fix.",
-        "Do NOT paste the patch — the harness collects `git diff` separately.",
+        "## Submission",
+        "When the fix is ready, submit a model-generated patch. Follow these steps",
+        "in order, using separate bash calls:",
         "",
-        "## Problem statement",
+        "1. Create `patch.txt` with `git diff -- path/to/file1 path/to/file2 > patch.txt`,",
+        "   listing only the regular source files you modified for the fix, plus any",
+        "   config or metadata files that the issue explicitly requires.",
+        "2. Inspect `patch.txt` and confirm it contains only intended source changes",
+        "   with `--- a/` and `+++ b/` paths.",
+        "3. Submit with this exact command:",
+        "",
+        "   echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat patch.txt",
+        "",
+        "Do NOT commit your changes. Do not include temporary reproduction helpers,",
+        "tests, lockfiles, generated files, or project metadata in `patch.txt`",
+        "unless the issue explicitly requires metadata changes. If you modify",
+        "`patch.txt` after inspecting it, inspect it again before submitting.",
+        "Leave the workspace changes in place: the harness also collects its own",
+        "`git diff` separately so the run can compare the submitted patch against",
+        "the collected workspace patch.",
+        "After submitting, do not continue reading, editing, testing, or working on",
+        "this task in any way.",
+        "",
+        "<problem_statement>",
         problem,
+        "</problem_statement>",
     ]
     if requirements:
-        lines.extend(["", "requirements:", requirements])
+        lines.extend(["", "<requirements>", requirements, "</requirements>"])
     if interface:
-        lines.extend(["", "interface:", interface])
+        lines.extend(["", "<interface>", interface, "</interface>"])
     return "\n".join(lines)
 
 
@@ -336,8 +370,14 @@ def extract_result(
     instance: Mapping[str, Any],
     *,
     context: Mapping[str, Any] | None = None,
+    state: State | None = None,
 ) -> dict[str, Any]:
-    """Collect the staged `git diff` as the SWE-bench prediction patch.
+    """Collect both SWE-bench patch products.
+
+    ``model_patch`` remains the original Simple Agent Lab collected workspace
+    diff for backward-compatible scoring. ``model_submitted_patch`` is the
+    model-authored ``patch.txt`` / submission output, matching mini-SWE-agent's
+    explicit-patch protocol.
 
     For an arm flavor, the generic runner folds in the facade's per-step
     workflow breakdown after this returns (the facade stashes it on the run
@@ -348,7 +388,14 @@ def extract_result(
     record = dict(instance)
     language = str(context.get("language") or instance_language(record))
     commit = context.get("baseline_commit") or instance_base_commit(record)
-    return {"model_patch": git_diff(Path(workspace), language=language, commit=commit)}
+    collected = git_diff(Path(workspace), language=language, commit=commit)
+    submitted, submitted_source = _submitted_patch(Path(workspace), state=state)
+    return {
+        "model_patch": collected,
+        "model_patch_source": "collected_git_diff",
+        "model_submitted_patch": submitted,
+        "model_submitted_patch_source": submitted_source,
+    }
 
 
 def evaluate(
@@ -418,12 +465,13 @@ def build_agent(
     generic runner falls through to the ``agent_spec`` path (which keeps memory
     hooks). For an arm (``loop`` / ``goal`` / ``pdr``) it returns a facade ``Agent``
     whose single ``generate`` runs the whole arm on the task, leaves edits in the
-    workspace (the prediction `extract_result` reads), and returns a short final
-    message. The arm's per-step breakdown and sub-traces are owned by the facade
-    (it stashes the breakdown on the run state for the generic runner to fold);
-    this hook only injects the suite-specific worktree prep + trace sink.
+    workspace (the prediction `extract_result` reads), and returns control to the
+    generic runner. The arm's per-step breakdown and sub-traces are owned by the
+    facade (it stashes the breakdown on the run state for the generic runner to
+    fold); this hook only injects the suite-specific worktree prep + trace sink.
     """
 
+    _enable_swebench_runtime_defaults()
     flavor = flavor_from_env()
     if flavor not in ARM_FLAVORS:
         return None
@@ -455,6 +503,69 @@ def _optional(value: Any) -> str:
         if isinstance(decoded, str):
             return decoded.strip()
     return text
+
+
+def _enable_swebench_runtime_defaults() -> None:
+    """Match the long-running SWE-bench Pro baseline envelope by default."""
+
+    # env-ok: suite-level defaults for registered EnvVar knobs.
+    os.environ.setdefault(config.BASH_SUBMISSION_MARKER.name, DEFAULT_SUBMISSION_MARKER)
+    # env-ok: suite-level defaults for registered EnvVar knobs.
+    os.environ.setdefault(config.BASH_DEFAULT_TIMEOUT.name, "3000")
+    # env-ok: suite-level defaults for registered EnvVar knobs.
+    os.environ.setdefault(config.BASH_MAX_TIMEOUT.name, "3000")
+    # env-ok: suite-level defaults for registered EnvVar knobs.
+    os.environ.setdefault(config.BASH_MAX_OUTPUT_CHARS.name, "10000")
+    # env-ok: suite-level defaults for registered EnvVar knobs.
+    os.environ.setdefault(config.LLM_REQUEST_TIMEOUT.name, "1800")
+
+
+def _submitted_patch(workspace: Path, *, state: State | None) -> tuple[str, str]:
+    """Return the model-authored patch, preferring the captured submit output."""
+
+    from_state = _submitted_patch_from_state(state)
+    if from_state:
+        return _normalize_patch(from_state), "tool_submission"
+    patch_txt = workspace / "patch.txt"
+    if patch_txt.is_file():
+        try:
+            return _normalize_patch(patch_txt.read_text(encoding="utf-8")), "patch_txt"
+        except OSError:
+            return "", ""
+    return "", ""
+
+
+def _submitted_patch_from_state(state: State | None) -> str:
+    if state is None:
+        return ""
+    for message in reversed(state.messages):
+        details = message.sidecar.get("details")
+        if not isinstance(details, Mapping):
+            continue
+        for value in reversed(list(details.values())):
+            if not isinstance(value, Mapping):
+                continue
+            submission = value.get("submission")
+            if isinstance(submission, str) and submission.strip():
+                return submission
+            raw_stdout = value.get("raw_stdout")
+            if isinstance(raw_stdout, str):
+                parsed = _submission_after_marker(raw_stdout)
+                if parsed.strip():
+                    return parsed
+    return ""
+
+
+def _submission_after_marker(output: str) -> str:
+    lines = output.lstrip().splitlines(keepends=True)
+    if not lines or lines[0].strip() != DEFAULT_SUBMISSION_MARKER:
+        return ""
+    return "".join(lines[1:])
+
+
+def _normalize_patch(patch: str) -> str:
+    stripped = patch.strip()
+    return stripped + ("\n" if stripped else "")
 
 
 def _runtime_config(config: Mapping[str, Any]) -> Mapping[str, Any]:

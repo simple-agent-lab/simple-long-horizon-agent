@@ -17,6 +17,7 @@ from __future__ import annotations
 import dataclasses
 from typing import Any, Mapping, Sequence
 
+import simple_agent_lab.config as config
 from .context_view import ContextPolicy
 from .core import Agent, StateInitFn
 from .hooks import HookMap
@@ -66,6 +67,11 @@ def make_llm_agent(
     # Resolve the effective system prompt once so the value `generate` sends
     # and the value recorded on the `Agent` (for the request trace) can't drift.
     effective_system_prompt = system_prompt or role or ""
+    effective_timeout_seconds = (
+        timeout_seconds
+        if timeout_seconds is not None
+        else config.LLM_REQUEST_TIMEOUT.get()
+    )
 
     def generate(visible: list[Message]) -> Message:
         request = LLMRequest(
@@ -76,10 +82,12 @@ def make_llm_agent(
             reasoning=reasoning,
             extra=dict(request_extra or {}),
         )
-        # Only override `LLMRequest`'s own default timeout when a caller asked
-        # for one — slow high-reasoning models need more than the 60s default.
-        if timeout_seconds is not None:
-            request = dataclasses.replace(request, timeout_seconds=timeout_seconds)
+        # Only override `LLMRequest`'s own default timeout when a caller or env
+        # config asked for one.
+        if effective_timeout_seconds is not None:
+            request = dataclasses.replace(
+                request, timeout_seconds=effective_timeout_seconds
+            )
         response = complete_with_tool_call_retry(request)
         kind = "final" if response.stop_reason == "end_turn" else "step"
         return llm_response_to_assistant_message(

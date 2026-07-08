@@ -216,6 +216,40 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
 
         self.assertEqual(records[0]["instance_id"], "sympy__sympy-23824")
 
+    def test_collect_predictions_can_use_model_submitted_patch_field(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp) / "runs" / "run-1" / "instance_one"
+            (run_dir / "input").mkdir(parents=True)
+            (run_dir / "out").mkdir()
+            (run_dir / "input" / "instance.json").write_text(
+                json.dumps({"instance_id": "instance_one"}),
+                encoding="utf-8",
+            )
+            (run_dir / "out" / "result.json").write_text(
+                json.dumps(
+                    {
+                        "model_patch": "diff --git a/collected b/collected\n",
+                        "model_submitted_patch": (
+                            "diff --git a/submitted b/submitted\n"
+                        ),
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            predictions = evaluate_predictions.predictions_from_run_dirs(
+                Path(tmp) / "runs",
+                run_id="run-1",
+                model_name="model-submitted",
+                dataset_name="ScaleAI/SWE-bench_Pro",
+                patch_field="model_submitted_patch",
+            )
+
+        self.assertEqual(predictions[0]["prefix"], "model-submitted")
+        self.assertEqual(
+            predictions[0]["patch"], "diff --git a/submitted b/submitted\n"
+        )
+
     def test_results_from_summary_accepts_pro_eval_results_map(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "eval_results.json"

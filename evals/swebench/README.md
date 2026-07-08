@@ -18,8 +18,10 @@ The adapter maps SWE-bench onto the generic `Suite` protocol (ADR generic-contai
   (`simple_agent_lab.evals.in_container` and
   `simple_agent_lab.evals.suites.swebench`): the SWE-bench container half builds
   the task, records the trajectory, and writes `result.json` with the final
-  `model_patch` (filtering generated files). Incremental traces for the host
-  viewer use the live-trace helpers in `simple_agent_lab.trace` — see
+  collected `model_patch` (filtering generated files) plus, when the model
+  followed the explicit `patch.txt` submission protocol, a separate
+  `model_submitted_patch`. Incremental traces for the host viewer use the
+  live-trace helpers in `simple_agent_lab.trace` — see
   `docs/agent-native/docker-live-trace.md`.
 - `evaluate_predictions.py` collects per-run `result.json` files into an official
   predictions JSONL (`--collect-predictions`) and runs or normalizes the official
@@ -208,7 +210,10 @@ The container half collects `model_patch` from a staged git diff after
 installing SWALM-style generated-file ignore rules in `.git/info/exclude`; this
 keeps build artifacts such as `build/`, `dist/`, `node_modules/`, and compiled
 language outputs out of the prediction without adding a `.gitignore` change to
-the patch.
+the patch. It also asks the model to create and inspect `patch.txt`, then submit
+it with `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat patch.txt`. That
+model-authored patch is stored separately as `model_submitted_patch`, so one run
+can be scored twice to compare patch extraction methods.
 
 Prepare provider wheels once on the host:
 
@@ -306,8 +311,9 @@ environment via the container-half `evaluate` hook (graded host-side with
 Outputs land under `evals/out/swebench/<run-id>/<instance-id>/out/`:
 
 - `trajectory.jsonl`: full agent trajectory (messages, events, model turns).
-- `result.json`: the run's `model_patch` (plus the in-environment verdict when
-  `--in-env-scoring` is set).
+- `result.json`: the run's collected `model_patch`, optional
+  `model_submitted_patch`, and any in-environment verdict when
+  `--in-env-scoring` is set.
 
 The official judge runs in a separate clean container. First collect the per-run
 `result.json` files into an official predictions JSONL (the batch scripts do
@@ -318,7 +324,20 @@ uv run python evals/swebench/evaluate_predictions.py --collect-predictions \
   --run-root evals/out/swebench --run-id my-run \
   --dataset-name princeton-nlp/SWE-bench_Verified \
   --model-name simple-agent-lab \
+  --patch-field model_patch \
   --predictions evals/out/swebench/my-run_predictions.jsonl
+```
+
+For SWE-bench Pro, collect the submitted-patch predictions from the same run by
+switching only the patch field and output path:
+
+```bash
+uv run python evals/swebench/evaluate_predictions.py --collect-predictions \
+  --run-root evals/out/swebench_pro --run-id my-pro-run \
+  --dataset-name ScaleAI/SWE-bench_Pro \
+  --model-name simple-agent-lab-pro-submitted-patch \
+  --patch-field model_submitted_patch \
+  --predictions evals/out/swebench_pro/my-pro-run_submitted_patch_predictions.jsonl
 ```
 
 then grade that file with the official harness (see below).
