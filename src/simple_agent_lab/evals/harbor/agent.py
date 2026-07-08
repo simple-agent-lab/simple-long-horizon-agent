@@ -231,9 +231,9 @@ import os
 import sysconfig
 from pathlib import Path
 
-source = Path(os.environ["SAL_SOURCE_TARGET"])
+source = Path(os.environ["SAL_SOURCE_TARGET"])  # env-ok: shell-to-Python install handoff
 pyproject = source / "pyproject.toml"
-requirements = Path(os.environ["SAL_RUNTIME_REQUIREMENTS"])
+requirements = Path(os.environ["SAL_RUNTIME_REQUIREMENTS"])  # env-ok: shell-to-Python install handoff
 
 try:
     import tomllib

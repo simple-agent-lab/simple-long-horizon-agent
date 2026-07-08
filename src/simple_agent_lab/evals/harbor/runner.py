@@ -46,6 +46,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--api-kind",
         choices=API_KIND_CHOICES,
+        # env-ok: CLI default mirrors API_KIND for the Harbor in-container entrypoint
         default=os.environ.get(API_KIND_ENV, DEFAULT_API_KIND),
     )
     parser.add_argument("--trace-id", default="harbor.simple-agent-lab")
