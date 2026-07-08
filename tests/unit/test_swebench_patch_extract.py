@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from simple_agent_lab.evals.in_container import _memory_artifact_builder
 from simple_agent_lab.evals.suites.swebench import container as swebench_container
 from simple_agent_lab.evals.suites.swebench.patch import (
     git_diff,
@@ -12,7 +13,12 @@ from simple_agent_lab.evals.suites.swebench.patch import (
     instance_language,
     prepare_baseline_commit,
 )
-from simple_agent_lab.messages import ToolResultBlock, tool_results_message
+from simple_agent_lab.memory import FilesystemMemory, MemoryContext
+from simple_agent_lab.messages import (
+    ToolResultBlock,
+    tool_results_message,
+    user_message,
+)
 from simple_agent_lab.state import State
 
 
@@ -229,6 +235,98 @@ class SwebenchPatchExtractTest(unittest.TestCase):
         )
         self.assertEqual(instance_base_commit({"base_commit": "abc123"}), "abc123")
         self.assertEqual(instance_base_commit({"base": {"sha": "def456"}}), "def456")
+
+
+class SwebenchMemoryArtifactsTest(unittest.TestCase):
+    def test_memory_artifacts_returns_collected_solution_patch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = _init_repo(Path(tmp))
+            (repo / "app.py").write_text("value = 1\n", encoding="utf-8")
+            _git(repo, "add", ".")
+            _git(repo, "commit", "-m", "base")
+            base = _git(repo, "rev-parse", "HEAD").stdout.strip()
+            (repo / "app.py").write_text("value = 2\n", encoding="utf-8")
+
+            artifacts = swebench_container.memory_artifacts(
+                repo,
+                {"repo": "acme/widgets"},
+                context={"language": "python", "baseline_commit": base},
+            )
+
+        self.assertEqual(
+            [artifact.name for artifact in artifacts], ["model_patch.diff"]
+        )
+        self.assertIn("diff --git a/app.py b/app.py", artifacts[0].content)
+        self.assertIn("+value = 2", artifacts[0].content)
+
+    def test_memory_artifacts_empty_when_workspace_unchanged(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = _init_repo(Path(tmp))
+            (repo / "app.py").write_text("value = 1\n", encoding="utf-8")
+            _git(repo, "add", ".")
+            _git(repo, "commit", "-m", "base")
+            base = _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+            artifacts = swebench_container.memory_artifacts(
+                repo,
+                {"repo": "acme/widgets"},
+                context={"language": "python", "baseline_commit": base},
+            )
+
+        self.assertEqual(artifacts, ())
+
+    def test_solution_patch_lands_in_filesystem_memory_run(self) -> None:
+        """End-to-end: the patch reaches runs/<id>/artifacts via the real hook.
+
+        Uses the generic runner's ``_memory_artifact_builder`` (the same path
+        ``in_container`` wires) so this locks that a memory-chain run persists the
+        model's diff, not just a transcript.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            _init_repo(repo)
+            (repo / "app.py").write_text("value = 1\n", encoding="utf-8")
+            _git(repo, "add", ".")
+            _git(repo, "commit", "-m", "base")
+            base = _git(repo, "rev-parse", "HEAD").stdout.strip()
+            (repo / "app.py").write_text("value = 2\n", encoding="utf-8")
+
+            builder = _memory_artifact_builder(
+                swebench_container,
+                workdir=repo,
+                instance={"repo": "acme/widgets"},
+                context={"language": "python", "baseline_commit": base},
+            )
+            self.assertIsNotNone(builder)
+
+            mem_root = Path(tmp) / "memory"
+            memory = FilesystemMemory(
+                root=mem_root, distiller=None, artifact_builder=builder
+            )
+            state = State("Fix the off-by-one bug.")
+            state.record(
+                user_message(
+                    "Fix the off-by-one bug.",
+                    target="swebench_agent",
+                    kind="task",
+                )
+            )
+            ctx = MemoryContext(
+                agent="swebench_agent",
+                task="Fix the off-by-one bug.",
+                run_id="001_acme__widgets-a1",
+                memory_name="acme-chain",
+                state=state,
+            )
+            memory.finish(ctx)
+
+            run_dir = mem_root / "acme-chain" / "runs" / "001_acme__widgets-a1"
+            patch_file = run_dir / "artifacts" / "model_patch.diff"
+            self.assertTrue(patch_file.is_file())
+            self.assertIn("diff --git a/app.py b/app.py", patch_file.read_text())
+            self.assertIn("model_patch.diff", (run_dir / "artifacts.md").read_text())
 
 
 def _init_repo(path: Path) -> Path:

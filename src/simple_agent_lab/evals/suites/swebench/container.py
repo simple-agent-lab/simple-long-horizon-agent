@@ -17,6 +17,10 @@ SWE-bench-specific and runs *inside* the image:
   eval script in the run environment and captures its log into ``result.json``;
   the host turns that into a verdict via `evaluate_predictions.reuse_eval_row`
   (the official grader needs the gold test spec, which lives host-side).
+- `memory_artifacts(workspace, instance, *, context)` — optional: the raw
+  products to keep in filesystem memory. Returns the collected solution patch as
+  ``model_patch.diff`` so a memory chain carries how each issue was actually
+  solved (only wired for the memory-chain experiment; no-op without memory).
 - `agent_spec()` / `build_agent()` — the single agent seam, selected by one
   ``AGENT_FLAVOR`` env var. Simple flavors (``bash`` | ``bash_task`` |
   ``bash_task_read`` | ``bash_skills``) are built by the generic runner's
@@ -49,7 +53,7 @@ import os
 import subprocess
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import simple_agent_lab.config as config
 from simple_agent_lab.agent_flavors import (
@@ -79,6 +83,9 @@ from .patch import (
     prepare_baseline_commit,
     update_info_exclude,
 )
+
+if TYPE_CHECKING:
+    from simple_agent_lab.memory import FilesystemArtifact
 
 # Back-compatible flavor-name aliases for older scripts/tests. The source of
 # truth lives in `simple_agent_lab.agent_flavors`.
@@ -365,6 +372,21 @@ def apply_oracle(workspace: Path, instance: Mapping[str, Any]) -> None:
         )
 
 
+def _collected_patch(
+    workspace: Path, instance: Mapping[str, Any], context: Mapping[str, Any]
+) -> str:
+    """The workspace git diff scored as ``model_patch`` (language-aware ignores).
+
+    Shared by ``extract_result`` and ``memory_artifacts`` so the patch stored in
+    filesystem memory is exactly the patch used for scoring.
+    """
+
+    record = dict(instance)
+    language = str(context.get("language") or instance_language(record))
+    commit = context.get("baseline_commit") or instance_base_commit(record)
+    return git_diff(Path(workspace), language=language, commit=commit)
+
+
 def extract_result(
     workspace: Path,
     instance: Mapping[str, Any],
@@ -385,10 +407,7 @@ def extract_result(
     """
 
     context = context or {}
-    record = dict(instance)
-    language = str(context.get("language") or instance_language(record))
-    commit = context.get("baseline_commit") or instance_base_commit(record)
-    collected = git_diff(Path(workspace), language=language, commit=commit)
+    collected = _collected_patch(Path(workspace), instance, context)
     submitted, submitted_source = _submitted_patch(Path(workspace), state=state)
     return {
         "model_patch": collected,
@@ -396,6 +415,37 @@ def extract_result(
         "model_submitted_patch": submitted,
         "model_submitted_patch_source": submitted_source,
     }
+
+
+def memory_artifacts(
+    workspace: Path,
+    instance: Mapping[str, Any],
+    *,
+    context: Mapping[str, Any] | None = None,
+) -> tuple[FilesystemArtifact, ...]:
+    """Store the model's solution patch as filesystem-memory evidence.
+
+    The generic runner calls this at memory ``finish()`` (SESSION_END), before
+    ``extract_result`` runs, while the edited workspace still exists. It returns
+    the collected workspace diff — the same ``model_patch`` used for scoring — as
+    ``model_patch.diff`` so a later issue in the same memory chain can read how
+    this one was actually solved, and so the run-end distiller sees the concrete
+    change instead of only the transcript. An empty diff yields no artifact:
+    there is nothing durable to keep, and a "no memory update" result is fine.
+    """
+
+    from simple_agent_lab.memory import FilesystemArtifact
+
+    patch = _collected_patch(Path(workspace), instance, context or {})
+    if not patch.strip():
+        return ()
+    return (
+        FilesystemArtifact(
+            name="model_patch.diff",
+            content=patch,
+            description="Collected workspace diff (the model's solution patch).",
+        ),
+    )
 
 
 def evaluate(
