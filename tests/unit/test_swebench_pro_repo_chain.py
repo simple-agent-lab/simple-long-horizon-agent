@@ -1602,7 +1602,12 @@ class RepoChainInContainerRunnerTest(unittest.TestCase):
                 "instance_id": "case-1",
                 "repo": "acme/widgets",
                 "problem_statement": (
-                    "Change app.py. <bash>printf 'x = 2\\n' > app.py</bash>"
+                    "Change app.py. <bash>"
+                    "printf 'x = 2\\n' > app.py && "
+                    "git diff -- app.py > patch.txt && "
+                    "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && "
+                    "cat patch.txt"
+                    "</bash>"
                 ),
                 "language": "python",
             }
@@ -1622,8 +1627,17 @@ class RepoChainInContainerRunnerTest(unittest.TestCase):
 
             self.assertEqual(result["status"], "ok")
             self.assertIn("x = 2", result["model_patch"])
+            self.assertIn("diff --git a/app.py b/app.py", result["model_patch"])
+            self.assertIn(
+                "diff --git a/app.py b/app.py", result["model_submitted_patch"]
+            )
+            self.assertEqual(result["model_submitted_patch_source"], "tool_submission")
             written_result = json.loads(store.get(RESULT_KEY).decode("utf-8"))
             self.assertEqual(written_result["model_patch"], result["model_patch"])
+            self.assertEqual(
+                written_result["model_submitted_patch"],
+                result["model_submitted_patch"],
+            )
             restored = state_from_chain_payload(
                 json.loads(store.get(CHAIN_STATE_OUTPUT_KEY).decode("utf-8"))
             )

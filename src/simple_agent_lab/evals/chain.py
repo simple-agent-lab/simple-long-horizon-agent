@@ -756,7 +756,11 @@ def run_chain_in_container(
         if status == "ok":
             extract = tasks.extract_result
             result_product = dict(
-                extract(workdir, instance, **_context_kwargs(extract, context))
+                extract(
+                    workdir,
+                    instance,
+                    **_context_kwargs(extract, context, state=state),
+                )
             )
     except Exception as exc:
         status = "error"
@@ -1558,9 +1562,18 @@ def _chain_display_name(config: Mapping[str, Any]) -> str:
 
 
 def _context_kwargs(
-    fn: Callable[..., Any], context: Mapping[str, Any]
+    fn: Callable[..., Any],
+    context: Mapping[str, Any],
+    *,
+    state: State | None = None,
 ) -> dict[str, Any]:
-    return {"context": context} if "context" in inspect.signature(fn).parameters else {}
+    parameters = inspect.signature(fn).parameters
+    kwargs: dict[str, Any] = {}
+    if "context" in parameters:
+        kwargs["context"] = context
+    if state is not None and "state" in parameters:
+        kwargs["state"] = state
+    return kwargs
 
 
 def _task_tool_error_texts(event: Any) -> list[str]:
