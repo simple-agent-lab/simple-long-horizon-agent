@@ -47,6 +47,9 @@ evals/out/onemillion/*
 !evals/out/programbench/
 evals/out/programbench/*
 !evals/out/programbench/README.md
+!evals/out/harbor/
+evals/out/harbor/*
+!evals/out/harbor/README.md
 logs/
 .tmp/
 

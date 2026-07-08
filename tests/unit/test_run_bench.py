@@ -34,6 +34,7 @@ EXPECTED_BENCHES = {
     "swebench",
     "programbench",
     "onemillion",
+    "harbor",
 }
 
 
@@ -48,6 +49,7 @@ class RunBenchRegistryTest(unittest.TestCase):
     def test_docker_benches_are_flagged(self) -> None:
         self.assertTrue(run_bench.BENCHES["swebench"].needs_docker)
         self.assertTrue(run_bench.BENCHES["programbench"].needs_docker)
+        self.assertTrue(run_bench.BENCHES["harbor"].needs_docker)
         self.assertFalse(run_bench.BENCHES["onemillion"].needs_docker)
 
     def test_benches_dir_and_registry_are_in_sync(self) -> None:

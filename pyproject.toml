@@ -49,6 +49,9 @@ mcp = [
     # CallToolResult.structuredContent, all of which the integration uses.
     "mcp>=1.10.0",
 ]
+harbor = [
+    "harbor>=0.17.1; python_version >= '3.12'",
+]
 
 [project.urls]
 Homepage = "https://github.com/simple-agent-lab/simple-agent-lab"
