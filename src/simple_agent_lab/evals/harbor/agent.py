@@ -39,6 +39,7 @@ REMOTE_INSTRUCTION_PATH = f"{REMOTE_AGENT_DIR}/sal-instruction.txt"
 REMOTE_OUTPUT_PATH = f"{REMOTE_AGENT_DIR}/simple-agent-lab.txt"
 REMOTE_SOURCE_ARCHIVE_PATH = "/tmp/simple-agent-lab-src.tar.gz"
 REMOTE_SOURCE_DIR = "/tmp/simple-agent-lab-src"
+REMOTE_RUNTIME_REQUIREMENTS_PATH = "/tmp/simple-agent-lab-runtime-requirements.txt"
 DEFAULT_VENV_PATH = "/opt/simple-agent-lab-venv"
 DEFAULT_SAL_PACKAGE = "simple-agent-lab"
 _SOURCE_ROOT_FILES = ("pyproject.toml", "README.md", "LICENSE")
@@ -141,7 +142,7 @@ fi
 if ldd --version 2>&1 | grep -qi musl || [ -f /etc/alpine-release ]; then
   apk add --no-cache python3 py3-pip py3-virtualenv curl ca-certificates bash
 elif command -v apt-get >/dev/null 2>&1; then
-  apt-get update && apt-get install -y python3 python3-pip python3-venv curl ca-certificates
+  apt-get update && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates
 elif command -v yum >/dev/null 2>&1; then
   yum install -y python3 python3-pip curl ca-certificates
 elif command -v dnf >/dev/null 2>&1; then
@@ -210,20 +211,89 @@ def build_sal_package_install_command(
     *,
     venv_path: str = DEFAULT_VENV_PATH,
     install_target: str,
+    local_source: bool = False,
 ) -> str:
     """Build the command that installs SAL into the prepared runtime venv."""
 
     quoted_venv = shlex.quote(venv_path)
     quoted_target = shlex.quote(install_target)
+    quoted_requirements = shlex.quote(REMOTE_RUNTIME_REQUIREMENTS_PATH)
+    python = f"{quoted_venv}/bin/python"
+    if local_source:
+        return f"""
+set -euo pipefail
+{_PATH_SETUP}
+SAL_SOURCE_TARGET={quoted_target}
+SAL_RUNTIME_REQUIREMENTS={quoted_requirements}
+export SAL_SOURCE_TARGET SAL_RUNTIME_REQUIREMENTS
+{python} - <<'PY'
+import os
+import sysconfig
+from pathlib import Path
+
+source = Path(os.environ["SAL_SOURCE_TARGET"])
+pyproject = source / "pyproject.toml"
+requirements = Path(os.environ["SAL_RUNTIME_REQUIREMENTS"])
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    tomllib = None
+
+if tomllib is not None:
+    deps = tomllib.loads(pyproject.read_text(encoding="utf-8")).get("project", {{}}).get("dependencies", [])
+else:
+    deps = []
+    in_project = False
+    in_dependencies = False
+    for raw_line in pyproject.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if line.startswith("[") and line.endswith("]"):
+            in_project = line == "[project]"
+            in_dependencies = False
+            continue
+        if not in_project:
+            continue
+        if not in_dependencies and line.startswith("dependencies"):
+            _key, _sep, value = line.partition("=")
+            value = value.strip()
+            if value == "[":
+                in_dependencies = True
+                continue
+        if in_dependencies:
+            if line.startswith("]"):
+                break
+            item = line.split("#", 1)[0].rstrip(",").strip().strip("'\\\"")
+            if item:
+                deps.append(item)
+
+requirements.write_text("\\n".join(deps) + ("\\n" if deps else ""), encoding="utf-8")
+
+site_packages = Path(sysconfig.get_paths()["purelib"])
+site_packages.mkdir(parents=True, exist_ok=True)
+(site_packages / "simple-agent-lab-source.pth").write_text(
+    str(source / "src") + "\\n",
+    encoding="utf-8",
+)
+PY
+if [ -s {quoted_requirements} ]; then
+  if command -v uv >/dev/null 2>&1; then
+    uv pip install --python {python} -r {quoted_requirements}
+  else
+    {python} -m pip install --disable-pip-version-check --no-input -r {quoted_requirements}
+  fi
+fi
+{python} -c {shlex.quote(_SAL_IMPORT_CHECK)}
+""".strip()
     return f"""
 set -euo pipefail
 {_PATH_SETUP}
 if command -v uv >/dev/null 2>&1; then
-  uv pip install --python {quoted_venv}/bin/python {quoted_target}
+  uv pip install --python {python} {quoted_target}
 else
-  {quoted_venv}/bin/python -m pip install --disable-pip-version-check --no-input {quoted_target}
+  {python} -m pip install --disable-pip-version-check --no-input {quoted_target}
 fi
-{quoted_venv}/bin/python -c {shlex.quote(_SAL_IMPORT_CHECK)}
+{python} -c {shlex.quote(_SAL_IMPORT_CHECK)}
 """.strip()
 
 
@@ -395,6 +465,7 @@ else:
                 build_sal_package_install_command(
                     venv_path=self._venv_path,
                     install_target=install_target,
+                    local_source=source_root is not None,
                 ),
                 env=setup_env or None,
                 timeout_sec=self._install_timeout_sec,

@@ -100,6 +100,11 @@ class HarborAgentOptionalImportTest(unittest.TestCase):
         self.assertIn("yum install -y", command)
         self.assertIn("dnf install -y", command)
         self.assertIn("ca-certificates", command)
+        self.assertIn("apt-get install -y --no-install-recommends", command)
+        apt_line = next(
+            line for line in command.splitlines() if "apt-get install" in line
+        )
+        self.assertNotIn("python3-pip", apt_line)
         self.assertIn("Warning: No known package manager found", command)
         self.assertNotIn("apt-get update -qq", command)
 
@@ -127,6 +132,30 @@ class HarborAgentOptionalImportTest(unittest.TestCase):
         self.assertIn("/opt/simple-agent-lab-venv/bin/python -m pip install", command)
         self.assertIn("import simple_agent_lab.evals.harbor.runner", command)
         self.assertNotIn("astral.sh/uv", command)
+
+    def test_local_source_install_uses_pth_instead_of_building_source(self) -> None:
+        module = importlib.import_module("simple_agent_lab.evals.harbor.agent")
+        command = module.build_sal_package_install_command(
+            venv_path="/opt/simple-agent-lab-venv",
+            install_target="/tmp/simple-agent-lab-src",
+            local_source=True,
+        )
+
+        self.assertIn('source / "pyproject.toml"', command)
+        self.assertIn("/tmp/simple-agent-lab-runtime-requirements.txt", command)
+        self.assertIn("-r /tmp/simple-agent-lab-runtime-requirements.txt", command)
+        self.assertIn('sysconfig.get_paths()["purelib"]', command)
+        self.assertIn("simple-agent-lab-source.pth", command)
+        self.assertIn('source / "src"', command)
+        self.assertNotIn(
+            "pip install --disable-pip-version-check --no-input /tmp/simple-agent-lab-src",
+            command,
+        )
+        self.assertNotIn(
+            "uv pip install --python /opt/simple-agent-lab-venv/bin/python /tmp/simple-agent-lab-src",
+            command,
+        )
+        self.assertIn("import simple_agent_lab.evals.harbor.runner", command)
 
     def test_install_uses_layered_bootstrap_sequence(self) -> None:
         module = importlib.import_module("simple_agent_lab.evals.harbor.agent")
@@ -163,6 +192,9 @@ class HarborAgentOptionalImportTest(unittest.TestCase):
             any("apt-get update && apt-get install" in command for command in commands)
         )
         self.assertTrue(any(" -m pip install" in command for command in commands))
+        self.assertTrue(
+            any("simple-agent-lab-source.pth" in command for command in commands)
+        )
         self.assertFalse(any("apt-get update -qq" in command for command in commands))
         self.assertEqual(1, len(environment.uploads))
 
