@@ -65,7 +65,7 @@ DEFAULT_PRESERVE_KINDS: tuple[MessageKind, ...] = (
     "system",
     "context",
 )
-DEFAULT_MODEL_NAME = "simple-agent-lab-pro-repo-chain-goal-bash-none"
+DEFAULT_MODEL_NAME = "simple-agent-lab-pro-repo-chain-bash-none"
 
 _CONTAINER_ATTACH_MIME_BY_SUFFIX: dict[str, str] = {
     ".png": "image/png",
@@ -390,7 +390,7 @@ class ProRepoExperimentConfig:
     threshold_tokens: int = DEFAULT_THRESHOLD_TOKENS
     keep_recent: int = DEFAULT_KEEP_RECENT
     preserve_kinds: tuple[MessageKind, ...] = DEFAULT_PRESERVE_KINDS
-    agent_flavor: str = "goal"
+    agent_flavor: str = "bash"
     solver_read: bool = False
     task_tool: bool = False
     compression_strategy: str = "none"

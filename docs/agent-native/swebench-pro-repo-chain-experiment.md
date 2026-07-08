@@ -18,10 +18,10 @@ or context handling are variables of this runner, not separate host scripts.
 The supported comparison modes are:
 
 - `--agent-flavor {bash,loop,goal,pdr}`: selects the chain agent. The default
-  `goal` flavor maps to the current `thread_goal_loop`; non-goal flavors are
-  valid repo-chain baselines. In a repo chain the `goal` flavor reuses that same
-  loop but is seeded with the shared chain state, so it inherits earlier
-  instances' context (see "Goal Flavor In A Chain").
+  `bash` flavor is the plain bash-tool agent. The `goal` flavor maps to the
+  current `thread_goal_loop`; in a repo chain it reuses that same loop but is
+  seeded with the shared chain state, so it inherits earlier instances' context
+  (see "Goal Flavor In A Chain").
 - `--compression-strategy none`: the default; no context summarization. Long
   chains stay under the window through handoff instead (see "Handoff").
 - `--compression-strategy summarize`: turns on chain compression
@@ -35,8 +35,8 @@ The supported comparison modes are:
   control tools.
 
 When `--run-id` is omitted, the runner derives a timestamped prefix from the
-selected variables, such as `pro-repo-chain-none-*` (default goal + none),
-`pro-repo-chain-summarize-*`, or `pro-repo-chain-bash-task-none-*`.
+selected variables, such as `pro-repo-chain-none-*` (default bash + none),
+`pro-repo-chain-summarize-*`, or `pro-repo-chain-goal-task-none-*`.
 
 ## Objective
 
@@ -44,13 +44,13 @@ Evaluate Simple Agent Lab long repo chains on SWE-bench Pro by running each
 planned repository part as a long-lived agent chain. Instances within a
 repository are ordered by `base_commit` commit timestamp so earlier repository
 context can carry into later tasks. The default variable set studies
-`agent_flavor=goal`, `compression_strategy=none`, and `task_tool=false`;
-the runner also supports non-goal agent flavors, `summarize` compression, and
-task-tool delegation. The four planned baselines are bash, bash + goal,
-bash + goal + compression (`--compression-strategy summarize`), and
-bash + goal + task (`--task-tool`). The three non-compression baselines keep
-long chains under the context window with handoff (default on); only the
-compression baseline uses `summarize` (which turns handoff off).
+`agent_flavor=bash`, `compression_strategy=none`, and `task_tool=false`;
+the runner also supports goal-loop flavors, `summarize` compression, and
+task-tool delegation. Common baselines are bash, goal (`--agent-flavor goal`),
+goal + compression (`--agent-flavor goal --compression-strategy summarize`),
+and goal + task (`--agent-flavor goal --task-tool`). The non-compression
+baselines keep long chains under the context window with handoff (default on);
+compression arms use `summarize` (which turns handoff off).
 
 ## Container-Inside Migration Checklist
 
@@ -87,8 +87,9 @@ compression baseline uses `summarize` (which turns handoff off).
 ## Agent And Model
 
 - Agent selection: `--agent-flavor` controls the chain agent. The default
-  `goal` flavor maps to `thread_goal_loop`; `bash`, `loop`, and `pdr` are also
-  supported no-read repo-chain flavors.
+  `bash` flavor is the plain bash-tool agent; `goal` maps to
+  `thread_goal_loop`; `loop` and `pdr` are also supported no-read repo-chain
+  flavors.
 - Tools: repo-chain flavors intentionally exclude the dedicated `read` tool.
   The baseline tool surface is bash. `--task-tool` adds the task tool to the
   selected chain agent or workflow solver.
@@ -374,12 +375,13 @@ uv run --extra swebench python runs/swebench/run_swebench_pro_repo_chains.py \
   --run-official-eval
 ```
 
-This default command runs the `goal` flavor with no chain compression
-(`--compression-strategy none`). Add `--compression-strategy summarize` for the
-compression baseline, or `--task-tool` for the task-delegation baseline. For the
-`goal` flavor, `--max-turns` sets the goal worker budget
-(`SAL_WORKFLOW_WORKER_MAX_TURNS`) and the outer loop defaults to a single segment
-(`SAL_WORKFLOW_LOOP_MAX_TURNS=1`); see "Goal Flavor In A Chain".
+This default command runs the `bash` flavor with no chain compression
+(`--compression-strategy none`). Add `--agent-flavor goal` for the goal-loop
+baseline, `--agent-flavor goal --compression-strategy summarize` for the
+goal compression baseline, or `--agent-flavor goal --task-tool` for the goal
+task-delegation baseline. For the `goal` flavor, `--max-turns` sets the goal
+worker budget (`SAL_WORKFLOW_WORKER_MAX_TURNS`) and the outer loop defaults to a
+single segment (`SAL_WORKFLOW_LOOP_MAX_TURNS=1`); see "Goal Flavor In A Chain".
 
 Full trajectories are written by default. Pass `--no-write-trajectories` only
 when storage cost is unacceptable; long repo chains can grow to hundreds of GB

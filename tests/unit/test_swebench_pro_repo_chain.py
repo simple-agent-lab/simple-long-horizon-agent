@@ -136,7 +136,7 @@ class SwebenchProRepoChainPlanningTest(unittest.TestCase):
         self.assertEqual(config.threshold_tokens, 217_600)
         self.assertEqual(config.keep_recent, 4)
         self.assertEqual(config.max_turns, 250)
-        self.assertEqual(config.agent_flavor, "goal")
+        self.assertEqual(config.agent_flavor, "bash")
         self.assertEqual(config.solver_read, False)
         self.assertEqual(config.task_tool, False)
         self.assertEqual(config.compression_strategy, "none")
@@ -205,7 +205,7 @@ class SwebenchProRepoChainPlanningTest(unittest.TestCase):
         )
         config = _experiment_config_from_args(args, api_kind="openai-responses")
 
-        self.assertEqual(config.agent_flavor, "goal")
+        self.assertEqual(config.agent_flavor, "bash")
         self.assertTrue(config.task_tool)
 
     def test_repo_chain_runner_accepts_non_goal_agent_flavor(
@@ -258,18 +258,18 @@ class SwebenchProRepoChainPlanningTest(unittest.TestCase):
         chain_config = _experiment_config_from_args(
             chain_args, api_kind="openai-responses"
         )
-        bash_args = build_parser().parse_args(
+        goal_args = build_parser().parse_args(
             [
                 "--all",
                 "--agent-flavor",
-                "bash",
+                "goal",
                 "--compression-strategy",
                 "none",
                 "--task-tool",
             ]
         )
-        bash_config = _experiment_config_from_args(
-            bash_args, api_kind="openai-responses"
+        goal_config = _experiment_config_from_args(
+            goal_args, api_kind="openai-responses"
         )
 
         self.assertEqual(
@@ -281,8 +281,8 @@ class SwebenchProRepoChainPlanningTest(unittest.TestCase):
             "pro-repo-chain-task-none-20260630-123456",
         )
         self.assertEqual(
-            _resolve_run_id(bash_args.run_id, bash_config, now=now),
-            "pro-repo-chain-bash-task-none-20260630-123456",
+            _resolve_run_id(goal_args.run_id, goal_config, now=now),
+            "pro-repo-chain-goal-task-none-20260630-123456",
         )
         self.assertEqual(
             _resolve_run_id("manual-run", chain_config, now=now), "manual-run"
@@ -314,6 +314,10 @@ class SwebenchProRepoChainPlanningTest(unittest.TestCase):
             bash_args, api_kind="openai-responses"
         )
 
+        self.assertEqual(
+            DEFAULT_MODEL_NAME,
+            "simple-agent-lab-pro-repo-chain-bash-none",
+        )
         self.assertEqual(default_config.model_name, DEFAULT_MODEL_NAME)
         self.assertEqual(
             bash_config.model_name,
@@ -477,7 +481,9 @@ class SwebenchProRepoChainPlanningTest(unittest.TestCase):
             build_parser,
         )
 
-        args = build_parser().parse_args(["--all", "--max-turns", "250"])
+        args = build_parser().parse_args(
+            ["--all", "--agent-flavor", "goal", "--max-turns", "250"]
+        )
 
         with patch.dict(os.environ, {}, clear=True):
             _apply_provider_env_overrides(args)
@@ -491,7 +497,9 @@ class SwebenchProRepoChainPlanningTest(unittest.TestCase):
             build_parser,
         )
 
-        args = build_parser().parse_args(["--all", "--max-turns", "120"])
+        args = build_parser().parse_args(
+            ["--all", "--agent-flavor", "goal", "--max-turns", "120"]
+        )
 
         with patch.dict(
             os.environ,
@@ -583,7 +591,7 @@ class SwebenchProRepoChainPlanningTest(unittest.TestCase):
         self.assertEqual(payload["part_index"], 1)
         self.assertEqual(payload["part_count"], 2)
         self.assertEqual(payload["provider_auth_env"], "OPENAI_AUTH_TOKEN2")
-        self.assertEqual(payload["config"]["agent_flavor"], "goal")
+        self.assertEqual(payload["config"]["agent_flavor"], "bash")
         self.assertEqual(payload["config"]["solver_read"], False)
         self.assertEqual(payload["config"]["task_tool"], False)
         self.assertEqual(payload["config"]["threshold_tokens"], 123)
@@ -619,7 +627,7 @@ class SwebenchProRepoChainPlanningTest(unittest.TestCase):
         self.assertEqual(payload["config"]["solver_read"], False)
         self.assertEqual(payload["config"]["task_tool"], False)
 
-    def test_chain_config_payload_records_goal_bash_only_defaults(
+    def test_chain_config_payload_records_bash_only_defaults(
         self,
     ) -> None:
         from evals.swebench.pro_repo_chain import (
@@ -648,7 +656,7 @@ class SwebenchProRepoChainPlanningTest(unittest.TestCase):
         )
 
         self.assertEqual(payload["mode"], "repo_chain")
-        self.assertEqual(payload["config"]["agent_flavor"], "goal")
+        self.assertEqual(payload["config"]["agent_flavor"], "bash")
         self.assertEqual(payload["config"]["solver_read"], False)
         self.assertEqual(payload["config"]["task_tool"], False)
 
@@ -730,7 +738,7 @@ class SwebenchProRepoChainPlanningTest(unittest.TestCase):
                 config=config,
             )
 
-        self.assertEqual(manifest["config"]["agent_flavor"], "goal")
+        self.assertEqual(manifest["config"]["agent_flavor"], "bash")
         self.assertEqual(manifest["config"]["compression_strategy"], "none")
         self.assertEqual(manifest["config"]["task_tool"], True)
 

@@ -7,10 +7,10 @@ task's SWE-bench Pro instance container. The host only plans chain parts, stages
 chain artifacts, launches containers through the generic eval backend, and
 passes ``out/chain_state.json`` from one instance to the next.
 
-The default flavor is ``goal`` (the current thread-goal loop) with bash-only
-solver tools and no chain compression. Use ``--agent-flavor`` to select
-another no-read repo-chain flavor, ``--task-tool`` to add the task tool, and
-``--compression-strategy summarize`` to turn on chain compression.
+The default flavor is ``bash`` with no chain compression. Use
+``--agent-flavor goal`` to select the current thread-goal loop,
+``--task-tool`` to add the task tool, and ``--compression-strategy summarize``
+to turn on chain compression.
 
 Example smoke:
 
@@ -492,6 +492,8 @@ def _experiment_config_from_args(
 def _model_name_for_mode(
     *, agent_flavor: str, compression_strategy: str, task_tool: bool
 ) -> str:
+    if agent_flavor == "bash" and not task_tool:
+        return f"simple-agent-lab-pro-repo-chain-bash-{compression_strategy}"
     task = "task" if task_tool else "bash"
     return (
         f"simple-agent-lab-pro-repo-chain-{agent_flavor}-{task}-{compression_strategy}"
@@ -508,7 +510,7 @@ def _resolve_run_id(
     if explicit:
         return explicit
     compression = "summarize" if config.compression_strategy == "summarize" else "none"
-    agent = "" if config.agent_flavor == "goal" else f"-{config.agent_flavor}"
+    agent = "" if config.agent_flavor == "bash" else f"-{config.agent_flavor}"
     task = "-task" if config.task_tool else ""
     prefix = f"pro-repo-chain{agent}{task}-{compression}"
     timestamp = (now or datetime.now()).strftime("%Y%m%d-%H%M%S")
@@ -895,7 +897,9 @@ def _run_repo(
             errors += 1
         if bool(result.get("handoff_written")):
             handoffs_total += 1
-        mid_instance_handoffs_total += int(result.get("context_window_handoffs", 0) or 0)
+        mid_instance_handoffs_total += int(
+            result.get("context_window_handoffs", 0) or 0
+        )
         state_output = paths.output_dir / CHAIN_STATE_OUTPUT_KEY.split("/", 1)[1]
         if state_output.exists():
             chain_state_payload = _read_json(state_output)
