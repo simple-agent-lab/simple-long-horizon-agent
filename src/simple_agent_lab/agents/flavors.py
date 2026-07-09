@@ -58,8 +58,12 @@ from .starter import (
 
 # The threshold fallback used only when the provider's context window is
 # unknown, so it stays here with the logic that needs it rather than as an
-# env knob in `simple_agent_lab.config`.
-DEFAULT_AGENT_COMPRESSION_FALLBACK_THRESHOLD_TOKENS = 80_000
+# env knob in `simple_agent_lab.config`. Kept high on purpose: an unregistered
+# window should not trigger aggressive summarization far below a modern
+# large-window model's real capacity — better to under-compress than to fold
+# away working context when the window is merely unknown. Register the model in
+# `model_metadata.DEFAULT_CONTEXT_WINDOWS` (or a window book) for an exact value.
+DEFAULT_AGENT_COMPRESSION_FALLBACK_THRESHOLD_TOKENS = 400_000
 
 WorkflowRunner = Callable[[str], WorkflowResult]
 PrepareWorkflowWorkspace = Callable[[Path], None]

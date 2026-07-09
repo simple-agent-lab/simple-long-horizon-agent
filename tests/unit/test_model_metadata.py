@@ -117,6 +117,16 @@ class ContextWindowBookLookupTest(unittest.TestCase):
         self.assertEqual(book.window_for("anthropic/claude-sonnet-4-6"), 1_000_000)
         self.assertEqual(book.window_for("z-ai/glm-5.2"), 1_000_000)
         self.assertEqual(book.window_for("zhipuai/glm-5.2"), 1_000_000)
+        self.assertEqual(book.window_for("gpt-5.4"), 1_000_000)
+        self.assertEqual(book.window_for("gpt-5.5"), 1_000_000)
+        self.assertEqual(book.window_for("gpt-5.3-codex"), 1_000_000)
+        # The platform deployment id must resolve via substring match — this is
+        # exactly the id shape that previously missed and fell back to the fixed
+        # compression-threshold default.
+        self.assertEqual(
+            book.window_for("deployment-gpt-5.4-2026-03-05-platform-global"),
+            1_000_000,
+        )
 
     def test_dated_snapshot_resolves_to_alias(self) -> None:
         book = ContextWindowBook({"claude-sonnet-4-6": 200_000})

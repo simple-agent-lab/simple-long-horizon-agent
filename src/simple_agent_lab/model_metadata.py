@@ -229,6 +229,12 @@ DEFAULT_CONTEXT_WINDOWS: dict[str, int] = {
     "glm-5.2": 1_000_000,
     "z-ai/glm-5.2": 1_000_000,
     "zhipuai/glm-5.2": 1_000_000,
+    # OpenAI GPT-5.x. Keys are substrings of the platform deployment ids
+    # (e.g. "deployment-gpt-5.4-2026-03-05-platform-global"), so `window_for`'s
+    # alias/substring match resolves them.
+    "gpt-5.3-codex": 1_000_000,
+    "gpt-5.4": 1_000_000,
+    "gpt-5.5": 1_000_000,
 }
 
 
