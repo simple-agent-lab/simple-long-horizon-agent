@@ -33,21 +33,19 @@ class SwebenchPatchExtractTest(unittest.TestCase):
             workdir="/app",
         )
 
-        self.assertIn(
-            "Before each bash call, briefly state what you are checking or changing.",
-            task,
-        )
-        self.assertIn("Modify configuration or project metadata only", task)
-        self.assertIn(
-            "plus any\n   config or metadata files that the issue explicitly requires.",
-            task,
-        )
-        self.assertIn("If you modify\n`patch.txt` after inspecting it", task)
-        self.assertIn("After submitting, do not continue", task)
-        self.assertIn("<problem_statement>\nFix a parser edge case.", task)
-        self.assertIn("</problem_statement>", task)
-        self.assertIn("<requirements>\nKeep the public API stable.", task)
-        self.assertIn("<interface>\nNo new interface.", task)
+        self.assertIn("<pr_description>\nConsider the following PR description:", task)
+        self.assertIn("Fix a parser edge case.", task)
+        self.assertIn("## Requirements\nKeep the public API stable.", task)
+        self.assertIn("## Interface\nNo new interface.", task)
+        self.assertIn("</pr_description>", task)
+        self.assertIn("<instructions>\n# Task Instructions", task)
+        self.assertIn("Include a THOUGHT section", task)
+        self.assertIn("one or more bash tool calls", task)
+        self.assertIn("DO NOT MODIFY: Tests, lockfiles", task)
+        self.assertIn("project metadata", task)
+        self.assertIn("git diff -- path/to/file1 path/to/file2 > patch.txt", task)
+        self.assertIn("If you modify patch.txt after verifying", task)
+        self.assertIn("You CANNOT continue working", task)
 
     def test_git_diff_excludes_generated_build_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

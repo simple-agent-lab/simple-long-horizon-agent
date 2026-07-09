@@ -99,19 +99,8 @@ AGENT_ROLE = (
     "and focused tests, then submit the patch with the required marker command."
 )
 AGENT_SYSTEM_PROMPT = (
-    "You are a software engineer interacting with a repository "
-    "container through the bash tool. Each bash call runs in a fresh shell "
-    "rooted at the workspace, so include any cd or env setup in the command "
-    "and use non-interactive flags (`-y`, `--no-pager`, avoid `vi`/`nano`). "
-    "Independent read-only bash calls may run in parallel; never run parallel "
-    "writes against the same file. Before each bash call, briefly state what "
-    "you are checking or changing. Work from evidence: inspect, reproduce, "
-    "edit, verify — make a fix that is general and consistent with the "
-    "codebase. Keep command output focused: use targeted searches, `head`, "
-    "`tail`, `sed -n`, or redirect long output to a file and inspect relevant "
-    "slices. When the repository is patched, create and inspect `patch.txt`, "
-    "then submit it with the exact command in the task instructions. The "
-    "harness also collects the workspace git diff separately."
+    "You are a helpful assistant that can interact with a computer shell to "
+    "solve programming tasks."
 )
 
 
@@ -264,69 +253,149 @@ def build_task(instance: Mapping[str, Any], *, workdir: str) -> str:
     )
     requirements = _optional(instance.get("requirements"))
     interface = _optional(instance.get("interface"))
+    pr_description = [problem]
+    if requirements:
+        pr_description.extend(["", "## Requirements", requirements])
+    if interface:
+        pr_description.extend(["", "## Interface", interface])
     lines = [
-        "Solve this repository task.",
+        "<pr_description>",
+        "Consider the following PR description:",
+        "\n".join(pr_description),
+        "</pr_description>",
         "",
-        "## Environment",
-        "- You are running inside the repository container.",
-        f"- The bash tool runs locally in {workdir}.",
-        "- A full Linux shell is available; install missing tools only if strictly needed.",
-        "- Always pass non-interactive flags (`-y`, `--no-pager`); avoid editors that wait for input.",
-        "- Keep command output focused. If output may be long, use selective",
-        "  commands such as `head`, `tail`, `sed -n`, or redirect output to a",
-        "  file and inspect only the relevant slices.",
+        "<instructions>",
+        "# Task Instructions",
         "",
-        "## What to modify",
-        "- Default to regular source files in the repository.",
-        "- Modify configuration or project metadata only when the issue explicitly",
-        "  requires it.",
-        "- Do not modify tests or reproduction scripts you create.",
-        "- Keep temporary reproduction helpers out of the final diff (write them under",
-        "  `/tmp/` or delete them before you stop).",
+        "## Overview",
         "",
-        "## Workflow",
-        "Every response before submission must include at least one bash tool call.",
-        "Before each bash call, briefly state what you are checking or changing.",
-        "1. Locate the relevant code. Prefer parallel read-only commands",
-        "   (`grep -rn`, `find`, `sed -n 'A,Bp'`) over reading whole files.",
-        "2. Reproduce the reported behavior with a tiny script when practical.",
-        "3. Edit the smallest set of source files needed for a general fix.",
-        "4. Re-run the reproduction. Then run a focused subset of existing tests",
-        "   (single file or `-k pattern`) and explain if any are unavailable.",
-        "5. Stop as soon as the fix is in place and verified. Do not keep exploring",
-        "   once you can describe the change.",
+        "You're a software engineer interacting continuously with a computer by "
+        "submitting commands.",
+        "You'll be helping implement necessary changes to meet requirements in "
+        "the PR description.",
+        "Your task is specifically to make changes to non-test files in the "
+        "current directory in order to fix the issue described in the PR "
+        "description in a way that is general and consistent with the codebase.",
+        "<IMPORTANT>This is an interactive process where you will think and use "
+        "AT LEAST ONE available tool, see the result, then think and choose "
+        "your next tool call(s).</IMPORTANT>",
+        "",
+        "For each response:",
+        "",
+        "1. Include a THOUGHT section explaining your reasoning and what you're "
+        "trying to accomplish",
+        "2. Provide one or more bash tool calls to execute.",
+        "",
+        "## Important Boundaries",
+        "",
+        f"- MODIFY: Regular source code files in {workdir} (this is the working "
+        "directory for all your subsequent commands)",
+        "- DO NOT MODIFY: Tests, lockfiles (package-lock.json, yarn.lock, "
+        "pnpm-lock.yaml, npm-shrinkwrap.json), or project metadata "
+        "(pyproject.toml, .gitignore, setup.cfg, etc.)",
+        "- Keep temporary reproduction helpers out of the final diff; write them "
+        "under `/tmp/` or delete them before you stop.",
+        "",
+        "## Recommended Workflow",
+        "",
+        "1. Analyze the codebase by finding and reading relevant files",
+        "2. Create a script to reproduce the issue",
+        "3. Edit the source code to resolve the issue",
+        "4. Verify your fix works by running your script again",
+        "5. Test edge cases to ensure your fix is robust",
+        "",
+        "## Command Execution Rules",
+        "",
+        "You are operating in an environment where",
+        "",
+        "1. You issue at least one tool call",
+        "2. The system executes shell commands from `bash` calls in a subshell",
+        "3. You see the result(s)",
+        "4. You write your next tool call(s)",
+        "",
+        "Each response should include:",
+        "",
+        "1. **THOUGHT** text where you explain your analysis and plan",
+        "2. At least one bash tool call for the next useful action",
+        "",
+        "**CRITICAL REQUIREMENTS:**",
+        "",
+        "- Your response SHOULD include THOUGHT text explaining what you're doing",
+        "- Your response MUST include AT LEAST ONE bash tool call. Do not add a "
+        "dummy `bash` call solely to satisfy this rule.",
+        "- You can make MULTIPLE tool calls in a single response when the actions "
+        "are independent (e.g., reading different parts of the codebase).",
+        "- Directory or environment variable changes are not persistent. Every "
+        "action is executed in a new subshell.",
+        "- However, you can prefix any action with "
+        "`MY_ENV_VAR=MY_VALUE cd /path/to/working/dir && ...` or write/load "
+        "environment variables from files.",
+        "- A full Linux shell is available; install missing tools only if "
+        "strictly needed.",
+        "- Always use non-interactive flags (`-y`, `-f`, `--no-pager`) for "
+        "commands. Avoid interactive tools like `vi`, `nano`, or any command "
+        "that requires user input.",
+        "- Keep command output focused. If output may be long, use selective "
+        "commands such as `head`, `tail`, `sed -n`, or redirect output to a "
+        "file and inspect only the relevant slices.",
+        "",
+        "Example of a CORRECT response:",
+        "<example_response>",
+        "THOUGHT: I need to understand the relevant code before editing. I will "
+        "find likely files and inspect the nearby implementation.",
+        "",
+        "[Makes one or more bash tool calls to inspect the repository.]",
+        "</example_response>",
         "",
         "## Submission",
-        "When the fix is ready, submit a model-generated patch. Follow these steps",
-        "in order, using separate bash calls:",
         "",
-        "1. Create `patch.txt` with `git diff -- path/to/file1 path/to/file2 > patch.txt`,",
-        "   listing only the regular source files you modified for the fix, plus any",
-        "   config or metadata files that the issue explicitly requires.",
-        "2. Inspect `patch.txt` and confirm it contains only intended source changes",
-        "   with `--- a/` and `+++ b/` paths.",
-        "3. Submit with this exact command:",
+        "When you've completed your work, you MUST submit your changes as a git "
+        "patch.",
+        "Follow these steps IN ORDER, with SEPARATE commands:",
         "",
-        "   echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat patch.txt",
+        "Step 1: Create the patch file",
+        "Run `git diff -- path/to/file1 path/to/file2 > patch.txt` listing only "
+        "the source files you modified.",
+        "Do NOT commit your changes.",
         "",
-        "Do NOT commit your changes. Do not include temporary reproduction helpers,",
-        "tests, lockfiles, generated files, or project metadata in `patch.txt`",
-        "unless the issue explicitly requires metadata changes. If you modify",
-        "`patch.txt` after inspecting it, inspect it again before submitting.",
-        "Leave the workspace changes in place: the harness also collects its own",
-        "`git diff` separately so the run can compare the submitted patch against",
-        "the collected workspace patch.",
-        "After submitting, do not continue reading, editing, testing, or working on",
-        "this task in any way.",
+        "<IMPORTANT>",
+        "The patch must only contain changes to the specific source files you "
+        "modified to fix the issue.",
+        "Do not submit file creations or changes to any of the following files:",
         "",
-        "<problem_statement>",
-        problem,
-        "</problem_statement>",
+        "- test and reproduction files",
+        "- helper scripts, tests, or tools that you created",
+        "- lockfiles (package-lock.json, yarn.lock, pnpm-lock.yaml, "
+        "npm-shrinkwrap.json)",
+        "- installation, build, packaging, configuration, or setup scripts "
+        "(pyproject.toml, setup.cfg, etc.) unless they are directly part of the "
+        "issue you were fixing",
+        "- binary or compiled files",
+        "</IMPORTANT>",
+        "",
+        "Step 2: Verify your patch",
+        "Inspect patch.txt to confirm it only contains your intended changes and "
+        "headers show `--- a/` and `+++ b/` paths.",
+        "",
+        "Step 3: Submit (EXACT command required)",
+        "You MUST use this EXACT command to submit:",
+        "",
+        "```bash",
+        "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat patch.txt",
+        "```",
+        "",
+        "If the command fails (nonzero exit status), it will not submit.",
+        "",
+        "<CRITICAL>",
+        "- Creating/viewing the patch and submitting it MUST be separate commands "
+        "(not combined with &&).",
+        "- If you modify patch.txt after verifying, you SHOULD verify again "
+        "before submitting.",
+        "- You CANNOT continue working (reading, editing, testing) in any way on "
+        "this task after submitting.",
+        "</CRITICAL>",
+        "</instructions>",
     ]
-    if requirements:
-        lines.extend(["", "<requirements>", requirements, "</requirements>"])
-    if interface:
-        lines.extend(["", "<interface>", interface, "</interface>"])
     return "\n".join(lines)
 
 
