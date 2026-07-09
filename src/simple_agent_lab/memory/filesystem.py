@@ -368,7 +368,7 @@ def make_filesystem_distiller(
     system_prompt: str = "Update durable filesystem memory from run evidence.",
     temperature: float | None = None,
     max_tokens: int | None = 32000,
-    timeout_seconds: float | None = 60.0,
+    timeout_seconds: float | None = 600.0,
     request_extra: Mapping[str, Any] | None = None,
 ) -> Distiller:
     """Build a no-tools LLM distiller, usually with the main agent's provider.

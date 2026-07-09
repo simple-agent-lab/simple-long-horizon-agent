@@ -14,7 +14,14 @@ from simple_agent_lab import (
     message_text,
     text_of,
 )
-from simple_agent_lab.llm import Provider
+from simple_agent_lab.llm import (
+    LLMRequest,
+    LLMResponse,
+    Provider,
+    StreamEvent,
+    TextBlock,
+    register_adapter,
+)
 from simple_agent_lab.memory import (
     FilesystemArtifact,
     FilesystemMemory,
@@ -716,6 +723,43 @@ class FilesystemMemoryTest(unittest.TestCase):
         self.assertIn("greppable anchors", prompt)
         self.assertIn("Never cite raw line numbers", prompt)
         self.assertIn("transcript.md ## <n>", prompt)
+
+    def test_filesystem_distiller_default_timeout_is_generous(self) -> None:
+        from simple_agent_lab.memory.filesystem import make_filesystem_distiller
+
+        requests: list[LLMRequest] = []
+
+        def capture(req: LLMRequest):
+            requests.append(req)
+            yield StreamEvent(
+                kind="done",
+                payload={
+                    "response": LLMResponse(content=(TextBlock('{"memory_md": ""}'),))
+                },
+            )
+
+        register_adapter("capture-memory-timeout", capture)
+        provider = Provider(
+            id="capture-memory-timeout",
+            api="capture-memory-timeout",
+            model="fake-model",
+        )
+        distill = make_filesystem_distiller(provider)
+        payload = FilesystemMemoryPayload(
+            task="fix login",
+            transcript="## 0. user (task, user -> agent)\n\nfix login",
+            artifacts=(),
+            memory_summary="",
+            index="# Memory Index\n",
+            notes="# Memory Handbook\n",
+            run_path="runs/r1",
+            available_memories=(),
+            context=MemoryContext(agent="agent", task="fix login"),
+        )
+
+        distill(payload)
+
+        self.assertEqual(requests[0].timeout_seconds, 600.0)
 
     def test_policy_block_inlines_summary_and_bans_line_numbers(self) -> None:
         # P3: the summary excerpt is inlined directly into the policy block.
