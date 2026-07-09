@@ -432,6 +432,14 @@ PY
 
   FAIL=0
   PIDS=()
+  # Each job records its own exit code to a status file; the drain loop tallies
+  # failures from those, never from `wait`. The throttle below polls `jobs -pr`,
+  # which makes bash reap finished jobs from its table — so a later `wait "$pid"`
+  # reports "not a child" (rc 127) for a job that already finished, regardless of
+  # whether it actually succeeded or failed. `wait` is therefore useless as a
+  # failure signal here (it over- and under-counts); the status file is reliable.
+  STATUS_DIR="${CONTAINER_RUN_ROOT}/${RUN_ID}/.exit_codes"
+  mkdir -p "$STATUS_DIR"
   job_index=0
   for instance_id in "${INSTANCE_IDS[@]}"; do
     # Throttle to PARALLEL. macOS ships bash 3.2, which has no `wait -n`, so poll
@@ -442,14 +450,31 @@ PY
     log="${CONTAINER_RUN_ROOT}/${RUN_ID}/${instance_id}.log"
     mkdir -p "$(dirname "$log")"
     echo "Starting: ${instance_id}"
-    run_container_for_index "$job_index" "$INSTANCE_JSON" "$instance_id" > "$log" 2>&1 &
+    status_file="${STATUS_DIR}/${instance_id}.rc"
+    rm -f "$status_file"
+    # `|| rc=$?` tests the command so `set -e` does not abort the subshell before
+    # the exit code is recorded (a bare `cmd; echo $?` would lose a failure code).
+    (
+      rc=0
+      run_container_for_index "$job_index" "$INSTANCE_JSON" "$instance_id" || rc=$?
+      echo "$rc" > "$status_file"
+    ) > "$log" 2>&1 &
     PIDS+=("$!")
     job_index=$((job_index + 1))
   done
 
-  # Drain: wait each launched job and count failures (bash-3.2-safe).
+  # Drain: let every job finish (ignore `wait`'s own rc — see above), then tally
+  # real failures from the recorded exit codes. A missing file means the job was
+  # killed before it could record one, which is itself a failure.
   for pid in "${PIDS[@]}"; do
-    wait "$pid" || FAIL=$((FAIL + 1))
+    wait "$pid" 2>/dev/null || true
+  done
+  for instance_id in "${INSTANCE_IDS[@]}"; do
+    rc="$(cat "${STATUS_DIR}/${instance_id}.rc" 2>/dev/null || echo missing)"
+    if [ "$rc" != "0" ]; then
+      FAIL=$((FAIL + 1))
+      echo "Failed run: ${instance_id} (exit ${rc})" >&2
+    fi
   done
 
   collect_predictions
