@@ -310,7 +310,7 @@ class ChainNodesLoadingTest(unittest.TestCase):
         default_path = Path(DEFAULT_CHAINS_JSON)
         self.assertTrue(
             default_path.exists(),
-            f"vendored default chains file missing: {default_path}",
+            f"vendored chains file missing: {default_path}",
         )
         self.assertEqual(default_path.suffix, ".jsonl")
         self.assertEqual(default_path.parent.name, "data")
@@ -428,8 +428,22 @@ class MemoryChainRunnerParserTest(unittest.TestCase):
         self.assertTrue(args.memory)
         self.assertFalse(args.singleton_memory)
         self.assertEqual(args.parallel, "slots")
+        self.assertIsNone(args.chains_json)
         self.assertIsNone(args.model)
         self.assertIsNone(args.provider_auth_envs)
+
+    def test_runner_requires_explicit_chains_json_to_load(self) -> None:
+        from runs.swebench.run_swebench_pro_memory_chains import (
+            _load_chains,
+            build_parser,
+        )
+
+        args = build_parser().parse_args(["--all"])
+
+        with self.assertRaises(SystemExit) as raised:
+            _load_chains(args)
+
+        self.assertIn("Pass --chains-json PATH", str(raised.exception))
 
     def test_runner_rejects_workflow_flavor(self) -> None:
         from runs.swebench.run_swebench_pro_memory_chains import build_parser

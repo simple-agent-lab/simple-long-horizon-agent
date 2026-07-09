@@ -5,15 +5,21 @@ current runner contract. It is an operator handoff for repo-chain runs; the
 source of truth for executable behavior is
 `runs/swebench/run_swebench_pro_repo_chains.py`,
 `simple_agent_lab.evals.chain`, and
-`evals/swebench/pro_repo_chain.py`.
+`evals/swebench/pro_repo_chain.py`, with issue-chain planning helpers from
+`evals/swebench/pro_memory_chain.py`.
 
 ## Design Target
 
 `runs/swebench/run_swebench_pro_repo_chains.py` is the single SWE-bench Pro
-repo-chain runner. One planned chain part is one ordered agent chain: it keeps
-running that part's instances, carrying `out/chain_state.json` forward, until
-the part is exhausted. Baselines that change agent topology, task delegation,
-or context handling are variables of this runner, not separate host scripts.
+repo-chain runner. Its planning now borrows the issue-chain units and
+longest-first order from `run_swebench_pro_memory_chains.py`: `--chains-json`
+must be passed explicitly and usually points at the vendored deep chain-nodes
+JSONL under `evals/swebench/data/`. Every covered issue keeps that manifest's
+chain order, and uncovered dataset instances become singleton units. Each
+planned unit still runs with repo-chain context, not filesystem memory: it
+carries `out/chain_state.json` forward until that unit is exhausted. Baselines
+that change agent topology, task delegation, or context handling are variables
+of this runner, not separate host scripts.
 
 The supported comparison modes are:
 
@@ -41,9 +47,10 @@ selected variables, such as `pro-repo-chain-none-*` (default bash + none),
 ## Objective
 
 Evaluate Simple Agent Lab long repo chains on SWE-bench Pro by running each
-planned repository part as a long-lived agent chain. Instances within a
-repository are ordered by `base_commit` commit timestamp so earlier repository
-context can carry into later tasks. The default variable set studies
+planned issue-chain unit as a long-lived agent chain. Instances within a unit
+follow the memory-chain manifest order, and run units are submitted
+longest-first so long chains occupy provider lanes early while shorter chains
+backfill. The default variable set studies
 `agent_flavor=bash`, `compression_strategy=none`, and `task_tool=false`;
 the runner also supports goal-loop flavors, `summarize` compression, and
 task-tool delegation. Common baselines are bash, goal (`--agent-flavor goal`),
@@ -79,8 +86,11 @@ compression arms use `summarize` (which turns handoff off).
 
 - Dataset: `ScaleAI/SWE-bench_Pro`
 - Split: `test`
+- Issue-chain manifest: explicit `--chains-json`; the usual path is
+  `evals/swebench/data/swe_bench_pro_chain_experiment_nodes_deep.jsonl`, the
+  same vendored deep chain-nodes JSONL used by
+  `run_swebench_pro_memory_chains.py`
 - Local run root: `evals/out/swebench_pro`
-- Commit ordering cache: `evals/out/swebench_pro/repo-cache`
 - Container runner:
   `simple_agent_lab.evals.chain`
 
@@ -234,9 +244,9 @@ The task-tool variable is selected through the unified repo-chain runner:
 ```bash
 uv run --extra swebench python runs/swebench/run_swebench_pro_repo_chains.py \
   --all \
+  --chains-json evals/swebench/data/swe_bench_pro_chain_experiment_nodes_deep.jsonl \
   --task-tool \
   --compression-strategy none \
-  --parallel parts \
   --provider-auth-envs OPENAI_AUTH_TOKEN:12,OPENAI_AUTH_TOKEN2:11 \
   --api-kind openai-responses \
   --max-turns 250 \
@@ -252,35 +262,23 @@ window. Task-tool runs always pair with handoff or compression.
 
 ## Chain Planning
 
-Rows are grouped by `repo`, then sorted inside each repo by commit timestamp.
-After sorting, long repos are split into contiguous chain parts:
+Rows are matched to the analyzed chain manifest used by the memory-chain
+runner. The default vendored flat JSONL orders nodes by `step_index` (falling
+back to `commit_time` and `instance_id`); the older nested JSON shape orders by
+`commit_time`. Every dataset instance not covered by a raw chain becomes a
+length-1 singleton unit, so a full split still runs every selected instance
+exactly once. Planned units are ordered longest-first, with same-length ties
+sorted deterministically by repo and chain id.
 
-- More than 80 instances: 3 parts
-- More than 50 instances: 2 parts
-- 50 or fewer instances: 1 part
+The repo-chain runner does not enable filesystem memory for these units. The
+only cross-instance state is still the active repo-chain transcript and
+`out/chain_state.json`.
 
-The default parallelism is `--parallel parts`, which means one worker per
-planned chain part.
-
-For the current locally cached Pro dataset manifest, the full run has:
-
-- Repositories: 11
-- Instances: 731
-- Planned chain parts / default parallel workers: 23
-
-Per-repo counts used for the 23-part plan:
-
-- `NodeBB/NodeBB`: 44 instances, 1 part
-- `ansible/ansible`: 96 instances, 3 parts
-- `element-hq/element-web`: 56 instances, 2 parts
-- `flipt-io/flipt`: 85 instances, 3 parts
-- `future-architect/vuls`: 62 instances, 2 parts
-- `gravitational/teleport`: 76 instances, 2 parts
-- `internetarchive/openlibrary`: 91 instances, 3 parts
-- `navidrome/navidrome`: 57 instances, 2 parts
-- `protonmail/webclients`: 65 instances, 2 parts
-- `qutebrowser/qutebrowser`: 79 instances, 2 parts
-- `tutao/tutanota`: 20 instances, 1 part
+The default parallelism is `--parallel slots`, which means one worker per
+provider-auth lane. With the formal `OPENAI_AUTH_TOKEN:12,OPENAI_AUTH_TOKEN2:11`
+spec, the runner opens 23 concurrent lanes and queues the longest-first planned
+units across them. `--parallel parts` remains accepted as a compatibility alias
+that caps workers at the smaller of planned units and declared slots.
 
 ## Output Contract
 
@@ -289,7 +287,7 @@ Each instance writes:
 - `input/instance.json`
 - `input/chain_config.json`
 - `input/chain_state.json` when there is prior repo-chain context for this
-  chain part
+  planned unit
 - `out/result.json`
 - `out/chain_state.json`
 - `out/trajectory.jsonl` unless `--no-write-trajectories` is set
@@ -304,7 +302,7 @@ converted into predictions for completed or skipped instances by collecting
 existing `result.json` files.
 
 Repo-chain continuity is an artifact contract, not a host-side live Python
-object. For each chain part, the host passes the previous
+object. For each planned unit, the host passes the previous
 `out/chain_state.json` to the next instance as `input/chain_state.json`.
 The payload carries the active context messages, task seed, and run metadata
 needed to continue the repository chain while keeping the agent loop inside
@@ -368,7 +366,7 @@ offline wheelhouse.
 ```bash
 uv run --extra swebench python runs/swebench/run_swebench_pro_repo_chains.py \
   --all \
-  --parallel parts \
+  --chains-json evals/swebench/data/swe_bench_pro_chain_experiment_nodes_deep.jsonl \
   --provider-auth-envs OPENAI_AUTH_TOKEN:12,OPENAI_AUTH_TOKEN2:11 \
   --api-kind openai-responses \
   --max-turns 250 \

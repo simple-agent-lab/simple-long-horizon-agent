@@ -12,8 +12,9 @@ earlier one's lessons.
 Key differences from the repo-chain runner:
 
 - Chains come from a pre-analyzed chain manifest (``--chains-json``), not from
-  splitting a repo by commit time. It defaults to the deep chain-nodes JSONL
-  vendored under ``evals/swebench/data/`` so a run needs no external checkout.
+  splitting a repo by commit time. The runner intentionally has no default:
+  pass the exact chain file for each experiment run. The deep chain-nodes JSONL
+  is vendored under ``evals/swebench/data/`` so a run needs no external checkout.
 - The full split still runs: every dataset instance not covered by a chain
   becomes a length-1 singleton (memory off by default; ``--singleton-memory``
   turns it on).
@@ -23,24 +24,25 @@ Key differences from the repo-chain runner:
 - Memory replaces context handoff, so there is no ``--compression-strategy`` /
   ``--handoff`` / ``chain_state.json`` plumbing here.
 
-Example smoke (no Docker cost past a couple of instances; uses the vendored
-default ``--chains-json``):
+Example smoke (no Docker cost past a couple of instances):
 
     uv run --extra swebench python runs/swebench/run_swebench_pro_memory_chains.py \
+      --chains-json evals/swebench/data/swe_bench_pro_chain_experiment_nodes_deep.jsonl \
       --max-chains 1 --limit 2 --max-turns 5 --skip-official-eval
 
 Formal run shape:
 
     uv run --extra swebench python runs/swebench/run_swebench_pro_memory_chains.py \
       --all \
+      --chains-json evals/swebench/data/swe_bench_pro_chain_experiment_nodes_deep.jsonl \
       --parallel 23 \
       --provider-auth-envs OPENAI_AUTH_TOKEN:12,OPENAI_AUTH_TOKEN2:11 \
       --api-kind openai-responses \
       --max-turns 250 \
       --run-official-eval
 
-Pass ``--chains-json PATH`` to override the vendored default with another flat
-chain-nodes JSONL or a nested issue-chains JSON.
+Pass ``--chains-json PATH`` explicitly for every experiment run. The path can be
+the vendored flat chain-nodes JSONL or another flat JSONL / nested JSON manifest.
 """
 
 from __future__ import annotations
@@ -67,7 +69,6 @@ for path in (ROOT, SRC):
 from evals.swebench import harness  # noqa: E402
 from evals.swebench.evaluate_predictions import predictions_from_run_dirs  # noqa: E402
 from evals.swebench.pro_memory_chain import (  # noqa: E402
-    DEFAULT_CHAINS_JSON,
     MEMORY_CHAIN_AGENT_FLAVORS,
     MemoryChain,
     ProMemoryChainConfig,
@@ -115,11 +116,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--chains-json",
-        default=str(DEFAULT_CHAINS_JSON),
+        default=None,
         help=(
-            "Pre-analyzed chain manifest: either a flat chain-nodes JSONL "
-            "(one node per line) or a nested issue-chains JSON. Defaults to the "
-            "deep chain-nodes JSONL vendored under evals/swebench/data/."
+            "Required chain manifest: either a flat chain-nodes JSONL "
+            "(one node per line) or a nested issue-chains JSON. To use the "
+            "vendored deep manifest, pass "
+            "evals/swebench/data/swe_bench_pro_chain_experiment_nodes_deep.jsonl."
         ),
     )
     parser.add_argument("--dataset-name", default=ProMemoryChainConfig.dataset_name)
@@ -251,6 +253,7 @@ def main() -> None:
     args = build_parser().parse_args()
     if not args.all and not args.repos and not args.instance_json:
         raise SystemExit("Pass --all, --repos REPO..., or --instance-json PATH.")
+    _chains_json_path(args)
 
     harness.load_dotenv(args.dotenv)
     _apply_provider_env_overrides(args)
@@ -277,7 +280,7 @@ def main() -> None:
 
     memory_home = _resolve_memory_home(args, run_root=run_root)
     manifest = plan_manifest(plan, config=config, run_id=args.run_id, parallel=parallel)
-    manifest["chains_json"] = str(Path(args.chains_json).expanduser())
+    manifest["chains_json"] = str(_chains_json_path(args))
     manifest["memory_home"] = str(memory_home)
     manifest["provider_auth"] = {
         "spec": args.provider_auth_envs or f"{OPENAI_ENV.auth}:1",
@@ -471,12 +474,23 @@ def _load_rows(args: argparse.Namespace) -> list[dict[str, Any]]:
 
 
 def _load_chains(args: argparse.Namespace):
-    path = Path(args.chains_json).expanduser()
+    path = _chains_json_path(args)
     if not path.exists():
         raise SystemExit(
-            f"--chains-json not found: {path}. Pass the analyzed issue-chains JSON."
+            f"--chains-json not found: {path}. Pass a chain-nodes JSONL "
+            "or issue-chains JSON."
         )
     return load_issue_chains(path)
+
+
+def _chains_json_path(args: argparse.Namespace) -> Path:
+    value = str(args.chains_json or "").strip()
+    if not value:
+        raise SystemExit(
+            "Pass --chains-json PATH for the exact chain manifest to use, e.g. "
+            "evals/swebench/data/swe_bench_pro_chain_experiment_nodes_deep.jsonl."
+        )
+    return Path(value).expanduser()
 
 
 def _select_units(

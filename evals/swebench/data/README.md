@@ -10,7 +10,7 @@ come from the `ScaleAI/SWE-bench_Pro` dataset at run time.
 
 | File | Shape | Contents |
 | --- | --- | --- |
-| `swe_bench_pro_chain_experiment_nodes_deep.jsonl` | flat JSONL, one node per line | The **default** `--chains-json`. Deep chain analysis (`min_chain_size=3`): 261 in-chain instances across 47 chains. |
+| `swe_bench_pro_chain_experiment_nodes_deep.jsonl` | flat JSONL, one node per line | The recommended explicit `--chains-json` for deep-chain experiments (`min_chain_size=3`): 261 in-chain instances across 47 chains. |
 | `swe_bench_pro_chain_experiment_nodes.jsonl` | flat JSONL, one node per line | The non-deep chain analysis (28 chains, 347 in-chain instances). Kept for comparison; select it via `--chains-json`. |
 
 Each line is a JSON object. The fields the loader needs are `chain_id`,

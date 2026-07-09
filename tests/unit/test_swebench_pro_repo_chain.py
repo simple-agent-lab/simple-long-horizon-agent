@@ -179,6 +179,21 @@ class SwebenchProRepoChainPlanningTest(unittest.TestCase):
         args = build_parser().parse_args(["--all"])
 
         self.assertEqual(args.api_kind, "openai-responses")
+        self.assertEqual(args.parallel, "slots")
+        self.assertIsNone(args.chains_json)
+
+    def test_repo_chain_runner_requires_explicit_chains_json_to_load(self) -> None:
+        from runs.swebench.run_swebench_pro_repo_chains import (
+            _load_chains,
+            build_parser,
+        )
+
+        args = build_parser().parse_args(["--all"])
+
+        with self.assertRaises(SystemExit) as raised:
+            _load_chains(args)
+
+        self.assertIn("Pass --chains-json PATH", str(raised.exception))
 
     def test_repo_chain_runner_leaves_model_and_reasoning_to_env_by_default(
         self,
@@ -324,28 +339,22 @@ class SwebenchProRepoChainPlanningTest(unittest.TestCase):
             "simple-agent-lab-pro-repo-chain-bash-task-none",
         )
 
-    def test_provider_auth_envs_expand_to_one_slot_per_chain(self) -> None:
+    def test_provider_auth_slots_expand_counts(self) -> None:
         from runs.swebench.run_swebench_pro_repo_chains import (
-            _expand_provider_auth_envs,
+            _expand_auth_slots,
         )
 
-        auth_envs = _expand_provider_auth_envs(
-            "OPENAI_AUTH_TOKEN:12,OPENAI_AUTH_TOKEN2:11",
-            chain_count=23,
-        )
+        auth_envs = _expand_auth_slots("OPENAI_AUTH_TOKEN:12,OPENAI_AUTH_TOKEN2:11")
 
         self.assertEqual(auth_envs[:12], ["OPENAI_AUTH_TOKEN"] * 12)
         self.assertEqual(auth_envs[12:], ["OPENAI_AUTH_TOKEN2"] * 11)
 
-    def test_provider_auth_envs_use_primary_token_by_default(self) -> None:
+    def test_provider_auth_slots_use_primary_token_by_default(self) -> None:
         from runs.swebench.run_swebench_pro_repo_chains import (
-            _expand_provider_auth_envs,
+            _expand_auth_slots,
         )
 
-        self.assertEqual(
-            _expand_provider_auth_envs(None, chain_count=3),
-            ["OPENAI_AUTH_TOKEN", "OPENAI_AUTH_TOKEN", "OPENAI_AUTH_TOKEN"],
-        )
+        self.assertEqual(_expand_auth_slots(None), ["OPENAI_AUTH_TOKEN"])
 
     def test_provider_slots_use_api_kind_temperature_defaults(self) -> None:
         from runs.swebench.run_swebench_pro_repo_chains import (
@@ -379,15 +388,34 @@ class SwebenchProRepoChainPlanningTest(unittest.TestCase):
             responses["OPENAI_AUTH_TOKEN2"].api_key_env, "OPENAI_AUTH_TOKEN2"
         )
 
-    def test_provider_auth_envs_fail_when_slots_do_not_cover_chains(self) -> None:
+    def test_provider_auth_slots_reject_bad_specs(self) -> None:
         from runs.swebench.run_swebench_pro_repo_chains import (
-            _expand_provider_auth_envs,
+            _expand_auth_slots,
         )
 
-        with self.assertRaises(SystemExit) as raised:
-            _expand_provider_auth_envs("OPENAI_AUTH_TOKEN:1", chain_count=2)
+        with self.assertRaises(SystemExit):
+            _expand_auth_slots("OPENAI_AUTH_TOKEN:0")
 
-        self.assertIn("provides 1 auth slot", str(raised.exception))
+    def test_parallel_slots_use_provider_lane_count_for_memory_order(
+        self,
+    ) -> None:
+        from runs.swebench.run_swebench_pro_repo_chains import (
+            _expand_auth_slots,
+            _resolve_parallel,
+        )
+
+        slots = _expand_auth_slots("OPENAI_AUTH_TOKEN:12,OPENAI_AUTH_TOKEN2:11")
+
+        self.assertEqual(len(slots), 23)
+        self.assertEqual(
+            _resolve_parallel("slots", chain_count=100, slot_count=len(slots)),
+            23,
+        )
+        self.assertEqual(
+            _resolve_parallel("parts", chain_count=5, slot_count=len(slots)),
+            5,
+        )
+        self.assertEqual(_resolve_parallel("8", chain_count=100, slot_count=23), 8)
 
     def test_experiment_config_records_effective_env_model_and_reasoning(
         self,
@@ -710,6 +738,7 @@ class SwebenchProRepoChainPlanningTest(unittest.TestCase):
             )
 
     def test_plan_manifest_records_selected_agent_and_compression_mode(self) -> None:
+        from evals.swebench.pro_memory_chain import DEFAULT_CHAINS_JSON, RawIssueChain
         from runs.swebench.run_swebench_pro_repo_chains import (
             _experiment_config_from_args,
             _plan_groups,
@@ -719,6 +748,8 @@ class SwebenchProRepoChainPlanningTest(unittest.TestCase):
         args = build_parser().parse_args(
             [
                 "--all",
+                "--chains-json",
+                str(DEFAULT_CHAINS_JSON),
                 "--compression-strategy",
                 "none",
                 "--task-tool",
@@ -728,19 +759,87 @@ class SwebenchProRepoChainPlanningTest(unittest.TestCase):
         rows = [
             {"instance_id": "a", "repo": "acme/widgets", "base_commit": ""},
             {"instance_id": "b", "repo": "acme/widgets", "base_commit": ""},
+            {"instance_id": "c", "repo": "acme/widgets", "base_commit": ""},
+            {"instance_id": "solo", "repo": "acme/widgets", "base_commit": ""},
+        ]
+        raw_chains = [
+            RawIssueChain(
+                chain_id="long",
+                repo="acme/widgets",
+                instance_ids=("a", "b", "c"),
+            )
         ]
 
         with tempfile.TemporaryDirectory() as tmp:
-            _chains, manifest = _plan_groups(
+            chains, manifest = _plan_groups(
                 rows,
+                raw_chains=raw_chains,
                 args=args,
                 run_root=Path(tmp),
                 config=config,
             )
 
+        self.assertEqual(list(chains), ["long", "solo"])
         self.assertEqual(manifest["config"]["agent_flavor"], "bash")
         self.assertEqual(manifest["config"]["compression_strategy"], "none")
         self.assertEqual(manifest["config"]["task_tool"], True)
+        self.assertEqual(manifest["plan_source"], "memory_issue_chains")
+        self.assertEqual(manifest["run_unit_count"], 2)
+        self.assertEqual(manifest["chain_count"], 1)
+        self.assertEqual(manifest["memory_chain_count"], 1)
+        self.assertEqual(manifest["singleton_count"], 1)
+        self.assertEqual(manifest["chain_length_histogram"], {"3": 1})
+        self.assertEqual(
+            manifest["per_repo"],
+            {"acme/widgets": {"chains": 1, "chain_instances": 3, "singletons": 1}},
+        )
+        self.assertEqual(
+            [entry["instance_ids"] for entry in manifest["order"]],
+            [["a", "b", "c"], ["solo"]],
+        )
+        self.assertEqual(
+            [entry["length"] for entry in manifest["order"]],
+            [3, 1],
+        )
+        self.assertEqual(
+            [entry["memory_enabled"] for entry in manifest["order"]],
+            [False, False],
+        )
+
+    def test_select_units_applies_max_chains_and_limit(self) -> None:
+        from evals.swebench.pro_memory_chain import (
+            RawIssueChain,
+            plan_memory_chains,
+        )
+        from runs.swebench.run_swebench_pro_repo_chains import (
+            _select_units,
+            build_parser,
+        )
+
+        rows = [
+            {"instance_id": "a1", "repo": "r", "base_commit": "1"},
+            {"instance_id": "a2", "repo": "r", "base_commit": "2"},
+            {"instance_id": "a3", "repo": "r", "base_commit": "3"},
+            {"instance_id": "b1", "repo": "r", "base_commit": "4"},
+            {"instance_id": "b2", "repo": "r", "base_commit": "5"},
+            {"instance_id": "solo", "repo": "r", "base_commit": "6"},
+        ]
+        raw_chains = [
+            RawIssueChain(chain_id="c-a", repo="r", instance_ids=("a1", "a2", "a3")),
+            RawIssueChain(chain_id="c-b", repo="r", instance_ids=("b1", "b2")),
+        ]
+        plan = plan_memory_chains(rows, raw_chains, memory=False)
+
+        max_chain_args = build_parser().parse_args(["--all", "--max-chains", "1"])
+        kept = _select_units(plan.chains, args=max_chain_args)
+        self.assertEqual(
+            [unit.chain_id for unit in kept if not unit.is_singleton], ["c-a"]
+        )
+        self.assertTrue(any(unit.is_singleton for unit in kept))
+
+        limit_args = build_parser().parse_args(["--all", "--limit", "2"])
+        limited = _select_units(plan.chains, args=limit_args)
+        self.assertEqual([unit.instance_ids for unit in limited], [["a1", "a2"]])
 
     def test_handoff_is_enabled_by_default_with_default_window(self) -> None:
         from runs.swebench.run_swebench_pro_repo_chains import (
