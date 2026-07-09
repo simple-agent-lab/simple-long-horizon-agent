@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import os
+import tempfile
 import unittest
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import patch
 
 
@@ -200,6 +203,121 @@ class MemoryChainPlanningTest(unittest.TestCase):
 
         # Length 2 first; then the two length-1 chains ordered by repo then id.
         self.assertEqual([chain.chain_id for chain in ordered], ["a", "a2", "z"])
+
+
+class ChainNodesLoadingTest(unittest.TestCase):
+    def test_chains_from_nodes_groups_and_orders_by_step_index(self) -> None:
+        from evals.swebench.pro_memory_chain import chains_from_nodes
+
+        # Deliberately out of order: step_index must drive intra-chain order,
+        # and chains are grouped by chain_id in first-seen order.
+        nodes = [
+            {"chain_id": "c1", "step_index": 2, "instance_id": "b", "repo": "r/one"},
+            {"chain_id": "c2", "step_index": 1, "instance_id": "x", "repo": "r/two"},
+            {"chain_id": "c1", "step_index": 1, "instance_id": "a", "repo": "r/one"},
+            {"chain_id": "c1", "step_index": 3, "instance_id": "c", "repo": "r/one"},
+        ]
+
+        chains = chains_from_nodes(nodes)
+
+        self.assertEqual([c.chain_id for c in chains], ["c1", "c2"])
+        self.assertEqual(chains[0].instance_ids, ("a", "b", "c"))
+        self.assertEqual(chains[0].repo, "r/one")
+        self.assertEqual(chains[1].instance_ids, ("x",))
+
+    def test_chains_from_nodes_falls_back_to_commit_time_without_step(self) -> None:
+        from evals.swebench.pro_memory_chain import chains_from_nodes
+
+        nodes = [
+            {"chain_id": "c1", "instance_id": "late", "commit_time": "2021-05-01"},
+            {"chain_id": "c1", "instance_id": "early", "commit_time": "2021-01-01"},
+        ]
+
+        chains = chains_from_nodes(nodes)
+
+        self.assertEqual(chains[0].instance_ids, ("early", "late"))
+
+    def test_chains_from_nodes_defaults_chain_id_and_skips_idless_nodes(self) -> None:
+        from evals.swebench.pro_memory_chain import chains_from_nodes
+
+        nodes = [
+            {"step_index": 1, "instance_id": "only", "repo": "r/one"},
+            {"chain_id": "c1", "step_index": 1, "instance_id": ""},
+        ]
+
+        chains = chains_from_nodes(nodes)
+
+        # The id-less node is dropped; the empty chain_id falls back to repo+id.
+        self.assertEqual(len(chains), 1)
+        self.assertEqual(chains[0].instance_ids, ("only",))
+        self.assertEqual(chains[0].chain_id, "r/one-only")
+
+    def test_load_issue_chains_reads_jsonl_node_file(self) -> None:
+        from evals.swebench.pro_memory_chain import load_issue_chains
+
+        nodes = [
+            {"chain_id": "c1", "step_index": 1, "instance_id": "a", "repo": "r/one"},
+            {"chain_id": "c1", "step_index": 2, "instance_id": "b", "repo": "r/one"},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "nodes.jsonl"
+            path.write_text(
+                "\n".join(json.dumps(node) for node in nodes) + "\n",
+                encoding="utf-8",
+            )
+
+            chains = load_issue_chains(path)
+
+        self.assertEqual(len(chains), 1)
+        self.assertEqual(chains[0].chain_id, "c1")
+        self.assertEqual(chains[0].instance_ids, ("a", "b"))
+
+    def test_load_issue_chains_still_reads_nested_json_file(self) -> None:
+        from evals.swebench.pro_memory_chain import load_issue_chains
+
+        manifest = {
+            "repos": [
+                {
+                    "repo": "acme/widgets",
+                    "chains": [
+                        {
+                            "chain_id": "acme-1",
+                            "issues": [
+                                {"instance_id": "a", "commit_time": "2021-01-01"},
+                                {"instance_id": "b", "commit_time": "2021-02-01"},
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "chains.json"
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            chains = load_issue_chains(path)
+
+        self.assertEqual(len(chains), 1)
+        self.assertEqual(chains[0].chain_id, "acme-1")
+        self.assertEqual(chains[0].instance_ids, ("a", "b"))
+
+    def test_default_chains_json_is_vendored_in_repo(self) -> None:
+        from evals.swebench.pro_memory_chain import (
+            DEFAULT_CHAINS_JSON,
+            load_issue_chains,
+        )
+
+        default_path = Path(DEFAULT_CHAINS_JSON)
+        self.assertTrue(
+            default_path.exists(),
+            f"vendored default chains file missing: {default_path}",
+        )
+        self.assertEqual(default_path.suffix, ".jsonl")
+        self.assertEqual(default_path.parent.name, "data")
+        # The vendored deep file is the 47-chain analysis; parse it for real.
+        chains = load_issue_chains(default_path)
+        self.assertEqual(len(chains), 47)
+        self.assertEqual(sum(len(c.instance_ids) for c in chains), 261)
 
 
 class AuthSlotExpansionTest(unittest.TestCase):

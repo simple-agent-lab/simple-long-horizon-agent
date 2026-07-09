@@ -11,8 +11,9 @@ earlier one's lessons.
 
 Key differences from the repo-chain runner:
 
-- Chains come from a pre-analyzed issue-chains JSON (``--chains-json``), not from
-  splitting a repo by commit time.
+- Chains come from a pre-analyzed chain manifest (``--chains-json``), not from
+  splitting a repo by commit time. It defaults to the deep chain-nodes JSONL
+  vendored under ``evals/swebench/data/`` so a run needs no external checkout.
 - The full split still runs: every dataset instance not covered by a chain
   becomes a length-1 singleton (memory off by default; ``--singleton-memory``
   turns it on).
@@ -22,22 +23,24 @@ Key differences from the repo-chain runner:
 - Memory replaces context handoff, so there is no ``--compression-strategy`` /
   ``--handoff`` / ``chain_state.json`` plumbing here.
 
-Example smoke (no Docker cost past a couple of instances):
+Example smoke (no Docker cost past a couple of instances; uses the vendored
+default ``--chains-json``):
 
     uv run --extra swebench python runs/swebench/run_swebench_pro_memory_chains.py \
-      --chains-json /home/you/code/mini-memory/data/swe_bench_pro_issue_chains_deep.json \
       --max-chains 1 --limit 2 --max-turns 5 --skip-official-eval
 
 Formal run shape:
 
     uv run --extra swebench python runs/swebench/run_swebench_pro_memory_chains.py \
       --all \
-      --chains-json /home/you/code/mini-memory/data/swe_bench_pro_issue_chains_deep.json \
       --parallel 23 \
       --provider-auth-envs OPENAI_AUTH_TOKEN:12,OPENAI_AUTH_TOKEN2:11 \
       --api-kind openai-responses \
       --max-turns 250 \
       --run-official-eval
+
+Pass ``--chains-json PATH`` to override the vendored default with another flat
+chain-nodes JSONL or a nested issue-chains JSON.
 """
 
 from __future__ import annotations
@@ -114,8 +117,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--chains-json",
         default=str(DEFAULT_CHAINS_JSON),
         help=(
-            "Pre-analyzed issue-chains JSON (repos -> chains -> issues). "
-            "Defaults to the mini-memory deep-chains file."
+            "Pre-analyzed chain manifest: either a flat chain-nodes JSONL "
+            "(one node per line) or a nested issue-chains JSON. Defaults to the "
+            "deep chain-nodes JSONL vendored under evals/swebench/data/."
         ),
     )
     parser.add_argument("--dataset-name", default=ProMemoryChainConfig.dataset_name)

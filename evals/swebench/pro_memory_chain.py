@@ -4,8 +4,9 @@ This is the pure planning/configuration half of the *memory-based* repo-chain
 runner. It is a peer of ``pro_repo_chain`` but with a different research shape,
 borrowed from the ``mini-memory`` filesystem-memory chains:
 
-- Chains come from a pre-analyzed *issue-chains* JSON (repos -> chains ->
-  issues), not from splitting a repo by commit time.
+- Chains come from a pre-analyzed chain manifest vendored under ``data/`` (a
+  flat chain-nodes JSONL by default, or the older nested issue-chains JSON),
+  not from splitting a repo by commit time.
 - Each issue in a chain runs as an ordinary, isolated SWE-bench Pro instance in
   a *fresh* agent context. Nothing about the previous instance's transcript is
   carried forward in-context. The only thing that crosses instance boundaries is
@@ -35,10 +36,14 @@ from typing import Any
 
 DEFAULT_DATASET = "ScaleAI/SWE-bench_Pro"
 DEFAULT_SPLIT = "test"
-# The analyzed issue-chains file lives outside this repo (produced by the
-# mini-memory chain analysis). It is only a convenience default for
-# ``--chains-json``; the runner errors clearly if the path is missing.
-DEFAULT_CHAINS_JSON = "~/code/mini-memory/data/swe_bench_pro_issue_chains_deep.json"
+# Chain manifests are vendored into the repo so a run does not depend on an
+# external checkout. ``CHAIN_DATA_DIR`` sits next to this module; the deep
+# node file is the default. It is the flat, one-node-per-line JSONL produced by
+# the mini-memory chain analysis (each row carries ``chain_id``/``step_index``/
+# ``instance_id``/``repo``/``commit_time``). ``load_issue_chains`` also still
+# accepts the older nested issue-chains JSON so external manifests keep working.
+CHAIN_DATA_DIR = Path(__file__).resolve().parent / "data"
+DEFAULT_CHAINS_JSON = CHAIN_DATA_DIR / "swe_bench_pro_chain_experiment_nodes_deep.jsonl"
 DEFAULT_API_KIND = "openai-responses"
 DEFAULT_MAX_TURNS = 250
 DEFAULT_AGENT_FLAVOR = "bash"
@@ -91,17 +96,118 @@ class RawIssueChain:
 
 
 def load_issue_chains(path: str | Path) -> list[RawIssueChain]:
-    """Parse an issue-chains JSON into commit-time-ordered raw chains.
+    """Parse a chain manifest into commit-time-ordered raw chains.
 
-    The expected shape is ``{"repos": [{"repo", "chains": [{"chain_id",
-    "issues": [{"instance_id", "commit_time"}]}]}]}`` — the structure produced by
-    the mini-memory chain analysis. Issues inside a chain are re-sorted by
-    ``(commit_time, instance_id)`` defensively so execution order stays
-    chronological even if the file is out of order.
+    Two on-disk shapes are accepted:
+
+    - Flat *chain-nodes* JSONL (one node object per line) — the format vendored
+      under ``data/`` and produced by the mini-memory chain analysis. Nodes are
+      grouped by ``chain_id`` and ordered by ``step_index`` (falling back to
+      ``commit_time``); see :func:`chains_from_nodes`.
+    - Nested issue-chains JSON (``{"repos": [{"repo", "chains": [{"chain_id",
+      "issues": [{"instance_id", "commit_time"}]}]}]}``) — the older
+      single-object manifest; see :func:`chains_from_manifest`.
+
+    Detection uses the ``.jsonl`` / ``.json`` suffix first, then sniffs the
+    content so a misnamed file still parses.
     """
 
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
-    return chains_from_manifest(data)
+    resolved = Path(path)
+    text = resolved.read_text(encoding="utf-8")
+    if _is_jsonl_manifest(resolved, text):
+        nodes = [json.loads(line) for line in text.splitlines() if line.strip()]
+        return chains_from_nodes(nodes)
+    return chains_from_manifest(json.loads(text))
+
+
+def _is_jsonl_manifest(path: Path, text: str) -> bool:
+    """Decide whether ``text`` is a one-node-per-line JSONL chain manifest."""
+
+    if path.suffix == ".jsonl":
+        return True
+    if path.suffix == ".json":
+        return False
+    # Unknown suffix: a nested manifest is a single JSON value that parses as a
+    # whole, while a JSONL file has several independently-parseable lines.
+    lines = [line for line in text.splitlines() if line.strip()]
+    if len(lines) <= 1:
+        return False
+    try:
+        json.loads(text)
+    except json.JSONDecodeError:
+        return True
+    return False
+
+
+def chains_from_nodes(nodes: Iterable[Mapping[str, Any]]) -> list[RawIssueChain]:
+    """Build raw chains from flat chain-node records (one per instance).
+
+    Nodes are grouped by ``chain_id`` in first-seen order; within a chain they
+    are ordered by ``step_index`` (falling back to ``commit_time`` then
+    ``instance_id``) so execution stays chronological even if the file is out of
+    order. ``repo`` is taken from the first node in the chain that carries it.
+    The final run order is decided later by :func:`order_chains_longest_first`,
+    so the grouping order here only needs to be deterministic.
+    """
+
+    grouped: dict[str, list[Mapping[str, Any]]] = {}
+    order: list[str] = []
+    for node in nodes:
+        if not isinstance(node, Mapping):
+            continue
+        instance_id = str(node.get("instance_id") or "").strip()
+        if not instance_id:
+            continue
+        chain_id = str(node.get("chain_id") or "").strip()
+        if chain_id not in grouped:
+            grouped[chain_id] = []
+            order.append(chain_id)
+        grouped[chain_id].append(node)
+
+    chains: list[RawIssueChain] = []
+    for chain_id in order:
+        ordered = sorted(grouped[chain_id], key=_node_sort_key)
+        instance_ids = tuple(str(node.get("instance_id")) for node in ordered)
+        repo = next(
+            (
+                str(node.get("repo")).strip()
+                for node in ordered
+                if str(node.get("repo") or "").strip()
+            ),
+            "",
+        )
+        chains.append(
+            RawIssueChain(
+                chain_id=chain_id or f"{repo}-{instance_ids[0]}",
+                repo=repo,
+                instance_ids=instance_ids,
+            )
+        )
+    return chains
+
+
+def _node_sort_key(node: Mapping[str, Any]) -> tuple[int, str, str]:
+    """Chronological sort key for one chain node.
+
+    ``step_index`` is the canonical intra-chain order; nodes missing a usable
+    step sort after the ordered ones and then break ties by commit time and id.
+    """
+
+    raw_step = node.get("step_index")
+    if isinstance(raw_step, int):
+        step = raw_step
+    elif isinstance(raw_step, str):
+        try:
+            step = int(raw_step)
+        except ValueError:
+            step = 1_000_000
+    else:
+        step = 1_000_000
+    return (
+        step,
+        str(node.get("commit_time") or ""),
+        str(node.get("instance_id") or ""),
+    )
 
 
 def chains_from_manifest(data: Mapping[str, Any]) -> list[RawIssueChain]:
