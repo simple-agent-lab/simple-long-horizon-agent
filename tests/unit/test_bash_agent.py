@@ -56,7 +56,17 @@ class BashToolTest(unittest.TestCase):
         self.assertFalse(result.is_error)
         self.assertIn("hello", tool_result_text(result))
         self.assertEqual(result.details["exit_code"], 0)
-        self.assertEqual(result.details["raw_stdout"], "hello")
+        self.assertEqual(result.details["raw_stdout"], "hello\n")
+
+    def test_raw_stdout_preserves_crlf(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            execution = run_bash(
+                "printf 'first\\r\\nsecond\\r\\n'",
+                cwd=tmp,
+                timeout_seconds=3,
+            )
+
+        self.assertEqual(execution.raw_stdout, "first\r\nsecond\r\n")
 
     def test_successful_empty_output_reports_done(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -91,8 +101,39 @@ class BashToolTest(unittest.TestCase):
 
         self.assertFalse(result.is_error)
         self.assertTrue(result.terminate)
-        self.assertEqual(result.details["submission"], "diff --git a/app.py b/app.py")
+        self.assertEqual(result.details["submission"], "diff --git a/app.py b/app.py\n")
         self.assertIn("Submission captured", tool_result_text(result))
+
+    def test_submission_preserves_trailing_blank_context_line(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict(
+                "os.environ",
+                {
+                    config.BASH_SUBMISSION_MARKER.name: (
+                        "COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
+                    )
+                },
+                clear=False,
+            ):
+                tool = make_bash_tool(cwd=tmp)
+            result = _execute(
+                tool,
+                {
+                    "command": (
+                        "printf 'COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT\\n"
+                        "diff --git a/app.py b/app.py\\n"
+                        "@@ -1,2 +1,2 @@\\n"
+                        "-old\\n"
+                        "+new\\n"
+                        " \\n'"
+                    )
+                },
+            )
+
+        self.assertEqual(
+            result.details["submission"],
+            ("diff --git a/app.py b/app.py\n@@ -1,2 +1,2 @@\n-old\n+new\n \n"),
+        )
 
     def test_submission_marker_parser_ignores_ordinary_output(self) -> None:
         self.assertIsNone(
@@ -174,7 +215,7 @@ class BashToolTest(unittest.TestCase):
                 timeout_seconds=3,
             )
         self.assertEqual(execution.exit_code, 0)
-        self.assertEqual(execution.raw_stdout, "cat,1,off")
+        self.assertEqual(execution.raw_stdout, "cat,1,off\n")
 
     def test_caller_env_overrides_non_interactive_defaults(self) -> None:
         import os
@@ -625,7 +666,7 @@ class BashToolCrashSafetyTest(unittest.TestCase):
 
     def test_valid_utf8_emoji_passes_through(self) -> None:
         execution = run_bash("printf '🦀\\n'", cwd=ROOT, timeout_seconds=3)
-        self.assertEqual(execution.raw_stdout, "🦀")
+        self.assertEqual(execution.raw_stdout, "🦀\n")
         self.assertFalse(execution.is_error)
 
     def test_binary_output_via_tool_returns_structured_result(self) -> None:

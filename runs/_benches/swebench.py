@@ -47,7 +47,11 @@ from simple_agent_lab.evals import (  # noqa: E402
 from simple_agent_lab.evals.backends.docker_local import (  # noqa: E402
     DEFAULT_DOCKER_TIMEOUT_S,
 )
-from simple_agent_lab.evals.runner import container_name  # noqa: E402
+from simple_agent_lab.evals.runner import (  # noqa: E402
+    clear_run_outputs,
+    container_name,
+    prepare_run_directory,
+)
 from simple_agent_lab.evals.suites.swebench.patch import instance_language  # noqa: E402
 
 # Identity for the unified entry (runs/run_bench.py). `run(args)` returns a
@@ -137,6 +141,14 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--prepare-wheelhouse", action="store_true")
+    parser.add_argument(
+        "--reuse-prepared-wheelhouse",
+        action="store_true",
+        help=(
+            "Use an already-prepared wheelhouse without rebuilding the project "
+            "wheel. Intended for workers in a batch whose parent prepared it once."
+        ),
+    )
     parser.add_argument("--in-env-scoring", action="store_true")
     parser.add_argument("--keep-container", action="store_true")
     parser.add_argument(
@@ -209,10 +221,20 @@ def run(args: argparse.Namespace) -> dict:
         outer_max_turns = 1
 
     run_root, wheelhouse = _resolve_paths(args, instance)
+    # Clear this run's old products before any wheel/provider/launch setup can
+    # fail. Input-side chain state is intentionally preserved.
+    clear_run_outputs(
+        prepare_run_directory(
+            run_root=run_root,
+            run_id=args.run_id,
+            instance_id=args.instance_id,
+        )
+    )
     package_extras: tuple[str, ...] = ()
     harness.prepare_wheelhouse_for_run(
         wheelhouse,
         prepare_all=args.prepare_wheelhouse,
+        reuse_prepared=args.reuse_prepared_wheelhouse,
         extras=package_extras,
     )
 

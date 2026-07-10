@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from simple_agent_lab.evals.in_container import _memory_artifact_builder
 from simple_agent_lab.evals.suites.swebench import container as swebench_container
@@ -115,6 +116,44 @@ class SwebenchPatchExtractTest(unittest.TestCase):
         self.assertIn("-a = 1", patch)
         self.assertIn("+a = 3", patch)
 
+    def test_git_diff_preserves_trailing_blank_context_line(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = _init_repo(Path(tmp))
+            tracked = repo / "module.py"
+            tracked.write_text("first\nold\n\n", encoding="utf-8")
+            _git(repo, "add", ".")
+            _git(repo, "commit", "-m", "base")
+            tracked.write_text("first\nnew\n\n", encoding="utf-8")
+
+            patch = git_diff(repo, language="python")
+
+        self.assertTrue(patch.endswith(" \n"), repr(patch[-20:]))
+        parsed = subprocess.run(
+            ["git", "apply", "--numstat", "--allow-empty", "-"],
+            input=patch,
+            capture_output=True,
+            encoding="utf-8",
+            check=False,
+        )
+        self.assertEqual(parsed.returncode, 0, parsed.stderr)
+
+    def test_git_diff_raises_when_git_add_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / ".git" / "info").mkdir(parents=True)
+            failed = subprocess.CompletedProcess(
+                args=["git", "add", "-A"],
+                returncode=1,
+                stdout="",
+                stderr="index is locked",
+            )
+            with mock.patch(
+                "simple_agent_lab.evals.suites.swebench.patch.subprocess.run",
+                return_value=failed,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "git add"):
+                    git_diff(repo)
+
     def test_baseline_commit_excludes_pre_agent_environment_changes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = _init_repo(Path(tmp))
@@ -210,6 +249,75 @@ class SwebenchPatchExtractTest(unittest.TestCase):
             result["model_submitted_patch"], "diff --git a/app.py b/app.py\n"
         )
         self.assertEqual(result["model_submitted_patch_source"], "patch_txt")
+
+    def test_extract_result_preserves_patch_txt_without_final_newline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = _init_repo(Path(tmp))
+            (repo / "app.py").write_text("value = 1\n", encoding="utf-8")
+            _git(repo, "add", ".")
+            _git(repo, "commit", "-m", "base")
+            (repo / "patch.txt").write_text(
+                "diff --git a/app.py b/app.py", encoding="utf-8"
+            )
+
+            result = swebench_container.extract_result(
+                repo,
+                {"repo": "acme/widgets"},
+                context={"language": "python"},
+            )
+
+        self.assertEqual(
+            result["model_submitted_patch"], "diff --git a/app.py b/app.py"
+        )
+
+    def test_extract_result_preserves_patch_txt_crlf(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = _init_repo(Path(tmp))
+            (repo / "app.py").write_text("value = 1\n", encoding="utf-8")
+            _git(repo, "add", ".")
+            _git(repo, "commit", "-m", "base")
+            (repo / "patch.txt").write_bytes(b"diff --git a/app.py b/app.py\r\n \r\n")
+
+            result = swebench_container.extract_result(
+                repo,
+                {"repo": "acme/widgets"},
+                context={"language": "python"},
+            )
+
+        self.assertEqual(
+            result["model_submitted_patch"],
+            "diff --git a/app.py b/app.py\r\n \r\n",
+        )
+
+    def test_raw_stdout_fallback_ignores_failed_submission_command(self) -> None:
+        state = State("task")
+        state.record(
+            tool_results_message(
+                [
+                    ToolResultBlock(
+                        tool_call_id="call-1",
+                        tool_name="bash",
+                    )
+                ],
+                target="swebench_agent",
+                sidecar={
+                    "details": {
+                        "call-1": {
+                            "exit_code": 1,
+                            "raw_stdout": (
+                                "COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT\n"
+                                "diff --git a/app.py b/app.py\n"
+                            ),
+                        }
+                    }
+                },
+            )
+        )
+
+        self.assertEqual(
+            swebench_container._submitted_patch_from_state(state),
+            "",
+        )
 
     def test_instance_helpers_default_verified_to_python_and_read_multilingual(
         self,

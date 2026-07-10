@@ -40,6 +40,16 @@ from evals.swebench.harness import (
 )
 
 
+def _record_command_with_fake_wheel(calls: list[list[str]], command: list[str]) -> None:
+    calls.append(command)
+    if command[:3] == ["uv", "build", "--wheel"]:
+        out_dir = Path(command[-1])
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "simple_agent_lab-0.1.0-py3-none-any.whl").write_bytes(
+            b"complete-wheel"
+        )
+
+
 class SwebenchHarnessTest(unittest.TestCase):
     """Host-side SWE-bench helpers shared by the suite, run entry, and scoring."""
 
@@ -312,7 +322,7 @@ class SwebenchHarnessTest(unittest.TestCase):
         calls: list[list[str]] = []
 
         def runner(command: list[str]) -> None:
-            calls.append(command)
+            _record_command_with_fake_wheel(calls, command)
 
         with tempfile.TemporaryDirectory() as tmp:
             prepare_wheelhouse(Path(tmp), runner=runner)
@@ -335,7 +345,7 @@ class SwebenchHarnessTest(unittest.TestCase):
         calls: list[list[str]] = []
 
         def runner(command: list[str]) -> None:
-            calls.append(command)
+            _record_command_with_fake_wheel(calls, command)
 
         with tempfile.TemporaryDirectory() as tmp:
             prepare_wheelhouse(Path(tmp), runner=runner, extras=("mcp",))
@@ -354,7 +364,7 @@ class SwebenchHarnessTest(unittest.TestCase):
         calls: list[list[str]] = []
 
         def runner(command: list[str]) -> None:
-            calls.append(command)
+            _record_command_with_fake_wheel(calls, command)
 
         # Even on a macOS host (the common dev setup), the provisioned interpreter
         # targets the FIXED container platform (Linux x86_64 glibc), so the
@@ -383,7 +393,7 @@ class SwebenchHarnessTest(unittest.TestCase):
         calls: list[list[str]] = []
 
         def runner(command: list[str]) -> None:
-            calls.append(command)
+            _record_command_with_fake_wheel(calls, command)
 
         # No uv on PATH: nothing to provision with (the bootstrap then falls back
         # to the container's own download path).
@@ -415,11 +425,26 @@ class SwebenchHarnessTest(unittest.TestCase):
 
         def runner(command: list[str]) -> None:
             calls.append(command)
+            out_dir = Path(command[-1])
+            out_dir.mkdir(parents=True, exist_ok=True)
+            (out_dir / "simple_agent_lab-0.1.0-py3-none-any.whl").write_bytes(
+                b"complete-wheel"
+            )
 
         with tempfile.TemporaryDirectory() as tmp:
-            prepare_project_wheel(Path(tmp), runner=runner)
+            wheelhouse = Path(tmp)
+            stale = wheelhouse / "simple_agent_lab-9.9.9-py3-none-any.whl"
+            stale.write_bytes(b"stale-wheel")
+            prepare_project_wheel(wheelhouse, runner=runner)
+            installed = (
+                wheelhouse / "simple_agent_lab-0.1.0-py3-none-any.whl"
+            ).read_bytes()
+            stale_exists = stale.exists()
 
-        self.assertEqual(calls, [["uv", "build", "--wheel", "--out-dir", tmp]])
+        self.assertEqual(calls[0][:4], ["uv", "build", "--wheel", "--out-dir"])
+        self.assertNotEqual(calls[0][-1], tmp)
+        self.assertEqual(installed, b"complete-wheel")
+        self.assertFalse(stale_exists)
 
     def test_prepare_wheelhouse_for_run_refreshes_project_wheel_by_default(
         self,
@@ -435,6 +460,24 @@ class SwebenchHarnessTest(unittest.TestCase):
                     prepare_wheelhouse_for_run(wheelhouse, prepare_all=False)
 
         project_wheel.assert_called_once_with(wheelhouse)
+        full_wheelhouse.assert_not_called()
+
+    def test_prepare_wheelhouse_for_run_can_reuse_prepared_wheelhouse(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wheelhouse = Path(tmp)
+            with mock.patch(
+                "evals.swebench.harness.prepare_project_wheel"
+            ) as project_wheel:
+                with mock.patch(
+                    "evals.swebench.harness.prepare_wheelhouse"
+                ) as full_wheelhouse:
+                    prepare_wheelhouse_for_run(
+                        wheelhouse,
+                        prepare_all=False,
+                        reuse_prepared=True,
+                    )
+
+        project_wheel.assert_not_called()
         full_wheelhouse.assert_not_called()
 
     def test_prepare_wheelhouse_for_run_can_prepare_full_wheelhouse(self) -> None:

@@ -384,11 +384,15 @@ running_jobs() {
 
 collect_predictions() {
   mkdir -p "$PREDICTION_DIR"
+  local expected_ids="${CONTAINER_RUN_ROOT}/${RUN_ID}/expected_instance_ids.txt"
+  mkdir -p "$(dirname "$expected_ids")"
+  printf '%s\n' "${INSTANCE_IDS[@]}" > "$expected_ids"
   local pred_out="${PREDICTION_DIR}/${RUN_ID}_predictions.jsonl"
   "${PYTHON[@]}" evals/swebench/evaluate_predictions.py --collect-predictions \
     --run-root "$CONTAINER_RUN_ROOT" --run-id "$RUN_ID" \
     --dataset-name "$DATASET" --model-name "$MODEL_NAME" \
     --patch-field model_patch \
+    --expected-ids-file "$expected_ids" \
     --predictions "$pred_out"
   if [ "$VARIANT" = "pro" ]; then
     local submitted_pred_out="${PREDICTION_DIR}/${RUN_ID}_submitted_patch_predictions.jsonl"
@@ -396,6 +400,7 @@ collect_predictions() {
       --run-root "$CONTAINER_RUN_ROOT" --run-id "$RUN_ID" \
       --dataset-name "$DATASET" --model-name "${MODEL_NAME}-submitted-patch" \
       --patch-field model_submitted_patch \
+      --expected-ids-file "$expected_ids" \
       --predictions "$submitted_pred_out"
   fi
 }
@@ -456,7 +461,8 @@ PY
     # the exit code is recorded (a bare `cmd; echo $?` would lose a failure code).
     (
       rc=0
-      run_container_for_index "$job_index" "$INSTANCE_JSON" "$instance_id" || rc=$?
+      run_container_for_index "$job_index" "$INSTANCE_JSON" "$instance_id" \
+        --reuse-prepared-wheelhouse || rc=$?
       echo "$rc" > "$status_file"
     ) > "$log" 2>&1 &
     PIDS+=("$!")

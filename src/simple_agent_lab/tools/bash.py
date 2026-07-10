@@ -289,12 +289,10 @@ def run_bash(
             capture_output=True,
             timeout=timeout_seconds,
             check=False,
-            encoding="utf-8",
-            errors="replace",
             env=env,
         )
-        stdout = completed.stdout
-        stderr = completed.stderr
+        stdout = _coerce_process_text(completed.stdout)
+        stderr = _coerce_process_text(completed.stderr)
         exit_code = completed.returncode
         timed_out = False
     except subprocess.TimeoutExpired as exc:
@@ -325,8 +323,12 @@ def run_bash(
         exit_code=exit_code,
         stdout=visible_stdout,
         stderr=visible_stderr,
-        raw_stdout=clean_stdout,
-        raw_stderr=clean_stderr,
+        # Keep the process streams byte-for-byte at the text boundary. The
+        # cleaned copies above are only for the model-visible observation;
+        # submission protocols may carry a patch whose final whitespace is
+        # syntactically significant.
+        raw_stdout=stdout,
+        raw_stderr=stderr,
         elapsed_seconds=elapsed,
         timed_out=timed_out,
         timeout_seconds=timeout_seconds,

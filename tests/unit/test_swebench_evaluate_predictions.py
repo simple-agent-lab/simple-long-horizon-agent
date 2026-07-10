@@ -250,6 +250,128 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
             predictions[0]["patch"], "diff --git a/submitted b/submitted\n"
         )
 
+    def test_collect_predictions_emits_empty_patch_for_expected_missing_result(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run_root = Path(tmp) / "runs"
+            run_dir = run_root / "run-1" / "instance_one"
+            (run_dir / "input").mkdir(parents=True)
+            (run_dir / "out").mkdir()
+            (run_dir / "input" / "instance.json").write_text(
+                json.dumps({"instance_id": "instance_one"}),
+                encoding="utf-8",
+            )
+            (run_dir / "out" / "result.json").write_text(
+                json.dumps({"model_patch": "diff --git a/a b/a\n"}),
+                encoding="utf-8",
+            )
+
+            predictions = evaluate_predictions.predictions_from_run_dirs(
+                run_root,
+                run_id="run-1",
+                model_name="model",
+                dataset_name="ScaleAI/SWE-bench_Pro",
+                expected_instance_ids=("instance_one", "instance_two"),
+            )
+
+        self.assertEqual(
+            [prediction["instance_id"] for prediction in predictions],
+            ["instance_one", "instance_two"],
+        )
+        self.assertEqual(predictions[1]["patch"], "")
+
+    def test_collect_predictions_rejects_duplicate_instance_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run_root = Path(tmp) / "runs"
+            for dirname in ("one", "duplicate"):
+                run_dir = run_root / "run-1" / dirname
+                (run_dir / "input").mkdir(parents=True)
+                (run_dir / "out").mkdir()
+                (run_dir / "input" / "instance.json").write_text(
+                    json.dumps({"instance_id": "instance_one"}),
+                    encoding="utf-8",
+                )
+                (run_dir / "out" / "result.json").write_text(
+                    json.dumps({"model_patch": "diff"}),
+                    encoding="utf-8",
+                )
+
+            with self.assertRaisesRegex(ValueError, "Duplicate result"):
+                evaluate_predictions.predictions_from_run_dirs(
+                    run_root,
+                    run_id="run-1",
+                    expected_instance_ids=("instance_one",),
+                )
+
+    def test_recover_submitted_patch_from_collected_patch_txt(self) -> None:
+        collected = (
+            "diff --git a/patch.txt b/patch.txt\n"
+            "new file mode 100644\n"
+            "--- /dev/null\n"
+            "+++ b/patch.txt\n"
+            "@@ -0,0 +1,5 @@\n"
+            "+diff --git a/app.py b/app.py\n"
+            "+@@ -1,2 +1,2 @@\n"
+            "+-old\n"
+            "++new\n"
+            "+ \n"
+            "diff --git a/app.py b/app.py\n"
+            "--- a/app.py\n"
+            "+++ b/app.py\n"
+        )
+
+        recovered = evaluate_predictions.recover_submitted_patch(
+            {
+                "model_patch": collected,
+                "model_submitted_patch": "trimmed fallback\n",
+            }
+        )
+
+        self.assertEqual(
+            recovered,
+            ("diff --git a/app.py b/app.py\n@@ -1,2 +1,2 @@\n-old\n+new\n \n"),
+        )
+
+    def test_recover_empty_patch_txt_does_not_cross_into_next_diff(self) -> None:
+        collected = (
+            "diff --git a/patch.txt b/patch.txt\n"
+            "new file mode 100644\n"
+            "index 0000000..e69de29\n"
+            "diff --git a/other.txt b/other.txt\n"
+            "new file mode 100644\n"
+            "--- /dev/null\n"
+            "+++ b/other.txt\n"
+            "@@ -0,0 +1 @@\n"
+            "+not a patch\n"
+        )
+
+        recovered = evaluate_predictions.recover_submitted_patch(
+            {
+                "model_patch": collected,
+                "model_submitted_patch": "fallback should not win",
+            }
+        )
+
+        self.assertEqual(recovered, "")
+
+    def test_recover_patch_txt_preserves_missing_final_newline(self) -> None:
+        collected = (
+            "diff --git a/patch.txt b/patch.txt\n"
+            "new file mode 100644\n"
+            "--- /dev/null\n"
+            "+++ b/patch.txt\n"
+            "@@ -0,0 +1 @@\n"
+            "+diff --git a/app.py b/app.py\n"
+            "\\ No newline at end of file\n"
+        )
+
+        recovered = evaluate_predictions.recover_submitted_patch(
+            {"model_patch": collected}
+        )
+
+        self.assertEqual(recovered, "diff --git a/app.py b/app.py")
+
     def test_results_from_summary_accepts_pro_eval_results_map(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "eval_results.json"
@@ -362,9 +484,13 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
             script = root / "swe_bench_pro_eval.py"
             script.write_text("# fake evaluator\n", encoding="utf-8")
             report_dir = root / "report"
+            stale = report_dir / "official" / "instance_stale" / "workspace"
+            stale.mkdir(parents=True)
+            (stale / "output.json").write_text('{"stale": true}')
 
             def fake_run(command, cwd, check):
                 del command, cwd, check
+                self.assertFalse(stale.exists())
                 official = report_dir / "official"
                 official.mkdir(parents=True)
                 (official / "eval_results.json").write_text(
@@ -382,10 +508,13 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
                 scripts_dir=str(root / "run_scripts"),
             )
 
-            with mock.patch.object(
-                evaluate_predictions.subprocess,
-                "run",
-                side_effect=fake_run,
+            with (
+                mock.patch.object(
+                    evaluate_predictions.subprocess,
+                    "run",
+                    side_effect=fake_run,
+                ),
+                mock.patch.object(evaluate_predictions, "_patch_pro_evaluator"),
             ):
                 evaluate_predictions.run_official_pro_harness(args)
 
@@ -459,13 +588,97 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
                 scripts_dir=str(root / "run_scripts"),
             )
 
-            with mock.patch.object(
-                evaluate_predictions.subprocess,
-                "run",
-                return_value=SimpleNamespace(returncode=2),
+            with (
+                mock.patch.object(
+                    evaluate_predictions.subprocess,
+                    "run",
+                    return_value=SimpleNamespace(returncode=2),
+                ),
+                mock.patch.object(evaluate_predictions, "_patch_pro_evaluator"),
             ):
                 with self.assertRaisesRegex(SystemExit, "exited with 2"):
                     evaluate_predictions.run_official_pro_harness(args)
+
+    def test_patch_pro_evaluator_enforces_apply_check_and_status(self) -> None:
+        source = '''
+def create_entryscript(sample):
+    base_commit = sample["base_commit"]
+    before_repo_set_cmd = "prepare tests"
+    entry_script = f"""
+# apply patch
+cd /app
+git reset --hard {base_commit}
+git checkout {base_commit}
+git apply -v /workspace/patch.diff
+{before_repo_set_cmd}
+# run test and save stdout and stderr to separate files
+"""
+    return entry_script
+
+client = docker.from_env()
+def pull():
+        try:
+            if docker_platform:
+                client.images.pull(dockerhub_image_uri, platform=docker_platform)
+            else:
+                client.images.pull(dockerhub_image_uri)
+        except Exception as pull_err:
+            # If pull fails, fall back to a local image if present; otherwise, fail this run
+            try:
+                client.images.get(dockerhub_image_uri)
+                print(f"Using locally available image: {dockerhub_image_uri}")
+            except Exception:
+                print(f"Failed to pull or find image locally for {uid}: {pull_err}")
+                return None
+'''
+        with tempfile.TemporaryDirectory() as tmp:
+            script = Path(tmp) / "swe_bench_pro_eval.py"
+            script.write_text(source, encoding="utf-8")
+
+            evaluate_predictions._patch_pro_evaluator(script)
+            patched = script.read_text(encoding="utf-8")
+
+        self.assertIn("git apply --check", patched)
+        self.assertIn("patch_apply_status.json", patched)
+        self.assertIn('"success": true', patched)
+        self.assertIn("docker.from_env(timeout=600)", patched)
+        self.assertIn("Using locally cached Docker image", patched)
+
+    def test_patch_pro_evaluator_rejects_unknown_entryscript_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            script = Path(tmp) / "swe_bench_pro_eval.py"
+            script.write_text("# unexpected upstream shape\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(RuntimeError, "entryscript"):
+                evaluate_predictions._patch_pro_evaluator(script)
+
+    def test_merge_pro_apply_status_forces_failed_patch_unresolved(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            official = Path(tmp) / "official"
+            workspace = official / "instance_one" / "workspace"
+            workspace.mkdir(parents=True)
+            (workspace / "patch_apply_status.json").write_text(
+                json.dumps({"success": False, "stage": "check"}),
+                encoding="utf-8",
+            )
+            (workspace / "patch_apply.stderr").write_text(
+                "error: corrupt patch",
+                encoding="utf-8",
+            )
+            results = {
+                "instance_one": {
+                    "resolved": True,
+                    "status": "resolved",
+                }
+            }
+
+            evaluate_predictions.merge_pro_apply_statuses(results, official)
+
+        self.assertFalse(results["instance_one"]["resolved"])
+        self.assertEqual(results["instance_one"]["status"], "patch_apply_failed")
+        self.assertFalse(results["instance_one"]["patch_successfully_applied"])
+        self.assertEqual(results["instance_one"]["patch_apply_stage"], "check")
+        self.assertIn("corrupt patch", results["instance_one"]["patch_apply_stderr"])
 
 
 def _instance(instance_id: str) -> dict[str, object]:

@@ -349,8 +349,7 @@ def build_task(instance: Mapping[str, Any], *, workdir: str) -> str:
         "",
         "## Submission",
         "",
-        "When you've completed your work, you MUST submit your changes as a git "
-        "patch.",
+        "When you've completed your work, you MUST submit your changes as a git patch.",
         "Follow these steps IN ORDER, with SEPARATE commands:",
         "",
         "Step 1: Create the patch file",
@@ -644,11 +643,14 @@ def _submitted_patch(workspace: Path, *, state: State | None) -> tuple[str, str]
 
     from_state = _submitted_patch_from_state(state)
     if from_state:
-        return _normalize_patch(from_state), "tool_submission"
+        return from_state, "tool_submission"
     patch_txt = workspace / "patch.txt"
     if patch_txt.is_file():
         try:
-            return _normalize_patch(patch_txt.read_text(encoding="utf-8")), "patch_txt"
+            return (
+                patch_txt.read_bytes().decode("utf-8", errors="replace"),
+                "patch_txt",
+            )
         except OSError:
             return "", ""
     return "", ""
@@ -668,7 +670,7 @@ def _submitted_patch_from_state(state: State | None) -> str:
             if isinstance(submission, str) and submission.strip():
                 return submission
             raw_stdout = value.get("raw_stdout")
-            if isinstance(raw_stdout, str):
+            if isinstance(raw_stdout, str) and value.get("exit_code") == 0:
                 parsed = _submission_after_marker(raw_stdout)
                 if parsed.strip():
                     return parsed
@@ -680,11 +682,6 @@ def _submission_after_marker(output: str) -> str:
     if not lines or lines[0].strip() != DEFAULT_SUBMISSION_MARKER:
         return ""
     return "".join(lines[1:])
-
-
-def _normalize_patch(patch: str) -> str:
-    stripped = patch.strip()
-    return stripped + ("\n" if stripped else "")
 
 
 def _runtime_config(config: Mapping[str, Any]) -> Mapping[str, Any]:

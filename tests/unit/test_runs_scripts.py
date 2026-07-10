@@ -69,6 +69,7 @@ class RunsScriptsTest(unittest.TestCase):
         self.assertIn("--extra swebench", text)
         self.assertIn("wait -n", text)
         self.assertIn("--collect-predictions", text)
+        self.assertIn("--reuse-prepared-wheelhouse", text)
 
     def test_swebench_run_script_rejects_missing_ids_file(self) -> None:
         result = subprocess.run(

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -86,6 +87,14 @@ def prepare_run_directory(*, run_root: Path, run_id: str, instance_id: str) -> R
         trajectory_jsonl=output_dir / TRACE_KEY.split("/")[-1],
         prediction_jsonl=output_dir / "prediction.jsonl",
     )
+
+
+def clear_run_outputs(paths: RunPaths) -> None:
+    """Remove products from an earlier execution of the same run/instance."""
+
+    if paths.output_dir.exists():
+        shutil.rmtree(paths.output_dir)
+    paths.output_dir.mkdir(parents=True, exist_ok=True)
 
 
 # Docker container names cap at 255 chars; long SWE-bench instance_ids + a long
@@ -180,10 +189,11 @@ def run_suite_instance(
     """
 
     instance_id = str(instance["instance_id"])
-    launch_spec = suite.launch_spec(instance)
     paths = prepare_run_directory(
         run_root=run_root, run_id=run_id, instance_id=instance_id
     )
+    clear_run_outputs(paths)
+    launch_spec = suite.launch_spec(instance)
 
     # The agent must never see gold/private fields, so they are stripped here.
     # Oracle mode is the trusted exception: it *applies* the reference solution,

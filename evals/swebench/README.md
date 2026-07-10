@@ -213,7 +213,9 @@ language outputs out of the prediction without adding a `.gitignore` change to
 the patch. It also asks the model to create and inspect `patch.txt`, then submit
 it with `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat patch.txt`. That
 model-authored patch is stored separately as `model_submitted_patch`, so one run
-can be scored twice to compare patch extraction methods.
+can be scored twice to compare patch extraction methods. Both products preserve
+Git/stdout text exactly: trailing whitespace in a final context line is part of
+the unified-diff grammar and must never be stripped.
 
 Prepare provider wheels once on the host:
 
@@ -225,11 +227,15 @@ prepare_wheelhouse(Path("evals/out/swebench/wheelhouse/cp311-manylinux"))
 PY
 ```
 
-The run entry refreshes the local `simple-agent-lab` wheel every time it mounts
-a wheelhouse. This keeps cached third-party wheels reusable while preventing the
-container from installing an older build of the current checkout. If you see an
-import error for a symbol that exists in `src/simple_agent_lab/`, rerun the
-command; the run entry rebuilds the project wheel before starting Docker.
+The direct run entry refreshes the local `simple-agent-lab` wheel before it
+mounts a wheelhouse. This keeps cached third-party wheels reusable while
+preventing the container from installing an older build of the current
+checkout. If you see an import error for a symbol that exists in
+`src/simple_agent_lab/`, rerun the command; the run entry rebuilds the project
+wheel before starting Docker.
+Batch scripts prepare and atomically publish that wheel once before starting
+workers; workers reuse the immutable wheelhouse rather than concurrently
+rewriting an archive another container may be installing.
 
 The core runtime and normal CI do not require Docker or SWE-bench. To run the
 containerized SWE-bench adapters, install the optional SWE-bench dependencies in
@@ -342,6 +348,22 @@ uv run python evals/swebench/evaluate_predictions.py --collect-predictions \
 
 then grade that file with the official harness (see below).
 
+Predictions collected by the run script are scoped by a run-local expected-ID
+file. A failed instance is emitted as an empty patch instead of disappearing
+from the denominator, and duplicate or unexpected instance IDs fail collection.
+
+For runs created before patch-byte preservation was fixed, recover the original
+submitted bytes from the `patch.txt` embedded in `model_patch`:
+
+```bash
+uv run python evals/swebench/evaluate_predictions.py --collect-predictions \
+  --run-root evals/out/swebench_pro --run-id OLD_RUN_ID \
+  --dataset-name ScaleAI/SWE-bench_Pro \
+  --recover-submitted-patch \
+  --expected-ids-file evals/out/swebench_pro/instance_all-test.ids \
+  --predictions evals/out/swebench_pro/OLD_RUN_ID_recovered_predictions.jsonl
+```
+
 ## Official Harness
 
 SWE-bench itself remains an optional dependency because it is heavy and uses
@@ -387,7 +409,10 @@ bash runs/swebench/eval_swebench.sh --multilingual --run-official \
 Official SWE-bench Pro evaluation additionally requires a local checkout of
 `scaleapi/SWE-bench_Pro-os`. On first `--pro --run-official` use the harness
 auto-clones it into `evals/out/swebench_pro/official_harness` (and patches the
-docker-py socket timeout up to 600s), so no manual setup is needed.
+docker-py socket timeout up to 600s). The local wrapper also requires
+`git apply --check` and records a per-instance apply status; reset, checkout,
+check, or apply failure stops that instance and is always unresolved, while an
+ordinary nonzero test command still reaches the official parser.
 
 If your checkout is elsewhere, pass both Pro harness paths explicitly:
 

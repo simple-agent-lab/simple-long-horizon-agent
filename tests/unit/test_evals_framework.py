@@ -108,6 +108,82 @@ class OrchestrationTest(unittest.TestCase):
             result = json.loads((artifacts.run_dir / RESULT_KEY).read_text())
             self.assertEqual(result["answer"], "42")
 
+    def test_run_suite_instance_clears_stale_outputs_before_new_run(self) -> None:
+        instance = {"instance_id": "demo-1", "problem": "p"}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            stale_out = root / "run-x" / "demo-1" / "out"
+            stale_out.mkdir(parents=True)
+            (stale_out / "result.json").write_text('{"answer": "stale"}')
+            (stale_out / "trajectory.jsonl").write_text("stale trace")
+            (stale_out / "sub").mkdir()
+            (stale_out / "sub" / "old.jsonl").write_text("stale subtrace")
+
+            artifacts = run_suite_instance(
+                suite=_DemoSuite(),
+                instance=instance,
+                backend=FakeBackend(status_code=1),
+                store=LocalDirStore(root),
+                run_root=root,
+                run_id="run-x",
+                provider="fake",
+            )
+
+            self.assertEqual(artifacts.status_code, 1)
+            self.assertFalse((artifacts.run_dir / "out" / "result.json").exists())
+            self.assertFalse((artifacts.run_dir / "out" / "trajectory.jsonl").exists())
+            self.assertFalse((artifacts.run_dir / "out" / "sub").exists())
+
+    def test_stale_outputs_are_cleared_before_launch_spec_can_fail(self) -> None:
+        instance = {"instance_id": "demo-1", "problem": "p"}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            stale = root / "run-x" / "demo-1" / "out" / "result.json"
+            stale.parent.mkdir(parents=True)
+            stale.write_text('{"answer": "stale"}')
+            suite = _DemoSuite()
+
+            with mock.patch.object(
+                suite,
+                "launch_spec",
+                side_effect=RuntimeError("launch failed"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "launch failed"):
+                    run_suite_instance(
+                        suite=suite,
+                        instance=instance,
+                        backend=FakeBackend(),
+                        store=LocalDirStore(root),
+                        run_root=root,
+                        run_id="run-x",
+                        provider="fake",
+                    )
+
+            self.assertFalse(stale.exists())
+
+    def test_stale_output_cleanup_failure_is_not_ignored(self) -> None:
+        instance = {"instance_id": "demo-1", "problem": "p"}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            stale = root / "run-x" / "demo-1" / "out" / "result.json"
+            stale.parent.mkdir(parents=True)
+            stale.write_text('{"answer": "stale"}')
+
+            with mock.patch(
+                "simple_agent_lab.evals.runner.shutil.rmtree",
+                side_effect=OSError("cannot remove stale output"),
+            ):
+                with self.assertRaisesRegex(OSError, "cannot remove"):
+                    run_suite_instance(
+                        suite=_DemoSuite(),
+                        instance=instance,
+                        backend=FakeBackend(),
+                        store=LocalDirStore(root),
+                        run_root=root,
+                        run_id="run-x",
+                        provider="fake",
+                    )
+
     def test_build_command_targets_the_generic_runner(self) -> None:
         spec = RunSpec(
             suite_name="s",
