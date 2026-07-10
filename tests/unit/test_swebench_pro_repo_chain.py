@@ -986,7 +986,6 @@ class DockerExecBashToolTest(unittest.TestCase):
             image="jefzda/sweap-images:repo.commit",
             workdir="/app",
             network_mode="host",
-            mem_limit="8g",
         )
 
         self.assertEqual(
@@ -1002,7 +1001,7 @@ class DockerExecBashToolTest(unittest.TestCase):
                 "--network",
                 "host",
                 "--memory",
-                "8g",
+                "16g",
                 "-w",
                 "/app",
                 "jefzda/sweap-images:repo.commit",

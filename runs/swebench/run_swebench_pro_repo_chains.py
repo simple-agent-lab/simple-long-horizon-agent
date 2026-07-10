@@ -265,7 +265,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--dotenv", default=str(ROOT / ".env"))
     parser.add_argument("--network-mode", default="host")
-    parser.add_argument("--mem-limit", default="8g")
+    parser.add_argument("--mem-limit", default="16g")
     parser.add_argument("--wheelhouse", default=None)
     parser.add_argument("--prepare-wheelhouse", action="store_true")
     parser.add_argument("--uv-binary", default=harness.DEFAULT_UV_BINARY)

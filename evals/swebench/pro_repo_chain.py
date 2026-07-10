@@ -474,7 +474,7 @@ class DockerCommandRunner:
         image: str,
         workdir: str,
         network_mode: str = "host",
-        mem_limit: str | None = "8g",
+        mem_limit: str | None = "16g",
     ) -> Any:
         """Start a long-lived SWE-bench Pro instance container."""
 
