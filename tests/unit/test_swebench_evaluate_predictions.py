@@ -216,7 +216,7 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
 
         self.assertEqual(records[0]["instance_id"], "sympy__sympy-23824")
 
-    def test_collect_predictions_can_use_model_submitted_patch_field(self) -> None:
+    def test_collect_predictions_uses_collected_model_patch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp) / "runs" / "run-1" / "instance_one"
             (run_dir / "input").mkdir(parents=True)
@@ -226,29 +226,19 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
                 encoding="utf-8",
             )
             (run_dir / "out" / "result.json").write_text(
-                json.dumps(
-                    {
-                        "model_patch": "diff --git a/collected b/collected\n",
-                        "model_submitted_patch": (
-                            "diff --git a/submitted b/submitted\n"
-                        ),
-                    }
-                ),
+                json.dumps({"model_patch": "diff --git a/app.py b/app.py\n"}),
                 encoding="utf-8",
             )
 
             predictions = evaluate_predictions.predictions_from_run_dirs(
                 Path(tmp) / "runs",
                 run_id="run-1",
-                model_name="model-submitted",
+                model_name="model",
                 dataset_name="ScaleAI/SWE-bench_Pro",
-                patch_field="model_submitted_patch",
             )
 
-        self.assertEqual(predictions[0]["prefix"], "model-submitted")
-        self.assertEqual(
-            predictions[0]["patch"], "diff --git a/submitted b/submitted\n"
-        )
+        self.assertEqual(predictions[0]["prefix"], "model")
+        self.assertEqual(predictions[0]["patch"], "diff --git a/app.py b/app.py\n")
 
     def test_collect_predictions_emits_empty_patch_for_expected_missing_result(
         self,
@@ -303,74 +293,6 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
                     run_id="run-1",
                     expected_instance_ids=("instance_one",),
                 )
-
-    def test_recover_submitted_patch_from_collected_patch_txt(self) -> None:
-        collected = (
-            "diff --git a/patch.txt b/patch.txt\n"
-            "new file mode 100644\n"
-            "--- /dev/null\n"
-            "+++ b/patch.txt\n"
-            "@@ -0,0 +1,5 @@\n"
-            "+diff --git a/app.py b/app.py\n"
-            "+@@ -1,2 +1,2 @@\n"
-            "+-old\n"
-            "++new\n"
-            "+ \n"
-            "diff --git a/app.py b/app.py\n"
-            "--- a/app.py\n"
-            "+++ b/app.py\n"
-        )
-
-        recovered = evaluate_predictions.recover_submitted_patch(
-            {
-                "model_patch": collected,
-                "model_submitted_patch": "trimmed fallback\n",
-            }
-        )
-
-        self.assertEqual(
-            recovered,
-            ("diff --git a/app.py b/app.py\n@@ -1,2 +1,2 @@\n-old\n+new\n \n"),
-        )
-
-    def test_recover_empty_patch_txt_does_not_cross_into_next_diff(self) -> None:
-        collected = (
-            "diff --git a/patch.txt b/patch.txt\n"
-            "new file mode 100644\n"
-            "index 0000000..e69de29\n"
-            "diff --git a/other.txt b/other.txt\n"
-            "new file mode 100644\n"
-            "--- /dev/null\n"
-            "+++ b/other.txt\n"
-            "@@ -0,0 +1 @@\n"
-            "+not a patch\n"
-        )
-
-        recovered = evaluate_predictions.recover_submitted_patch(
-            {
-                "model_patch": collected,
-                "model_submitted_patch": "fallback should not win",
-            }
-        )
-
-        self.assertEqual(recovered, "")
-
-    def test_recover_patch_txt_preserves_missing_final_newline(self) -> None:
-        collected = (
-            "diff --git a/patch.txt b/patch.txt\n"
-            "new file mode 100644\n"
-            "--- /dev/null\n"
-            "+++ b/patch.txt\n"
-            "@@ -0,0 +1 @@\n"
-            "+diff --git a/app.py b/app.py\n"
-            "\\ No newline at end of file\n"
-        )
-
-        recovered = evaluate_predictions.recover_submitted_patch(
-            {"model_patch": collected}
-        )
-
-        self.assertEqual(recovered, "diff --git a/app.py b/app.py")
 
     def test_results_from_summary_accepts_pro_eval_results_map(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

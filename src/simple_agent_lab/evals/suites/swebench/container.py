@@ -73,9 +73,6 @@ from simple_agent_lab.evals.chain import start_chain_state
 from simple_agent_lab.evals.protocols import AgentSpec
 from simple_agent_lab.llm import Provider
 from simple_agent_lab.llm_agent import make_llm_agent
-from simple_agent_lab.state import State
-from simple_agent_lab.tools.bash import DEFAULT_SUBMISSION_MARKER
-
 from .patch import (
     git_diff,
     instance_base_commit,
@@ -96,7 +93,8 @@ ALL_FLAVORS = AGENT_FLAVORS
 AGENT_NAME = "swebench_agent"
 AGENT_ROLE = (
     "Work in the local repository. Use bash for inspection, edits, "
-    "and focused tests, then submit the patch with the required marker command."
+    "and focused tests. Leave only the intended source changes in the "
+    "workspace, then summarize the result."
 )
 AGENT_SYSTEM_PROMPT = (
     "You are a helpful assistant that can interact with a computer shell to "
@@ -270,7 +268,7 @@ def build_task(instance: Mapping[str, Any], *, workdir: str) -> str:
         "## Overview",
         "",
         "You're a software engineer interacting continuously with a computer by "
-        "submitting commands.",
+        "issuing commands.",
         "You'll be helping implement necessary changes to meet requirements in "
         "the PR description.",
         "Your task is specifically to make changes to non-test files in the "
@@ -279,12 +277,6 @@ def build_task(instance: Mapping[str, Any], *, workdir: str) -> str:
         "<IMPORTANT>This is an interactive process where you will think and use "
         "AT LEAST ONE available tool, see the result, then think and choose "
         "your next tool call(s).</IMPORTANT>",
-        "",
-        "For each response:",
-        "",
-        "1. Include a THOUGHT section explaining your reasoning and what you're "
-        "trying to accomplish",
-        "2. Provide one or more bash tool calls to execute.",
         "",
         "## Important Boundaries",
         "",
@@ -313,16 +305,17 @@ def build_task(instance: Mapping[str, Any], *, workdir: str) -> str:
         "3. You see the result(s)",
         "4. You write your next tool call(s)",
         "",
-        "Each response should include:",
+        "While work remains, each response should include:",
         "",
         "1. **THOUGHT** text where you explain your analysis and plan",
         "2. At least one bash tool call for the next useful action",
         "",
         "**CRITICAL REQUIREMENTS:**",
         "",
-        "- Your response SHOULD include THOUGHT text explaining what you're doing",
-        "- Your response MUST include AT LEAST ONE bash tool call. Do not add a "
-        "dummy `bash` call solely to satisfy this rule.",
+        "- Work-in-progress responses SHOULD include THOUGHT text explaining what "
+        "you're doing.",
+        "- Work-in-progress responses MUST include AT LEAST ONE useful bash tool "
+        "call. Do not add a dummy call solely to satisfy this rule.",
         "- You can make MULTIPLE tool calls in a single response when the actions "
         "are independent (e.g., reading different parts of the codebase).",
         "- Directory or environment variable changes are not persistent. Every "
@@ -347,52 +340,12 @@ def build_task(instance: Mapping[str, Any], *, workdir: str) -> str:
         "[Makes one or more bash tool calls to inspect the repository.]",
         "</example_response>",
         "",
-        "## Submission",
+        "## Completion",
         "",
-        "When you've completed your work, you MUST submit your changes as a git patch.",
-        "Follow these steps IN ORDER, with SEPARATE commands:",
-        "",
-        "Step 1: Create the patch file",
-        "Run `git diff -- path/to/file1 path/to/file2 > patch.txt` listing only "
-        "the source files you modified.",
-        "Do NOT commit your changes.",
-        "",
-        "<IMPORTANT>",
-        "The patch must only contain changes to the specific source files you "
-        "modified to fix the issue.",
-        "Do not submit file creations or changes to any of the following files:",
-        "",
-        "- test and reproduction files",
-        "- helper scripts, tests, or tools that you created",
-        "- lockfiles (package-lock.json, yarn.lock, pnpm-lock.yaml, "
-        "npm-shrinkwrap.json)",
-        "- installation, build, packaging, configuration, or setup scripts "
-        "(pyproject.toml, setup.cfg, etc.) unless they are directly part of the "
-        "issue you were fixing",
-        "- binary or compiled files",
-        "</IMPORTANT>",
-        "",
-        "Step 2: Verify your patch",
-        "Inspect patch.txt to confirm it only contains your intended changes and "
-        "headers show `--- a/` and `+++ b/` paths.",
-        "",
-        "Step 3: Submit (EXACT command required)",
-        "You MUST use this EXACT command to submit:",
-        "",
-        "```bash",
-        "echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat patch.txt",
-        "```",
-        "",
-        "If the command fails (nonzero exit status), it will not submit.",
-        "",
-        "<CRITICAL>",
-        "- Creating/viewing the patch and submitting it MUST be separate commands "
-        "(not combined with &&).",
-        "- If you modify patch.txt after verifying, you SHOULD verify again "
-        "before submitting.",
-        "- You CANNOT continue working (reading, editing, testing) in any way on "
-        "this task after submitting.",
-        "</CRITICAL>",
+        "When the issue is solved and verified, stop using tools and give a concise "
+        "final summary of the changes and tests.",
+        "Do not commit changes. The evaluation harness collects the workspace diff "
+        "automatically.",
         "</instructions>",
     ]
     return "\n".join(lines)
@@ -460,14 +413,8 @@ def extract_result(
     instance: Mapping[str, Any],
     *,
     context: Mapping[str, Any] | None = None,
-    state: State | None = None,
 ) -> dict[str, Any]:
-    """Collect both SWE-bench patch products.
-
-    ``model_patch`` remains the original Simple Agent Lab collected workspace
-    diff for backward-compatible scoring. ``model_submitted_patch`` is the
-    model-authored ``patch.txt`` / submission output, matching mini-SWE-agent's
-    explicit-patch protocol.
+    """Collect the workspace diff scored as the SWE-bench prediction.
 
     For an arm flavor, the generic runner folds in the facade's per-step
     workflow breakdown after this returns (the facade stashes it on the run
@@ -476,12 +423,9 @@ def extract_result(
 
     context = context or {}
     collected = _collected_patch(Path(workspace), instance, context)
-    submitted, submitted_source = _submitted_patch(Path(workspace), state=state)
     return {
         "model_patch": collected,
         "model_patch_source": "collected_git_diff",
-        "model_submitted_patch": submitted,
-        "model_submitted_patch_source": submitted_source,
     }
 
 
@@ -627,8 +571,6 @@ def _enable_swebench_runtime_defaults() -> None:
     """Match the long-running SWE-bench Pro baseline envelope by default."""
 
     # env-ok: suite-level defaults for registered EnvVar knobs.
-    os.environ.setdefault(config.BASH_SUBMISSION_MARKER.name, DEFAULT_SUBMISSION_MARKER)
-    # env-ok: suite-level defaults for registered EnvVar knobs.
     os.environ.setdefault(config.BASH_DEFAULT_TIMEOUT.name, "3000")
     # env-ok: suite-level defaults for registered EnvVar knobs.
     os.environ.setdefault(config.BASH_MAX_TIMEOUT.name, "3000")
@@ -636,52 +578,6 @@ def _enable_swebench_runtime_defaults() -> None:
     os.environ.setdefault(config.BASH_MAX_OUTPUT_CHARS.name, "10000")
     # env-ok: suite-level defaults for registered EnvVar knobs.
     os.environ.setdefault(config.LLM_REQUEST_TIMEOUT.name, "1800")
-
-
-def _submitted_patch(workspace: Path, *, state: State | None) -> tuple[str, str]:
-    """Return the model-authored patch, preferring the captured submit output."""
-
-    from_state = _submitted_patch_from_state(state)
-    if from_state:
-        return from_state, "tool_submission"
-    patch_txt = workspace / "patch.txt"
-    if patch_txt.is_file():
-        try:
-            return (
-                patch_txt.read_bytes().decode("utf-8", errors="replace"),
-                "patch_txt",
-            )
-        except OSError:
-            return "", ""
-    return "", ""
-
-
-def _submitted_patch_from_state(state: State | None) -> str:
-    if state is None:
-        return ""
-    for message in reversed(state.messages):
-        details = message.sidecar.get("details")
-        if not isinstance(details, Mapping):
-            continue
-        for value in reversed(list(details.values())):
-            if not isinstance(value, Mapping):
-                continue
-            submission = value.get("submission")
-            if isinstance(submission, str) and submission.strip():
-                return submission
-            raw_stdout = value.get("raw_stdout")
-            if isinstance(raw_stdout, str) and value.get("exit_code") == 0:
-                parsed = _submission_after_marker(raw_stdout)
-                if parsed.strip():
-                    return parsed
-    return ""
-
-
-def _submission_after_marker(output: str) -> str:
-    lines = output.lstrip().splitlines(keepends=True)
-    if not lines or lines[0].strip() != DEFAULT_SUBMISSION_MARKER:
-        return ""
-    return "".join(lines[1:])
 
 
 def _runtime_config(config: Mapping[str, Any]) -> Mapping[str, Any]:

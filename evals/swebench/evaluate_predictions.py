@@ -843,28 +843,23 @@ def predictions_from_run_dirs(
     run_id: str | None = None,
     model_name: str = "simple-agent-lab-containerized",
     dataset_name: str = DEFAULT_DATASET,
-    patch_field: str = "model_patch",
     expected_instance_ids: Sequence[str] | None = None,
-    recover_submitted: bool = False,
 ) -> list[dict[str, Any]]:
     """Shape generic run dirs into official SWE-bench prediction records.
 
     Generic runs write ``<run-root>/<run-id>/<instance-id>/out/result.json`` with
-    patch fields such as ``model_patch`` (the collected workspace diff) and
-    ``model_submitted_patch`` (the model-authored ``patch.txt`` / submit output).
-    The official harness instead wants a predictions JSONL keyed by instance id
-    + model name. This rebuilds that record via `harness.prediction_record` (so
-    Verified, Multilingual, and Pro shapes stay correct), taking the instance id
-    from the staged ``input/instance.json`` (falling back to the run-dir name).
-    Empty-patch runs are kept — the harness counts them unresolved, so totals
-    match the launched set. With ``run_id`` only that run is collected; without
-    it, every run under ``run_root``.
+    the collected workspace diff under ``model_patch``. The official harness
+    instead wants a predictions JSONL keyed by instance id + model name. This
+    rebuilds that record via `harness.prediction_record` (so Verified,
+    Multilingual, and Pro shapes stay correct), taking the instance id from the
+    staged ``input/instance.json`` (falling back to the run-dir name). Empty-patch
+    runs are kept — the harness counts them unresolved, so totals match the
+    launched set. With ``run_id`` only that run is collected; without it, every
+    run under ``run_root``.
     """
 
     from evals.swebench import harness
 
-    if not patch_field:
-        raise ValueError("patch_field must not be empty")
     root = Path(run_root)
     search = (root / run_id).glob("*") if run_id else root.glob("*/*")
     expected = tuple(str(value) for value in (expected_instance_ids or ()))
@@ -886,11 +881,7 @@ def predictions_from_run_dirs(
             raise ValueError(
                 f"Unexpected instance id {instance_id!r} under run {run_id!r}"
             )
-        patch = (
-            recover_submitted_patch(result)
-            if recover_submitted
-            else str(result.get(patch_field, ""))
-        )
+        patch = str(result.get("model_patch", ""))
         predictions_by_id[instance_id] = harness.prediction_record(
             instance_id,
             model_name,
@@ -909,61 +900,6 @@ def predictions_from_run_dirs(
         )
         for instance_id in expected
     ]
-
-
-def recover_submitted_patch(result: Mapping[str, Any]) -> str:
-    """Recover an old submission from the collected diff's added patch.txt."""
-
-    collected = str(result.get("model_patch") or "")
-    recovered = _added_patch_txt_content(collected)
-    if recovered is not None:
-        return recovered
-    return str(result.get("model_submitted_patch") or "")
-
-
-def _added_patch_txt_content(collected: str) -> str | None:
-    lines = collected.splitlines(keepends=True)
-    start = next(
-        (
-            index
-            for index, line in enumerate(lines)
-            if line.rstrip("\r\n") == "diff --git a/patch.txt b/patch.txt"
-        ),
-        None,
-    )
-    if start is None:
-        return None
-    end = next(
-        (
-            index
-            for index in range(start + 1, len(lines))
-            if lines[index].startswith("diff --git a/")
-        ),
-        len(lines),
-    )
-    section = lines[start:end]
-    if not any(line.startswith("new file mode ") for line in section):
-        return None
-    hunk = next(
-        (index + 1 for index, line in enumerate(section) if line.startswith("@@ ")),
-        None,
-    )
-    if hunk is None:
-        # Git represents a newly-added empty file with headers only.
-        return ""
-    if "--- /dev/null\n" not in section or "+++ b/patch.txt\n" not in section:
-        return None
-
-    recovered: list[str] = []
-    for line in section[hunk:]:
-        if line.startswith("\\ No newline at end of file"):
-            if recovered and recovered[-1].endswith("\n"):
-                recovered[-1] = recovered[-1][:-1]
-            continue
-        if not line.startswith("+"):
-            return None
-        recovered.append(line[1:])
-    return "".join(recovered)
 
 
 def _instance_id_for_run_dir(run_dir: Path) -> str:
@@ -1127,27 +1063,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="model_name_or_path label written into collected predictions.",
     )
     parser.add_argument(
-        "--patch-field",
-        default="model_patch",
-        help=(
-            "result.json field to export when collecting predictions. "
-            "Use model_patch for the collected workspace diff or "
-            "model_submitted_patch for the model-authored patch.txt submission."
-        ),
-    )
-    parser.add_argument(
         "--expected-ids-file",
         help=(
             "Expected instance ids, one per line. Missing run results are emitted "
             "as empty patches so failed instances remain in the denominator."
-        ),
-    )
-    parser.add_argument(
-        "--recover-submitted-patch",
-        action="store_true",
-        help=(
-            "Recover pre-fix submitted bytes from patch.txt embedded in the "
-            "collected model_patch, falling back to model_submitted_patch."
         ),
     )
     return parser
@@ -1200,9 +1119,7 @@ def main() -> None:
             run_id=run_id,
             model_name=args.model_name,
             dataset_name=args.dataset_name,
-            patch_field=args.patch_field,
             expected_instance_ids=expected_instance_ids,
-            recover_submitted=args.recover_submitted_patch,
         )
         write_jsonl(args.predictions, predictions)
         empty = sum(
