@@ -262,6 +262,7 @@ GENERAL_PURPOSE_AGENT_SYSTEM_PROMPT = (
     "on. Stop as soon as the task is satisfied."
 )
 DEFAULT_TASK_MAX_TURNS = 70
+DEFAULT_TASK_SOFT_TURN_LIMIT = 60
 
 DEFAULT_AGENT_NAME = "agent"
 
@@ -336,7 +337,13 @@ def _assemble_static_tools(
             request_extra=request_extra,
             bash_exec_prefix=bash_exec_prefix,
         )
-        assembled.append(task_tool([worker_agent], max_turns=DEFAULT_TASK_MAX_TURNS))
+        assembled.append(
+            task_tool(
+                [worker_agent],
+                max_turns=DEFAULT_TASK_MAX_TURNS,
+                soft_turn_limit=DEFAULT_TASK_SOFT_TURN_LIMIT,
+            )
+        )
     assembled.extend(tools)
     return assembled
 
@@ -613,6 +620,7 @@ def make_bash_task_agent(
     general_purpose_role: str = GENERAL_PURPOSE_AGENT_DEFAULT_ROLE,
     general_purpose_system_prompt: str = GENERAL_PURPOSE_AGENT_SYSTEM_PROMPT,
     task_max_turns: int = DEFAULT_TASK_MAX_TURNS,
+    task_soft_turn_limit: int | None = DEFAULT_TASK_SOFT_TURN_LIMIT,
     context_policy: ContextPolicy | None = None,
     request_extra: Mapping[str, Any] | None = None,
     hooks: HookMap | None = None,
@@ -622,8 +630,8 @@ def make_bash_task_agent(
 
     Unlike ``make_agent(general_purpose=True)`` (which uses the fixed
     general-purpose defaults), this keeps the worker's name/role/prompt and the
-    task turn budget configurable, so it builds the worker explicitly and passes
-    it as a `task` tool via ``tools=``.
+    task turn budget and soft reminder configurable, so it builds the worker
+    explicitly and passes it as a `task` tool via ``tools=``.
     """
 
     worker = make_agent(
@@ -640,7 +648,13 @@ def make_bash_task_agent(
         provider,
         cwd=cwd,
         bash=True,
-        tools=[task_tool([worker], max_turns=task_max_turns)],
+        tools=[
+            task_tool(
+                [worker],
+                max_turns=task_max_turns,
+                soft_turn_limit=task_soft_turn_limit,
+            )
+        ],
         name=name,
         role=role,
         system_prompt=system_prompt,

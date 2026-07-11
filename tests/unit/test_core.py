@@ -461,6 +461,108 @@ class CoreTest(unittest.TestCase):
             ),
         )
 
+    def test_task_tool_warns_once_after_soft_turn_limit(self) -> None:
+        visible_reminders: list[list[str]] = []
+
+        def worker(visible: list[Message]) -> Message:
+            visible_reminders.append(
+                [
+                    message_text(message)
+                    for message in visible
+                    if message.kind == "context"
+                    and "turns remaining" in message_text(message)
+                ]
+            )
+            return assistant_message(
+                "still working",
+                sender="worker",
+                target="user",
+                kind="step",
+            )
+
+        tool = task_tool(
+            [Agent("worker", worker)],
+            max_turns=70,
+            soft_turn_limit=60,
+        )
+        result = tool.execute(
+            "call_1",
+            {"subagent_type": "worker", "task": "Keep working."},
+            lambda: False,
+            None,
+        )
+
+        self.assertTrue(result.is_error)
+        self.assertEqual(len(visible_reminders), 70)
+        self.assertTrue(all(reminders == [] for reminders in visible_reminders[:60]))
+        self.assertTrue(
+            all(
+                reminders == visible_reminders[60]
+                for reminders in visible_reminders[60:]
+            )
+        )
+        self.assertEqual(len(visible_reminders[60]), 1)
+        self.assertIn("10 turns remaining", visible_reminders[60][0])
+
+        sub_events = result.details["sub_events"]
+        reminder_messages = [
+            event.message
+            for event in sub_events
+            if event.kind == "message"
+            and event.message.kind == "context"
+            and "turns remaining" in message_text(event.message)
+        ]
+        self.assertEqual(len(reminder_messages), 1)
+        self.assertEqual(reminder_messages[0].sender, "task")
+        self.assertEqual(reminder_messages[0].target, "worker")
+        end = next(
+            event for event in reversed(sub_events) if isinstance(event, AgentEndEvent)
+        )
+        self.assertEqual(end.reason, "max_turns")
+
+    def test_task_tool_skips_soft_warning_when_agent_finishes_at_limit(self) -> None:
+        calls = 0
+
+        def worker(visible: list[Message]) -> Message:
+            nonlocal calls
+            calls += 1
+            reminders = [
+                message
+                for message in visible
+                if message.kind == "context"
+                and "turns remaining" in message_text(message)
+            ]
+            self.assertEqual(reminders, [])
+            return assistant_message(
+                "done" if calls == 2 else "still working",
+                sender="worker",
+                target="user",
+                kind="final" if calls == 2 else "step",
+            )
+
+        tool = task_tool(
+            [Agent("worker", worker)],
+            max_turns=4,
+            soft_turn_limit=2,
+        )
+        result = tool.execute(
+            "call_1",
+            {"subagent_type": "worker", "task": "Finish on turn two."},
+            lambda: False,
+            None,
+        )
+
+        self.assertFalse(result.is_error)
+        self.assertEqual(calls, 2)
+        self.assertFalse(
+            any(
+                event.kind == "message"
+                and event.message.kind == "context"
+                and "turns remaining" in message_text(event.message)
+                for event in result.details["sub_events"]
+            )
+        )
+
     def test_task_tool_reports_unknown_subagent_as_tool_error(self) -> None:
         def noop(visible: list[Message]) -> Message:
             del visible

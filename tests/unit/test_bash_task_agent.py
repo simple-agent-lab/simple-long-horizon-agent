@@ -29,6 +29,8 @@ from simple_agent_lab.agents.starter import (
     BASH_AGENT_SYSTEM_PROMPT,
     BASH_TASK_AGENT_SYSTEM_PROMPT,
     BASH_TASK_ADDENDUM,
+    DEFAULT_TASK_MAX_TURNS,
+    DEFAULT_TASK_SOFT_TURN_LIMIT,
     GENERAL_PURPOSE_AGENT_DEFAULT_NAME,
     make_bash_task_agent,
 )
@@ -55,6 +57,14 @@ class BashTaskAgentTest(unittest.TestCase):
             [GENERAL_PURPOSE_AGENT_DEFAULT_NAME],
         )
         self.assertIn(GENERAL_PURPOSE_AGENT_DEFAULT_NAME, task_tool_def.description)
+
+    def test_default_task_turn_limits_leave_ten_turns_after_warning(self) -> None:
+        self.assertEqual(DEFAULT_TASK_SOFT_TURN_LIMIT, 60)
+        self.assertEqual(DEFAULT_TASK_MAX_TURNS, 70)
+        self.assertEqual(
+            DEFAULT_TASK_MAX_TURNS - DEFAULT_TASK_SOFT_TURN_LIMIT,
+            10,
+        )
 
     def test_system_prompt_extends_bash_prompt_with_short_addendum(self) -> None:
         self.assertTrue(
