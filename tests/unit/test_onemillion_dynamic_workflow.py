@@ -46,6 +46,7 @@ class OneMillionDynamicWorkflowBenchTest(unittest.TestCase):
         self.assertIn("workflow_js", workflow)
         self.assertIn("await agent", workflow["workflow_js"])
         self.assertGreaterEqual(len(workflow.get("agent_calls") or []), 3)
+        self.assertIn("trace", workflow["agent_calls"][0])
         self.assertEqual(
             len(workflow.get("subagent_traces") or {}),
             len(workflow.get("agent_calls") or []),

@@ -3,16 +3,17 @@
 #
 # The agent is launched via run_suite_instance(ProgrambenchSuite,
 # LocalDockerBackend, LocalDirStore). The container is online (so the agent's
-# model calls work) but each agent bash command runs network-isolated via
-# `unshare --net` (`programbench-reverse-engineering-adapter`). For batch /
+# model calls work) but each agent bash command runs in sealed user + network
+# namespaces (`programbench-reverse-engineering-adapter`). For batch /
 # parallel runs, use runs/run_programbench.sh.
 #
 # Usage:
-#   bash runs/run_programbench_suite.sh <instance-id> [max-turns] [run-id]
+#   bash runs/run_programbench_suite.sh <instance-id> [max-turns] [run-id] [flags...]
 #
 # Examples:
 #   bash runs/run_programbench_suite.sh abishekvashok__cmatrix.5c082c6
 #   bash runs/run_programbench_suite.sh sitkevij__hex.61ae69b 200 my-experiment
+#   bash runs/run_programbench_suite.sh abishekvashok__cmatrix.5c082c6 --dynamic-workflow
 #
 # Prerequisites:
 #   - Docker running (colima / Docker Desktop / Docker Engine)
@@ -27,9 +28,23 @@ ROOT="$PWD"
 source runs/_python.sh
 source runs/_swebench_uv.sh
 
-INSTANCE_ID="${1:?Usage: $0 <instance-id> [max-turns] [run-id]}"
-MAX_TURNS="${2:-150}"
-RUN_ID="${3:-programbench-$(date +%Y%m%d-%H%M%S)}"
+if [ "$#" -eq 0 ]; then
+  echo "Usage: $0 <instance-id> [max-turns] [run-id] [flags...]" >&2
+  exit 2
+fi
+INSTANCE_ID="$1"
+shift
+MAX_TURNS=150
+if [ "$#" -gt 0 ] && [[ "$1" != --* ]]; then
+  MAX_TURNS="$1"
+  shift
+fi
+RUN_ID="programbench-$(date +%Y%m%d-%H%M%S)"
+if [ "$#" -gt 0 ] && [[ "$1" != --* ]]; then
+  RUN_ID="$1"
+  shift
+fi
+EXTRA_ARGS=("$@")
 
 WHEELHOUSE="evals/out/programbench/wheelhouse/cp311-manylinux"
 
@@ -80,7 +95,8 @@ swebench_ensure_linux_uv
   --run-id "$RUN_ID" \
   --uv-binary "$SWEBENCH_UV_BIN" \
   --network-mode host \
-  --force
+  --force \
+  "${EXTRA_ARGS[@]}"
 
 echo ""
 echo "Score this run with:"

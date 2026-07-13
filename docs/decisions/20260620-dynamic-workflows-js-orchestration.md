@@ -58,8 +58,10 @@ reuse, and concurrency caps live in `dynamic_workflows`, not in `State` or
 
 The first bench target is OneMillion-Bench through `LocalProcessBackend` because
 it provides a deterministic no-Docker smoke path with the fake provider. Coding
-bench suites can later reuse the same bridge with bash-capable subagents and
-optional worktree isolation.
+bench suites reuse the same bridge with bash-capable subagents. SWE-bench may
+use optional worktree isolation; ProgramBench disables worktrees, preserves its
+network isolation for both the Node orchestration process and every subagent,
+and writes workflow-owned artifacts outside the scored workspace.
 
 The JavaScript `vm` context shapes the workflow API for normal scripts, while
 process isolation limits the blast radius if generated code reaches Node globals.

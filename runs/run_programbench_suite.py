@@ -10,7 +10,8 @@ helpers.
 Usage (host with Docker + the ProgramBench image pulled):
 
     uv run python runs/run_programbench_suite.py <instance-id> \
-        [--max-turns N] [--run-id ID] [--no-network-isolation] [--force]
+        [--max-turns N] [--run-id ID] [--dynamic-workflow] \
+        [--no-network-isolation] [--force]
 
 Reads OPENAI_MODEL / OPENAI_AUTH_TOKEN (and optional OPENAI_BASE_URL) from .env.
 The agent runs *inside* the container with the model API reachable, but each
@@ -23,6 +24,7 @@ whole task set, see runs/run_programbench.sh.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -34,13 +36,24 @@ for path in (ROOT, SRC):
         sys.path.insert(0, str(path))
 
 from evals.programbench import harness  # noqa: E402
-from evals.programbench.suite import ProgrambenchSuite  # noqa: E402
+from evals.programbench.suite import (  # noqa: E402
+    ProgrambenchDynamicWorkflowSuite,
+    ProgrambenchSuite,
+)
 from simple_agent_lab.evals import (  # noqa: E402
     LocalDirStore,
     LocalDockerBackend,
     run_suite_instance,
 )
 from simple_agent_lab.evals.suites.programbench import container  # noqa: E402
+from simple_agent_lab.evals.suites.programbench.dynamic_workflow_container import (  # noqa: E402
+    PROGRAMBENCH_DYNAMIC_WORKFLOW_MAX_AGENTS_ENV,
+    PROGRAMBENCH_DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV,
+    PROGRAMBENCH_DYNAMIC_WORKFLOW_MAX_TURNS_ENV,
+    PROGRAMBENCH_DYNAMIC_WORKFLOW_NODE_ENV,
+    PROGRAMBENCH_DYNAMIC_WORKFLOW_SOURCE_ENV,
+    PROGRAMBENCH_DYNAMIC_WORKFLOW_TIMEOUT_ENV,
+)
 from simple_agent_lab.evals.backends.docker_local import (  # noqa: E402
     DEFAULT_DOCKER_TIMEOUT_S,
 )
@@ -50,7 +63,15 @@ from simple_agent_lab.evals.runner import container_name  # noqa: E402
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("instance_id")
-    parser.add_argument("--max-turns", type=int, default=1000)
+    parser.add_argument(
+        "--max-turns",
+        type=int,
+        default=1000,
+        help=(
+            "Single-agent turn limit; in dynamic mode this is a per-worker "
+            "ceiling (the workflow facade itself runs one outer turn)."
+        ),
+    )
     parser.add_argument(
         "--wall-time-seconds",
         type=float,
@@ -90,11 +111,32 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--prepare-wheelhouse", action="store_true")
     parser.add_argument("--keep-container", action="store_true")
     parser.add_argument(
+        "--dynamic-workflow",
+        action="store_true",
+        help="Run ProgramBench through an agent-written JavaScript workflow.",
+    )
+    parser.add_argument(
+        "--workflow-script",
+        default="",
+        help="Optional workflow.js path; defaults to model-generated workflow.",
+    )
+    parser.add_argument("--workflow-max-concurrency", type=int, default=1)
+    parser.add_argument("--workflow-max-agents", type=int, default=12)
+    parser.add_argument("--workflow-timeout", type=float, default=21600.0)
+    parser.add_argument(
+        "--workflow-node-binary",
+        default="",
+        help=(
+            "Node path inside the container. By default a pinned Linux binary "
+            "is cached in and mounted with the ProgramBench wheelhouse."
+        ),
+    )
+    parser.add_argument(
         "--no-network-isolation",
         action="store_true",
         help=(
             "Do not add CAP_SYS_ADMIN. Agent bash commands then run WITH network "
-            "access (no `unshare --net`), weakening ProgramBench's anti-cheat."
+            "access (no sealed namespace), weakening ProgramBench's anti-cheat."
         ),
     )
     parser.add_argument(
@@ -114,8 +156,8 @@ def main() -> None:
         harness.load_dotenv(args.dotenv)
     provider_env = harness.container_environment(args.provider)
     provider_env[harness.API_KIND_ENV] = harness.resolve_api_kind(args.api_kind)
-    # Fail closed in-container: a missing `unshare --net` aborts the run unless
-    # the operator opted out here (so isolation is never lost silently).
+    # Fail closed in-container: unavailable sealed namespaces abort the run
+    # unless the operator opted out here (so isolation is never lost silently).
     provider_env[container.REQUIRE_ISOLATION_ENV] = (
         "0" if args.no_network_isolation else "1"
     )
@@ -128,7 +170,33 @@ def main() -> None:
     )
     harness.prepare_wheelhouse_for_run(wheelhouse, prepare_all=args.prepare_wheelhouse)
 
-    suite = ProgrambenchSuite(
+    if args.dynamic_workflow:
+        node_binary = args.workflow_node_binary or harness.DEFAULT_NODE_BINARY
+        if not args.workflow_node_binary:
+            _validate_dynamic_platform(args.platform)
+            harness.prepare_node_runtime(wheelhouse)
+        workflow_timeout = min(args.workflow_timeout, args.wall_time_seconds)
+        workflow_env = {
+            PROGRAMBENCH_DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV: str(
+                args.workflow_max_concurrency
+            ),
+            PROGRAMBENCH_DYNAMIC_WORKFLOW_MAX_AGENTS_ENV: str(args.workflow_max_agents),
+            PROGRAMBENCH_DYNAMIC_WORKFLOW_MAX_TURNS_ENV: str(args.max_turns),
+            PROGRAMBENCH_DYNAMIC_WORKFLOW_TIMEOUT_ENV: str(workflow_timeout),
+            PROGRAMBENCH_DYNAMIC_WORKFLOW_NODE_ENV: node_binary,
+        }
+        if args.workflow_script:
+            script_path = Path(args.workflow_script).resolve()
+            workflow_env[PROGRAMBENCH_DYNAMIC_WORKFLOW_SOURCE_ENV] = (
+                script_path.read_text(encoding="utf-8")
+            )
+        os.environ.update(workflow_env)
+        provider_env.update(workflow_env)
+
+    suite_cls = (
+        ProgrambenchDynamicWorkflowSuite if args.dynamic_workflow else ProgrambenchSuite
+    )
+    suite = suite_cls(
         image_tag=args.image_tag,
         platform=args.platform,
         network_mode=args.network_mode,
@@ -147,15 +215,28 @@ def main() -> None:
         _force_remove(name)
 
     isolation = "off (CAP_SYS_ADMIN withheld)" if args.no_network_isolation else "on"
-    print("==> Running ProgramBench instance through ProgrambenchSuite")
+    print(f"==> Running ProgramBench instance through {suite_cls.__name__}")
     print(f"    instance:        {args.instance_id}")
-    print(f"    max-turns:       {args.max_turns}")
+    turn_label = "worker max-turns" if args.dynamic_workflow else "max-turns"
+    print(f"    {turn_label + ':':<17} {args.max_turns}")
     print(
         f"    wall-time:       {args.wall_time_seconds}s ({args.wall_time_seconds / 3600:.1f}h)"
     )
     print(f"    run-id:          {args.run_id}")
     print(f"    image-tag:       {args.image_tag}")
     print(f"    cmd net-isolate: {isolation}")
+    if args.dynamic_workflow:
+        print("    workflow:        dynamic JavaScript")
+        print(
+            "    workflow timeout: "
+            f"{provider_env[PROGRAMBENCH_DYNAMIC_WORKFLOW_TIMEOUT_ENV]}s"
+        )
+        print(
+            "    workflow node:   "
+            f"{provider_env[PROGRAMBENCH_DYNAMIC_WORKFLOW_NODE_ENV]}"
+        )
+        if args.workflow_script:
+            print(f"    workflow script: {Path(args.workflow_script).resolve()}")
     print(f"    container:       {name}")
     print("")
 
@@ -168,7 +249,7 @@ def main() -> None:
         run_id=args.run_id,
         provider=args.provider,
         api_kind=provider_env[harness.API_KIND_ENV],
-        max_turns=args.max_turns,
+        max_turns=1 if args.dynamic_workflow else args.max_turns,
         wall_time_seconds=args.wall_time_seconds,
         provider_env=provider_env,
         wheelhouse_mount=harness.DEFAULT_WHEELHOUSE_MOUNT,
@@ -198,6 +279,21 @@ def _force_remove(name: str) -> None:
     for existing in client.containers.list(all=True, filters={"name": name}):
         if existing.name == name:
             existing.remove(force=True)
+
+
+def _validate_dynamic_platform(platform: str) -> None:
+    normalized = platform.strip().lower()
+    if normalized and normalized not in {
+        "amd64",
+        "x86_64",
+        "linux/amd64",
+        "linux/x86_64",
+    }:
+        raise SystemExit(
+            "ProgramBench dynamic workflows currently provision the official "
+            "Linux x64 Node binary; use --platform linux/amd64 or provide a "
+            "compatible --workflow-node-binary."
+        )
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ every model/tool worker is still a normal ``Agent.run(...)`` call.
 
 from __future__ import annotations
 
+from .artifacts import read_workflow_artifacts
 from .bridge import (
     AgentCallOptions,
     AgentCallResult,
@@ -34,4 +35,5 @@ __all__ = [
     "WorkflowRuntimeOptions",
     "extract_javascript",
     "generate_workflow_script",
+    "read_workflow_artifacts",
 ]

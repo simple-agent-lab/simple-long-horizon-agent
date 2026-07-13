@@ -14,6 +14,8 @@ bash runs/run_swebench_verified.sh
 bash runs/run_swebench_multilingual.sh
 bash runs/run_swebench_pro.sh
 bash runs/eval_swebench.sh
+bash runs/run_programbench_suite.sh \
+  abishekvashok__cmatrix.5c082c6 --dynamic-workflow
 ```
 
 `runs/run_ci.sh` mirrors the GitHub Actions workflow at
@@ -93,3 +95,19 @@ bash runs/eval_swebench.sh --pro --predictions evals/out/swebench_pro/swebench_p
 
 See `evals/swebench/README.md` for detailed Docker setup, macOS arm64
 workarounds, and troubleshooting.
+
+## ProgramBench Dynamic Workflows
+
+The ProgramBench runner can select an agent-written JavaScript workflow while
+preserving ProgramBench's sealed network boundary and official workspace
+submission format. Use the shell wrapper so macOS hosts get the required Linux
+`uv` binary automatically:
+
+```bash
+bash runs/run_programbench_suite.sh \
+  abishekvashok__cmatrix.5c082c6 \
+  --dynamic-workflow
+```
+
+See `evals/programbench/README.md` for Node provisioning, workflow controls,
+artifact layout, and official scoring.

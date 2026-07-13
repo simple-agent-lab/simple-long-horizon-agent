@@ -7,7 +7,6 @@ and persists the script/journal/subagent trace summary for ``extract_result``.
 
 from __future__ import annotations
 
-import json
 import os
 from collections.abc import Mapping
 from pathlib import Path
@@ -20,6 +19,7 @@ from simple_agent_lab.dynamic_workflows import (
     SimpleAgentCallRunner,
     WorkflowRuntimeOptions,
     generate_workflow_script,
+    read_workflow_artifacts,
 )
 from simple_agent_lab.llm import Provider
 from simple_agent_lab.llm_agent import make_llm_agent
@@ -146,7 +146,7 @@ def extract_result(
     context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     result = dict(_base_extract_result(workspace, instance, context=context))
-    workflow = _read_workflow_artifacts(Path(workspace) / DYNAMIC_WORKFLOW_ARTIFACT_DIR)
+    workflow = read_workflow_artifacts(Path(workspace) / DYNAMIC_WORKFLOW_ARTIFACT_DIR)
     if workflow:
         result["dynamic_workflow"] = workflow
     return result
@@ -168,74 +168,6 @@ def _load_or_generate_script(
         fallback_script=DEFAULT_DYNAMIC_WORKFLOW_SCRIPT,
     )
     return generated.source
-
-
-def _read_workflow_artifacts(root: Path) -> dict[str, Any]:
-    if not root.exists():
-        return {}
-    result = _read_json(root / "workflow_result.json")
-    journal = _read_jsonl(root / "workflow_journal.jsonl")
-    script = _read_text(root / "workflow.js")
-    traces = _read_subagent_traces(root)
-    agent_calls = list((result or {}).get("agent_calls") or [])
-    for call in agent_calls:
-        if not isinstance(call, dict):
-            continue
-        trace = traces.get(str(call.get("call_id") or ""))
-        if trace:
-            call["trace"] = trace
-    return {
-        "workflow_js": script,
-        "result": result,
-        "journal": journal,
-        "agent_calls": agent_calls,
-        "subagent_traces": traces,
-    }
-
-
-def _read_text(path: Path) -> str:
-    try:
-        return path.read_text(encoding="utf-8")
-    except OSError:
-        return ""
-
-
-def _read_json(path: Path) -> dict[str, Any]:
-    try:
-        parsed = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return dict(parsed) if isinstance(parsed, dict) else {}
-
-
-def _read_jsonl(path: Path) -> list[dict[str, Any]]:
-    records: list[dict[str, Any]] = []
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return records
-    for line in lines:
-        if not line.strip():
-            continue
-        try:
-            parsed = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(parsed, dict):
-            records.append(parsed)
-    return records
-
-
-def _read_subagent_traces(root: Path) -> dict[str, dict[str, Any]]:
-    traces: dict[str, dict[str, Any]] = {}
-    subagents = root / "subagents"
-    if not subagents.exists():
-        return traces
-    for trace_path in subagents.glob("*/trajectory.jsonl"):
-        records = _read_jsonl(trace_path)
-        if records:
-            traces[trace_path.parent.name] = records[0]
-    return traces
 
 
 def _task_text(visible: list[Message]) -> str:

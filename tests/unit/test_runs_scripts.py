@@ -44,6 +44,7 @@ class RunsScriptsTest(unittest.TestCase):
             ROOT / "runs/run_swebench_verified.sh",
             ROOT / "runs/run_swebench_multilingual.sh",
             ROOT / "runs/run_swebench_pro.sh",
+            ROOT / "runs/run_programbench_suite.sh",
         ]
 
         for script in scripts:
@@ -57,6 +58,13 @@ class RunsScriptsTest(unittest.TestCase):
                 )
 
                 self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_programbench_wrapper_forwards_dynamic_workflow_flags(self) -> None:
+        text = (ROOT / "runs/run_programbench_suite.sh").read_text(encoding="utf-8")
+
+        self.assertIn('EXTRA_ARGS=("$@")', text)
+        self.assertIn('"${EXTRA_ARGS[@]}"', text)
+        self.assertIn("--dynamic-workflow", text)
 
     def test_swebench_run_scripts_support_batch_flags(self) -> None:
         scripts = [

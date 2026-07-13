@@ -128,6 +128,8 @@ class SimpleAgentCallRunner:
         default_tools: Sequence[str] = (),
         tool_factories: Mapping[str, ToolFactory] | None = None,
         build_agent: AgentBuilder | None = None,
+        allow_worktrees: bool = True,
+        max_turns_cap: int | None = None,
     ) -> None:
         self.provider = provider
         self.cwd = Path(cwd)
@@ -137,6 +139,10 @@ class SimpleAgentCallRunner:
         self.default_tools = tuple(default_tools)
         self.tool_factories = dict(tool_factories or _default_tool_factories())
         self.build_agent = build_agent or self._default_build_agent
+        self.allow_worktrees = allow_worktrees
+        self.max_turns_cap = (
+            max(1, max_turns_cap) if max_turns_cap is not None else None
+        )
 
     def run_agent(
         self,
@@ -147,6 +153,8 @@ class SimpleAgentCallRunner:
         phase: str,
         artifacts_dir: Path,
     ) -> AgentCallResult:
+        if self.max_turns_cap is not None and options.max_turns > self.max_turns_cap:
+            options = dataclasses.replace(options, max_turns=self.max_turns_cap)
         workdir = self._workdir_for(options, call_id, artifacts_dir)
         provider = self._provider_for(options)
         agent = self.build_agent(options, provider, workdir)
@@ -213,6 +221,8 @@ class SimpleAgentCallRunner:
     ) -> Path:
         if not options.worktree:
             return self.cwd
+        if not self.allow_worktrees:
+            raise ValueError("dynamic workflow worktrees are disabled for this suite")
         label = call_id if options.worktree is True else str(options.worktree)
         target = artifacts_dir / "worktrees" / _safe_part(label)
         if target.exists():
