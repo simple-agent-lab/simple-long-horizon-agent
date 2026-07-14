@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
-from simple_agent_lab import message_text
+from simple_agent_lab import State, make_llm_agent, message_text
 from simple_agent_lab.core import Agent
+from simple_agent_lab.llm import Provider
+from simple_agent_lab.llm.types import LLMRequest, LLMResponse
 from simple_agent_lab.messages import (
     AssistantMessage,
     TextBlock,
@@ -309,6 +312,33 @@ class ThreadGoalLoopTest(unittest.TestCase):
         self.assertEqual(agent.tools, ())
         self.assertEqual(seen_tool_names, [()])
 
+    def test_loop_adds_goal_tools_to_llm_request_without_mutating_agent(self):
+        seen_tool_names: list[tuple[str, ...]] = []
+
+        def complete(request: LLMRequest) -> LLMResponse:
+            seen_tool_names.append(tuple(tool.name for tool in request.tools))
+            return LLMResponse(
+                content=(
+                    ToolCallBlock("call_done", "update_goal", {"status": "complete"}),
+                ),
+                stop_reason="tool_use",
+                model=request.provider.model,
+            )
+
+        agent = make_llm_agent(
+            name="goal_agent",
+            provider=Provider(id="fake", api="fake", model="fake-model"),
+        )
+
+        with patch(
+            "simple_agent_lab.llm_agent.complete_with_tool_call_retry", complete
+        ):
+            result = run_thread_goal_loop(agent, "finish through the injected tool")
+
+        self.assertEqual(result.goal.status, "complete")
+        self.assertEqual(seen_tool_names, [("get_goal", "update_goal")])
+        self.assertEqual(agent.tools, ())
+
     def test_injected_state_resumes_and_inherits_prior_context(self):
         seed = _final_agent("goal_agent")
         seed_state, seed_events = seed.run("prior context marker")
@@ -347,6 +377,41 @@ class ThreadGoalLoopTest(unittest.TestCase):
         # own steering body.
         self.assertTrue(seen_tasks[0].startswith("LONG CHAIN PREFACE"))
         self.assertIn("Continue working toward the active goal", seen_tasks[0])
+
+    def test_injected_state_token_budget_excludes_prior_output_usage(self):
+        state = State("shared chain")
+        state.record(
+            AssistantMessage(
+                content=(TextBlock("earlier instance"),),
+                sender="goal_agent",
+                target="user",
+                kind="final",
+                usage=TokenUsage(output_tokens=100),
+            )
+        )
+
+        def generate(messages):
+            del messages
+            return AssistantMessage(
+                content=(
+                    TextBlock("done"),
+                    ToolCallBlock("call_done", "update_goal", {"status": "complete"}),
+                ),
+                sender="goal_agent",
+                target="goal_agent",
+                kind="step",
+                usage=TokenUsage(output_tokens=1),
+            )
+
+        result = run_thread_goal_loop(
+            Agent("goal_agent", generate),
+            "new instance",
+            budgets=GoalBudgets(max_turns=2, token_budget=50),
+            state=state,
+        )
+
+        self.assertEqual(result.goal.status, "complete")
+        self.assertEqual(result.goal.tokens_used, 1)
 
     def test_default_state_and_preface_keep_original_behavior(self):
         seen_tasks: list[str] = []

@@ -1272,6 +1272,34 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
 
         self.assertEqual(captured["include"], ["message.input_image.image_url"])
 
+    def test_explicit_include_is_merged_with_encrypted_reasoning_replay(self) -> None:
+        captured: dict[str, Any] = {}
+        module = _stub_openai(
+            _responses_response(text_blocks=["done"]), captured, kind="responses"
+        )
+        provider = Provider(
+            id="gpt-resp-replay",
+            api="openai-responses",
+            model="gpt-test-1",
+            api_key_env="TEST_OPENAI_KEY",
+            replay_reasoning=True,
+        )
+        req = LLMRequest(
+            provider=provider,
+            messages=[LLMMessage(role="user", content="hi")],
+            extra={"include": ["message.input_image.image_url"]},
+        )
+        with (
+            _stub_module("openai", module),
+            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
+        ):
+            complete(req)
+
+        self.assertEqual(
+            captured["include"],
+            ["message.input_image.image_url", "reasoning.encrypted_content"],
+        )
+
     def test_passes_stateful_response_options_without_forcing_include(self) -> None:
         captured: dict[str, Any] = {}
         module = _stub_openai(

@@ -13,7 +13,7 @@ import importlib
 import inspect
 import json
 from collections.abc import Mapping, Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, Literal, cast
@@ -28,6 +28,7 @@ from simple_agent_lab.evals.protocols import (
     INSTANCE_KEY,
     RESULT_KEY,
     TRACE_KEY,
+    TRACE_RAW_KEY,
     AgentSpec,
     ArtifactStore,
     ContainerTask,
@@ -53,6 +54,7 @@ from simple_agent_lab.messages import (
     is_tool_result_message,
     message_tool_calls,
     runtime_message,
+    text_of,
     tool_results_of,
     user_message,
 )
@@ -69,7 +71,7 @@ from simple_agent_lab.state import State
 from simple_agent_lab.tools import AbortFlag
 from simple_agent_lab.trace import event_stream, run_trace_from_state
 from simple_agent_lab.trace.jsonl import json_safe
-from simple_agent_lab.workflow import final_output, never_abort
+from simple_agent_lab.workflow import ThreadGoalStore, final_output, never_abort
 
 CHAIN_DATA_KEY = "eval_chain"
 CHAIN_STATE_INPUT_KEY = "input/chain_state.json"
@@ -86,7 +88,17 @@ INVALID_PROMPT_ITEM_END_MESSAGE = (
     "triggering invalid_prompt. Continue to the next item."
 )
 INVALID_PROMPT_TOOL_RETRY_LIMIT = 20
+GOAL_STEERING_MARKER = "Continue working toward the active goal."
 InvalidPromptSource = Literal["chain_task", "tool_output", "unknown"]
+
+
+@dataclass(frozen=True)
+class _InvalidPromptRecovery:
+    retry: bool
+    retries: int
+    skip_reason: str = ""
+    error: str = ""
+
 
 CHAIN_GOAL_PREFACE = (
     "You are working through one long chained problem made of many smaller "
@@ -298,7 +310,12 @@ def is_invalid_prompt_error(exc: BaseException) -> bool:
     )
 
 
-def invalid_prompt_source(state: Any, *, item_id: str) -> InvalidPromptSource:
+def invalid_prompt_source(
+    state: Any,
+    *,
+    item_id: str,
+    skip_goal_steering_messages: bool = False,
+) -> InvalidPromptSource:
     """Classify which latest user-visible message caused invalid_prompt."""
 
     for _, message in reversed(state.active_context_items()):
@@ -308,6 +325,10 @@ def invalid_prompt_source(state: Any, *, item_id: str) -> InvalidPromptSource:
             return "tool_output"
         if message_chain_item_id(message) == item_id:
             return "chain_task"
+        if skip_goal_steering_messages and GOAL_STEERING_MARKER in text_of(
+            message.content
+        ):
+            continue
         return "unknown"
     return "unknown"
 
@@ -518,6 +539,62 @@ def end_chain_item_after_invalid_prompt_tool_retry_limit(
     return True
 
 
+def _recover_invalid_prompt(
+    state: State,
+    *,
+    agent_name: str,
+    item_id: str,
+    exc: BaseException,
+    retries: int,
+    skip_goal_steering_messages: bool = False,
+) -> _InvalidPromptRecovery | None:
+    """Apply the shared chain invalid-prompt policy, or return None to re-raise."""
+
+    if not is_invalid_prompt_error(exc):
+        return None
+    prompt_source = invalid_prompt_source(
+        state,
+        item_id=item_id,
+        skip_goal_steering_messages=skip_goal_steering_messages,
+    )
+    provider_error = f"{type(exc).__name__}: {exc}"
+    if prompt_source == "chain_task":
+        drop_chain_task_for_invalid_prompt_skip(
+            state, agent_name=agent_name, item_id=item_id
+        )
+        return _InvalidPromptRecovery(
+            retry=False,
+            retries=retries,
+            skip_reason="invalid_prompt_chain_task",
+            error=provider_error,
+        )
+    if prompt_source != "tool_output" and not retries:
+        return None
+    if retries >= INVALID_PROMPT_TOOL_RETRY_LIMIT:
+        end_chain_item_after_invalid_prompt_tool_retry_limit(
+            state, agent_name=agent_name, item_id=item_id
+        )
+        return _InvalidPromptRecovery(
+            retry=False,
+            retries=retries,
+            skip_reason="invalid_prompt_tool_output_retry_limit",
+            error=provider_error,
+        )
+    if not replace_latest_tool_exchange_for_invalid_prompt(
+        state, agent_name=agent_name
+    ):
+        end_chain_item_after_invalid_prompt_tool_retry_limit(
+            state, agent_name=agent_name, item_id=item_id
+        )
+        return _InvalidPromptRecovery(
+            retry=False,
+            retries=retries,
+            skip_reason="invalid_prompt_tool_exchange_not_found",
+            error=provider_error,
+        )
+    return _InvalidPromptRecovery(retry=True, retries=retries + 1)
+
+
 def message_chain_item_id(message: Any) -> str:
     details = getattr(message, "sidecar", {}).get("details", {})
     if not isinstance(details, Mapping):
@@ -606,27 +683,75 @@ def run_chain_in_container(
             # differ. When handoff is active the loop also resets the context
             # window mid-instance and keeps solving. Simple flavors keep the
             # run_agent loop below.
-            chain_window_index, mid_handoffs, mid_before_tokens = (
-                _run_goal_flavor_with_handoffs(
-                    provider,
-                    workdir,
-                    request_extra,
-                    module=module,
-                    spec=spec,
-                    config=config,
-                    state=state,
-                    objective=str(task),
-                    handoff_active=handoff_active,
-                    window_limit=window_limit,
-                    chain_window_index=chain_window_index,
-                    task_message_index=task_message_index,
-                    item_id=item_id,
-                )
-            )
-            if mid_handoffs:
-                handoff_written = True
-                context_window_handoffs += mid_handoffs
-                handoff_context_tokens = mid_before_tokens
+            goal_store = ThreadGoalStore()
+            retry_turn_budget: int | None = None
+            while status == "ok":
+                repair_active_tool_pairs(state, agent_name=spec.name)
+                goal_event_start = len(state.events)
+                try:
+                    chain_window_index, mid_handoffs, mid_before_tokens = (
+                        _run_goal_flavor_with_handoffs(
+                            provider,
+                            workdir,
+                            request_extra,
+                            module=module,
+                            spec=spec,
+                            config=config,
+                            state=state,
+                            objective=str(task),
+                            handoff_active=handoff_active,
+                            window_limit=window_limit,
+                            chain_window_index=chain_window_index,
+                            task_message_index=task_message_index,
+                            item_id=item_id,
+                            turn_budget=retry_turn_budget,
+                            goal_store=goal_store,
+                        )
+                    )
+                    if _task_tool_enabled(config) and any(
+                        _message_has_invalid_prompt_task_error(event)
+                        for event in state.events[goal_event_start:]
+                    ):
+                        raise RuntimeError("invalid_prompt surfaced by task tool")
+                except Exception as exc:
+                    recovery = _recover_invalid_prompt(
+                        state,
+                        agent_name=spec.name,
+                        item_id=item_id,
+                        exc=exc,
+                        retries=invalid_prompt_retries,
+                        skip_goal_steering_messages=True,
+                    )
+                    if recovery is None:
+                        raise
+                    invalid_prompt_retries = recovery.retries
+                    if not recovery.retry:
+                        status = "skipped"
+                        skip_reason = recovery.skip_reason
+                        error = recovery.error
+                        break
+                    retry_turn_budget = max(
+                        0,
+                        _goal_total_turn_budget()
+                        - _count_turns(state.events[event_start:]),
+                    )
+                    if retry_turn_budget <= 0:
+                        end_chain_item_after_invalid_prompt_tool_retry_limit(
+                            state, agent_name=spec.name, item_id=item_id
+                        )
+                        status = "skipped"
+                        skip_reason = "invalid_prompt_turn_budget_exhausted"
+                        error = (
+                            "invalid_prompt retry exhausted this chain item's "
+                            "turn budget"
+                        )
+                        break
+                    continue
+                if mid_handoffs:
+                    handoff_written = True
+                    context_window_handoffs += mid_handoffs
+                    handoff_context_tokens = mid_before_tokens
+                break
         agent = (
             None
             if flavor == "goal"
@@ -718,40 +843,22 @@ def run_chain_in_container(
                         continue
                 break
             except Exception as exc:
-                if not is_invalid_prompt_error(exc):
+                recovery = _recover_invalid_prompt(
+                    state,
+                    agent_name=spec.name,
+                    item_id=item_id,
+                    exc=exc,
+                    retries=invalid_prompt_retries,
+                )
+                if recovery is None:
                     raise
-                prompt_source = invalid_prompt_source(state, item_id=item_id)
-                provider_error = f"{type(exc).__name__}: {exc}"
-                if prompt_source == "chain_task":
-                    drop_chain_task_for_invalid_prompt_skip(
-                        state, agent_name=spec.name, item_id=item_id
-                    )
+                invalid_prompt_retries = recovery.retries
+                if not recovery.retry:
                     status = "skipped"
-                    skip_reason = "invalid_prompt_chain_task"
-                    error = provider_error
+                    skip_reason = recovery.skip_reason
+                    error = recovery.error
                     break
-                if prompt_source == "tool_output" or invalid_prompt_retries:
-                    if invalid_prompt_retries >= INVALID_PROMPT_TOOL_RETRY_LIMIT:
-                        end_chain_item_after_invalid_prompt_tool_retry_limit(
-                            state, agent_name=spec.name, item_id=item_id
-                        )
-                        status = "skipped"
-                        skip_reason = "invalid_prompt_tool_output_retry_limit"
-                        error = provider_error
-                        break
-                    if not replace_latest_tool_exchange_for_invalid_prompt(
-                        state, agent_name=spec.name
-                    ):
-                        end_chain_item_after_invalid_prompt_tool_retry_limit(
-                            state, agent_name=spec.name, item_id=item_id
-                        )
-                        status = "skipped"
-                        skip_reason = "invalid_prompt_tool_exchange_not_found"
-                        error = provider_error
-                        break
-                    invalid_prompt_retries += 1
-                    continue
-                raise
+                continue
 
         if status == "ok":
             extract = tasks.extract_result
@@ -865,25 +972,25 @@ def run_chain_in_container(
         ).encode("utf-8"),
     )
     if bool(config.get("write_trajectories", True)):
-        store.put(
-            TRACE_KEY,
-            _trace_bytes(
-                state,
-                trace_id=trace_id,
-                producer=producer,
-                meta={
-                    "chain_id": chain_id,
-                    "instance_id": item_id,
-                    "status": status,
-                    "provider_auth_env": result["provider_auth_env"],
-                    "agent_flavor": result["agent_flavor"],
-                    "compression_strategy": result["compression_strategy"],
-                    **_chain_trace_metadata(
-                        module, instance=instance, config=config, result=result
-                    ),
-                },
-            ),
+        trace_bytes, raw_bytes = _trace_artifacts(
+            state,
+            trace_id=trace_id,
+            producer=producer,
+            meta={
+                "chain_id": chain_id,
+                "instance_id": item_id,
+                "status": status,
+                "provider_auth_env": result["provider_auth_env"],
+                "agent_flavor": result["agent_flavor"],
+                "compression_strategy": result["compression_strategy"],
+                **_chain_trace_metadata(
+                    module, instance=instance, config=config, result=result
+                ),
+            },
         )
+        store.put(TRACE_KEY, trace_bytes)
+        if raw_bytes is not None:
+            store.put(TRACE_RAW_KEY, raw_bytes)
     return result, state
 
 
@@ -1180,6 +1287,8 @@ def _run_goal_flavor_with_handoffs(
     chain_window_index: int,
     task_message_index: int | None,
     item_id: str,
+    turn_budget: int | None = None,
+    goal_store: ThreadGoalStore | None = None,
 ) -> tuple[int, int, int]:
     """Drive the goal flavor, resetting the context window mid-instance.
 
@@ -1193,8 +1302,18 @@ def _run_goal_flavor_with_handoffs(
     )
     solver_read = _solver_read(config)
     solver_task = _task_tool_enabled(config)
+    store = goal_store or ThreadGoalStore()
 
     def run_segment(abort: AbortFlag, inner_max_turns: int | None) -> Any:
+        current_goal = store.current_goal()
+        goal_id = current_goal.goal_id if current_goal is not None else None
+        # A handoff call should permit exactly one more outer steering segment;
+        # the actual inner-turn budget remains shared in `turns_left` below.
+        loop_turns = (
+            current_goal.turns_used + 1
+            if inner_max_turns is not None and current_goal is not None
+            else (1 if inner_max_turns is not None else None)
+        )
         return run_goal_flavor(
             provider,
             workdir,
@@ -1208,16 +1327,20 @@ def _run_goal_flavor_with_handoffs(
             objective=objective,
             state=state,
             steering_preface=CHAIN_GOAL_PREFACE,
-            loop_turns=1 if inner_max_turns is not None else None,
+            goal_store=store,
+            goal_id=goal_id,
+            loop_turns=loop_turns,
             inner_max_turns=inner_max_turns,
             abort=abort,
         )
 
     if not handoff_active:
-        run_segment(never_abort, None)
+        run_segment(never_abort, turn_budget)
         return chain_window_index, 0, 0
 
-    turns_left = _goal_total_turn_budget()
+    turns_left = (
+        max(1, turn_budget) if turn_budget is not None else _goal_total_turn_budget()
+    )
     mid_handoffs = 0
     last_before_tokens = 0
     while True:
@@ -1596,19 +1719,27 @@ def _message_has_invalid_prompt_task_error(event: Any) -> bool:
     )
 
 
-def _trace_bytes(
+def _trace_artifacts(
     state: State, *, trace_id: str, producer: str, meta: Mapping[str, Any]
-) -> bytes:
+) -> tuple[bytes, bytes | None]:
     trace = run_trace_from_state(
         state=state,
         trace_id=trace_id,
         producer=producer,
         meta=dict(meta),
     )
-    header, lines, _raw_pool = event_stream(trace)
-    return "".join(
+    header, lines, raw_pool = event_stream(trace)
+    trace_bytes = "".join(
         json.dumps(record, ensure_ascii=False) + "\n" for record in (header, *lines)
     ).encode("utf-8")
+    raw_bytes = (
+        "".join(
+            json.dumps(blob, ensure_ascii=False) + "\n" for blob in raw_pool
+        ).encode("utf-8")
+        if raw_pool
+        else None
+    )
+    return trace_bytes, raw_bytes
 
 
 def _request_extra_for_api_kind(api_kind: str) -> dict[str, Any]:

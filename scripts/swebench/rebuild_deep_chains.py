@@ -13,6 +13,7 @@ linking bridge) and re-exports the runner manifest, mirroring
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -119,13 +120,18 @@ def build_issue_chains(
     }
 
 
-def parse_jsonish_list(value: str) -> list:
-    if not value:
+def parse_jsonish_list(value: object) -> list:
+    if isinstance(value, list):
+        return value
+    if not isinstance(value, str) or not value:
         return []
     try:
         parsed = json.loads(value)
     except (json.JSONDecodeError, TypeError):
-        return []
+        try:
+            parsed = ast.literal_eval(value)
+        except (SyntaxError, ValueError):
+            return []
     return parsed if isinstance(parsed, list) else []
 
 

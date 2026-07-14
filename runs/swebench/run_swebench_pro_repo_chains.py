@@ -84,6 +84,7 @@ from simple_agent_lab.evals import LocalDirStore, LocalDockerBackend  # noqa: E4
 from simple_agent_lab.evals.protocols import RESULT_KEY  # noqa: E402
 from simple_agent_lab.evals.runner import (  # noqa: E402
     container_name,
+    prepare_new_run_directory,
     prepare_run_directory,
     run_suite_instance,
 )
@@ -338,13 +339,15 @@ def main() -> None:
         lane_slots, spec=args.provider_auth_envs
     )
 
-    batch_dir = run_root / args.run_id
-    batch_dir.mkdir(parents=True, exist_ok=True)
+    planned_rows = [row for chain in chains.values() for row in chain.rows]
+    expected_instance_ids = tuple(str(row["instance_id"]) for row in planned_rows)
+    try:
+        batch_dir = prepare_new_run_directory(run_root=run_root, run_id=args.run_id)
+    except FileExistsError as exc:
+        raise SystemExit(str(exc)) from None
     predictions_path = batch_dir / f"{args.run_id}_predictions.jsonl"
     instances_json = batch_dir / "instances.jsonl"
-    _write_jsonl_records(
-        instances_json, [row for chain in chains.values() for row in chain.rows]
-    )
+    _write_jsonl_records(instances_json, planned_rows)
     _write_json(batch_dir / "experiment.json", manifest)
 
     print("=== SWE-bench Pro repo-chain experiment ===")
@@ -433,6 +436,7 @@ def main() -> None:
                 store=store,
                 predictions_path=predictions_path,
                 prediction_lock=prediction_lock,
+                expected_instance_ids=expected_instance_ids,
             ): chain.chain_id
             for chain in chains.values()
         }
@@ -466,6 +470,7 @@ def main() -> None:
         run_id=args.run_id,
         model_name=config.model_name,
         dataset_name=config.dataset_name,
+        expected_instance_ids=expected_instance_ids,
     )
     write_jsonl_atomic(predictions_path, predictions)
     print(f"wrote {len(predictions)} predictions: {predictions_path}")
@@ -913,6 +918,7 @@ def _run_repo_with_slot(
     store: LocalDirStore,
     predictions_path: Path,
     prediction_lock: threading.Lock | None,
+    expected_instance_ids: tuple[str, ...],
 ) -> dict[str, Any]:
     provider_auth_env = slot_pool.get()
     try:
@@ -927,6 +933,7 @@ def _run_repo_with_slot(
             store=store,
             predictions_path=predictions_path,
             prediction_lock=prediction_lock,
+            expected_instance_ids=expected_instance_ids,
         )
     finally:
         slot_pool.put(provider_auth_env)
@@ -944,6 +951,7 @@ def _run_repo(
     store: LocalDirStore,
     predictions_path: Path,
     prediction_lock: threading.Lock | None,
+    expected_instance_ids: tuple[str, ...],
 ) -> dict[str, Any]:
     repo = chain.repo
     rows = list(chain.rows)
@@ -1078,6 +1086,7 @@ def _run_repo(
             run_id=args.run_id,
             model_name=config.model_name,
             dataset_name=config.dataset_name,
+            expected_instance_ids=expected_instance_ids,
             lock=prediction_lock,
         )
 
@@ -1186,6 +1195,7 @@ def _write_incremental_predictions(
     run_id: str,
     model_name: str,
     dataset_name: str,
+    expected_instance_ids: tuple[str, ...],
     lock: threading.Lock | None,
 ) -> None:
     """Refresh the run-level predictions file after each completed instance."""
@@ -1196,6 +1206,7 @@ def _write_incremental_predictions(
             run_id=run_id,
             model_name=model_name,
             dataset_name=dataset_name,
+            expected_instance_ids=expected_instance_ids,
         )
         write_jsonl_atomic(predictions_path, predictions)
 

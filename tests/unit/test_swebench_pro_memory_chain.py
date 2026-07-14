@@ -600,7 +600,9 @@ class MemoryChainRunnerParserTest(unittest.TestCase):
 
     def test_select_units_applies_max_chains_and_limit(self) -> None:
         from evals.swebench.pro_memory_chain import (
+            ProMemoryChainConfig,
             RawIssueChain,
+            plan_manifest,
             plan_memory_chains,
         )
         from runs.swebench.run_swebench_pro_memory_chains import (
@@ -633,6 +635,58 @@ class MemoryChainRunnerParserTest(unittest.TestCase):
         limit_args = build_parser().parse_args(["--all", "--limit", "2"])
         limited = _select_units(plan.chains, limit_args)
         self.assertEqual(sum(unit.length for unit in limited), 2)
+        manifest = plan_manifest(
+            plan,
+            config=ProMemoryChainConfig(),
+            run_id="limited",
+            parallel=1,
+            run_units=limited,
+        )
+        self.assertEqual(manifest["instance_count"], 2)
+        self.assertEqual(manifest["run_unit_count"], len(limited))
+        self.assertEqual(
+            [entry["chain_id"] for entry in manifest["order"]],
+            [unit.chain_id for unit in limited],
+        )
+
+
+class MemoryChainIncrementalPredictionsTest(unittest.TestCase):
+    def test_incremental_predictions_include_unfinished_planned_instances(self) -> None:
+        from runs.swebench.run_swebench_pro_memory_chains import (
+            _write_incremental_predictions,
+        )
+        from simple_agent_lab.trace import read_jsonl
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_id = "run-1"
+            instance_dir = root / run_id / "instance_one"
+            (instance_dir / "input").mkdir(parents=True)
+            (instance_dir / "out").mkdir()
+            (instance_dir / "input" / "instance.json").write_text(
+                '{"instance_id": "instance_one"}\n', encoding="utf-8"
+            )
+            (instance_dir / "out" / "result.json").write_text(
+                '{"model_patch": "diff --git a/a b/a\\n"}\n', encoding="utf-8"
+            )
+            predictions_path = root / run_id / "run-1_predictions.jsonl"
+
+            _write_incremental_predictions(
+                predictions_path=predictions_path,
+                run_root=root,
+                run_id=run_id,
+                model_name="model",
+                dataset_name="ScaleAI/SWE-bench_Pro",
+                expected_instance_ids=("instance_one", "instance_two"),
+                lock=None,
+            )
+
+            predictions = read_jsonl(predictions_path)
+            self.assertEqual(
+                [prediction["instance_id"] for prediction in predictions],
+                ["instance_one", "instance_two"],
+            )
+            self.assertEqual(predictions[1]["patch"], "")
 
 
 if __name__ == "__main__":

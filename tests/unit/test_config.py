@@ -23,11 +23,10 @@ class EnvVarResolverTest(unittest.TestCase):
         var = EnvVar("X_NUM", 7, "agent.test", "doc", as_int())
         self.assertEqual(var.get({"X_NUM": "not-an-int"}), 7)
 
-    def test_explicit_default_overrides_declared_default(self) -> None:
+    def test_explicit_default_overrides_environment_and_declared_default(self) -> None:
         var = EnvVar("X_NUM", None, "agent.test", "doc", as_int())
         self.assertEqual(var.get({}, default=40), 40)
-        # An env value still wins over the explicit default.
-        self.assertEqual(var.get({"X_NUM": "5"}, default=40), 5)
+        self.assertEqual(var.get({"X_NUM": "5"}, default=40), 40)
 
     def test_as_int_clamps_to_minimum(self) -> None:
         var = EnvVar("X_NUM", 1, "agent.test", "doc", as_int(minimum=1))

@@ -347,6 +347,8 @@ def run_goal_flavor(
     objective: str,
     state: State | None = None,
     steering_preface: str = "",
+    goal_store: ThreadGoalStore | None = None,
+    goal_id: str | None = None,
     loop_turns: int | None = None,
     inner_max_turns: int | None = None,
     abort: AbortFlag = never_abort,
@@ -371,7 +373,7 @@ def run_goal_flavor(
     reaches the context-window handoff threshold, then reset and resume).
     """
 
-    goal_store = ThreadGoalStore()
+    goal_store = goal_store or ThreadGoalStore()
     agent = _solver_agent(
         provider,
         workdir,
@@ -402,6 +404,7 @@ def run_goal_flavor(
             else config.WORKER_MAX_TURNS.get()
         ),
         goal_store=goal_store,
+        goal_id=goal_id,
         state=state,
         steering_preface=steering_preface,
         abort=abort,
@@ -494,7 +497,9 @@ def make_workflow_runner_for_flavor(
         width = config.PDR_WIDTH.get()
         # Opt-in cost guard. Shorter throwaway attempts can cut cost, but may
         # reduce the quality of the distilled brief, so default to full budget.
-        attempt_turns = config.PDR_ATTEMPT_TURNS.get(default=worker_max_turns)
+        attempt_turns = config.PDR_ATTEMPT_TURNS.get()
+        if attempt_turns is None:
+            attempt_turns = worker_max_turns
         distiller = make_distiller_agent(provider, request_extra=request_extra)
 
         def run_pdr_arm(task: str) -> WorkflowResult:
@@ -607,7 +612,7 @@ def _resolve_context_policy(
 
 
 def _compression_threshold(provider: Provider) -> int:
-    override = config.COMPRESSION_THRESHOLD.get(default=None)
+    override = config.COMPRESSION_THRESHOLD.get()
     if override is not None:
         return override
     window = provider.context_window or default_context_window_book().window_for(

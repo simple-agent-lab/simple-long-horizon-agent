@@ -130,7 +130,6 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         "reasoning",
         "extra_headers",
         "metadata",
-        "include",
         "store",
         "user",
         "previous_response_id",

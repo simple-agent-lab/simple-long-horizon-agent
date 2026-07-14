@@ -80,15 +80,16 @@ class EnvVar:
         *,
         default: Any = _UNSET,
     ) -> Any:
+        if default is not _UNSET:
+            return default
         source = os.environ if environ is None else environ
-        fallback = self.default if default is _UNSET else default
         raw = (source.get(self.name) or "").strip()
         if not raw:
-            return fallback
+            return self.default
         try:
             return self.parse(raw)
         except (ValueError, TypeError):
-            return fallback
+            return self.default
 
 
 # --------------------------------------------------------------------------- #

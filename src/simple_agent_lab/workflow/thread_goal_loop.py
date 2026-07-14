@@ -334,6 +334,7 @@ def run_thread_goal_loop(
     abort: AbortFlag = never_abort,
     inner_max_turns: int = 20,
     goal_store: ThreadGoalStore | None = None,
+    goal_id: str | None = None,
     state: State | None = None,
     steering_preface: str = "",
 ) -> ThreadGoalResult:
@@ -348,11 +349,30 @@ def run_thread_goal_loop(
     `steering_preface`, when set, is prepended to every steering message as
     trusted host framing (e.g. "this is one long chain of sub-problems; reuse the
     context above"). Default empty leaves the steering exactly as before.
+
+    `goal_id` resumes an active goal from `goal_store` instead of creating a new
+    one. This is used when a context-window handoff replaces the model-visible
+    transcript while the same host-owned goal keeps running.
     """
 
     objective_text = as_text(objective)
+    if goal_id is not None and goal_store is None:
+        raise ValueError("goal_store is required when goal_id is provided")
     store = goal_store or ThreadGoalStore()
-    goal = store.create_goal(objective_text, token_budget=budgets.token_budget)
+    if goal_id is None:
+        goal = store.create_goal(objective_text, token_budget=budgets.token_budget)
+        token_baseline = state_output_tokens(state) if state is not None else 0
+    else:
+        goal = store.get_goal(goal_id)
+        if goal.objective != objective_text:
+            raise ValueError(
+                "resumed goal objective does not match the requested objective"
+            )
+        # Goal usage is relative to when this goal began, not to the shared
+        # transcript. Reconstruct that original baseline when a handoff resumes
+        # this function in a later context window.
+        state_tokens = state_output_tokens(state) if state is not None else 0
+        token_baseline = state_tokens - goal.tokens_used
     goal_agent = _with_goal_tools(agent, store, goal.goal_id)
     effective_abort = _wall_clock_abort(abort, budgets.wall_clock_seconds)
 
@@ -397,7 +417,7 @@ def run_thread_goal_loop(
         _attach_goal_store(state, store)
         _drain(events, effective_abort)
 
-        tokens_used = state_output_tokens(state)
+        tokens_used = max(0, state_output_tokens(state) - token_baseline)
         goal = store.account_turn(goal.goal_id, tokens_used=tokens_used)
         _record_thread_goal_event(state, goal)
         output = final_output(
@@ -450,7 +470,7 @@ def _with_goal_tools(agent: Agent, store: ThreadGoalStore, goal_id: str) -> Agen
         tools.append(make_update_goal_tool(store, goal_id))
     if not tools:
         return agent
-    return replace(agent, tools=tuple(agent.tools) + tuple(tools))
+    return agent.with_tools(tuple(agent.tools) + tuple(tools))
 
 
 def _resolve_goal(store: ThreadGoalStore, goal_id: str | None) -> ThreadGoal:

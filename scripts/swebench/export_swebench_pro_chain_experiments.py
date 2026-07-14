@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 from collections import Counter
 from pathlib import Path
@@ -75,13 +76,18 @@ def build_node(chain: dict, issues: list[dict], idx: int, original: dict) -> dic
     }
 
 
-def parse_jsonish_list(value: str) -> list:
-    if not value:
+def parse_jsonish_list(value: object) -> list:
+    if isinstance(value, list):
+        return value
+    if not isinstance(value, str) or not value:
         return []
     try:
         parsed = json.loads(value)
     except json.JSONDecodeError:
-        return []
+        try:
+            parsed = ast.literal_eval(value)
+        except (SyntaxError, ValueError):
+            return []
     return parsed if isinstance(parsed, list) else []
 
 

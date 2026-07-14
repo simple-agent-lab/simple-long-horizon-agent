@@ -52,10 +52,11 @@ Model-facing lifecycle control stays narrow: `update_goal` accepts only
   - `goal`: Codex-style, best when the experiment is about explicit thread goal
     state and host-owned continuation.
 - Existing `run_goal_loop` callers keep their behavior and public interface.
-- LLM-backed agents that need `get_goal` / `update_goal` must be constructed
-  with those tools up front, because `make_llm_agent` closes over tool schemas
-  at construction time. The `goal` flavor handles that by creating the goal
-  store before constructing its solver agent.
+- `run_thread_goal_loop` derives a tool-bound copy of its input agent without
+  mutating the caller's agent. LLM-backed agents expose a small
+  `generate_for_tools` binding hook, so the derived copy sends the injected
+  `get_goal` / `update_goal` schemas to the model and dispatches the same tools
+  at runtime. Programmatic agents keep their original generate callable.
 - A `ThreadGoalStore` still owns current goal state. `State.data` carries that
   live object for in-process consumers; `State.events` carries an append-only
   history for trace/replay.

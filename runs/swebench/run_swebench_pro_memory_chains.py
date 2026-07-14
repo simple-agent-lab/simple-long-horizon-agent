@@ -89,6 +89,7 @@ from simple_agent_lab.evals.protocols import (  # noqa: E402
 )
 from simple_agent_lab.evals.runner import (  # noqa: E402
     container_name,
+    prepare_new_run_directory,
     prepare_run_directory,
     run_suite_instance,
 )
@@ -279,7 +280,13 @@ def main() -> None:
     lane_slots = lane_auth_slots(expanded_slots, parallel)
 
     memory_home = _resolve_memory_home(args, run_root=run_root)
-    manifest = plan_manifest(plan, config=config, run_id=args.run_id, parallel=parallel)
+    manifest = plan_manifest(
+        plan,
+        config=config,
+        run_id=args.run_id,
+        parallel=parallel,
+        run_units=units,
+    )
     manifest["chains_json"] = str(_chains_json_path(args))
     manifest["memory_home"] = str(memory_home)
     manifest["provider_auth"] = {
@@ -287,11 +294,15 @@ def main() -> None:
         "lane_slots": lane_slots,
     }
 
-    batch_dir = run_root / args.run_id
-    batch_dir.mkdir(parents=True, exist_ok=True)
+    planned_rows = [row for unit in units for row in unit.rows]
+    expected_instance_ids = tuple(str(row["instance_id"]) for row in planned_rows)
+    try:
+        batch_dir = prepare_new_run_directory(run_root=run_root, run_id=args.run_id)
+    except FileExistsError as exc:
+        raise SystemExit(str(exc)) from None
     predictions_path = batch_dir / f"{args.run_id}_predictions.jsonl"
     instances_json = batch_dir / "instances.jsonl"
-    _write_jsonl_records(instances_json, [row for unit in units for row in unit.rows])
+    _write_jsonl_records(instances_json, planned_rows)
     _write_json(batch_dir / "experiment.json", manifest)
 
     _print_plan_banner(
@@ -350,6 +361,7 @@ def main() -> None:
                 store=store,
                 predictions_path=predictions_path,
                 prediction_lock=prediction_lock,
+                expected_instance_ids=expected_instance_ids,
             ): unit.chain_id
             for unit in units
         }
@@ -381,6 +393,7 @@ def main() -> None:
         run_id=args.run_id,
         model_name=config.model_name,
         dataset_name=config.dataset_name,
+        expected_instance_ids=expected_instance_ids,
     )
     write_jsonl_atomic(predictions_path, predictions)
     print(f"wrote {len(predictions)} predictions: {predictions_path}")
@@ -596,6 +609,7 @@ def _run_chain(
     store: LocalDirStore,
     predictions_path: Path,
     prediction_lock: threading.Lock,
+    expected_instance_ids: tuple[str, ...],
 ) -> dict[str, Any]:
     """Run one run unit's instances in order, holding one auth slot for its life."""
 
@@ -612,6 +626,7 @@ def _run_chain(
             store=store,
             predictions_path=predictions_path,
             prediction_lock=prediction_lock,
+            expected_instance_ids=expected_instance_ids,
         )
     finally:
         slot_pool.put(provider_auth_env)
@@ -629,6 +644,7 @@ def _run_chain_with_slot(
     store: LocalDirStore,
     predictions_path: Path,
     prediction_lock: threading.Lock,
+    expected_instance_ids: tuple[str, ...],
 ) -> dict[str, Any]:
     errors = 0
     skipped_records: list[dict[str, Any]] = []
@@ -735,6 +751,7 @@ def _run_chain_with_slot(
             run_id=args.run_id,
             model_name=config.model_name,
             dataset_name=config.dataset_name,
+            expected_instance_ids=expected_instance_ids,
             lock=prediction_lock,
         )
 
@@ -852,6 +869,7 @@ def _write_incremental_predictions(
     run_id: str,
     model_name: str,
     dataset_name: str,
+    expected_instance_ids: tuple[str, ...],
     lock: threading.Lock | None,
 ) -> None:
     def write() -> None:
@@ -860,6 +878,7 @@ def _write_incremental_predictions(
             run_id=run_id,
             model_name=model_name,
             dataset_name=dataset_name,
+            expected_instance_ids=expected_instance_ids,
         )
         write_jsonl_atomic(predictions_path, predictions)
 

@@ -159,6 +159,28 @@ class BashToolTest(unittest.TestCase):
         self.assertFalse(result.details["stdout_truncated"])
         self.assertIn(big, tool_result_text(result))
 
+    def test_explicit_resource_limits_override_environment(self) -> None:
+        with mock.patch.dict(
+            "os.environ",
+            {
+                config.BASH_DEFAULT_TIMEOUT.name: "30",
+                config.BASH_MAX_TIMEOUT.name: "60",
+                config.BASH_MAX_OUTPUT_CHARS.name: "10000",
+            },
+            clear=False,
+        ):
+            tool = make_bash_tool(
+                default_timeout_seconds=1,
+                max_timeout_seconds=2,
+                max_output_chars=123,
+            )
+
+        properties = tool.parameters["properties"]
+        self.assertIn("capped at 2", properties["timeout_seconds"]["description"])
+        self.assertEqual(tool.timeout_seconds, 3)
+        result = _execute(tool, {"command": f"printf '{'x' * 500}'"})
+        self.assertTrue(result.details["stdout_truncated"])
+
     def test_bash_tool_schema_is_strict_for_model_arguments(self) -> None:
         tool = make_bash_tool(cwd=ROOT)
 

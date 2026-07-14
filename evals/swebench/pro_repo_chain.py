@@ -18,6 +18,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+import simple_agent_lab.config as config
 from simple_agent_lab.compression import SummarizeStrategy
 from simple_agent_lab.context_view import ContextPolicy
 from simple_agent_lab.evals.chain import append_chain_task, start_chain_state
@@ -553,12 +554,23 @@ def make_container_bash_tool(
     current: CurrentContainer,
     docker: DockerCommandRunner,
     *,
-    default_timeout_seconds: float = DEFAULT_BASH_TIMEOUT_SECONDS,
-    max_timeout_seconds: float = MAX_BASH_TIMEOUT_SECONDS,
-    max_output_chars: int = DEFAULT_BASH_MAX_OUTPUT_CHARS,
+    default_timeout_seconds: float | None = None,
+    max_timeout_seconds: float | None = None,
+    max_output_chars: int | None = None,
     max_attach_bytes: int = DEFAULT_BASH_MAX_ATTACH_BYTES,
 ) -> AgentTool:
     """Return a bash tool that executes inside the current SWE-bench container."""
+
+    if default_timeout_seconds is None:
+        default_timeout_seconds = (
+            config.BASH_DEFAULT_TIMEOUT.get() or DEFAULT_BASH_TIMEOUT_SECONDS
+        )
+    if max_timeout_seconds is None:
+        max_timeout_seconds = config.BASH_MAX_TIMEOUT.get() or MAX_BASH_TIMEOUT_SECONDS
+    if max_output_chars is None:
+        max_output_chars = (
+            config.BASH_MAX_OUTPUT_CHARS.get() or DEFAULT_BASH_MAX_OUTPUT_CHARS
+        )
 
     def execute(call_id, args, abort, on_update):
         del call_id, on_update

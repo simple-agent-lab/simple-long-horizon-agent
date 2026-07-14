@@ -271,6 +271,28 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
         )
         self.assertEqual(predictions[1]["patch"], "")
 
+    def test_collect_predictions_rejects_result_outside_expected_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run_root = Path(tmp) / "runs"
+            stale_dir = run_root / "run-1" / "stale_instance"
+            (stale_dir / "input").mkdir(parents=True)
+            (stale_dir / "out").mkdir()
+            (stale_dir / "input" / "instance.json").write_text(
+                json.dumps({"instance_id": "stale_instance"}),
+                encoding="utf-8",
+            )
+            (stale_dir / "out" / "result.json").write_text(
+                json.dumps({"model_patch": "stale diff"}),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "Unexpected instance id"):
+                evaluate_predictions.predictions_from_run_dirs(
+                    run_root,
+                    run_id="run-1",
+                    expected_instance_ids=("planned_instance",),
+                )
+
     def test_collect_predictions_rejects_duplicate_instance_ids(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             run_root = Path(tmp) / "runs"

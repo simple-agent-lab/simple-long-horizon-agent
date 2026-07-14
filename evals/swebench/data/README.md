@@ -54,7 +54,7 @@ The analysis stage can therefore make GitHub and model calls. Once its
 issue-chain JSON has been recorded, export and deep relinking are deterministic.
 The deep rebuild was checked against the vendored deep JSONL using the recorded
 analysis inputs: both files have SHA-256
-`a4c52ec33767aaa93ccf80d912a22d0160c6ffde6c89c7fed667e85df364c85d`.
+`fdd3f3ac5016d0cf0598c31720fc4dd737a8d65e58e72a55f06400d3f6e0d4a2`.
 
 The ordinary JSONL predates the retained analysis cache. Its generator is
 preserved, but byte-for-byte regeneration requires the original analysis
@@ -106,6 +106,10 @@ uv run python scripts/swebench/rebuild_deep_chains.py \
 
 Use `--offline` when the commit-time cache is complete. Use
 `--no-llm-noise-filter` for a model-free analysis with different semantics.
+The analyzer loads the repository `.env` by default and follows the canonical
+provider contract: `OPENAI_AUTH_TOKEN` for bearer auth and `OPENAI_BASE_URL` for
+the endpoint. Override the dotenv path or provider flags only when intentionally
+using another OpenAI-compatible service.
 `instance_id` values must match the dataset split; a mismatch surfaces as
 `missing_instance_ids` in the run's `experiment.json`.
 

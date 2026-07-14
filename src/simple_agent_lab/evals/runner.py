@@ -89,6 +89,19 @@ def prepare_run_directory(*, run_root: Path, run_id: str, instance_id: str) -> R
     )
 
 
+def prepare_new_run_directory(*, run_root: Path, run_id: str) -> Path:
+    """Create a fresh run namespace, refusing to reuse existing artifacts."""
+
+    root = run_root / run_id
+    if root.exists() and any(root.iterdir()):
+        raise FileExistsError(
+            f"Run directory already contains artifacts: {root}. "
+            "Choose a new --run-id; exact run resume is not supported."
+        )
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
 def clear_run_outputs(paths: RunPaths) -> None:
     """Remove products from an earlier execution of the same run/instance."""
 

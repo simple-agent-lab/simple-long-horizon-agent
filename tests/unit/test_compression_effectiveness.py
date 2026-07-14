@@ -472,6 +472,9 @@ class ToolPairSafetyTest(unittest.TestCase):
         self.assertEqual(captured[1][0], "current early work " + "z" * 1200)
         self.assertNotIn("current task", captured[0])
         self.assertNotIn("current task", captured[1])
+        elapsed = [event.elapsed for event in state.events]
+        self.assertEqual(elapsed, sorted(elapsed))
+        self.assertTrue(all(fold.start_elapsed <= fold.elapsed for fold in folds))
 
     def test_summarize_runtime_skips_empty_current_early_span(self) -> None:
         captured: list[list[str]] = []

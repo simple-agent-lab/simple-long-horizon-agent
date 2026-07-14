@@ -31,7 +31,7 @@ from ..messages import (
     message_tool_calls,
     tool_results_of,
 )
-from ..protocols import ContextCompressionEvent, Event
+from ..protocols import ContextCompressionEvent, Event, MessageEvent
 
 if TYPE_CHECKING:
     from ..core import Agent
@@ -150,6 +150,9 @@ def _apply_decision(
             event,
             elapsed=trace_base_elapsed + event.elapsed,
         )
+    decision_end_elapsed = trace_base_elapsed + max(
+        (event.elapsed for event in decision.trace_events), default=0.0
+    )
 
     # New active view: every uncompressed item stays in its original order; the
     # replacement is spliced where the first compressed item was. For a 1->1
@@ -175,8 +178,10 @@ def _apply_decision(
     )
 
     summary_index = len(state.messages)
-    yield state.record(replacement)
-    yield state.record_event(
+    yield state.record_event_at(
+        MessageEvent(message=replacement), elapsed=decision_end_elapsed
+    )
+    yield state.record_event_at(
         ContextCompressionEvent(
             agent=agent.name,
             summary_message_index=summary_index,
@@ -186,7 +191,8 @@ def _apply_decision(
             after_tokens=after_tokens,
             strategy=decision.label,
             start_elapsed=trace_base_elapsed,
-        )
+        ),
+        elapsed=decision_end_elapsed,
     )
 
 

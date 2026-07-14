@@ -21,10 +21,16 @@ from hashlib import sha256
 from pathlib import Path
 from urllib.request import Request, urlopen
 
+from simple_agent_lab.llm.env import (
+    OPENAI_AUTH_ENV,
+    OPENAI_BASE_URL_ENV,
+    load_dotenv,
+)
+
 ROOT = Path(__file__).resolve().parents[2]
 WORK_DATA_DIR = ROOT / "datasets" / "swebench_pro"
 WORK_CACHE_DIR = WORK_DATA_DIR / "cache"
-DEFAULT_LLM_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+DEFAULT_LLM_BASE_URL = "https://api.openai.com/v1"
 
 DIFF_FILE_RE = re.compile(r"^diff --git a/(.*?) b/(.*?)$", re.MULTILINE)
 PATH_TOKEN_RE = re.compile(r"`?((?:[\w@.+-]+/)+[\w@.+-]+\.[\w.+-]+)`?")
@@ -181,8 +187,7 @@ class LlmPatchFileSelector:
             )
         payload = {
             "model": self.model,
-            "temperature": 0,
-            "reasoning": {"effort": "high"},
+            "reasoning_effort": "high",
             "messages": [
                 {
                     "role": "system",
@@ -484,6 +489,12 @@ def print_summary(result: dict) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--dotenv",
+        type=Path,
+        default=ROOT / ".env",
+        help="Load provider credentials from this dotenv file without overriding exports.",
+    )
+    parser.add_argument(
         "--data-path",
         type=Path,
         default=WORK_DATA_DIR / "swe_bench_pro.json",
@@ -542,13 +553,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--llm-api-key-env",
-        default="OPENAI_API_KEY",
-        help="Environment variable containing the LLM API key.",
+        default=OPENAI_AUTH_ENV,
+        help="Environment variable containing the LLM bearer token.",
     )
     parser.add_argument(
         "--llm-base-url",
-        default=DEFAULT_LLM_BASE_URL,
-        help="OpenAI-compatible API base URL (defaults to OPENAI_BASE_URL).",
+        default=None,
+        help="OpenAI-compatible API base URL (defaults to OPENAI_BASE_URL, then api.openai.com).",
     )
     parser.add_argument(
         "--max-patch-chars",
@@ -573,6 +584,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
+    load_dotenv(args.dotenv)
+    llm_base_url = (
+        args.llm_base_url
+        or os.getenv(OPENAI_BASE_URL_ENV, "").strip()
+        or DEFAULT_LLM_BASE_URL
+    )
     result = analyze(
         load_issues(
             args.data_path,
@@ -582,7 +599,7 @@ def main() -> None:
                 args.llm_noise_model,
                 args.llm_cache,
                 args.llm_api_key_env,
-                args.llm_base_url,
+                llm_base_url,
                 args.max_patch_chars,
                 args.llm_workers,
             )

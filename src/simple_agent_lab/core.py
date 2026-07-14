@@ -23,7 +23,7 @@ the tool result.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Callable, Iterator
 
 from .compression import maybe_compress_context
@@ -66,6 +66,7 @@ if TYPE_CHECKING:
 # It takes no other arguments: name/role/tools/etc. are closed over at the
 # point where the function is built (see `llm_agent.py` and the test fakes).
 GenerateFn = Callable[[list[Message]], Message]
+GenerateForToolsFn = Callable[[tuple[AgentTool, ...]], GenerateFn]
 
 # A state initializer builds the initial `State` for `Agent.run` from a task.
 # The default (see `Agent._default_init_state`) records a single task message; a
@@ -118,10 +119,25 @@ class Agent:
     # trace view without changing the message loop or asking callers to know the
     # workflow's internals. None means "trace the run state as-is".
     compose_trace_state: TraceStateFn | None = None
+    # LLM-backed agents close over their wire tool schemas. Their factory sets
+    # this hook so a workflow can derive a tool-bound copy whose runtime
+    # dispatch table and model request stay in sync. Programmatic agents leave
+    # it unset and keep their existing generate callable when tools are rebound.
+    generate_for_tools: GenerateForToolsFn | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.tools, tuple):
             self.tools = tuple(self.tools)
+
+    def with_tools(self, tools: tuple[AgentTool, ...]) -> Agent:
+        """Return a copy with matching runtime and model-visible tool bindings."""
+
+        generate = (
+            self.generate_for_tools(tools)
+            if self.generate_for_tools is not None
+            else self.generate
+        )
+        return replace(self, generate=generate, tools=tools)
 
     def run(
         self,

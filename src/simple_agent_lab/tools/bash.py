@@ -92,9 +92,9 @@ class BashExecution:
 def make_bash_tool(
     *,
     cwd: str | Path | None = None,
-    default_timeout_seconds: float = DEFAULT_BASH_TIMEOUT_SECONDS,
-    max_timeout_seconds: float = MAX_BASH_TIMEOUT_SECONDS,
-    max_output_chars: int = DEFAULT_BASH_MAX_OUTPUT_CHARS,
+    default_timeout_seconds: float | None = None,
+    max_timeout_seconds: float | None = None,
+    max_output_chars: int | None = None,
     max_attach_bytes: int = DEFAULT_BASH_MAX_ATTACH_BYTES,
     execution_mode: ToolExecutionMode = "parallel",
     exec_prefix: tuple[str, ...] = (),
@@ -110,6 +110,17 @@ def make_bash_tool(
     calls keep the container's network.
     """
 
+    if default_timeout_seconds is None:
+        default_timeout_seconds = (
+            config.BASH_DEFAULT_TIMEOUT.get() or DEFAULT_BASH_TIMEOUT_SECONDS
+        )
+    if max_timeout_seconds is None:
+        max_timeout_seconds = config.BASH_MAX_TIMEOUT.get() or MAX_BASH_TIMEOUT_SECONDS
+    if max_output_chars is None:
+        max_output_chars = (
+            config.BASH_MAX_OUTPUT_CHARS.get() or DEFAULT_BASH_MAX_OUTPUT_CHARS
+        )
+
     if default_timeout_seconds <= 0:
         raise ValueError("default_timeout_seconds must be > 0")
     if max_timeout_seconds <= 0:
@@ -117,11 +128,6 @@ def make_bash_tool(
     if max_output_chars <= 0:
         raise ValueError("max_output_chars must be > 0")
 
-    default_timeout_seconds = config.BASH_DEFAULT_TIMEOUT.get(
-        default=default_timeout_seconds
-    )
-    max_timeout_seconds = config.BASH_MAX_TIMEOUT.get(default=max_timeout_seconds)
-    max_output_chars = config.BASH_MAX_OUTPUT_CHARS.get(default=max_output_chars)
     if default_timeout_seconds > max_timeout_seconds:
         default_timeout_seconds = max_timeout_seconds
 

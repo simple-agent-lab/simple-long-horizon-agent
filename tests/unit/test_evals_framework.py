@@ -42,6 +42,7 @@ from simple_agent_lab.evals.runner import (
     GENERIC_RUNNER_MODULE,
     build_command,
     container_name,
+    prepare_new_run_directory,
 )
 from simple_agent_lab.evals.stores import HttpArtifactClient
 
@@ -78,6 +79,15 @@ def _simulate(answer: str):
 class OrchestrationTest(unittest.TestCase):
     def test_demo_suite_satisfies_protocol(self) -> None:
         self.assertIsInstance(_DemoSuite(), Suite)
+
+    def test_new_run_directory_rejects_existing_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run_root = Path(tmp)
+            run_dir = prepare_new_run_directory(run_root=run_root, run_id="run-x")
+            (run_dir / "experiment.json").write_text("{}\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(FileExistsError, "Choose a new --run-id"):
+                prepare_new_run_directory(run_root=run_root, run_id="run-x")
 
     def test_run_suite_instance_fake_backend(self) -> None:
         instance = {"instance_id": "demo-1", "problem": "p", "gold": "SECRET"}

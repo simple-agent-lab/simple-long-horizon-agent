@@ -25,7 +25,11 @@ from simple_agent_lab.messages import (
     tool_results_message,
     user_message,
 )
-from simple_agent_lab.protocols import ContextCompressionEvent, TurnStartEvent
+from simple_agent_lab.protocols import (
+    ContextCompressionEvent,
+    GoalStatusEvent,
+    TurnStartEvent,
+)
 from simple_agent_lab.tools import tool_result_text
 
 SWEBENCH_CONTAINER = "simple_agent_lab.evals.suites.swebench.container"
@@ -1244,6 +1248,40 @@ class RepoChainStateTest(unittest.TestCase):
 
 
 class RepoChainStateArtifactTest(unittest.TestCase):
+    def test_chain_trace_writes_provider_raw_sidecar(self) -> None:
+        import json
+
+        from simple_agent_lab import State
+        from simple_agent_lab.evals.chain import _trace_artifacts
+
+        state = State("trace raw")
+        state.record(
+            assistant_message(
+                "done",
+                sender="swebench_agent",
+                target="user",
+                sidecar={
+                    "raw": {
+                        "request": {"model": "m"},
+                        "response": {"id": "response-1"},
+                    }
+                },
+            )
+        )
+
+        trace_bytes, raw_bytes = _trace_artifacts(
+            state, trace_id="trace.raw", producer="test", meta={}
+        )
+
+        self.assertIsNotNone(raw_bytes)
+        assert raw_bytes is not None
+        records = [json.loads(line) for line in trace_bytes.decode().splitlines()]
+        message_record = next(
+            record for record in records if record.get("kind") == "message"
+        )
+        self.assertEqual(message_record["message"]["sidecar"]["raw"], {"raw_ref": 0})
+        self.assertEqual(json.loads(raw_bytes)["response"]["id"], "response-1")
+
     def test_appending_new_chain_task_demotes_prior_item_tasks(self) -> None:
         from evals.swebench.pro_repo_chain import (
             append_instance_task,
@@ -2121,6 +2159,105 @@ class RepoChainInContainerRunnerTest(unittest.TestCase):
         full_trace = "\n".join(message_text(message) for message in state.messages)
         self.assertIn("prior repo context", full_trace)
         self.assertIn("HANDOFF FROM EARLIER IN THIS REPO CHAIN", full_trace)
+        goal_events = [
+            event for event in state.events if isinstance(event, GoalStatusEvent)
+        ]
+        self.assertGreaterEqual(len(goal_events), 2)
+        self.assertEqual(len({event.goal_id for event in goal_events}), 1)
+        active_turns = [
+            event.turns_used for event in goal_events if event.status == "active"
+        ]
+        self.assertEqual(active_turns, sorted(active_turns))
+
+    def test_goal_flavor_skips_invalid_chain_task_after_steering_message(
+        self,
+    ) -> None:
+        def invalid_goal_run(provider, workdir, request_extra, **kwargs):
+            del provider, workdir, request_extra
+            kwargs["state"].record(
+                user_message(
+                    "Continue working toward the active goal.",
+                    target="swebench_agent",
+                )
+            )
+            raise RuntimeError("invalid_prompt")
+
+        with patch("simple_agent_lab.evals.chain.run_goal_flavor", invalid_goal_run):
+            result, restored, _state = self._run_bash_instance_with_handoff_config(
+                context_window_tokens=272_000,
+                handoff=False,
+                position=1,
+                instances_in_chain=1,
+                max_turns=4,
+                agent_flavor="goal",
+            )
+
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["skip_reason"], "invalid_prompt_chain_task")
+        self.assertEqual(result["invalid_prompt_retries"], 0)
+        visible = "\n".join(
+            message_text(message) for message in restored.active_context_messages()
+        )
+        self.assertNotIn("Change app.py", visible)
+
+    def test_goal_flavor_retries_after_invalid_tool_output(self) -> None:
+        from simple_agent_lab.evals.chain import INVALID_PROMPT_TOOL_REMINDER
+
+        calls = 0
+
+        def retrying_goal_run(provider, workdir, request_extra, **kwargs):
+            nonlocal calls
+            del provider, workdir, request_extra
+            calls += 1
+            if calls == 1:
+                state = kwargs["state"]
+                state.record(
+                    assistant_message(
+                        (ToolCallBlock(id="call-1", name="bash", arguments={}),),
+                        sender="swebench_agent",
+                        target="user",
+                        kind="step",
+                    )
+                )
+                state.record(
+                    tool_results_message(
+                        [
+                            ToolResultBlock(
+                                tool_call_id="call-1",
+                                tool_name="bash",
+                                content=(TextBlock("bad provider-triggering output"),),
+                            )
+                        ],
+                        target="swebench_agent",
+                    )
+                )
+                state.record(
+                    user_message(
+                        "Continue working toward the active goal.",
+                        target="swebench_agent",
+                    )
+                )
+                raise RuntimeError("invalid_prompt")
+            return SimpleNamespace(stop_reason="complete")
+
+        with patch("simple_agent_lab.evals.chain.run_goal_flavor", retrying_goal_run):
+            result, restored, _state = self._run_bash_instance_with_handoff_config(
+                context_window_tokens=272_000,
+                handoff=False,
+                position=1,
+                instances_in_chain=1,
+                max_turns=4,
+                agent_flavor="goal",
+            )
+
+        self.assertEqual(calls, 2)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["invalid_prompt_retries"], 1)
+        visible = "\n".join(
+            message_text(message) for message in restored.active_context_messages()
+        )
+        self.assertNotIn("bad provider-triggering output", visible)
+        self.assertIn(INVALID_PROMPT_TOOL_REMINDER, visible)
 
     def test_disabled_handoff_runs_naked_over_budget(self) -> None:
         result, restored, _state = self._run_bash_instance_with_handoff_config(
@@ -2256,6 +2393,36 @@ class RepoChainInvalidPromptHandlingTest(unittest.TestCase):
 
         self.assertEqual(
             invalid_prompt_source(state, item_id="case-1"),
+            "chain_task",
+        )
+
+    def test_goal_invalid_prompt_source_skips_internal_steering(self) -> None:
+        from evals.swebench.pro_repo_chain import (
+            append_instance_task,
+            start_repo_state,
+        )
+        from simple_agent_lab.evals.chain import invalid_prompt_source
+
+        state = start_repo_state("acme/widgets", agent_name="swebench_agent")
+        append_instance_task(
+            state,
+            agent_name="swebench_agent",
+            instance_id="case-1",
+            task="Solve this repository task.",
+        )
+        state.record(
+            user_message(
+                "Continue working toward the active goal.",
+                target="swebench_agent",
+            )
+        )
+
+        self.assertEqual(
+            invalid_prompt_source(
+                state,
+                item_id="case-1",
+                skip_goal_steering_messages=True,
+            ),
             "chain_task",
         )
 
@@ -2584,12 +2751,18 @@ class RepoChainIncrementalPredictionsTest(unittest.TestCase):
                 run_id=run_id,
                 model_name="model",
                 dataset_name="ScaleAI/SWE-bench_Pro",
+                expected_instance_ids=(
+                    "instance_acme__widgets-1",
+                    "instance_acme__widgets-2",
+                ),
                 lock=None,
             )
 
             predictions = read_jsonl(predictions_path)
-            self.assertEqual(len(predictions), 1)
+            self.assertEqual(len(predictions), 2)
             self.assertEqual(predictions[0]["instance_id"], "instance_acme__widgets-1")
+            self.assertEqual(predictions[1]["instance_id"], "instance_acme__widgets-2")
+            self.assertEqual(predictions[1]["patch"], "")
 
 
 class CommitTimeResolverTest(unittest.TestCase):

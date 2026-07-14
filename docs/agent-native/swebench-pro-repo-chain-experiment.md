@@ -43,6 +43,10 @@ The supported comparison modes are:
 When `--run-id` is omitted, the runner derives a timestamped prefix from the
 selected variables, such as `pro-repo-chain-none-*` (default bash + none),
 `pro-repo-chain-summarize-*`, or `pro-repo-chain-goal-task-none-*`.
+Run IDs identify one invocation: both Pro chain runners refuse a non-empty
+existing run directory. Choose a new `--run-id` after an interrupted run; exact
+chain resume is not supported, and refusing reuse prevents stale per-instance
+results or memory from entering a later experiment.
 
 ## Objective
 
@@ -317,8 +321,10 @@ handoff document (plus chain metadata), so the next window deliberately starts
 without the prior transcript.
 
 The repo-chain runner also refreshes `<run_id>_predictions.jsonl` after each
-completed instance. This file is therefore a partial prediction snapshot while
-the run is active and a final prediction file after all workers finish.
+completed instance. Every refresh is bound to the current plan: unexpected
+instance directories are rejected, and planned instances without a current
+result receive an empty patch. The file therefore keeps the full experimental
+denominator while the run is active and after all workers finish.
 
 Batch-level outputs include:
 
@@ -331,7 +337,11 @@ Batch-level outputs include:
 ## Invalid Prompt Handling
 
 If the provider raises `invalid_prompt` or code `-4321`, the in-container
-repo-chain runner classifies the latest active user-visible message:
+repo-chain runner applies the same recovery policy to every agent flavor,
+including `goal`, and classifies the latest relevant active user-visible
+message. Goal-loop steering messages are skipped during classification so the
+runner reaches the current instance prompt or tool output that caused the
+provider rejection:
 
 - If it is the current instance prompt, the instance is skipped and that prompt
   is dropped from active context so the next instance can proceed.

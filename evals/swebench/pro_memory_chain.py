@@ -30,7 +30,7 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -483,8 +483,12 @@ def plan_manifest(
     config: ProMemoryChainConfig,
     run_id: str,
     parallel: int,
+    run_units: Sequence[MemoryChain] | None = None,
 ) -> dict[str, Any]:
     """A JSON-friendly manifest capturing the run plan and match statistics."""
+
+    if run_units is not None:
+        plan = replace(plan, chains=tuple(run_units))
 
     per_repo: dict[str, dict[str, int]] = defaultdict(
         lambda: {"chains": 0, "chain_instances": 0, "singletons": 0}
