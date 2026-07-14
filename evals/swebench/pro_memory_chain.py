@@ -2,7 +2,7 @@
 
 This is the pure planning/configuration half of the *memory-based* repo-chain
 runner. It is a peer of ``pro_repo_chain`` but with a different research shape,
-borrowed from the ``mini-memory`` filesystem-memory chains:
+using filesystem memory as the only cross-instance state:
 
 - Chains come from a pre-analyzed chain manifest vendored under ``data/`` (a
   flat chain-nodes JSONL by default, or the older nested issue-chains JSON),
@@ -39,7 +39,7 @@ DEFAULT_SPLIT = "test"
 # Chain manifests are vendored into the repo so a run does not depend on an
 # external checkout. ``CHAIN_DATA_DIR`` sits next to this module; the deep
 # node file is the default. It is the flat, one-node-per-line JSONL produced by
-# the mini-memory chain analysis (each row carries ``chain_id``/``step_index``/
+# repository-owned chain analysis (each row carries ``chain_id``/``step_index``/
 # ``instance_id``/``repo``/``commit_time``). ``load_issue_chains`` also still
 # accepts the older nested issue-chains JSON so external manifests keep working.
 CHAIN_DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -101,7 +101,7 @@ def load_issue_chains(path: str | Path) -> list[RawIssueChain]:
     Two on-disk shapes are accepted:
 
     - Flat *chain-nodes* JSONL (one node object per line) — the format vendored
-      under ``data/`` and produced by the mini-memory chain analysis. Nodes are
+      under ``data/`` and produced by the chain analysis. Nodes are
       grouped by ``chain_id`` and ordered by ``step_index`` (falling back to
       ``commit_time``); see :func:`chains_from_nodes`.
     - Nested issue-chains JSON (``{"repos": [{"repo", "chains": [{"chain_id",
@@ -159,6 +159,10 @@ def chains_from_nodes(nodes: Iterable[Mapping[str, Any]]) -> list[RawIssueChain]
         if not instance_id:
             continue
         chain_id = str(node.get("chain_id") or "").strip()
+        if not chain_id:
+            raise ValueError(
+                f"chain node {instance_id!r} is missing a non-empty chain_id"
+            )
         if chain_id not in grouped:
             grouped[chain_id] = []
             order.append(chain_id)
@@ -168,6 +172,15 @@ def chains_from_nodes(nodes: Iterable[Mapping[str, Any]]) -> list[RawIssueChain]
     for chain_id in order:
         ordered = sorted(grouped[chain_id], key=_node_sort_key)
         instance_ids = tuple(str(node.get("instance_id")) for node in ordered)
+        repos = {
+            str(node.get("repo") or "").strip()
+            for node in ordered
+            if str(node.get("repo") or "").strip()
+        }
+        if len(repos) > 1:
+            raise ValueError(
+                f"chain_id {chain_id!r} spans multiple repos: {sorted(repos)!r}"
+            )
         repo = next(
             (
                 str(node.get("repo")).strip()
@@ -178,11 +191,12 @@ def chains_from_nodes(nodes: Iterable[Mapping[str, Any]]) -> list[RawIssueChain]
         )
         chains.append(
             RawIssueChain(
-                chain_id=chain_id or f"{repo}-{instance_ids[0]}",
+                chain_id=chain_id,
                 repo=repo,
                 instance_ids=instance_ids,
             )
         )
+    _validate_raw_chain_ids(chains)
     return chains
 
 
@@ -244,7 +258,21 @@ def chains_from_manifest(data: Mapping[str, Any]) -> list[RawIssueChain]:
                     instance_ids=instance_ids,
                 )
             )
+    _validate_raw_chain_ids(chains)
     return chains
+
+
+def _validate_raw_chain_ids(chains: Sequence[RawIssueChain]) -> None:
+    """Reject empty or duplicate ids before they can share state/artifacts."""
+
+    seen: set[str] = set()
+    for chain in chains:
+        chain_id = chain.chain_id.strip()
+        if not chain_id:
+            raise ValueError("chain manifests require a non-empty chain_id")
+        if chain_id in seen:
+            raise ValueError(f"duplicate chain_id in manifest: {chain_id!r}")
+        seen.add(chain_id)
 
 
 @dataclass(frozen=True)
@@ -283,6 +311,8 @@ def plan_memory_chains(
     dataset are reported (not fatal) so a mismatched dataset/chain file surfaces
     loudly. The result is ordered longest-first.
     """
+
+    _validate_raw_chain_ids(raw_chains)
 
     by_id: dict[str, dict[str, Any]] = {}
     for row in rows:
@@ -336,6 +366,15 @@ def plan_memory_chains(
                 source=SINGLETON_CHAIN_SOURCE,
             )
         )
+
+    planned_ids: set[str] = set()
+    for chain in chains:
+        if chain.chain_id in planned_ids:
+            raise ValueError(
+                "duplicate planned chain_id would overwrite artifacts: "
+                f"{chain.chain_id!r}"
+            )
+        planned_ids.add(chain.chain_id)
 
     return MemoryChainPlan(
         chains=tuple(order_chains_longest_first(chains)),

@@ -26,6 +26,9 @@ dataset instance not named by a chain becomes a length-1 singleton, so the full
 731-instance split still runs; chains are then scheduled longest-first. The
 loader also still accepts the older nested issue-chains JSON
 (`{"repos": [{"chains": [{"issues": [...]}]}]}`) for external manifests.
+Flat nodes must carry a non-empty `chain_id`; duplicate IDs and IDs spanning
+multiple repos are rejected before planning so memory namespaces and summary
+artifacts cannot collide.
 
 ## Generation code
 

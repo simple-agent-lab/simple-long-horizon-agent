@@ -35,6 +35,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from simple_agent_lab.trace import json_safe, read_jsonl, write_jsonl  # noqa: E402
+from simple_agent_lab.evals.runner import canonical_run_id  # noqa: E402
 
 
 DEFAULT_DATASET = "princeton-nlp/SWE-bench_Verified"
@@ -861,7 +862,7 @@ def predictions_from_run_dirs(
     from evals.swebench import harness
 
     root = Path(run_root)
-    search = (root / run_id).glob("*") if run_id else root.glob("*/*")
+    search = (root / canonical_run_id(run_id)).glob("*") if run_id else root.glob("*/*")
     expected = tuple(str(value) for value in (expected_instance_ids or ()))
     if len(set(expected)) != len(expected):
         raise ValueError("Expected instance ids contain duplicates")

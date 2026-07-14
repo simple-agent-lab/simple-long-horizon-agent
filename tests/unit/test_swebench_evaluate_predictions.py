@@ -240,6 +240,31 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
         self.assertEqual(predictions[0]["prefix"], "model")
         self.assertEqual(predictions[0]["patch"], "diff --git a/app.py b/app.py\n")
 
+    def test_collect_predictions_uses_the_canonical_run_id_directory(self) -> None:
+        from simple_agent_lab.evals.runner import canonical_run_id
+
+        with tempfile.TemporaryDirectory() as tmp:
+            run_root = Path(tmp) / "runs"
+            run_dir = run_root / canonical_run_id("group/run") / "instance_one"
+            (run_dir / "input").mkdir(parents=True)
+            (run_dir / "out").mkdir()
+            (run_dir / "input" / "instance.json").write_text(
+                json.dumps({"instance_id": "instance_one"}),
+                encoding="utf-8",
+            )
+            (run_dir / "out" / "result.json").write_text(
+                json.dumps({"model_patch": "canonical diff"}),
+                encoding="utf-8",
+            )
+
+            predictions = evaluate_predictions.predictions_from_run_dirs(
+                run_root,
+                run_id="group/run",
+                dataset_name="ScaleAI/SWE-bench_Pro",
+            )
+
+        self.assertEqual(predictions[0]["patch"], "canonical diff")
+
     def test_collect_predictions_emits_empty_patch_for_expected_missing_result(
         self,
     ) -> None:

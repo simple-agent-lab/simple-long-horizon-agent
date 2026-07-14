@@ -18,6 +18,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
+from filelock import FileLock
+
 from simple_agent_lab.memory.base import Memory, MemoryContext, memory_context_message
 from simple_agent_lab.memory.transcript import (
     final_submission_from_state,
@@ -33,6 +35,7 @@ if TYPE_CHECKING:
 DEFAULT_FILESYSTEM_MEMORY_ROOT = "~/.simple/memory"
 MEMORY_SUMMARY_FILENAME = "memory_summary.md"
 MEMORY_HANDBOOK_FILENAME = "MEMORY.md"
+MEMORY_LOCK_FILENAME = ".memory.lock"
 
 # Default character cap on transcript text passed to the distiller (the full
 # transcript still lands in ``transcript.md``). Truncated transcripts distill
@@ -189,6 +192,14 @@ class FilesystemMemory(Memory):
         return tuple(overview)
 
     def _finish(self, ctx: MemoryContext) -> None:
+        self.root.mkdir(parents=True, exist_ok=True)
+        # The distiller returns complete rewrites, so the lock must cover the
+        # read, model call, and commit. Locking only os.replace would still let
+        # two processes derive updates from the same stale handbook.
+        with FileLock(self.root / MEMORY_LOCK_FILENAME):
+            self._finish_locked(ctx)
+
+    def _finish_locked(self, ctx: MemoryContext) -> None:
         assert ctx.state is not None
         base_run_id = _run_id(ctx)
         payload_run_path = f"runs/{base_run_id}"

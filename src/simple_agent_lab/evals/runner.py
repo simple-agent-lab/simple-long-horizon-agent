@@ -55,7 +55,7 @@ class RunPaths:
     prediction_jsonl: Path
 
 
-def _safe_part(value: str) -> str:
+def safe_path_part(value: str) -> str:
     """Filesystem/Docker-safe form of an id, collision-free across distinct ids.
 
     Plain ids (alnum / ``_.-``) are returned unchanged. When sanitization would
@@ -65,16 +65,30 @@ def _safe_part(value: str) -> str:
     """
 
     safe = "".join(c if c.isalnum() or c in "_.-" else "_" for c in value)
+    if not safe or safe in {".", ".."}:
+        safe = "run"
     if safe != value:
         digest = hashlib.sha1(value.encode("utf-8")).hexdigest()[:8]
         safe = f"{safe}-{digest}"
     return safe
 
 
+def _safe_part(value: str) -> str:
+    """Backward-compatible private name for :func:`safe_path_part`."""
+
+    return safe_path_part(value)
+
+
+def canonical_run_id(value: str) -> str:
+    """Return the single path-safe representation used for a run namespace."""
+
+    return safe_path_part(value)
+
+
 def prepare_run_directory(*, run_root: Path, run_id: str, instance_id: str) -> RunPaths:
     """Create the input/out dirs for one instance (ADR eval-output-directory-convention layout)."""
 
-    root = run_root.resolve() / _safe_part(run_id) / _safe_part(instance_id)
+    root = run_root.resolve() / canonical_run_id(run_id) / _safe_part(instance_id)
     input_dir = root / "input"
     output_dir = root / "out"
     input_dir.mkdir(parents=True, exist_ok=True)
@@ -92,7 +106,7 @@ def prepare_run_directory(*, run_root: Path, run_id: str, instance_id: str) -> R
 def prepare_new_run_directory(*, run_root: Path, run_id: str) -> Path:
     """Create a fresh run namespace, refusing to reuse existing artifacts."""
 
-    root = run_root / run_id
+    root = run_root.resolve() / canonical_run_id(run_id)
     if root.exists() and any(root.iterdir()):
         raise FileExistsError(
             f"Run directory already contains artifacts: {root}. "

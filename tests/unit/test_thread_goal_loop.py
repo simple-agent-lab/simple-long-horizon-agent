@@ -339,6 +339,39 @@ class ThreadGoalLoopTest(unittest.TestCase):
         self.assertEqual(seen_tool_names, [("get_goal", "update_goal")])
         self.assertEqual(agent.tools, ())
 
+    def test_loop_rebinds_same_named_goal_tools_to_the_current_goal(self):
+        stale_store = ThreadGoalStore()
+        stale_goal = stale_store.create_goal("an older run")
+        current_store = ThreadGoalStore()
+
+        def generate(messages):
+            del messages
+            return AssistantMessage(
+                content=(
+                    ToolCallBlock("call_done", "update_goal", {"status": "complete"}),
+                ),
+                sender="goal_agent",
+                target="goal_agent",
+                kind="step",
+            )
+
+        agent = Agent(
+            "goal_agent",
+            generate,
+            tools=(make_update_goal_tool(stale_store, stale_goal.goal_id),),
+        )
+
+        result = run_thread_goal_loop(
+            agent,
+            "finish the current run",
+            budgets=GoalBudgets(max_turns=1),
+            goal_store=current_store,
+        )
+
+        self.assertEqual(result.goal.status, "complete")
+        self.assertEqual(stale_store.get_goal(stale_goal.goal_id).status, "active")
+        self.assertEqual(agent.tools[0].name, "update_goal")
+
     def test_injected_state_resumes_and_inherits_prior_context(self):
         seed = _final_agent("goal_agent")
         seed_state, seed_events = seed.run("prior context marker")

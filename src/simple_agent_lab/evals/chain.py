@@ -12,6 +12,7 @@ import argparse
 import importlib
 import inspect
 import json
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -615,6 +616,7 @@ def run_chain_in_container(
     provider: Provider,
     workdir: Path,
     max_turns: int,
+    wall_time_seconds: float | None = None,
     store: ArtifactStore,
     trace_id: str,
     producer: str,
@@ -668,9 +670,16 @@ def run_chain_in_container(
     instances_in_chain = int(config.get("instances_in_chain", 0) or 0)
     is_last_instance = instances_in_chain > 0 and position >= instances_in_chain
     handoff_written = False
+    boundary_handoff_written = False
     handoff_context_tokens = 0
     context_window_handoffs = 0
     result_product: dict[str, Any] = {"model_patch": ""}
+    deadline = (
+        time.monotonic() + wall_time_seconds if wall_time_seconds is not None else None
+    )
+
+    def deadline_abort() -> bool:
+        return deadline is not None and time.monotonic() >= deadline
 
     try:
         flavor = _agent_flavor(config, default=spec.flavor)
@@ -706,6 +715,7 @@ def run_chain_in_container(
                             item_id=item_id,
                             turn_budget=retry_turn_budget,
                             goal_store=goal_store,
+                            outer_abort=deadline_abort,
                         )
                     )
                     if _task_tool_enabled(config) and any(
@@ -795,10 +805,11 @@ def run_chain_in_container(
                 if handoff_active
                 else never_abort
             )
+            run_abort = lambda: deadline_abort() or window_abort()  # noqa: E731
             try:
                 end_reason: AgentEndReason = "max_turns"
                 for event in run_agent(
-                    agent, state, max_turns=turn_budget, abort=window_abort
+                    agent, state, max_turns=turn_budget, abort=run_abort
                 ):
                     if isinstance(event, ContextCompressionEvent):
                         print(
@@ -821,6 +832,7 @@ def run_chain_in_container(
                 if (
                     handoff_active
                     and end_reason == "abort"
+                    and not deadline_abort()
                     and remaining > 0
                     and _over_window(state, window_limit)
                     and context_window_handoffs < MAX_CONTEXT_WINDOW_HANDOFFS
@@ -841,6 +853,10 @@ def run_chain_in_container(
                         handoff_context_tokens = before_tokens
                         context_window_handoffs += 1
                         continue
+                    # Generation is transactional. If it fails, spend the next
+                    # solver turn on real work with the intact full context
+                    # instead of ending this otherwise healthy chain item.
+                    continue
                 break
             except Exception as exc:
                 recovery = _recover_invalid_prompt(
@@ -881,7 +897,12 @@ def run_chain_in_container(
     # (above) instead keep the same instance going, so this fires only for the
     # "just completed at the boundary -> next problem" case.
     outgoing_state = state
-    if status == "ok" and handoff_active and not is_last_instance:
+    if (
+        status == "ok"
+        and handoff_active
+        and not is_last_instance
+        and not deadline_abort()
+    ):
         boundary_tokens = estimate_context_tokens(state.active_context_messages())
         if boundary_tokens >= _context_window_tokens(config):
             try:
@@ -894,6 +915,30 @@ def run_chain_in_container(
                 )
             else:
                 if doc.strip():
+                    prior_active = [index for index, _ in state.active_context_items()]
+                    before_reset_tokens = estimate_context_tokens(
+                        state.active_context_messages()
+                    )
+                    state.send(
+                        "context",
+                        "user",
+                        spec.name,
+                        CHAIN_HANDOFF_CONTEXT_PREFACE + doc,
+                        sidecar={"details": {"chain": {"handoff": True}}},
+                    )
+                    doc_index = len(state.messages) - 1
+                    after_tokens = estimate_context_tokens([state.messages[doc_index]])
+                    state.record_event(
+                        ContextCompressionEvent(
+                            agent=spec.name,
+                            summary_message_index=doc_index,
+                            compressed_message_indices=prior_active,
+                            active_context_indices=[doc_index],
+                            before_tokens=before_reset_tokens,
+                            after_tokens=after_tokens,
+                            strategy=CONTEXT_WINDOW_HANDOFF_REASON,
+                        )
+                    )
                     chain_window_index += 1
                     outgoing_state = _handoff_reset_state(
                         module,
@@ -903,23 +948,8 @@ def run_chain_in_container(
                         window_index=chain_window_index,
                     )
                     handoff_written = True
-                    handoff_context_tokens = boundary_tokens
-                    after_tokens = estimate_context_tokens(
-                        outgoing_state.active_context_messages()
-                    )
-                    state.record_event(
-                        ContextCompressionEvent(
-                            agent=spec.name,
-                            summary_message_index=-1,
-                            compressed_message_indices=[],
-                            active_context_indices=[
-                                index for index, _ in state.active_context_items()
-                            ],
-                            before_tokens=handoff_context_tokens,
-                            after_tokens=after_tokens,
-                            strategy=CONTEXT_WINDOW_HANDOFF_REASON,
-                        )
-                    )
+                    boundary_handoff_written = True
+                    handoff_context_tokens = before_reset_tokens
                     print(
                         f"[chain] {item_id}: context-window handoff "
                         f"{handoff_context_tokens}->{after_tokens} "
@@ -946,6 +976,7 @@ def run_chain_in_container(
         "invalid_prompt_retries": invalid_prompt_retries,
         "handoff": handoff_active,
         "handoff_written": handoff_written,
+        "boundary_handoff_written": boundary_handoff_written,
         "handoff_context_tokens": handoff_context_tokens,
         "context_window_handoffs": context_window_handoffs,
         "chain_window_index": chain_window_index,
@@ -1099,9 +1130,11 @@ def _generate_handoff_doc(
     """Have the model write a handoff doc from the current context.
 
     Builds a tool-less agent with the SAME name as the solver so it inherits the
-    solver's visible context, then resumes one turn on the shared ``state``. The
-    returned text seeds the next window, whether that window continues the same
-    instance (mid-instance handoff) or starts the next one (boundary handoff).
+    solver's visible context. Generation runs on a scratch copy and is committed
+    only when it produces a non-empty document, so a provider failure cannot
+    leave a dangling prompt or partial handoff exchange in the solver state.
+    The returned text seeds the next window, whether that window continues the
+    same instance (mid-instance handoff) or starts the next one.
     """
 
     handoff_agent = make_llm_agent(
@@ -1110,11 +1143,22 @@ def _generate_handoff_doc(
         role=CHAIN_HANDOFF_ROLE,
         request_extra=request_extra,
     )
-    before = len(state.messages)
-    _, events = handoff_agent.resume(state, CHAIN_HANDOFF_PROMPT, max_turns=2)
+    scratch = State(
+        task=state.task,
+        events=list(state.events),
+        data=dict(state.data),
+        _monotonic_origin=state._monotonic_origin,
+    )
+    before = len(scratch.messages)
+    _, events = handoff_agent.resume(scratch, CHAIN_HANDOFF_PROMPT, max_turns=2)
     for _ in events:
         pass
-    return final_output(state, spec.name, after_message_index=before)
+    doc = final_output(scratch, spec.name, after_message_index=before)
+    if not doc.strip():
+        return ""
+    for event in scratch.events[len(state.events) :]:
+        state.record_event_at(event, elapsed=event.elapsed)
+    return doc
 
 
 def _handoff_reset_state(
@@ -1218,7 +1262,7 @@ def _apply_context_window_handoff(
             f"carrying full context forward: {type(exc).__name__}: {exc}",
             flush=True,
         )
-        return False, _count_turns(state.events[events_before:]), 0
+        return False, 0, 0
     gen_turns = _count_turns(state.events[events_before:])
     if not doc.strip():
         return False, gen_turns, 0
@@ -1289,6 +1333,7 @@ def _run_goal_flavor_with_handoffs(
     item_id: str,
     turn_budget: int | None = None,
     goal_store: ThreadGoalStore | None = None,
+    outer_abort: AbortFlag = never_abort,
 ) -> tuple[int, int, int]:
     """Drive the goal flavor, resetting the context window mid-instance.
 
@@ -1335,7 +1380,7 @@ def _run_goal_flavor_with_handoffs(
         )
 
     if not handoff_active:
-        run_segment(never_abort, turn_budget)
+        run_segment(outer_abort, turn_budget)
         return chain_window_index, 0, 0
 
     turns_left = (
@@ -1345,14 +1390,15 @@ def _run_goal_flavor_with_handoffs(
     last_before_tokens = 0
     while True:
         before_events = len(state.events)
-        abort = _context_window_abort(
+        window_abort = _context_window_abort(
             state, window_limit, since_event_index=before_events
         )
+        abort = lambda: outer_abort() or window_abort()  # noqa: E731
         result = run_segment(abort, max(1, turns_left))
         turns_left -= _count_turns(state.events[before_events:])
         if result.stop_reason in ("complete", "blocked"):
             break
-        if turns_left <= 0 or not _over_window(state, window_limit):
+        if outer_abort() or turns_left <= 0 or not _over_window(state, window_limit):
             break
         if mid_handoffs >= MAX_CONTEXT_WINDOW_HANDOFFS:
             break
@@ -1366,7 +1412,10 @@ def _run_goal_flavor_with_handoffs(
             item_id=item_id,
         )
         if not did_reset:
-            break
+            # The handoff attempt did not mutate state. Keep using the remaining
+            # budget against the intact context rather than reporting success
+            # after prematurely abandoning the current goal.
+            continue
         chain_window_index += 1
         mid_handoffs += 1
         last_before_tokens = before_tokens
@@ -1766,8 +1815,6 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--api-kind", choices=API_KIND_CHOICES, default="openai-chat")
     parser.add_argument("--wall-time-seconds", type=float, default=None)
     args = parser.parse_args(argv)
-    del args.wall_time_seconds
-
     store = container_store_from_env()
     instance = json.loads(store.get(INSTANCE_KEY).decode("utf-8"))
     provider = provider_from_env(kind=args.provider, api_kind=args.api_kind)
@@ -1777,6 +1824,7 @@ def main(argv: list[str] | None = None) -> None:
         provider=provider,
         workdir=Path(args.workdir),
         max_turns=args.max_turns,
+        wall_time_seconds=args.wall_time_seconds,
         store=store,
         trace_id=f"{args.suite_name}.{args.instance_id}",
         producer=f"suite:{args.suite_name}",

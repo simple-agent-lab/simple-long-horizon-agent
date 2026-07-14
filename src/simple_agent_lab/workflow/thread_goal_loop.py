@@ -462,15 +462,20 @@ def _record_thread_goal_event(
 
 
 def _with_goal_tools(agent: Agent, store: ThreadGoalStore, goal_id: str) -> Agent:
-    existing = {tool.name for tool in agent.tools}
-    tools = []
-    if "get_goal" not in existing:
-        tools.append(make_get_goal_tool(store, goal_id))
-    if "update_goal" not in existing:
-        tools.append(make_update_goal_tool(store, goal_id))
-    if not tools:
-        return agent
-    return agent.with_tools(tuple(agent.tools) + tuple(tools))
+    # Tool names are the runtime dispatch keys. A caller may reuse an agent that
+    # already carries goal tools bound to an older store/goal, so keeping a
+    # same-named tool would silently update the wrong goal. Always replace the
+    # two workflow-owned bindings while preserving every unrelated tool.
+    tools = tuple(
+        tool for tool in agent.tools if tool.name not in {"get_goal", "update_goal"}
+    )
+    return agent.with_tools(
+        tools
+        + (
+            make_get_goal_tool(store, goal_id),
+            make_update_goal_tool(store, goal_id),
+        )
+    )
 
 
 def _resolve_goal(store: ThreadGoalStore, goal_id: str | None) -> ThreadGoal:

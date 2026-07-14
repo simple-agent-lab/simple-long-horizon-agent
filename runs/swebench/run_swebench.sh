@@ -185,6 +185,17 @@ PY
   exit 1
 }
 
+load_instance_ids() {
+  local ids_path="$1"
+  local instance_id=""
+  INSTANCE_IDS=()
+  while IFS= read -r instance_id || [ -n "$instance_id" ]; do
+    if [ -n "$instance_id" ]; then
+      INSTANCE_IDS+=("$instance_id")
+    fi
+  done < "$ids_path"
+}
+
 mkdir -p "$INSTANCE_DIR"
 
 fetch_one_instance() {
@@ -246,7 +257,7 @@ ids_file.write_text(
 PY
   fi
   INSTANCE_JSON="$all_json"
-  mapfile -t INSTANCE_IDS < "$ids_file"
+  load_instance_ids "$ids_file"
 }
 
 fetch_ids_instances() {
@@ -302,7 +313,7 @@ selected_json.write_text(
 selected_ids.write_text("".join(instance_id + "\n" for instance_id in ids), encoding="utf-8")
 PY
   INSTANCE_JSON="$selected_json"
-  mapfile -t INSTANCE_IDS < "$selected_ids"
+  load_instance_ids "$selected_ids"
 }
 
 ensure_default_instance_id() {

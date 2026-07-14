@@ -25,6 +25,12 @@ class SwebenchChainAnalysisTest(unittest.TestCase):
             analyze.filter_relation_files(files, "python"), {"src/widget.py"}
         )
         self.assertEqual(
+            analyze.filter_relation_files(
+                frozenset({"tests/test_widget.py", "docs/widget.md"}), "python"
+            ),
+            frozenset(),
+        )
+        self.assertEqual(
             analyze.interface_files("Changes `src/api.py` and `src/types.py`."),
             {"src/api.py", "src/types.py"},
         )

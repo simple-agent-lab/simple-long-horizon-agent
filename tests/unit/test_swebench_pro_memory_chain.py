@@ -12,6 +12,24 @@ from unittest.mock import patch
 
 
 class MemoryChainPlanningTest(unittest.TestCase):
+    def test_plan_rejects_duplicate_programmatic_chain_ids(self) -> None:
+        from evals.swebench.pro_memory_chain import (
+            RawIssueChain,
+            plan_memory_chains,
+        )
+
+        rows = [
+            {"instance_id": "a", "repo": "r/one"},
+            {"instance_id": "b", "repo": "r/two"},
+        ]
+        raw = [
+            RawIssueChain("same", "r/one", ("a",)),
+            RawIssueChain("same", "r/two", ("b",)),
+        ]
+
+        with self.assertRaisesRegex(ValueError, "duplicate chain_id"):
+            plan_memory_chains(rows, raw)
+
     def test_chains_from_manifest_sorts_issues_by_commit_time(self) -> None:
         from evals.swebench.pro_memory_chain import chains_from_manifest
 
@@ -237,7 +255,7 @@ class ChainNodesLoadingTest(unittest.TestCase):
 
         self.assertEqual(chains[0].instance_ids, ("early", "late"))
 
-    def test_chains_from_nodes_defaults_chain_id_and_skips_idless_nodes(self) -> None:
+    def test_chains_from_nodes_rejects_missing_chain_id(self) -> None:
         from evals.swebench.pro_memory_chain import chains_from_nodes
 
         nodes = [
@@ -245,12 +263,48 @@ class ChainNodesLoadingTest(unittest.TestCase):
             {"chain_id": "c1", "step_index": 1, "instance_id": ""},
         ]
 
-        chains = chains_from_nodes(nodes)
+        with self.assertRaisesRegex(ValueError, "missing a non-empty chain_id"):
+            chains_from_nodes(nodes)
 
-        # The id-less node is dropped; the empty chain_id falls back to repo+id.
-        self.assertEqual(len(chains), 1)
-        self.assertEqual(chains[0].instance_ids, ("only",))
-        self.assertEqual(chains[0].chain_id, "r/one-only")
+    def test_chain_nodes_reject_one_id_spanning_multiple_repos(self) -> None:
+        from evals.swebench.pro_memory_chain import chains_from_nodes
+
+        with self.assertRaisesRegex(ValueError, "spans multiple repos"):
+            chains_from_nodes(
+                [
+                    {"chain_id": "same", "instance_id": "a", "repo": "r/one"},
+                    {"chain_id": "same", "instance_id": "b", "repo": "r/two"},
+                ]
+            )
+
+    def test_nested_manifest_rejects_duplicate_chain_ids(self) -> None:
+        from evals.swebench.pro_memory_chain import chains_from_manifest
+
+        with self.assertRaisesRegex(ValueError, "duplicate chain_id"):
+            chains_from_manifest(
+                {
+                    "repos": [
+                        {
+                            "repo": "r/one",
+                            "chains": [
+                                {
+                                    "chain_id": "same",
+                                    "issues": [{"instance_id": "a"}],
+                                }
+                            ],
+                        },
+                        {
+                            "repo": "r/two",
+                            "chains": [
+                                {
+                                    "chain_id": "same",
+                                    "issues": [{"instance_id": "b"}],
+                                }
+                            ],
+                        },
+                    ]
+                }
+            )
 
     def test_load_issue_chains_reads_jsonl_node_file(self) -> None:
         from evals.swebench.pro_memory_chain import load_issue_chains
@@ -554,6 +608,25 @@ class MemoryChainRunnerParserTest(unittest.TestCase):
         self.assertEqual(env["SAL_MEMORY_NAME"], "acme-chain")
         self.assertEqual(env["SAL_MEMORY_RUN_ID"], "001_instance_a1")
 
+    def test_each_chain_gets_only_its_namespaced_memory_mount(self) -> None:
+        from runs.swebench.run_swebench_pro_memory_chains import (
+            _memory_mount_for_chain,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "memory"
+            left_home, left_mount, left_name = _memory_mount_for_chain(root, "org/left")
+            right_home, right_mount, right_name = _memory_mount_for_chain(
+                root, "org/right"
+            )
+
+        self.assertNotEqual(left_name, right_name)
+        self.assertNotIn("/", left_name)
+        self.assertEqual(left_home, root.resolve() / left_name)
+        self.assertEqual(right_home, root.resolve() / right_name)
+        self.assertEqual(left_mount, f"/agent/memory/{left_name}")
+        self.assertEqual(right_mount, f"/agent/memory/{right_name}")
+
     def test_provider_env_omits_memory_scope_for_singletons(self) -> None:
         from runs.swebench.run_swebench_pro_memory_chains import (
             _provider_env_for_instance,
@@ -582,7 +655,7 @@ class MemoryChainRunnerParserTest(unittest.TestCase):
 
         with (
             patch.dict(os.environ, {}, clear=True),
-            self.assertRaises(SystemExit),
+            self.assertRaises(RuntimeError),
         ):
             _provider_env_for_instance(
                 "OPENAI_AUTH_TOKEN",
@@ -591,6 +664,61 @@ class MemoryChainRunnerParserTest(unittest.TestCase):
                 memory_name="",
                 memory_run_id="x",
             )
+
+    def test_provider_preflight_exits_before_workers_start(self) -> None:
+        from runs.swebench.run_swebench_pro_memory_chains import (
+            _validate_provider_envs,
+        )
+
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            self.assertRaisesRegex(SystemExit, "OPENAI_MODEL"),
+        ):
+            _validate_provider_envs(
+                ["OPENAI_AUTH_TOKEN"],
+                api_kind="openai-responses",
+                agent_flavor="bash",
+            )
+
+    def test_local_instance_rows_and_manifest_chains_share_repo_filter(self) -> None:
+        from evals.swebench.pro_memory_chain import RawIssueChain
+        from runs.swebench.run_swebench_pro_memory_chains import (
+            _filter_raw_chains,
+            _load_rows,
+            build_parser,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "instances.json"
+            path.write_text(
+                json.dumps(
+                    [
+                        {"instance_id": "a", "repo": "keep/repo"},
+                        {"instance_id": "b", "repo": "drop/repo"},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            args = build_parser().parse_args(
+                [
+                    "--instance-json",
+                    str(path),
+                    "--repos",
+                    "keep/repo",
+                ]
+            )
+            rows = _load_rows(args)
+
+        chains = _filter_raw_chains(
+            [
+                RawIssueChain("keep", "keep/repo", ("a",)),
+                RawIssueChain("drop", "drop/repo", ("b",)),
+            ],
+            repos=args.repos,
+        )
+
+        self.assertEqual([row["instance_id"] for row in rows], ["a"])
+        self.assertEqual([chain.chain_id for chain in chains], ["keep"])
 
     def test_expand_auth_slots_wrapper_raises_system_exit(self) -> None:
         from runs.swebench.run_swebench_pro_memory_chains import _expand_auth_slots

@@ -1,13 +1,13 @@
 """Run the full SWE-bench Pro split as memory-sharing issue chains.
 
-This is the *memory-based* peer of ``run_swebench_pro_repo_chains.py``. It
-borrows the filesystem-memory chain shape from the ``mini-memory`` project: each
+This is the *memory-based* peer of ``run_swebench_pro_repo_chains.py``. Each
 issue runs as an ordinary, isolated SWE-bench Pro instance in a *fresh* agent
 context (no transcript/handoff is carried in-context), and the only thing that
 crosses instance boundaries is Simple Agent Lab filesystem memory scoped per
 chain. Within a chain the memory dir is shared (``SAL_MEMORY_NAME=<chain_id>``);
 the run-end distiller updates it, so a later issue in the same chain can reuse an
-earlier one's lessons.
+earlier one's lessons. Each container bind-mounts only that chain's namespaced
+subdirectory; sibling chains under the host memory root are not visible.
 
 Key differences from the repo-chain runner:
 
@@ -48,6 +48,7 @@ the vendored flat chain-nodes JSONL or another flat JSONL / nested JSON manifest
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import queue
@@ -72,6 +73,7 @@ from evals.swebench.pro_memory_chain import (  # noqa: E402
     MEMORY_CHAIN_AGENT_FLAVORS,
     MemoryChain,
     ProMemoryChainConfig,
+    RawIssueChain,
     expand_auth_slots,
     lane_auth_slots,
     load_issue_chains,
@@ -83,15 +85,18 @@ from evals.swebench.suite import SwebenchSuite  # noqa: E402
 from simple_agent_lab.agent_flavors import AGENT_FLAVOR_ENV  # noqa: E402
 from simple_agent_lab.evals import LocalDirStore, LocalDockerBackend  # noqa: E402
 from simple_agent_lab.evals.protocols import (  # noqa: E402
+    DEFAULT_MEMORY_CONTAINER_HOME,
     MEMORY_NAME_ENV,
     MEMORY_RUN_ID_ENV,
     RESULT_KEY,
 )
 from simple_agent_lab.evals.runner import (  # noqa: E402
+    canonical_run_id,
     container_name,
     prepare_new_run_directory,
     prepare_run_directory,
     run_suite_instance,
+    safe_path_part,
 )
 from simple_agent_lab.llm.env import (  # noqa: E402
     API_KIND_ENV,
@@ -193,9 +198,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--memory-home",
         default=None,
         help=(
-            "Host directory bind-mounted read-write as the memory root. Defaults "
-            "to <run-root>/<run-id>/memory so each run's chains build memory from "
-            "a clean slate."
+            "Host root for per-chain read-write memory directories. Each "
+            "container mounts only its own child. Defaults to "
+            "<run-root>/<run-id>/memory so each run starts from a clean slate."
         ),
     )
     parser.add_argument(
@@ -260,11 +265,11 @@ def main() -> None:
     _apply_provider_env_overrides(args)
     api_kind = harness.resolve_api_kind(args.api_kind)
     config = _experiment_config_from_args(args, api_kind=api_kind)
-    args.run_id = _resolve_run_id(args.run_id, config)
+    args.run_id = canonical_run_id(_resolve_run_id(args.run_id, config))
     run_root = Path(args.run_root)
 
     rows = _load_rows(args)
-    raw_chains = _load_chains(args)
+    raw_chains = _filter_raw_chains(_load_chains(args), repos=args.repos)
     plan = plan_memory_chains(
         rows,
         raw_chains,
@@ -313,6 +318,12 @@ def main() -> None:
         print(f"instances written: {instances_json}")
         return
 
+    _validate_provider_envs(
+        lane_slots,
+        api_kind=config.api_kind,
+        agent_flavor=config.agent_flavor,
+    )
+
     wheelhouse = _resolve_wheelhouse(args)
     harness.prepare_wheelhouse_for_run(
         wheelhouse, prepare_all=args.prepare_wheelhouse, extras=()
@@ -323,14 +334,23 @@ def main() -> None:
         network_mode=args.network_mode,
         mem_limit=args.mem_limit,
     )
-    memory_backend = LocalDockerBackend(
-        pull=args.pull,
-        keep_container=args.keep_container,
-        wheelhouse=wheelhouse,
-        uv_binary=args.uv_binary or None,
-        docker_timeout_s=args.docker_timeout_seconds,
-        memory_home=memory_home,
-    )
+    memory_backends: dict[str, LocalDockerBackend] = {}
+    for unit in units:
+        if not unit.memory_enabled:
+            continue
+        host_home, container_mount, _namespace = _memory_mount_for_chain(
+            memory_home, unit.chain_id
+        )
+        memory_backends[unit.chain_id] = LocalDockerBackend(
+            pull=args.pull,
+            keep_container=args.keep_container,
+            wheelhouse=wheelhouse,
+            uv_binary=args.uv_binary or None,
+            docker_timeout_s=args.docker_timeout_seconds,
+            memory_home=host_home,
+            memory_mount=container_mount,
+            memory_env_home=DEFAULT_MEMORY_CONTAINER_HOME,
+        )
     plain_backend = LocalDockerBackend(
         pull=args.pull,
         keep_container=args.keep_container,
@@ -356,7 +376,7 @@ def main() -> None:
                 slot_pool=slot_pool,
                 run_root=run_root,
                 suite=suite,
-                memory_backend=memory_backend,
+                memory_backends=memory_backends,
                 plain_backend=plain_backend,
                 store=store,
                 predictions_path=predictions_path,
@@ -472,18 +492,30 @@ def _resolve_run_id(
 
 def _load_rows(args: argparse.Namespace) -> list[dict[str, Any]]:
     if args.instance_json:
-        return harness._load_instance_records(Path(args.instance_json))
-    try:
-        from datasets import load_dataset
-    except ImportError as exc:
-        raise SystemExit(
-            "Install SWE-bench extras first: uv sync --extra swebench"
-        ) from exc
-    rows = [dict(row) for row in load_dataset(args.dataset_name, split=args.split)]
+        rows = harness._load_instance_records(Path(args.instance_json))
+    else:
+        try:
+            from datasets import load_dataset
+        except ImportError as exc:
+            raise SystemExit(
+                "Install SWE-bench extras first: uv sync --extra swebench"
+            ) from exc
+        rows = [dict(row) for row in load_dataset(args.dataset_name, split=args.split)]
     if args.repos:
         requested = set(args.repos)
         rows = [row for row in rows if str(row.get("repo") or "") in requested]
     return rows
+
+
+def _filter_raw_chains(
+    chains: list[RawIssueChain], *, repos: list[str]
+) -> list[RawIssueChain]:
+    """Keep manifest chains in the same repo scope as the selected rows."""
+
+    if not repos:
+        return list(chains)
+    requested = set(repos)
+    return [chain for chain in chains if chain.repo in requested]
 
 
 def _load_chains(args: argparse.Namespace):
@@ -563,6 +595,30 @@ def _resolve_memory_home(args: argparse.Namespace, *, run_root: Path) -> Path:
     return (run_root / args.run_id / "memory").resolve()
 
 
+def _memory_namespace(chain_id: str) -> str:
+    """Return a collision-resistant ASCII namespace for one chain id."""
+
+    raw = chain_id.strip()
+    safe = "".join(
+        char if char.isascii() and (char.isalnum() or char in "_.-") else "_"
+        for char in raw
+    ).strip("._-")
+    safe = safe or "chain"
+    if safe != raw:
+        digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
+        safe = f"{safe}-{digest}"
+    return safe
+
+
+def _memory_mount_for_chain(memory_home: Path, chain_id: str) -> tuple[Path, str, str]:
+    """Map one chain to the only memory directory its containers can see."""
+
+    namespace = _memory_namespace(chain_id)
+    host_home = memory_home.resolve() / namespace
+    container_mount = f"{DEFAULT_MEMORY_CONTAINER_HOME.rstrip('/')}/{namespace}"
+    return host_home, container_mount, namespace
+
+
 def _resolve_wheelhouse(args: argparse.Namespace) -> Path | None:
     wheelhouse_arg = args.wheelhouse or str(harness.DEFAULT_PRO_WHEELHOUSE)
     return Path(wheelhouse_arg).resolve() if wheelhouse_arg else None
@@ -604,7 +660,7 @@ def _run_chain(
     slot_pool: queue.Queue[str],
     run_root: Path,
     suite: SwebenchSuite,
-    memory_backend: LocalDockerBackend,
+    memory_backends: dict[str, LocalDockerBackend],
     plain_backend: LocalDockerBackend,
     store: LocalDirStore,
     predictions_path: Path,
@@ -622,7 +678,9 @@ def _run_chain(
             provider_auth_env=provider_auth_env,
             run_root=run_root,
             suite=suite,
-            backend=memory_backend if unit.memory_enabled else plain_backend,
+            backend=(
+                memory_backends[unit.chain_id] if unit.memory_enabled else plain_backend
+            ),
             store=store,
             predictions_path=predictions_path,
             prediction_lock=prediction_lock,
@@ -660,15 +718,17 @@ def _run_chain_with_slot(
             args.run_id,
             namespace=unit.chain_id,
         )
-        provider_env = _provider_env_for_instance(
-            provider_auth_env,
-            api_kind=config.api_kind,
-            agent_flavor=config.agent_flavor,
-            memory_name=unit.chain_id if unit.memory_enabled else "",
-            memory_run_id=f"{position:03d}_{instance_id}",
-        )
         result: dict[str, Any]
         try:
+            provider_env = _provider_env_for_instance(
+                provider_auth_env,
+                api_kind=config.api_kind,
+                agent_flavor=config.agent_flavor,
+                memory_name=(
+                    _memory_namespace(unit.chain_id) if unit.memory_enabled else ""
+                ),
+                memory_run_id=f"{position:03d}_{instance_id}",
+            )
             if args.force:
                 _force_remove_container(container)
             artifacts = run_suite_instance(
@@ -756,7 +816,7 @@ def _run_chain_with_slot(
         )
 
     chain_dir = (
-        run_root / args.run_id / "_memory_chains" / _safe_path_part(unit.chain_id)
+        run_root / args.run_id / "_memory_chains" / safe_path_part(unit.chain_id)
     )
     chain_dir.mkdir(parents=True, exist_ok=True)
     if skipped_records:
@@ -816,7 +876,7 @@ def _provider_env_for_instance(
     if not token:
         missing.append(auth_env)
     if missing:
-        raise SystemExit(
+        raise RuntimeError(
             "Missing required env vars for SWE-bench Pro container run: "
             + ", ".join(missing)
         )
@@ -832,6 +892,24 @@ def _provider_env_for_instance(
         env[MEMORY_NAME_ENV] = memory_name
         env[MEMORY_RUN_ID_ENV] = memory_run_id
     return env
+
+
+def _validate_provider_envs(
+    auth_envs: list[str], *, api_kind: str, agent_flavor: str
+) -> None:
+    """Fail on the host before workers start if any assigned slot is unusable."""
+
+    try:
+        for auth_env in dict.fromkeys(auth_envs):
+            _provider_env_for_instance(
+                auth_env,
+                api_kind=api_kind,
+                agent_flavor=agent_flavor,
+                memory_name="",
+                memory_run_id="",
+            )
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from None
 
 
 def _load_result_or_error(
@@ -941,10 +1019,6 @@ def _write_jsonl_records(path: Path, records: list[dict[str, Any]]) -> None:
     with path.open("w", encoding="utf-8") as fh:
         for record in records:
             fh.write(json.dumps(record, ensure_ascii=False) + "\n")
-
-
-def _safe_path_part(value: str) -> str:
-    return "".join(char if char.isalnum() or char in "_.-" else "_" for char in value)
 
 
 if __name__ == "__main__":

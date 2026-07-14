@@ -83,10 +83,12 @@ from simple_agent_lab.config import (  # noqa: E402
 from simple_agent_lab.evals import LocalDirStore, LocalDockerBackend  # noqa: E402
 from simple_agent_lab.evals.protocols import RESULT_KEY  # noqa: E402
 from simple_agent_lab.evals.runner import (  # noqa: E402
+    canonical_run_id,
     container_name,
     prepare_new_run_directory,
     prepare_run_directory,
     run_suite_instance,
+    safe_path_part,
 )
 from simple_agent_lab.evals.chain import (  # noqa: E402
     CHAIN_CONFIG_KEY,
@@ -104,11 +106,7 @@ from simple_agent_lab.llm.env import (  # noqa: E402
     request_extra_from_env,
 )
 from simple_agent_lab.llm.provider import api_kind_defaults  # noqa: E402
-from simple_agent_lab.trace import (  # noqa: E402
-    run_trace_from_state,
-    write_event_stream,
-    write_jsonl_atomic,
-)
+from simple_agent_lab.trace import write_jsonl_atomic  # noqa: E402
 from simple_agent_lab.protocols import Event, TurnStartEvent  # noqa: E402
 
 ENCRYPTED_REASONING_INCLUDE = "reasoning.encrypted_content"
@@ -303,7 +301,7 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=True,
         help=(
-            "Write full per-instance and per-repo trajectory.jsonl files "
+            "Write the full per-instance out/trajectory.jsonl file "
             "(default: enabled). Use --no-write-trajectories to suppress them."
         ),
     )
@@ -320,7 +318,7 @@ def main() -> None:
     _apply_provider_env_overrides(args)
     api_kind = harness.resolve_api_kind(args.api_kind)
     config = _experiment_config_from_args(args, api_kind=api_kind)
-    args.run_id = _resolve_run_id(args.run_id, config)
+    args.run_id = canonical_run_id(_resolve_run_id(args.run_id, config))
     run_root = Path(args.run_root)
     rows = _load_rows(args)
     raw_chains = _load_chains(args)
@@ -395,6 +393,8 @@ def main() -> None:
         print(f"instances written: {instances_json}")
         return
 
+    _validate_provider_envs(lane_slots, api_kind=config.api_kind)
+
     wheelhouse = _resolve_wheelhouse(args)
     harness.prepare_wheelhouse_for_run(
         wheelhouse,
@@ -453,10 +453,12 @@ def main() -> None:
                 skipped_instances.extend(result.get("skipped_records", []))
                 handoffs = int(result.get("handoffs", 0) or 0)
                 mid_handoffs = int(result.get("mid_instance_handoffs", 0) or 0)
+                boundary_handoffs = int(result.get("boundary_handoffs", 0) or 0)
                 print(
                     f"[DONE] {chain_id}: {result['instances']} instance(s), "
                     f"{result['errors']} error(s), {result['skipped']} skipped, "
-                    f"{handoffs} handoff(s) ({mid_handoffs} mid-instance)",
+                    f"{handoffs} handoff(s) ({mid_handoffs} mid-instance, "
+                    f"{boundary_handoffs} boundary)",
                     flush=True,
                 )
 
@@ -872,7 +874,7 @@ def _provider_env_for_auth_env(auth_env: str, *, api_kind: str) -> dict[str, str
     if not token:
         missing.append(auth_env)
     if missing:
-        raise SystemExit(
+        raise RuntimeError(
             "Missing required env vars for SWE-bench Pro container run: "
             + ", ".join(missing)
         )
@@ -881,6 +883,16 @@ def _provider_env_for_auth_env(auth_env: str, *, api_kind: str) -> dict[str, str
     env[OPENAI_AUTH_ENV] = token
     env[API_KIND_ENV] = api_kind
     return env
+
+
+def _validate_provider_envs(auth_envs: list[str], *, api_kind: str) -> None:
+    """Fail on the host before workers start if any assigned slot is unusable."""
+
+    try:
+        for auth_env in dict.fromkeys(auth_envs):
+            _provider_env_for_auth_env(auth_env, api_kind=api_kind)
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from None
 
 
 def _chain_config_payload(
@@ -958,6 +970,7 @@ def _run_repo(
     chain_id = chain.chain_id
     handoffs_total = 0
     mid_instance_handoffs_total = 0
+    boundary_handoffs_total = 0
     errors = 0
     skipped_records: list[dict[str, Any]] = []
     chain_state_payload: dict[str, Any] | None = None
@@ -1051,14 +1064,14 @@ def _run_repo(
         result.setdefault("task_tool", config.task_tool)
         result.setdefault("compression_strategy", config.compression_strategy)
         result.setdefault("handoff_written", False)
+        result.setdefault("boundary_handoff_written", False)
         result.setdefault("context_window_handoffs", 0)
         if result.get("status") == "error":
             errors += 1
-        if bool(result.get("handoff_written")):
-            handoffs_total += 1
-        mid_instance_handoffs_total += int(
-            result.get("context_window_handoffs", 0) or 0
-        )
+        handoffs, mid_handoffs, boundary_handoffs = _handoff_counts(result)
+        handoffs_total += handoffs
+        mid_instance_handoffs_total += mid_handoffs
+        boundary_handoffs_total += boundary_handoffs
         state_output = paths.output_dir / CHAIN_STATE_OUTPUT_KEY.split("/", 1)[1]
         if state_output.exists():
             chain_state_payload = _read_json(state_output)
@@ -1090,7 +1103,7 @@ def _run_repo(
             lock=prediction_lock,
         )
 
-    repo_dir = run_root / args.run_id / "_repo_chains" / _safe_path_part(chain_id)
+    repo_dir = run_root / args.run_id / "_repo_chains" / safe_path_part(chain_id)
     repo_dir.mkdir(parents=True, exist_ok=True)
     if skipped_records:
         _write_jsonl_records(repo_dir / "skipped_instances.jsonl", skipped_records)
@@ -1112,6 +1125,7 @@ def _run_repo(
             "handoff": config.handoff,
             "handoffs": handoffs_total,
             "mid_instance_handoffs": mid_instance_handoffs_total,
+            "boundary_handoffs": boundary_handoffs_total,
         },
     )
     return {
@@ -1122,6 +1136,7 @@ def _run_repo(
         "skipped_records": skipped_records,
         "handoffs": handoffs_total,
         "mid_instance_handoffs": mid_instance_handoffs_total,
+        "boundary_handoffs": boundary_handoffs_total,
     }
 
 
@@ -1130,26 +1145,12 @@ def _container_suite_name(config: ProRepoExperimentConfig) -> str:
     return f"swebench_pro_repo_{config.agent_flavor}_{suffix}"
 
 
-def _maybe_write_trace(
-    args: argparse.Namespace,
-    *,
-    path: Path,
-    state: Any,
-    trace_id: str,
-    meta: dict[str, Any],
-) -> bool:
-    """Write a full trajectory unless explicitly disabled."""
+def _handoff_counts(result: Mapping[str, Any]) -> tuple[int, int, int]:
+    """Return total, mid-instance, and boundary handoff occurrences."""
 
-    if getattr(args, "write_trajectories", True) is False:
-        return False
-    trace = run_trace_from_state(
-        state=state,
-        trace_id=trace_id,
-        producer="swebench_pro_repo_chain",
-        meta=meta,
-    )
-    write_event_stream(path, trace)
-    return True
+    mid = max(0, int(result.get("context_window_handoffs", 0) or 0))
+    boundary = int(bool(result.get("boundary_handoff_written", False)))
+    return mid + boundary, mid, boundary
 
 
 def _load_result_or_error(
@@ -1175,6 +1176,7 @@ def _load_result_or_error(
         "skip_reason": "",
         "invalid_prompt_retries": 0,
         "handoff_written": False,
+        "boundary_handoff_written": False,
         "context_window_handoffs": 0,
         "chain_window_index": 1,
         "baseline_commit": "",
@@ -1308,10 +1310,6 @@ def _write_jsonl_records(path: Path, records: list[dict[str, Any]]) -> None:
     with path.open("w", encoding="utf-8") as fh:
         for record in records:
             fh.write(json.dumps(record, ensure_ascii=False) + "\n")
-
-
-def _safe_path_part(value: str) -> str:
-    return "".join(char if char.isalnum() or char in "_.-" else "_" for char in value)
 
 
 if __name__ == "__main__":

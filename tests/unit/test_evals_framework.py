@@ -43,6 +43,7 @@ from simple_agent_lab.evals.runner import (
     build_command,
     container_name,
     prepare_new_run_directory,
+    prepare_run_directory,
 )
 from simple_agent_lab.evals.stores import HttpArtifactClient
 
@@ -88,6 +89,22 @@ class OrchestrationTest(unittest.TestCase):
 
             with self.assertRaisesRegex(FileExistsError, "Choose a new --run-id"):
                 prepare_new_run_directory(run_root=run_root, run_id="run-x")
+
+    def test_batch_and_instance_paths_share_one_safe_run_namespace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run_root = Path(tmp) / "runs"
+            batch_dir = prepare_new_run_directory(
+                run_root=run_root, run_id="../outside"
+            )
+            instance = prepare_run_directory(
+                run_root=run_root,
+                run_id="../outside",
+                instance_id="case-1",
+            )
+
+            self.assertEqual(instance.root.parent, batch_dir)
+            self.assertEqual(batch_dir.parent, run_root.resolve())
+            self.assertFalse((run_root.parent / "outside").exists())
 
     def test_run_suite_instance_fake_backend(self) -> None:
         instance = {"instance_id": "demo-1", "problem": "p", "gold": "SECRET"}
@@ -335,6 +352,53 @@ class _SwebenchLikeSuite:
 
 class LocalProcessBackendTest(unittest.TestCase):
     """Unified entry point runs a real agent in-process — no Docker, no network."""
+
+    def test_custom_runner_module_and_wall_time_are_honored(self) -> None:
+        import sys
+        import types
+
+        from simple_agent_lab.evals.protocols import ContainerBinding, RunSpec
+
+        captured: dict[str, Any] = {}
+        module_name = "sal_test_custom_local_runner"
+        module = types.ModuleType(module_name)
+
+        def run_chain_in_container(**kwargs):  # type: ignore[no-untyped-def]
+            captured.update(kwargs)
+
+        module.run_chain_in_container = run_chain_in_container  # type: ignore[attr-defined]
+        sys.modules[module_name] = module
+        self.addCleanup(lambda: sys.modules.pop(module_name, None))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            store = LocalDirStore(root).bind(root / "run")
+            store.put(
+                INSTANCE_KEY,
+                json.dumps({"instance_id": "custom-1"}).encode("utf-8"),
+            )
+            spec = RunSpec(
+                suite_name="custom",
+                container_module="unused.container",
+                instance_id="custom-1",
+                launch_spec=LaunchSpec(image="unused", workdir="/unused"),
+                max_turns=7,
+                provider="fake",
+                api_kind="openai-chat",
+                runner_module=module_name,
+                wall_time_seconds=12.5,
+            )
+
+            outcome = LocalProcessBackend().run(
+                spec,
+                store=store,
+                binding=ContainerBinding(),
+            )
+
+        self.assertEqual(outcome.status_code, 0)
+        self.assertEqual(captured["max_turns"], 7)
+        self.assertEqual(captured["wall_time_seconds"], 12.5)
+        self.assertEqual(captured["instance"]["instance_id"], "custom-1")
 
     def test_run_suite_instance_in_process(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1090,6 +1154,28 @@ class ReviewFixesTest(unittest.TestCase):
             self.assertEqual(bound.env["SAL_STORE"], "localdir")
             self.assertEqual(bound.env[MEMORY_HOME_ENV], DEFAULT_MEMORY_CONTAINER_HOME)
 
+    def test_memory_mount_can_export_its_parent_as_the_memory_root(self) -> None:
+        from simple_agent_lab.evals.backends.docker_local import with_local_mounts
+        from simple_agent_lab.evals.protocols import ContainerBinding
+
+        with tempfile.TemporaryDirectory() as tmp:
+            chain_home = Path(tmp) / "chain-a"
+            bound = with_local_mounts(
+                ContainerBinding(),
+                wheelhouse=None,
+                wheelhouse_mount=None,
+                uv_binary=None,
+                memory_home=chain_home,
+                memory_mount="/agent/memory/chain-a",
+                memory_env_home="/agent/memory",
+            )
+
+        self.assertEqual(bound.env[MEMORY_HOME_ENV], "/agent/memory")
+        self.assertEqual(
+            bound.mounts[str(chain_home.resolve())],
+            {"bind": "/agent/memory/chain-a", "mode": "rw"},
+        )
+
     def test_memory_home_from_env_reads_optional_mount_path(self) -> None:
         from simple_agent_lab.evals.in_container import memory_home_from_env
 
@@ -1416,6 +1502,12 @@ class SafePartTest(unittest.TestCase):
         self.assertNotEqual(_safe_part("a:b"), _safe_part("a_b"))
         # Deterministic: same raw id → same safe part.
         self.assertEqual(_safe_part("a:b"), _safe_part("a:b"))
+
+    def test_dot_path_components_are_not_allowed_to_escape(self) -> None:
+        from simple_agent_lab.evals.runner import canonical_run_id, safe_path_part
+
+        self.assertNotIn(canonical_run_id(".."), {"", ".", ".."})
+        self.assertNotEqual(safe_path_part("org/chain"), safe_path_part("org_chain"))
 
 
 class CreateKwargsTest(unittest.TestCase):

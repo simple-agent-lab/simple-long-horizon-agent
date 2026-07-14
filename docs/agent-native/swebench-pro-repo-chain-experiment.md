@@ -46,7 +46,10 @@ selected variables, such as `pro-repo-chain-none-*` (default bash + none),
 Run IDs identify one invocation: both Pro chain runners refuse a non-empty
 existing run directory. Choose a new `--run-id` after an interrupted run; exact
 chain resume is not supported, and refusing reuse prevents stale per-instance
-results or memory from entering a later experiment.
+results or memory from entering a later experiment. Explicit IDs are
+canonicalized once before any batch, instance, summary, memory, or prediction
+path is built, so path separators cannot split one invocation across multiple
+directories or escape the run root.
 
 ## Objective
 
@@ -232,14 +235,17 @@ that handoff.
   `--no-handoff` and `none` compression, the chain runs "naked" with no
   context-window protection.
 - Failure safety: if the extra handoff turn fails or returns an empty document,
-  the runner logs it and carries the full context forward unchanged rather than
-  dropping the chain. `MAX_CONTEXT_WINDOW_HANDOFFS` caps resets per instance as a
-  backstop against a pathologically small window.
+  its scratch-state prompt and partial events are discarded. The solver keeps
+  working on the same instance with the full context and remaining turn budget;
+  a failed boundary handoff likewise carries the full context to the next
+  instance. `MAX_CONTEXT_WINDOW_HANDOFFS` caps successful resets per instance as
+  a backstop against a pathologically small window.
 - Metrics: each fired handoff records a `ContextCompressionEvent` with strategy
   `context_window_handoff`, and `result.json` reports `handoff`,
-  `handoff_written`, `handoff_context_tokens`, and `context_window_handoffs` (the
-  count of mid-instance resets). Per-chain `summary.json` and the `[DONE]` log
-  line report the handoff count and the mid-instance count.
+  `handoff_written`, `boundary_handoff_written`, `handoff_context_tokens`, and
+  `context_window_handoffs` (the count of mid-instance resets). Per-chain
+  `summary.json` and the `[DONE]` log report occurrence counts: total handoffs are
+  mid-instance resets plus boundary handoffs.
 
 ## Task-Tool Mode
 
@@ -296,14 +302,17 @@ Each instance writes:
 - `out/chain_state.json`
 - `out/trajectory.jsonl` unless `--no-write-trajectories` is set
 
+Trajectories are per instance. The per-chain directory contains summaries and
+skip records, not a synthetic per-chain trajectory.
+
 Each `result.json` includes `model_patch`, status, error fields, chain part
 metadata, compression metrics, the chain event span for that instance, and the
 handoff fields `handoff` (whether handoff was active), `handoff_written`
-(whether this instance reset the window at all), `context_window_handoffs` (how
-many times it reset the window mid-instance), and `handoff_context_tokens` (the
-estimated active context at the last reset). This means partial runs can still be
-converted into predictions for completed or skipped instances by collecting
-existing `result.json` files.
+(whether this instance reset the window at all), `boundary_handoff_written`,
+`context_window_handoffs` (how many times it reset the window mid-instance), and
+`handoff_context_tokens` (the estimated active context at the last reset). This
+means partial runs can still be converted into predictions for completed or
+skipped instances by collecting existing `result.json` files.
 
 Repo-chain continuity is an artifact contract, not a host-side live Python
 object. For each planned unit, the host passes the previous
@@ -402,9 +411,10 @@ Completed:
 - A lightweight single-instance smoke wrote `result.json` and converted it to a
   predictions JSONL without writing full trajectories
   (`smoke-responses-20260628-quick`).
-- Unit tests cover planning, long-tail splitting, trajectory default/disable,
-  invalid-prompt classification, invalid-prompt context edits, and turn-budget
-  accounting for invalid-prompt retries.
+- Unit tests cover planning, long-tail splitting, per-instance trajectory
+  default/disable, transactional handoff failure, handoff occurrence counts,
+  invalid-prompt classification, invalid-prompt context edits, wall-time
+  forwarding, and turn-budget accounting for invalid-prompt retries.
 - A deterministic low-threshold Responses smoke forced one `summarize`
   compression and verified the adapter could continue with the compressed
   active context.

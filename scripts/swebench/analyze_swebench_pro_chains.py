@@ -322,7 +322,7 @@ def relation_files(item: dict) -> tuple[frozenset[str], str]:
 
 def filter_relation_files(files: frozenset[str], language: str) -> frozenset[str]:
     filtered = frozenset(file for file in files if not is_noise_file(file, language))
-    return filtered or files
+    return filtered
 
 
 def is_noise_file(file: str, language: str) -> bool:

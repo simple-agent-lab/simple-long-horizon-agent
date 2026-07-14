@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import multiprocessing
 import tempfile
 import unittest
 from pathlib import Path
@@ -34,6 +35,43 @@ from simple_agent_lab.memory.transcript import extract_memory_text
 from simple_agent_lab.messages import runtime_message
 from simple_agent_lab.protocols import ModelRequestEvent
 from simple_agent_lab.tools import AgentTool, text_result
+
+
+def _finish_shared_filesystem_memory(
+    root: str,
+    run_id: str,
+    started,
+    entered_distiller,
+    release_distiller,
+    wait_for_release: bool,
+) -> None:
+    """Finish one memory run in a spawned process for lock coordination tests."""
+
+    def distill(payload: FilesystemMemoryPayload):
+        entered_distiller.set()
+        if wait_for_release and not release_distiller.wait(timeout=10):
+            raise TimeoutError("test did not release the first memory distiller")
+        return {
+            "summary_md": f"## Task\n\n{run_id}\n",
+            "index_row": {"summary": run_id, "scope": "concurrency"},
+            "memory_md": (
+                payload.notes.rstrip()
+                + f"\n\n- Preserve lesson {run_id}. [runs/{run_id}/summary.md]\n"
+            ),
+        }
+
+    memory = FilesystemMemory(root=root, distiller=distill)
+    state = State(f"task {run_id}")
+    state.send("task", "user", "agent", f"task {run_id}")
+    context = MemoryContext(
+        agent="agent",
+        task=f"task {run_id}",
+        memory_name="shared",
+        run_id=run_id,
+        state=state,
+    )
+    started.set()
+    memory.finish(context)
 
 
 class MemoryBaseTest(unittest.TestCase):
@@ -269,6 +307,70 @@ class MemoryBaseTest(unittest.TestCase):
 
 
 class FilesystemMemoryTest(unittest.TestCase):
+    def test_filesystem_memory_serializes_concurrent_full_rewrites(self) -> None:
+        process_context = multiprocessing.get_context("spawn")
+        with tempfile.TemporaryDirectory() as tmp:
+            first_started = process_context.Event()
+            first_entered = process_context.Event()
+            first_release = process_context.Event()
+            second_started = process_context.Event()
+            second_entered = process_context.Event()
+            unused_release = process_context.Event()
+            first = process_context.Process(
+                target=_finish_shared_filesystem_memory,
+                args=(
+                    tmp,
+                    "run-1",
+                    first_started,
+                    first_entered,
+                    first_release,
+                    True,
+                ),
+            )
+            second = process_context.Process(
+                target=_finish_shared_filesystem_memory,
+                args=(
+                    tmp,
+                    "run-2",
+                    second_started,
+                    second_entered,
+                    unused_release,
+                    False,
+                ),
+            )
+
+            second_entered_before_release = False
+            try:
+                first.start()
+                self.assertTrue(first_started.wait(timeout=10))
+                self.assertTrue(first_entered.wait(timeout=10))
+                second.start()
+                self.assertTrue(second_started.wait(timeout=10))
+                second_entered_before_release = second_entered.wait(timeout=1)
+            finally:
+                first_release.set()
+                for process in (first, second):
+                    if process.pid is None:
+                        continue
+                    process.join(timeout=10)
+                    if process.is_alive():
+                        process.terminate()
+                        process.join(timeout=5)
+
+            self.assertFalse(
+                second_entered_before_release,
+                "a second distiller read memory while the first rewrite was active",
+            )
+            self.assertEqual(first.exitcode, 0)
+            self.assertEqual(second.exitcode, 0)
+            memory_dir = Path(tmp) / "shared"
+            handbook = (memory_dir / "MEMORY.md").read_text(encoding="utf-8")
+            index = (memory_dir / "INDEX.md").read_text(encoding="utf-8")
+            self.assertIn("Preserve lesson run-1", handbook)
+            self.assertIn("Preserve lesson run-2", handbook)
+            self.assertIn("runs/run-1/summary.md", index)
+            self.assertIn("runs/run-2/summary.md", index)
+
     def test_filesystem_memory_prompt_preserves_quality_gate(self) -> None:
         from simple_agent_lab.memory.filesystem import filesystem_distillation_prompt
 

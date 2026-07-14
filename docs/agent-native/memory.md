@@ -241,6 +241,14 @@ Backends are implementation details. Possible backends include:
 - a vector index;
 - a remote memory service.
 
+`FilesystemMemory.finish(...)` serializes the complete
+read-distill-commit operation with one inter-process lock per memory root. The
+lock includes the optional model call because `MEMORY.md` is a full rewrite and
+because the distiller may choose the final namespace only after reading prior
+memory. Temporary-file replacement remains responsible for per-file atomicity;
+it is not a substitute for this logical single-writer boundary. See ADR
+[serialize-filesystem-memory-consolidation](../decisions/20260714-serialize-filesystem-memory-consolidation.md).
+
 Keep the package facade small. Top-level imports should expose the memory
 protocol and complete memory implementations. For the starter mechanisms, keep
 implementation-specific helpers in the same file as their mechanism rather

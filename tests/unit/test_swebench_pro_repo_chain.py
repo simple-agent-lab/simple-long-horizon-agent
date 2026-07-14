@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import base64
 import contextlib
 import io
@@ -589,6 +588,22 @@ class SwebenchProRepoChainPlanningTest(unittest.TestCase):
         self.assertEqual(env["OPENAI_BASE_URL"], "https://example.invalid/v1")
         self.assertEqual(env["REASONING_EFFORT"], "high")
         self.assertEqual(env["API_KIND"], "openai-responses")
+
+    def test_provider_preflight_exits_before_workers_start(self) -> None:
+        from runs.swebench.run_swebench_pro_repo_chains import (
+            _provider_env_for_auth_env,
+            _validate_provider_envs,
+        )
+
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(RuntimeError):
+                _provider_env_for_auth_env(
+                    "OPENAI_AUTH_TOKEN", api_kind="openai-responses"
+                )
+            with self.assertRaisesRegex(SystemExit, "OPENAI_MODEL"):
+                _validate_provider_envs(
+                    ["OPENAI_AUTH_TOKEN"], api_kind="openai-responses"
+                )
 
     def test_chain_config_payload_is_staged_for_container_runner(self) -> None:
         from evals.swebench.pro_repo_chain import (
@@ -1396,6 +1411,68 @@ class RepoChainStateArtifactTest(unittest.TestCase):
 
 
 class RepoChainInContainerRunnerTest(unittest.TestCase):
+    def test_chain_cli_forwards_wall_time_limit(self) -> None:
+        from simple_agent_lab.evals import chain as chain_mod
+        from simple_agent_lab.evals import LocalDirStore
+        from simple_agent_lab.evals.protocols import INSTANCE_KEY
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = LocalDirStore(Path(tmp))
+            store.put(
+                INSTANCE_KEY,
+                b'{"instance_id": "case-1"}\n',
+            )
+            with (
+                patch.object(chain_mod, "container_store_from_env", return_value=store),
+                patch.object(chain_mod, "run_chain_in_container") as run_chain,
+            ):
+                chain_mod.main(
+                    [
+                        "--container-module",
+                        SWEBENCH_CONTAINER,
+                        "--instance-id",
+                        "case-1",
+                        "--provider",
+                        "fake",
+                        "--wall-time-seconds",
+                        "12.5",
+                    ]
+                )
+
+        self.assertEqual(run_chain.call_args.kwargs["wall_time_seconds"], 12.5)
+
+    def test_failed_handoff_generation_does_not_mutate_solver_state(self) -> None:
+        from simple_agent_lab.evals.chain import _generate_handoff_doc
+        from simple_agent_lab.evals.protocols import AgentSpec
+        from simple_agent_lab.llm.env import FAKE_PROVIDER
+        from simple_agent_lab.state import State
+
+        state = State("chain")
+        state.send("context", "user", "solver", "durable prior context")
+        before_events = list(state.events)
+        before_messages = state.messages
+
+        def fail_after_followup(messages):
+            del messages
+            raise RuntimeError("provider unavailable")
+
+        with (
+            patch(
+                "simple_agent_lab.evals.chain.make_llm_agent",
+                return_value=Agent("solver", fail_after_followup),
+            ),
+            self.assertRaisesRegex(RuntimeError, "provider unavailable"),
+        ):
+            _generate_handoff_doc(
+                FAKE_PROVIDER,
+                state,
+                AgentSpec(name="solver"),
+                {},
+            )
+
+        self.assertEqual(state.events, before_events)
+        self.assertEqual(state.messages, before_messages)
+
     def test_goal_chain_delegates_to_run_goal_flavor_on_shared_state(
         self,
     ) -> None:
@@ -1919,6 +1996,7 @@ class RepoChainInContainerRunnerTest(unittest.TestCase):
         instances_in_chain: int,
         max_turns: int = 2,
         agent_flavor: str = "bash",
+        wall_time_seconds: float | None = None,
     ):
         import json
 
@@ -2009,6 +2087,7 @@ class RepoChainInContainerRunnerTest(unittest.TestCase):
                 provider=FAKE_PROVIDER,
                 workdir=repo,
                 max_turns=max_turns,
+                wall_time_seconds=wall_time_seconds,
                 store=store,
                 trace_id="trace.case-1",
                 producer="suite:swebench_pro",
@@ -2021,6 +2100,22 @@ class RepoChainInContainerRunnerTest(unittest.TestCase):
             # `restored` is the OUTGOING chain payload (active context only, what
             # the next window sees); `state` is the full in-container trace.
             return result, restored, state
+
+    def test_wall_time_limit_aborts_before_the_first_solver_turn(self) -> None:
+        result, _restored, state = self._run_bash_instance_with_handoff_config(
+            context_window_tokens=272_000,
+            handoff=False,
+            position=1,
+            instances_in_chain=1,
+            max_turns=4,
+            wall_time_seconds=0,
+        )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["model_patch"], "")
+        self.assertFalse(
+            any(isinstance(event, TurnStartEvent) for event in state.events)
+        )
 
     def test_mid_instance_handoff_continues_same_instance(self) -> None:
         # Sole instance in the part (so no boundary handoff can fire); a tiny
@@ -2078,10 +2173,12 @@ class RepoChainInContainerRunnerTest(unittest.TestCase):
         self.assertIn("prior repo context", visible)
 
     def test_boundary_handoff_starts_next_instance_fresh(self) -> None:
+        from simple_agent_lab.context_view import estimate_context_tokens
+
         # One turn per window means the instance completes its turn without a
         # mid-instance abort, but ends over the window: the boundary handoff
         # fires and the NEXT instance starts fresh with only the handoff notes.
-        result, restored, _state = self._run_bash_instance_with_handoff_config(
+        result, restored, state = self._run_bash_instance_with_handoff_config(
             context_window_tokens=1,
             handoff=True,
             position=1,
@@ -2094,6 +2191,25 @@ class RepoChainInContainerRunnerTest(unittest.TestCase):
         # This is a boundary handoff, not a mid-instance reset.
         self.assertEqual(result["context_window_handoffs"], 0)
         self.assertEqual(result["chain_window_index"], 2)
+        self.assertTrue(result["boundary_handoff_written"])
+
+        compression = [
+            event
+            for event in state.events
+            if isinstance(event, ContextCompressionEvent)
+            and event.strategy == "context_window_handoff"
+        ][-1]
+        self.assertGreaterEqual(compression.summary_message_index, 0)
+        self.assertEqual(
+            compression.active_context_indices,
+            [compression.summary_message_index],
+        )
+        self.assertEqual(
+            compression.after_tokens,
+            estimate_context_tokens(
+                [state.messages[compression.summary_message_index]]
+            ),
+        )
 
         visible = "\n".join(
             message_text(message) for message in restored.active_context_messages()
@@ -2282,41 +2398,13 @@ class RepoChainInContainerRunnerTest(unittest.TestCase):
 
 
 class RepoChainTrajectoryOutputTest(unittest.TestCase):
-    def test_trajectory_export_is_enabled_by_default_for_repo_chain_runs(
-        self,
-    ) -> None:
-        from runs.swebench.run_swebench_pro_repo_chains import _maybe_write_trace
+    def test_help_promises_only_the_per_instance_trajectory(self) -> None:
+        from runs.swebench.run_swebench_pro_repo_chains import build_parser
 
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "trajectory.jsonl"
+        help_text = build_parser().format_help()
 
-            written = _maybe_write_trace(
-                argparse.Namespace(),
-                path=path,
-                state=SimpleNamespace(task="task", events=[], messages=[]),
-                trace_id="trace",
-                meta={},
-            )
-
-            self.assertTrue(written)
-            self.assertTrue(path.exists())
-
-    def test_trajectory_export_can_be_disabled_for_large_runs(self) -> None:
-        from runs.swebench.run_swebench_pro_repo_chains import _maybe_write_trace
-
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "trajectory.jsonl"
-
-            written = _maybe_write_trace(
-                argparse.Namespace(write_trajectories=False),
-                path=path,
-                state=SimpleNamespace(task="task", events=[], messages=[]),
-                trace_id="trace",
-                meta={"repo": "acme/widgets"},
-            )
-
-            self.assertFalse(written)
-            self.assertFalse(path.exists())
+        self.assertIn("per-instance out/trajectory.jsonl", help_text)
+        self.assertNotIn("per-repo trajectory", help_text)
 
     def test_parser_defaults_to_writing_trajectories(self) -> None:
         from runs.swebench.run_swebench_pro_repo_chains import build_parser
@@ -2331,6 +2419,20 @@ class RepoChainTrajectoryOutputTest(unittest.TestCase):
         args = build_parser().parse_args(["--all", "--no-write-trajectories"])
 
         self.assertFalse(args.write_trajectories)
+
+    def test_handoff_counts_count_occurrences_not_instances(self) -> None:
+        from runs.swebench.run_swebench_pro_repo_chains import _handoff_counts
+
+        self.assertEqual(
+            _handoff_counts(
+                {
+                    "handoff_written": True,
+                    "context_window_handoffs": 3,
+                    "boundary_handoff_written": True,
+                }
+            ),
+            (4, 3, 1),
+        )
 
 
 class RepoChainInvalidPromptHandlingTest(unittest.TestCase):

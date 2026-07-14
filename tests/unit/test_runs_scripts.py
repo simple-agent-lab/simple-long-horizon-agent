@@ -70,6 +70,8 @@ class RunsScriptsTest(unittest.TestCase):
         self.assertIn("wait -n", text)
         self.assertIn("--collect-predictions", text)
         self.assertIn("--reuse-prepared-wheelhouse", text)
+        self.assertIn("load_instance_ids", text)
+        self.assertNotIn("mapfile", text)
 
     def test_swebench_run_script_rejects_missing_ids_file(self) -> None:
         result = subprocess.run(
