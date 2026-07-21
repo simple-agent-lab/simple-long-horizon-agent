@@ -348,10 +348,13 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
                 scripts_dir=str(root / "run_scripts"),
             )
 
-            with mock.patch.object(
-                evaluate_predictions.subprocess,
-                "run",
-                side_effect=fake_run,
+            with (
+                mock.patch.object(
+                    evaluate_predictions.subprocess,
+                    "run",
+                    side_effect=fake_run,
+                ),
+                mock.patch.object(evaluate_predictions, "_patch_pro_evaluator"),
             ):
                 evaluate_predictions.run_official_pro_harness(args)
 
@@ -425,10 +428,13 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
                 scripts_dir=str(root / "run_scripts"),
             )
 
-            with mock.patch.object(
-                evaluate_predictions.subprocess,
-                "run",
-                return_value=SimpleNamespace(returncode=2),
+            with (
+                mock.patch.object(
+                    evaluate_predictions.subprocess,
+                    "run",
+                    return_value=SimpleNamespace(returncode=2),
+                ),
+                mock.patch.object(evaluate_predictions, "_patch_pro_evaluator"),
             ):
                 with self.assertRaisesRegex(SystemExit, "exited with 2"):
                     evaluate_predictions.run_official_pro_harness(args)

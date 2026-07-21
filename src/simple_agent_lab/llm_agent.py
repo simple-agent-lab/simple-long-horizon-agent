@@ -17,8 +17,9 @@ from __future__ import annotations
 import dataclasses
 from typing import Any, Mapping, Sequence
 
+import simple_agent_lab.config as config
 from .context_view import ContextPolicy
-from .core import Agent, StateInitFn
+from .core import Agent, GenerateFn, StateInitFn
 from .hooks import HookMap
 from .llm.bridge import (
     llm_response_to_assistant_message,
@@ -62,36 +63,47 @@ def make_llm_agent(
     tool call in the model's own output. Every LLM-backed agent gets both
     without each caller re-wrapping `generate`.
     """
-    tools_tuple = tuple(tools)
     # Resolve the effective system prompt once so the value `generate` sends
     # and the value recorded on the `Agent` (for the request trace) can't drift.
     effective_system_prompt = system_prompt or role or ""
+    effective_timeout_seconds = (
+        timeout_seconds
+        if timeout_seconds is not None
+        else config.LLM_REQUEST_TIMEOUT.get()
+    )
 
-    def generate(visible: list[Message]) -> Message:
-        request = LLMRequest(
-            provider=provider,
-            messages=messages_to_llm_messages(visible),
-            tools=[tool_to_llm_tool(tool) for tool in tools_tuple],
-            system_prompt=effective_system_prompt or None,
-            reasoning=reasoning,
-            extra=dict(request_extra or {}),
-        )
-        # Only override `LLMRequest`'s own default timeout when a caller asked
-        # for one — slow high-reasoning models need more than the 60s default.
-        if timeout_seconds is not None:
-            request = dataclasses.replace(request, timeout_seconds=timeout_seconds)
-        response = complete_with_tool_call_retry(request)
-        kind = "final" if response.stop_reason == "end_turn" else "step"
-        return llm_response_to_assistant_message(
-            response,
-            sender=name,
-            target=target,
-            kind=kind,
-        )
+    def generate_for_tools(bound_tools: tuple[AgentTool, ...]) -> GenerateFn:
+        def generate(visible: list[Message]) -> Message:
+            request = LLMRequest(
+                provider=provider,
+                messages=messages_to_llm_messages(visible),
+                tools=[tool_to_llm_tool(tool) for tool in bound_tools],
+                system_prompt=effective_system_prompt or None,
+                reasoning=reasoning,
+                extra=dict(request_extra or {}),
+            )
+            # Only override `LLMRequest`'s own default timeout when a caller or env
+            # config asked for one.
+            if effective_timeout_seconds is not None:
+                request = dataclasses.replace(
+                    request, timeout_seconds=effective_timeout_seconds
+                )
+            response = complete_with_tool_call_retry(request)
+            kind = "final" if response.stop_reason == "end_turn" else "step"
+            return llm_response_to_assistant_message(
+                response,
+                sender=name,
+                target=target,
+                kind=kind,
+            )
+
+        return generate
+
+    tools_tuple = tuple(tools)
 
     return Agent(
         name=name,
-        generate=generate,
+        generate=generate_for_tools(tools_tuple),
         role=role,
         tools=tools_tuple,
         context_policy=context_policy,
@@ -99,4 +111,5 @@ def make_llm_agent(
         llm_provider=provider,
         init_state=init_state,
         hooks=hooks or {},
+        generate_for_tools=generate_for_tools,
     )

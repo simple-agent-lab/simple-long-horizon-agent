@@ -40,6 +40,14 @@ from evals.swebench.harness import (
 )
 
 
+def _record_command_with_fake_wheel(calls: list[list[str]], command: list[str]) -> None:
+    calls.append(command)
+    if command[:3] == ["uv", "build", "--wheel"]:
+        out_dir = Path(command[-1])
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "simple_agent_lab-0.1.0-py3-none-any.whl").write_bytes(b"wheel")
+
+
 class SwebenchHarnessTest(unittest.TestCase):
     """Host-side SWE-bench helpers shared by the suite, run entry, and scoring."""
 
@@ -312,7 +320,7 @@ class SwebenchHarnessTest(unittest.TestCase):
         calls: list[list[str]] = []
 
         def runner(command: list[str]) -> None:
-            calls.append(command)
+            _record_command_with_fake_wheel(calls, command)
 
         with tempfile.TemporaryDirectory() as tmp:
             prepare_wheelhouse(Path(tmp), runner=runner)
@@ -335,7 +343,7 @@ class SwebenchHarnessTest(unittest.TestCase):
         calls: list[list[str]] = []
 
         def runner(command: list[str]) -> None:
-            calls.append(command)
+            _record_command_with_fake_wheel(calls, command)
 
         with tempfile.TemporaryDirectory() as tmp:
             prepare_wheelhouse(Path(tmp), runner=runner, extras=("mcp",))
@@ -354,7 +362,7 @@ class SwebenchHarnessTest(unittest.TestCase):
         calls: list[list[str]] = []
 
         def runner(command: list[str]) -> None:
-            calls.append(command)
+            _record_command_with_fake_wheel(calls, command)
 
         # Even on a macOS host (the common dev setup), the provisioned interpreter
         # targets the FIXED container platform (Linux x86_64 glibc), so the
@@ -383,7 +391,7 @@ class SwebenchHarnessTest(unittest.TestCase):
         calls: list[list[str]] = []
 
         def runner(command: list[str]) -> None:
-            calls.append(command)
+            _record_command_with_fake_wheel(calls, command)
 
         # No uv on PATH: nothing to provision with (the bootstrap then falls back
         # to the container's own download path).
@@ -406,7 +414,9 @@ class SwebenchHarnessTest(unittest.TestCase):
         # Core runtime is pinned to exact versions (reproducible wheelhouse).
         self.assertRegex(text, r"(?m)^anthropic==")
         self.assertRegex(text, r"(?m)^openai==")
-        self.assertNotIn(">=", text)
+        for line in text.splitlines():
+            requirement = line.split(";", 1)[0].strip()
+            self.assertRegex(requirement, r"^[A-Za-z0-9_.-]+==[^<>=!~ ]+$")
         # Host-only dependencies (swebench extra + dev tools) stay out.
         self.assertNotRegex(text, r"(?m)^(datasets|docker|swebench|pytest|ruff)[=<>]")
 
@@ -414,12 +424,15 @@ class SwebenchHarnessTest(unittest.TestCase):
         calls: list[list[str]] = []
 
         def runner(command: list[str]) -> None:
-            calls.append(command)
+            _record_command_with_fake_wheel(calls, command)
 
         with tempfile.TemporaryDirectory() as tmp:
             prepare_project_wheel(Path(tmp), runner=runner)
+            wheel_names = sorted(path.name for path in Path(tmp).glob("*.whl"))
 
-        self.assertEqual(calls, [["uv", "build", "--wheel", "--out-dir", tmp]])
+        self.assertEqual(calls[0][:4], ["uv", "build", "--wheel", "--out-dir"])
+        self.assertNotEqual(calls[0][-1], tmp)
+        self.assertEqual(wheel_names, ["simple_agent_lab-0.1.0-py3-none-any.whl"])
 
     def test_prepare_wheelhouse_for_run_refreshes_project_wheel_by_default(
         self,

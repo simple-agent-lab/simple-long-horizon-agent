@@ -1,10 +1,10 @@
 """Build shipped agent flavors from shared flavor names.
 
 This module owns the mapping from a flavor string (``bash``, ``bash_task``,
-``bash_task_read``, ``bash_skills``, ``loop``, ``pdr``) to concrete agent
-capabilities. Runners pass in name/role/prompt/cwd; the agent layer decides
-which tools, prompt addenda, sessions, or workflow choreography implement that
-flavor.
+``bash_task_read``, ``bash_skills``, ``loop``, ``pdr``) to concrete
+agent capabilities. Runners pass in name/role/prompt/cwd; the agent layer
+decides which tools, prompt addenda, sessions, or workflow choreography
+implement that flavor.
 """
 
 from __future__ import annotations
@@ -52,8 +52,12 @@ from .starter import (
 
 # The threshold fallback used only when the provider's context window is
 # unknown, so it stays here with the logic that needs it rather than as an
-# env knob in `simple_agent_lab.config`.
-DEFAULT_AGENT_COMPRESSION_FALLBACK_THRESHOLD_TOKENS = 80_000
+# env knob in `simple_agent_lab.config`. Kept high on purpose: an unregistered
+# window should not trigger aggressive summarization far below a modern
+# large-window model's real capacity — better to under-compress than to fold
+# away working context when the window is merely unknown. Register the model in
+# `model_metadata.DEFAULT_CONTEXT_WINDOWS` (or a window book) for an exact value.
+DEFAULT_AGENT_COMPRESSION_FALLBACK_THRESHOLD_TOKENS = 400_000
 
 WorkflowRunner = Callable[[str], WorkflowResult]
 PrepareWorkflowWorkspace = Callable[[Path], None]
@@ -76,15 +80,17 @@ def build_flavor_agent(
     bash_exec_prefix: tuple[str, ...] = (),
     prepare_workspace: PrepareWorkflowWorkspace | None = None,
     trace_put: ArtifactPut | None = None,
+    solver_read: bool = True,
+    solver_task: bool = False,
 ) -> Agent:
     """Build an Agent for one shipped flavor, simple or workflow.
 
-    Dispatches on the flavor vocabulary: workflow flavors (``loop``, ``pdr``)
-    return a facade Agent that runs the whole arm in its single ``generate``;
-    every other flavor returns a resource-free simple Agent. The workflow-only
-    knobs (``prepare_workspace``/``trace_put``) are ignored by simple flavors,
-    and the simple-only knobs (``hooks``/``tools``) are ignored by workflow
-    flavors.
+    Dispatches on the flavor vocabulary: workflow flavors (``loop`` and
+    ``pdr``) return a facade Agent that runs the whole arm in its single
+    ``generate``; every other flavor returns a resource-free simple Agent. The
+    workflow-only knobs (``prepare_workspace``/``trace_put``) are ignored by
+    simple flavors, and the simple-only knobs (``hooks``/``tools``) are ignored
+    by workflow flavors.
     """
 
     if flavor.strip().lower() in WORKFLOW_AGENT_FLAVORS:
@@ -101,6 +107,8 @@ def build_flavor_agent(
             context_policy=context_policy,
             enable_default_compression=enable_default_compression,
             bash_exec_prefix=bash_exec_prefix,
+            solver_read=solver_read,
+            solver_task=solver_task,
         )
     return _build_simple_flavor_agent(
         flavor=flavor,
@@ -115,6 +123,7 @@ def build_flavor_agent(
         enable_default_compression=enable_default_compression,
         tools=tools,
         bash_exec_prefix=bash_exec_prefix,
+        solver_task=solver_task,
     )
 
 
@@ -132,6 +141,7 @@ def _build_simple_flavor_agent(
     enable_default_compression: bool = True,
     tools: Sequence[AgentTool] = (),
     bash_exec_prefix: tuple[str, ...] = (),
+    solver_task: bool = False,
 ) -> Agent:
     """Build a resource-free Agent for one shipped simple flavor."""
 
@@ -147,10 +157,13 @@ def _build_simple_flavor_agent(
             provider,
             cwd=cwd,
             bash=True,
+            general_purpose=solver_task,
             tools=tools,
             name=name,
             role=role,
-            system_prompt=system_prompt,
+            system_prompt=_with_task_addendum(system_prompt)
+            if solver_task
+            else system_prompt,
             context_policy=policy,
             request_extra=request_extra,
             hooks=hooks,
@@ -228,6 +241,8 @@ def _build_workflow_flavor_agent(
     context_policy: ContextPolicy | None = None,
     enable_default_compression: bool = True,
     bash_exec_prefix: tuple[str, ...] = (),
+    solver_read: bool = True,
+    solver_task: bool = False,
 ) -> Agent:
     """Build the facade Agent for one shipped workflow flavor.
 
@@ -271,6 +286,8 @@ def _build_workflow_flavor_agent(
             context_policy=policy,
             prepare_workspace=prepare_workspace,
             bash_exec_prefix=bash_exec_prefix,
+            solver_read=solver_read,
+            solver_task=solver_task,
         )
         result = runner(_task_text(visible))
         last_overview = (
@@ -321,6 +338,8 @@ def make_workflow_runner_for_flavor(
     context_policy: ContextPolicy | None = None,
     prepare_workspace: PrepareWorkflowWorkspace | None = None,
     bash_exec_prefix: tuple[str, ...] = (),
+    solver_read: bool = True,
+    solver_task: bool = False,
 ) -> WorkflowRunner:
     """Build the `task -> WorkflowResult` runner for a workflow flavor."""
 
@@ -342,6 +361,8 @@ def make_workflow_runner_for_flavor(
             extra_tools=[update_goal_tool()],
             extra_prompt=VERIFY_BEFORE_DONE_ADDENDUM,
             bash_exec_prefix=bash_exec_prefix,
+            read=solver_read,
+            task=solver_task,
         )
         completion_check = executed_completion_check(
             cwd=workdir, exec_prefix=bash_exec_prefix
@@ -370,7 +391,9 @@ def make_workflow_runner_for_flavor(
         width = config.PDR_WIDTH.get()
         # Opt-in cost guard. Shorter throwaway attempts can cut cost, but may
         # reduce the quality of the distilled brief, so default to full budget.
-        attempt_turns = config.PDR_ATTEMPT_TURNS.get(default=worker_max_turns)
+        attempt_turns = config.PDR_ATTEMPT_TURNS.get()
+        if attempt_turns is None:
+            attempt_turns = worker_max_turns
         distiller = make_distiller_agent(provider, request_extra=request_extra)
 
         def run_pdr_arm(task: str) -> WorkflowResult:
@@ -394,6 +417,8 @@ def make_workflow_runner_for_flavor(
                         reset_to=baseline,
                         extra_prompt=_workspace_note(worktree),
                         bash_exec_prefix=bash_exec_prefix,
+                        read=solver_read,
+                        task=solver_task,
                     )
                     for i, worktree in enumerate(worktrees)
                 ]
@@ -408,6 +433,8 @@ def make_workflow_runner_for_flavor(
                     system_prompt=system_prompt,
                     context_policy=context_policy,
                     bash_exec_prefix=bash_exec_prefix,
+                    read=solver_read,
+                    task=solver_task,
                 )
                 return run_pdr(
                     attempts,
@@ -479,7 +506,7 @@ def _resolve_context_policy(
 
 
 def _compression_threshold(provider: Provider) -> int:
-    override = config.COMPRESSION_THRESHOLD.get(default=None)
+    override = config.COMPRESSION_THRESHOLD.get()
     if override is not None:
         return override
     window = provider.context_window or default_context_window_book().window_for(
@@ -566,18 +593,23 @@ def _solver_agent(
     extra_tools: Sequence[Any] = (),
     extra_prompt: str = "",
     bash_exec_prefix: tuple[str, ...] = (),
+    read: bool = True,
+    task: bool = False,
 ) -> Agent:
-    """A bash+read worker rooted at `cwd`."""
+    """A solver worker rooted at `cwd`."""
 
     prompt = system_prompt
     if extra_prompt:
         prompt = f"{prompt}\n\n{extra_prompt}" if prompt else extra_prompt
+    if task:
+        prompt = _with_task_addendum(prompt)
     init_state = _reset_init_state(cwd, reset_to) if reset_to else None
     return make_agent(
         provider,
         cwd=cwd,
         bash=True,
-        read=True,
+        read=read,
+        general_purpose=task,
         tools=list(extra_tools),
         name=name,
         role=role,
@@ -590,7 +622,7 @@ def _solver_agent(
 
 
 def _task_text(visible: list[Message]) -> str:
-    for message in visible:
+    for message in reversed(visible):
         if message.kind == "task":
             return text_of(message.content)
     return text_of(visible[0].content) if visible else ""

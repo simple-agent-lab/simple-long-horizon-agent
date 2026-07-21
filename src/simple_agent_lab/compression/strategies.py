@@ -1,8 +1,8 @@
 """Concrete compression strategies — the strategy-author surface.
 
-A strategy is a pure decision function `(active, agent_name) -> decision`.
-It looks at the messages the agent currently sees and returns a
-`CompressionDecision`:
+A strategy is usually a pure decision function
+`(active, agent_name) -> decision`. It looks at the messages the agent
+currently sees and returns a `CompressionDecision`:
 
     return CompressionDecision(
         compress_indices=(...),   # which messages to remove from active view
@@ -13,6 +13,10 @@ That's the entire surface. The `runtime` module handles everything else:
 filtering `model_invisible_kinds`, validating pinned messages, auto-fixing
 tool_call / tool_result pair splits, sizing, recording the replacement, and
 emitting the `ContextCompressionEvent`.
+
+A strategy may also expose `decisions(active, agent_name)` when one trigger
+should produce several independent folds. The runtime applies those decisions
+in order; plain `__call__` remains the single-decision compatibility path.
 
 Setting `rewrite=True` switches the decision from this N->1 fold to a 1->1,
 in-place substitution: `compress_indices` names exactly one message and
@@ -59,7 +63,7 @@ from ..messages import (
     tool_results_of,
 )
 from ..protocols import ModelRequestEvent, ModelResponseEvent
-from .runtime import _active_context_tokens, _tool_partners
+from .runtime import _active_context_tokens, _align_tool_pairs, _tool_partners
 
 if TYPE_CHECKING:
     from ..core import Agent
@@ -238,18 +242,64 @@ class SummarizeStrategy:
         active: list[tuple[int, Message]],
         agent_name: str,
     ) -> CompressionDecision | None:
+        spans = self._selected_spans(active)
+        return self._decision_for_span(spans[0], agent_name) if spans else None
+
+    def decisions(
+        self,
+        active: list[tuple[int, Message]],
+        agent_name: str,
+    ) -> tuple[CompressionDecision, ...]:
+        return tuple(
+            self._decision_for_span(to_compress, agent_name)
+            for to_compress in self._selected_spans(active)
+        )
+
+    def _selected_spans(
+        self,
+        active: list[tuple[int, Message]],
+    ) -> tuple[list[tuple[int, Message]], ...]:
         if not active:
-            return None
+            return ()
         before_tokens = _active_context_tokens(active)
         if before_tokens <= self.threshold_tokens:
-            return None
+            return ()
         droppable = [item for item in active if item[1].kind not in self.preserve_kinds]
         if len(droppable) <= self.keep_recent:
-            return None
-        to_compress = droppable[: -self.keep_recent] if self.keep_recent else droppable
-        if not to_compress:
-            return None
+            return ()
+        candidate = droppable[: -self.keep_recent] if self.keep_recent else droppable
+        compress_set = _align_tool_pairs(active, {index for index, _ in candidate})
+        runs = _contiguous_runs(active, compress_set)
+        if not runs:
+            return ()
 
+        task_pos = _last_task_position(active)
+        selected_runs: list[list[tuple[int, Message]]] = []
+        if task_pos is None:
+            selected_runs.append(_largest_run(runs))
+        else:
+            before_runs = [
+                (start_pos, run)
+                for start_pos, run in runs
+                if start_pos + len(run) - 1 < task_pos
+            ]
+            after_runs = [
+                (start_pos, run) for start_pos, run in runs if start_pos > task_pos
+            ]
+            before_run = _largest_run(before_runs)
+            after_run = _largest_run(after_runs)
+            if before_run:
+                selected_runs.append(before_run)
+            if after_run:
+                selected_runs.append(after_run)
+
+        return tuple(to_compress for to_compress in selected_runs if to_compress)
+
+    def _decision_for_span(
+        self,
+        to_compress: list[tuple[int, Message]],
+        agent_name: str,
+    ) -> CompressionDecision:
         instruction = make_message(
             "user",
             (
@@ -344,6 +394,61 @@ class SummarizeStrategy:
         )
 
 
+def _last_task_position(active: list[tuple[int, Message]]) -> int | None:
+    for pos in range(len(active) - 1, -1, -1):
+        if active[pos][1].kind == "task":
+            return pos
+    return None
+
+
+def _contiguous_runs(
+    active: list[tuple[int, Message]],
+    indices: set[int],
+) -> list[tuple[int, list[tuple[int, Message]]]]:
+    """Return active-order candidate runs with their starting positions."""
+
+    runs: list[tuple[int, list[tuple[int, Message]]]] = []
+    current: list[tuple[int, Message]] = []
+    current_start = 0
+    for pos, item in enumerate(active):
+        if item[0] in indices:
+            if not current:
+                current_start = pos
+            current.append(item)
+            continue
+        if current:
+            runs.append((current_start, current))
+            current = []
+    if current:
+        runs.append((current_start, current))
+    return runs
+
+
+def _largest_run(
+    runs: list[tuple[int, list[tuple[int, Message]]]],
+) -> list[tuple[int, Message]]:
+    if not runs:
+        return []
+    return max(
+        runs,
+        key=lambda pair: (_active_context_tokens(pair[1]), len(pair[1]), -pair[0]),
+    )[1]
+
+
+def _largest_contiguous_run(
+    active: list[tuple[int, Message]],
+    indices: set[int],
+) -> list[tuple[int, Message]]:
+    """Return one contiguous active-order run from a candidate index set.
+
+    Preserved messages such as the current task are semantic boundaries. A
+    summary should replace one uninterrupted span instead of folding content
+    from both sides of a pinned message into the same replacement.
+    """
+
+    return _largest_run(_contiguous_runs(active, indices))
+
+
 def _compression_sidecar(output: Message) -> MessageSidecar:
     sidecar: MessageSidecar = {}
     raw = output.sidecar.get("raw")
@@ -388,9 +493,9 @@ class TieredStrategy:
             SummarizeStrategy(compressor=summarizer, threshold_tokens=4000),
         )))
 
-    One decision is applied per compression pass (per model request); across
-    turns the stages keep firing as the context grows. Applying more than one
-    stage within a single pass would be a runtime choice, not this strategy's.
+    The first applicable stage wins. If that stage exposes multi-decision
+    compression, its decisions ride through; otherwise the stage contributes a
+    single decision.
     """
 
     stages: tuple[CompressionStrategy, ...]
@@ -405,3 +510,20 @@ class TieredStrategy:
             if decision is not None:
                 return decision
         return None
+
+    def decisions(
+        self,
+        active: list[tuple[int, Message]],
+        agent_name: str,
+    ) -> tuple[CompressionDecision, ...]:
+        for stage in self.stages:
+            multi_decision = getattr(stage, "decisions", None)
+            if callable(multi_decision):
+                decisions = tuple(multi_decision(active, agent_name) or ())
+                if decisions:
+                    return decisions
+                continue
+            decision = stage(active, agent_name)
+            if decision is not None:
+                return (decision,)
+        return ()

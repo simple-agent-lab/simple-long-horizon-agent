@@ -80,15 +80,16 @@ class EnvVar:
         *,
         default: Any = _UNSET,
     ) -> Any:
+        if default is not _UNSET:
+            return default
         source = os.environ if environ is None else environ
-        fallback = self.default if default is _UNSET else default
         raw = (source.get(self.name) or "").strip()
         if not raw:
-            return fallback
+            return self.default
         try:
             return self.parse(raw)
         except (ValueError, TypeError):
-            return fallback
+            return self.default
 
 
 # --------------------------------------------------------------------------- #
@@ -159,6 +160,48 @@ COMPRESSION_KEEP_RECENT = EnvVar(
 )
 
 # --------------------------------------------------------------------------- #
+# agent.llm — request-level knobs for LLM-backed agents.
+# --------------------------------------------------------------------------- #
+LLM_REQUEST_TIMEOUT = EnvVar(
+    "SAL_LLM_REQUEST_TIMEOUT_SECONDS",
+    None,
+    "agent.llm",
+    "Per-request model API timeout in seconds; unset uses the adapter default.",
+    as_float(minimum=1.0),
+)
+
+# --------------------------------------------------------------------------- #
+# agent.tools — shared tool knobs.
+# --------------------------------------------------------------------------- #
+BASH_DEFAULT_TIMEOUT = EnvVar(
+    "SAL_BASH_DEFAULT_TIMEOUT_SECONDS",
+    None,
+    "agent.tools",
+    "Default timeout for bash tool commands; unset uses the tool default.",
+    as_float(minimum=1.0),
+)
+BASH_MAX_TIMEOUT = EnvVar(
+    "SAL_BASH_MAX_TIMEOUT_SECONDS",
+    None,
+    "agent.tools",
+    "Maximum model-selectable timeout for bash tool commands; unset uses the tool default.",
+    as_float(minimum=1.0),
+)
+BASH_MAX_OUTPUT_CHARS = EnvVar(
+    "SAL_BASH_MAX_OUTPUT_CHARS",
+    None,
+    "agent.tools",
+    "Maximum model-visible characters per bash output stream; unset uses the tool default.",
+    as_int(minimum=1),
+)
+BASH_SUBMISSION_MARKER = EnvVar(
+    "SAL_BASH_SUBMISSION_MARKER",
+    "",
+    "agent.tools",
+    "When set, a bash command whose first output line matches this marker terminates the run and stores the remaining output as a submission.",
+)
+
+# --------------------------------------------------------------------------- #
 # eval.swebench — SWE-bench container knobs.
 # --------------------------------------------------------------------------- #
 REPO_LANGUAGE = EnvVar(
@@ -217,6 +260,11 @@ REGISTRY: tuple[EnvVar, ...] = (
     COMPRESSION_THRESHOLD,
     COMPRESSION_WINDOW_RATIO,
     COMPRESSION_KEEP_RECENT,
+    LLM_REQUEST_TIMEOUT,
+    BASH_DEFAULT_TIMEOUT,
+    BASH_MAX_TIMEOUT,
+    BASH_MAX_OUTPUT_CHARS,
+    BASH_SUBMISSION_MARKER,
     REPO_LANGUAGE,
     OMB_REFLECTION_ROUNDS,
     OMB_PARALLEL_WORKERS,

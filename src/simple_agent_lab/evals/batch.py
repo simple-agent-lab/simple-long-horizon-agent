@@ -41,6 +41,7 @@ from .protocols import (
 from .runner import (
     _run_root_namespace,
     _stage_eval_inputs,
+    clear_run_outputs,
     container_name,
     prepare_run_directory,
 )
@@ -116,10 +117,11 @@ def submit_dataset(
     manifest: list[dict[str, Any]] = []
     for instance in instances:
         instance_id = str(instance["instance_id"])
-        launch_spec = suite.launch_spec(instance)
         paths = prepare_run_directory(
             run_root=run_root, run_id=run_id, instance_id=instance_id
         )
+        clear_run_outputs(paths)
+        launch_spec = suite.launch_spec(instance)
         bound = store.bind(paths.root)
         bound.put(
             INSTANCE_KEY,

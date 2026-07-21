@@ -18,6 +18,7 @@ from .filesystem import (
     FilesystemDistillation,
     FilesystemIndexRow,
     FilesystemMemory,
+    FilesystemMemoryLimits,
     FilesystemMemoryPayload,
     make_filesystem_distiller,
 )
@@ -28,6 +29,7 @@ __all__ = [
     "FilesystemDistillation",
     "FilesystemIndexRow",
     "FilesystemMemory",
+    "FilesystemMemoryLimits",
     "FilesystemMemoryPayload",
     "Memory",
     "MemoryBinding",

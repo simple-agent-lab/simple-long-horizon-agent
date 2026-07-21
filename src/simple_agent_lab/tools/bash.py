@@ -18,6 +18,7 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
+import simple_agent_lab.config as config
 from simple_agent_lab.messages import ImageBlock, TextBlock
 
 from . import (
@@ -36,6 +37,7 @@ DEFAULT_BASH_TIMEOUT_SECONDS = 30.0
 DEFAULT_BASH_MAX_OUTPUT_CHARS = 4000
 MAX_BASH_TIMEOUT_SECONDS = 60.0
 DEFAULT_BASH_MAX_ATTACH_BYTES = 5 * 1024 * 1024  # 5 MiB per attached image
+DEFAULT_SUBMISSION_MARKER = "COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
 
 # Env vars we inject (additively) into the bash subprocess so that paging tools
 # and progress bars do not blow the model-visible output budget. Mirrors the
@@ -90,9 +92,9 @@ class BashExecution:
 def make_bash_tool(
     *,
     cwd: str | Path | None = None,
-    default_timeout_seconds: float = DEFAULT_BASH_TIMEOUT_SECONDS,
-    max_timeout_seconds: float = MAX_BASH_TIMEOUT_SECONDS,
-    max_output_chars: int = DEFAULT_BASH_MAX_OUTPUT_CHARS,
+    default_timeout_seconds: float | None = None,
+    max_timeout_seconds: float | None = None,
+    max_output_chars: int | None = None,
     max_attach_bytes: int = DEFAULT_BASH_MAX_ATTACH_BYTES,
     execution_mode: ToolExecutionMode = "parallel",
     exec_prefix: tuple[str, ...] = (),
@@ -108,6 +110,17 @@ def make_bash_tool(
     calls keep the container's network.
     """
 
+    if default_timeout_seconds is None:
+        default_timeout_seconds = (
+            config.BASH_DEFAULT_TIMEOUT.get() or DEFAULT_BASH_TIMEOUT_SECONDS
+        )
+    if max_timeout_seconds is None:
+        max_timeout_seconds = config.BASH_MAX_TIMEOUT.get() or MAX_BASH_TIMEOUT_SECONDS
+    if max_output_chars is None:
+        max_output_chars = (
+            config.BASH_MAX_OUTPUT_CHARS.get() or DEFAULT_BASH_MAX_OUTPUT_CHARS
+        )
+
     if default_timeout_seconds <= 0:
         raise ValueError("default_timeout_seconds must be > 0")
     if max_timeout_seconds <= 0:
@@ -115,7 +128,11 @@ def make_bash_tool(
     if max_output_chars <= 0:
         raise ValueError("max_output_chars must be > 0")
 
+    if default_timeout_seconds > max_timeout_seconds:
+        default_timeout_seconds = max_timeout_seconds
+
     root = Path(cwd or ".").resolve()
+    submission_marker = str(config.BASH_SUBMISSION_MARKER.get() or "").strip()
 
     def execute(
         call_id: str,
@@ -161,6 +178,22 @@ def make_bash_tool(
                 "Bash command completed, but the run was aborted before observation.",
                 details=asdict(execution),
                 is_error=True,
+            )
+        submission = submitted_output(
+            execution.raw_stdout,
+            marker=submission_marker,
+            exit_code=execution.exit_code,
+        )
+        if submission is not None:
+            details = {
+                **asdict(execution),
+                "submission": submission,
+                "submission_marker": submission_marker,
+            }
+            return text_result(
+                "Submission captured from bash output. Ending the run.",
+                details=details,
+                terminate=True,
             )
         result = bash_execution_to_tool_result(execution)
         attach = args.get("attach")
@@ -212,6 +245,22 @@ def make_bash_tool(
     )
 
 
+def submitted_output(
+    output: str,
+    *,
+    marker: str,
+    exit_code: int = 0,
+) -> str | None:
+    """Return text after a submission marker, or None when output is ordinary."""
+
+    if exit_code != 0 or not marker:
+        return None
+    lines = output.lstrip().splitlines(keepends=True)
+    if not lines or lines[0].strip() != marker:
+        return None
+    return "".join(lines[1:])
+
+
 def run_bash(
     command: str,
     *,
@@ -246,12 +295,10 @@ def run_bash(
             capture_output=True,
             timeout=timeout_seconds,
             check=False,
-            encoding="utf-8",
-            errors="replace",
             env=env,
         )
-        stdout = completed.stdout
-        stderr = completed.stderr
+        stdout = _coerce_process_text(completed.stdout)
+        stderr = _coerce_process_text(completed.stderr)
         exit_code = completed.returncode
         timed_out = False
     except subprocess.TimeoutExpired as exc:
@@ -282,8 +329,12 @@ def run_bash(
         exit_code=exit_code,
         stdout=visible_stdout,
         stderr=visible_stderr,
-        raw_stdout=clean_stdout,
-        raw_stderr=clean_stderr,
+        # Keep the process streams byte-for-byte at the text boundary. The
+        # cleaned copies above are only for the model-visible observation;
+        # submission protocols may carry a patch whose final whitespace is
+        # syntactically significant.
+        raw_stdout=stdout,
+        raw_stderr=stderr,
         elapsed_seconds=elapsed,
         timed_out=timed_out,
         timeout_seconds=timeout_seconds,

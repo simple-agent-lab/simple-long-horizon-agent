@@ -18,6 +18,7 @@ from simple_agent_lab.llm import Provider
 from simple_agent_lab.memory import (
     FilesystemArtifact,
     FilesystemMemory,
+    FilesystemMemoryLimits,
     FilesystemMemoryPayload,
     Memory,
     MemoryContext,
@@ -333,7 +334,6 @@ class FilesystemMemoryTest(unittest.TestCase):
 
             self.assertEqual(len(context), 1)
             self.assertIn("filesystem memory", message_text(context[0]))
-            self.assertEqual(memory_dir, Path(tmp) / "repo_name")
             self.assertTrue((run_dir / "task.md").exists())
             self.assertIn(
                 "fix auth", (run_dir / "transcript.md").read_text(encoding="utf-8")
@@ -438,17 +438,16 @@ class FilesystemMemoryTest(unittest.TestCase):
 
             memory.finish(ctx)
 
-            run_dir = Path(tmp) / "fallback_session" / "runs" / "run_99"
+            memory_dir = memory.memory_dir(ctx)
+            run_dir = memory_dir / "runs" / "run_99"
             self.assertTrue((run_dir / "task.md").exists())
             self.assertTrue((run_dir / "transcript.md").exists())
             summary = (run_dir / "summary.md").read_text(encoding="utf-8")
-            index = (Path(tmp) / "fallback_session" / "INDEX.md").read_text(
+            index = (memory_dir / "INDEX.md").read_text(encoding="utf-8")
+            error = (run_dir / "memory_error.md").read_text(encoding="utf-8")
+            memory_summary = (memory_dir / "memory_summary.md").read_text(
                 encoding="utf-8"
             )
-            error = (run_dir / "memory_error.md").read_text(encoding="utf-8")
-            memory_summary = (
-                Path(tmp) / "fallback_session" / "memory_summary.md"
-            ).read_text(encoding="utf-8")
 
             self.assertIn("Distillation unavailable", summary)
             self.assertIn("runs/run_99/summary.md", index)
@@ -773,7 +772,7 @@ class FilesystemMemoryTest(unittest.TestCase):
         # transcript heading format is spelled out so the grep anchor (P1) lands.
         self.assertIn("## <n>. <role> (<kind>, <sender> -> <target>)", text)
 
-    def test_filesystem_memory_uses_unique_run_directory_for_collisions(self) -> None:
+    def test_filesystem_memory_repeated_run_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             memory = FilesystemMemory(root=tmp)
             state = State("repeat run")
@@ -791,10 +790,47 @@ class FilesystemMemoryTest(unittest.TestCase):
 
             memory_dir = Path(tmp) / "demo"
             self.assertTrue((memory_dir / "runs" / "r1").exists())
-            self.assertTrue((memory_dir / "runs" / "r1_2").exists())
+            self.assertFalse((memory_dir / "runs" / "r1_2").exists())
             index = (memory_dir / "INDEX.md").read_text(encoding="utf-8")
             self.assertIn("runs/r1/summary.md", index)
-            self.assertIn("runs/r1_2/summary.md", index)
+            self.assertEqual(index.count("runs/r1/summary.md"), 1)
+
+    def test_filesystem_memory_keeps_only_the_newest_bounded_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            memory = FilesystemMemory(
+                root=tmp,
+                limits=FilesystemMemoryLimits(max_runs_per_memory=2),
+            )
+            for run_id in ("r1", "r2", "r3"):
+                state = State(run_id)
+                state.send("task", "user", "agent", run_id)
+                memory.finish(
+                    MemoryContext(
+                        agent="agent",
+                        task=run_id,
+                        memory_name="demo",
+                        run_id=run_id,
+                        state=state,
+                    )
+                )
+
+            memory_dir = Path(tmp) / "demo"
+            self.assertEqual(
+                sorted(path.name for path in (memory_dir / "runs").iterdir()),
+                ["r2", "r3"],
+            )
+            index = (memory_dir / "INDEX.md").read_text(encoding="utf-8")
+            self.assertNotIn("runs/r1/summary.md", index)
+
+    def test_filesystem_memory_refuses_namespaces_above_the_cap(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            memory = FilesystemMemory(
+                root=tmp,
+                limits=FilesystemMemoryLimits(max_namespaces_per_root=1),
+            )
+
+            self.assertTrue(memory.admit_namespace("first"))
+            self.assertFalse(memory.admit_namespace("second"))
 
     def test_filesystem_memory_sanitizes_duplicate_artifact_names(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

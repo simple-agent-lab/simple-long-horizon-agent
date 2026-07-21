@@ -1288,7 +1288,7 @@ class SwebenchSuiteDriverTest(unittest.TestCase):
         # which needs the swebench harness installed — not asserted here).
         self.assertEqual(launch_spec.cap_add, ())
         # Default per-container memory guardrail (docker --memory).
-        self.assertEqual(launch_spec.mem_limit, "8g")
+        self.assertEqual(launch_spec.mem_limit, "16g")
 
     def test_multilingual_suite_name_is_distinct(self) -> None:
         from evals.swebench.suite import SwebenchSuite

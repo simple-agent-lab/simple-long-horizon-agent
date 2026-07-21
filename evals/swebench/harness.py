@@ -22,6 +22,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Callable
 
@@ -394,11 +395,14 @@ def prepare_wheelhouse_for_run(
     wheelhouse: Path | None,
     *,
     prepare_all: bool,
+    reuse_prepared: bool = False,
     extras: tuple[str, ...] = (),
 ) -> None:
     """Prepare mounted wheels, keeping local project code fresh for each run."""
 
     if wheelhouse is None:
+        return
+    if reuse_prepared:
         return
     if prepare_all:
         if extras:
@@ -417,8 +421,28 @@ def prepare_project_wheel(
     """Build the current repo wheel so containers do not use stale wheelhouse cache."""
 
     run = runner or _run_checked
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.mkdir(parents=True, exist_ok=True)
-    run(["uv", "build", "--wheel", "--out-dir", str(path)])
+    # Build away from the mounted wheelhouse, then publish each complete wheel
+    # with one atomic rename. A container can therefore never observe uv
+    # rewriting the archive it is currently installing.
+    with tempfile.TemporaryDirectory(
+        prefix=f".{path.name}-project-wheel-",
+        dir=path.parent,
+    ) as tmp:
+        build_dir = Path(tmp)
+        run(["uv", "build", "--wheel", "--out-dir", str(build_dir)])
+        wheels = sorted(build_dir.glob("simple_agent_lab-*.whl"))
+        if not wheels:
+            raise RuntimeError(
+                f"uv build produced no simple-agent-lab wheel in {build_dir}"
+            )
+        published_names = {wheel.name for wheel in wheels}
+        for wheel in wheels:
+            os.replace(wheel, path / wheel.name)
+        for stale in path.glob("simple_agent_lab-*.whl"):
+            if stale.name not in published_names:
+                stale.unlink()
 
 
 def prepare_wheelhouse(

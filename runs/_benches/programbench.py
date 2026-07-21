@@ -119,12 +119,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--cpus",
         type=int,
-        default=12,
-        help="Docker CPU limit for the inference container (default: 12).",
+        default=20,
+        help="Docker CPU limit for the inference container (default: 20).",
     )
     parser.add_argument(
         "--mem-limit",
-        default="24g",
+        default="60g",
         help="Docker memory and memory-swap limit for the inference container.",
     )
     parser.add_argument("--prepare-wheelhouse", action="store_true")

@@ -242,6 +242,7 @@ class ContainerTask(Protocol):
         instance: Mapping[str, Any],
         *,
         context: Mapping[str, Any] | None = None,
+        state: Any | None = None,
     ) -> Mapping[str, Any]:
         """Return the run's raw product (e.g. ``{"model_patch": diff}``).
 
@@ -250,6 +251,10 @@ class ContainerTask(Protocol):
         in-container runner only passes ``context`` when the signature declares
         it, but declaring it is what lets pre-run setup reach extraction; omit it
         and a `prepare` step's output is silently dropped.
+
+        Accept ``state`` (keyword) to inspect the completed runtime transcript
+        when the product depends on a model-visible submission event rather than
+        only on workspace files. The runner also passes this only when declared.
         """
         ...
 
@@ -273,6 +278,7 @@ class RunSpec:
     provider: str  # "openai" | "fake"
     api_kind: str
     provider_env: Mapping[str, str] = field(default_factory=dict)
+    runner_module: str = "simple_agent_lab.evals.in_container"
     install: bool = True
     package_extras: tuple[str, ...] = ()
     wheelhouse_mount: str | None = None

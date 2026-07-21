@@ -96,9 +96,9 @@ class ProgrambenchSuiteDriverTest(unittest.TestCase):
         # what powers the per-command `unshare --net` isolation in the container.
         self.assertEqual(spec.network_mode, "host")
         self.assertEqual(spec.cap_add, ("SYS_ADMIN",))
-        self.assertEqual(spec.nano_cpus, 12_000_000_000)
-        self.assertEqual(spec.mem_limit, "24g")
-        self.assertEqual(spec.memswap_limit, "24g")
+        self.assertEqual(spec.nano_cpus, 20_000_000_000)
+        self.assertEqual(spec.mem_limit, "60g")
+        self.assertEqual(spec.memswap_limit, "60g")
 
     def test_task_input_drops_gold_and_identity_fields(self) -> None:
         view = ProgrambenchSuite().task_input(_instance())

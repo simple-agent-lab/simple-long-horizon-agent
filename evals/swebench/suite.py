@@ -43,7 +43,7 @@ class SwebenchSuite:
         network_mode: str = "",
         security_opt: tuple[str, ...] = ("seccomp=unconfined",),
         in_env_scoring: bool = False,
-        mem_limit: str | None = "8g",
+        mem_limit: str | None = "16g",
     ) -> None:
         self.dataset_name = dataset_name
         self.name = harness.suite_for_instance(
@@ -71,8 +71,8 @@ class SwebenchSuite:
         # one runaway build/test step can't exhaust the host or starve sibling
         # runs in a parallel batch. memswap_limit is left unset so Docker keeps
         # its default swap headroom — a brief overshoot degrades instead of
-        # OOM-killing the instance. "8g" covers SWE-bench build/test peaks; pass
-        # None to disable.
+        # OOM-killing the instance. "16g" matches the mini-SWE-agent Pro
+        # baseline envelope; pass None to disable.
         self.mem_limit = mem_limit
 
     def launch_spec(self, instance: Mapping[str, Any]) -> LaunchSpec:

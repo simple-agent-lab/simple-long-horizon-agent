@@ -121,6 +121,21 @@ hierarchy. Knobs not yet migrated stay in the hand-written sections that follow.
 | `SAL_AGENT_COMPRESSION_WINDOW_RATIO` | `0.8` | Fraction of the context window used as the threshold when none is set. |
 | `SAL_AGENT_COMPRESSION_KEEP_RECENT` | `4` | Recent turns kept verbatim during compression. |
 
+### `agent.llm`
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SAL_LLM_REQUEST_TIMEOUT_SECONDS` | unset | Per-request model API timeout in seconds; unset uses the adapter default. |
+
+### `agent.tools`
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SAL_BASH_DEFAULT_TIMEOUT_SECONDS` | unset | Default timeout for bash tool commands; unset uses the tool default. |
+| `SAL_BASH_MAX_TIMEOUT_SECONDS` | unset | Maximum model-selectable timeout for bash tool commands; unset uses the tool default. |
+| `SAL_BASH_MAX_OUTPUT_CHARS` | unset | Maximum model-visible characters per bash output stream; unset uses the tool default. |
+| `SAL_BASH_SUBMISSION_MARKER` | `` | When set, a bash command whose first output line matches this marker terminates the run and stores the remaining output as a submission. |
+
 ### `agent.workflow`
 
 | Variable | Default | Purpose |

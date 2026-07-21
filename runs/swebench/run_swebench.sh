@@ -5,9 +5,11 @@
 #   bash runs/swebench/run_swebench.sh [--variant verified|multilingual|pro] [INSTANCE_ID]
 #   bash runs/swebench/run_swebench.sh                                   # verified, default instance
 #   bash runs/swebench/run_swebench.sh django__django-16379             # verified, one instance
+#   bash runs/swebench/run_swebench.sh --ids-file ids.txt --parallel 4  # selected instances
 #   bash runs/swebench/run_swebench.sh --variant pro --all --parallel 4 # pro, full split, 4 at a time
 #
 # Requires Docker, `uv sync --extra swebench`, and a .env with provider credentials.
+# Optional: set OPENAI_AUTH_TOKEN2 in .env to alternate keys across batch runs.
 # Downloading uncached dataset records uses `datasets`.
 
 set -euo pipefail
@@ -17,6 +19,7 @@ source runs/lib/_swebench_uv.sh
 
 VARIANT="verified"
 RUN_ALL=0
+IDS_FILE=""
 PARALLEL=1
 # Image pull policy. Empty = the run_bench default ('never'): opt-in, so a run
 # never silently downloads multi-GB images. `--pull` opts in (a full split is
@@ -24,9 +27,10 @@ PARALLEL=1
 PULL=""
 POSITIONAL=()
 FETCH_PYTHON=()
+SECONDARY_OPENAI_AUTH_TOKEN=""
 
 usage() {
-  sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 shell_quote() {
@@ -46,6 +50,14 @@ while [ "$#" -gt 0 ]; do
     --all)
       RUN_ALL=1
       shift
+      ;;
+    --ids-file)
+      if [ "$#" -lt 2 ]; then
+        echo "ERROR: --ids-file requires a path." >&2
+        exit 2
+      fi
+      IDS_FILE="$2"
+      shift 2
       ;;
     --parallel)
       if [ "$#" -lt 2 ]; then
@@ -111,7 +123,7 @@ case "$VARIANT" in
     WHEELHOUSE="evals/out/swebench_pro/wheelhouse/cp311-manylinux"
     WHEELHOUSE_CONST="DEFAULT_PRO_WHEELHOUSE"
     MODEL_NAME="simple-agent-lab-pro"
-    MAX_TURNS=40
+    MAX_TURNS=250
     TITLE="SWE-bench Pro"
     ;;
   *)
@@ -136,12 +148,20 @@ if ! [[ "$MAX_TURNS" =~ ^[1-9][0-9]*$ ]]; then
   echo "ERROR: SWEBENCH_MAX_TURNS must be a positive integer; got $(shell_quote "$MAX_TURNS")." >&2
   exit 2
 fi
-if [ "$RUN_ALL" -eq 1 ] && [ "${#POSITIONAL[@]}" -gt 0 ]; then
-  echo "ERROR: pass either --all or one INSTANCE_ID, not both." >&2
+if [ "$RUN_ALL" -eq 1 ] && [ -n "$IDS_FILE" ]; then
+  echo "ERROR: pass only one of --all or --ids-file." >&2
+  exit 2
+fi
+if { [ "$RUN_ALL" -eq 1 ] || [ -n "$IDS_FILE" ]; } && [ "${#POSITIONAL[@]}" -gt 0 ]; then
+  echo "ERROR: pass only one of --all, --ids-file, or one INSTANCE_ID." >&2
   exit 2
 fi
 if [ "$RUN_ALL" -eq 0 ] && [ "${#POSITIONAL[@]}" -gt 1 ]; then
-  echo "ERROR: pass at most one INSTANCE_ID, or use --all for the full split." >&2
+  echo "ERROR: pass at most one INSTANCE_ID, or use --all/--ids-file for a batch." >&2
+  exit 2
+fi
+if [ -n "$IDS_FILE" ] && [ ! -f "$IDS_FILE" ]; then
+  echo "ERROR: --ids-file does not exist: $(shell_quote "$IDS_FILE")." >&2
   exit 2
 fi
 
@@ -163,6 +183,17 @@ PY
   echo "ERROR: fetching uncached SWE-bench records requires the Python 'datasets' package." >&2
   echo "Install it with: uv sync --extra swebench" >&2
   exit 1
+}
+
+load_instance_ids() {
+  local ids_path="$1"
+  local instance_id=""
+  INSTANCE_IDS=()
+  while IFS= read -r instance_id || [ -n "$instance_id" ]; do
+    if [ -n "$instance_id" ]; then
+      INSTANCE_IDS+=("$instance_id")
+    fi
+  done < "$ids_path"
 }
 
 mkdir -p "$INSTANCE_DIR"
@@ -226,7 +257,63 @@ ids_file.write_text(
 PY
   fi
   INSTANCE_JSON="$all_json"
-  mapfile -t INSTANCE_IDS < "$ids_file"
+  load_instance_ids "$ids_file"
+}
+
+fetch_ids_instances() {
+  local ids_path="$1"
+  local selected_json="${INSTANCE_DIR}/instance_ids-${RUN_ID}.jsonl"
+  local selected_ids="${INSTANCE_DIR}/instance_ids-${RUN_ID}.ids"
+  ensure_fetch_python
+  echo "Fetching selected instances from ${DATASET} ${SPLIT} split..."
+  DATASET="$DATASET" SPLIT="$SPLIT" IDS_FILE="$ids_path" SELECTED_JSON="$selected_json" SELECTED_IDS="$selected_ids" \
+    "${FETCH_PYTHON[@]}" - <<'PY'
+import json
+import os
+from pathlib import Path
+
+from datasets import load_dataset
+
+dataset = os.environ["DATASET"]
+split = os.environ["SPLIT"]
+ids_file = Path(os.environ["IDS_FILE"])
+selected_json = Path(os.environ["SELECTED_JSON"])
+selected_ids = Path(os.environ["SELECTED_IDS"])
+
+ids = []
+seen = set()
+for lineno, raw_line in enumerate(ids_file.read_text(encoding="utf-8").splitlines(), 1):
+    instance_id = raw_line.split("#", 1)[0].strip()
+    if not instance_id:
+        continue
+    if instance_id in seen:
+        raise SystemExit(
+            f"Duplicate instance id in {ids_file} on line {lineno}: {instance_id}"
+        )
+    seen.add(instance_id)
+    ids.append(instance_id)
+
+if not ids:
+    raise SystemExit(f"--ids-file {ids_file} did not contain any instance ids")
+
+rows_by_id = {
+    str(row["instance_id"]): dict(row)
+    for row in load_dataset(dataset, split=split)
+}
+missing = [instance_id for instance_id in ids if instance_id not in rows_by_id]
+if missing:
+    preview = ", ".join(missing[:10])
+    suffix = "" if len(missing) <= 10 else f" ... (+{len(missing) - 10} more)"
+    raise SystemExit(f"Instance id(s) not found in {dataset}: {preview}{suffix}")
+
+selected_json.write_text(
+    "".join(json.dumps(rows_by_id[instance_id]) + "\n" for instance_id in ids),
+    encoding="utf-8",
+)
+selected_ids.write_text("".join(instance_id + "\n" for instance_id in ids), encoding="utf-8")
+PY
+  INSTANCE_JSON="$selected_json"
+  load_instance_ids "$selected_ids"
 }
 
 ensure_default_instance_id() {
@@ -241,6 +328,27 @@ ensure_default_instance_id() {
     exit 1
   fi
   DEFAULT_INSTANCE_ID="${INSTANCE_IDS[0]}"
+}
+
+load_secondary_openai_auth_token() {
+  if [ -n "${SECONDARY_OPENAI_AUTH_TOKEN:-}" ]; then
+    return
+  fi
+  if [ -n "${OPENAI_AUTH_TOKEN2:-}" ]; then
+    SECONDARY_OPENAI_AUTH_TOKEN="$OPENAI_AUTH_TOKEN2"
+    return
+  fi
+  if [ ! -f .env ]; then
+    return
+  fi
+  SECONDARY_OPENAI_AUTH_TOKEN="$("${PYTHON[@]}" - <<'PY'
+from simple_agent_lab.llm.env import load_dotenv
+
+env = {}
+load_dotenv(".env", environ=env)
+print(env.get("OPENAI_AUTH_TOKEN2", ""))
+PY
+)"
 }
 
 run_container() {
@@ -271,25 +379,51 @@ run_container() {
   "${PYTHON[@]}" "${args[@]}" "$@"
 }
 
+run_container_for_index() {
+  local job_index="$1"
+  shift
+  if [ -n "$SECONDARY_OPENAI_AUTH_TOKEN" ] && [ $((job_index % 2)) -eq 1 ]; then
+    OPENAI_AUTH_TOKEN="$SECONDARY_OPENAI_AUTH_TOKEN"
+    export OPENAI_AUTH_TOKEN
+  fi
+  run_container "$@"
+}
+
 running_jobs() {
   jobs -pr | wc -l | tr -d ' '
 }
 
 collect_predictions() {
   mkdir -p "$PREDICTION_DIR"
+  local expected_ids="${CONTAINER_RUN_ROOT}/${RUN_ID}/expected_instance_ids.txt"
+  mkdir -p "$(dirname "$expected_ids")"
+  printf '%s\n' "${INSTANCE_IDS[@]}" > "$expected_ids"
   local pred_out="${PREDICTION_DIR}/${RUN_ID}_predictions.jsonl"
   "${PYTHON[@]}" evals/swebench/evaluate_predictions.py --collect-predictions \
     --run-root "$CONTAINER_RUN_ROOT" --run-id "$RUN_ID" \
     --dataset-name "$DATASET" --model-name "$MODEL_NAME" \
+    --expected-ids-file "$expected_ids" \
     --predictions "$pred_out"
 }
 
-if [ "$RUN_ALL" -eq 1 ]; then
-  fetch_all_instances
-  echo "=== ${TITLE} full split ==="
+if [ "$RUN_ALL" -eq 1 ] || [ -n "$IDS_FILE" ]; then
+  if [ "$RUN_ALL" -eq 1 ]; then
+    fetch_all_instances
+    BATCH_LABEL="full split"
+  else
+    fetch_ids_instances "$IDS_FILE"
+    BATCH_LABEL="ids file: $IDS_FILE"
+  fi
+  load_secondary_openai_auth_token
+  echo "=== ${TITLE} ${BATCH_LABEL} ==="
   echo "Run ID: $RUN_ID"
   echo "Instances: ${#INSTANCE_IDS[@]}"
   echo "Parallel: $PARALLEL"
+  if [ -n "$SECONDARY_OPENAI_AUTH_TOKEN" ]; then
+    echo "OpenAI auth tokens: 2 (round-robin per instance)"
+  else
+    echo "OpenAI auth tokens: 1"
+  fi
   echo ""
 
   echo "Preparing wheelhouse and Linux uv once before launching batch..."
@@ -304,6 +438,15 @@ PY
 
   FAIL=0
   PIDS=()
+  # Each job records its own exit code to a status file; the drain loop tallies
+  # failures from those, never from `wait`. The throttle below polls `jobs -pr`,
+  # which makes bash reap finished jobs from its table — so a later `wait "$pid"`
+  # reports "not a child" (rc 127) for a job that already finished, regardless of
+  # whether it actually succeeded or failed. `wait` is therefore useless as a
+  # failure signal here (it over- and under-counts); the status file is reliable.
+  STATUS_DIR="${CONTAINER_RUN_ROOT}/${RUN_ID}/.exit_codes"
+  mkdir -p "$STATUS_DIR"
+  job_index=0
   for instance_id in "${INSTANCE_IDS[@]}"; do
     # Throttle to PARALLEL. macOS ships bash 3.2, which has no `wait -n`, so poll
     # the running-job count and sleep until a slot frees instead.
@@ -313,13 +456,32 @@ PY
     log="${CONTAINER_RUN_ROOT}/${RUN_ID}/${instance_id}.log"
     mkdir -p "$(dirname "$log")"
     echo "Starting: ${instance_id}"
-    run_container "$INSTANCE_JSON" "$instance_id" > "$log" 2>&1 &
+    status_file="${STATUS_DIR}/${instance_id}.rc"
+    rm -f "$status_file"
+    # `|| rc=$?` tests the command so `set -e` does not abort the subshell before
+    # the exit code is recorded (a bare `cmd; echo $?` would lose a failure code).
+    (
+      rc=0
+      run_container_for_index "$job_index" "$INSTANCE_JSON" "$instance_id" \
+        --reuse-prepared-wheelhouse || rc=$?
+      echo "$rc" > "$status_file"
+    ) > "$log" 2>&1 &
     PIDS+=("$!")
+    job_index=$((job_index + 1))
   done
 
-  # Drain: wait each launched job and count failures (bash-3.2-safe).
+  # Drain: let every job finish (ignore `wait`'s own rc — see above), then tally
+  # real failures from the recorded exit codes. A missing file means the job was
+  # killed before it could record one, which is itself a failure.
   for pid in "${PIDS[@]}"; do
-    wait "$pid" || FAIL=$((FAIL + 1))
+    wait "$pid" 2>/dev/null || true
+  done
+  for instance_id in "${INSTANCE_IDS[@]}"; do
+    rc="$(cat "${STATUS_DIR}/${instance_id}.rc" 2>/dev/null || echo missing)"
+    if [ "$rc" != "0" ]; then
+      FAIL=$((FAIL + 1))
+      echo "Failed run: ${instance_id} (exit ${rc})" >&2
+    fi
   done
 
   collect_predictions

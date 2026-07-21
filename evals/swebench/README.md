@@ -18,8 +18,10 @@ The adapter maps SWE-bench onto the generic `Suite` protocol (ADR generic-contai
   (`simple_agent_lab.evals.in_container` and
   `simple_agent_lab.evals.suites.swebench`): the SWE-bench container half builds
   the task, records the trajectory, and writes `result.json` with the final
-  `model_patch` (filtering generated files). Incremental traces for the host
-  viewer use the live-trace helpers in `simple_agent_lab.trace` — see
+  collected `model_patch` after filtering generated files. The model edits and
+  verifies the workspace; it does not spend turns formatting a second patch for
+  submission. Incremental traces for the host viewer use the live-trace helpers
+  in `simple_agent_lab.trace` — see
   `docs/agent-native/docker-live-trace.md`.
 - `evaluate_predictions.py` collects per-run `result.json` files into an official
   predictions JSONL (`--collect-predictions`) and runs or normalizes the official
@@ -208,7 +210,11 @@ The container half collects `model_patch` from a staged git diff after
 installing SWALM-style generated-file ignore rules in `.git/info/exclude`; this
 keeps build artifacts such as `build/`, `dist/`, `node_modules/`, and compiled
 language outputs out of the prediction without adding a `.gitignore` change to
-the patch.
+the patch. The model leaves its intended source changes in the workspace and
+finishes with a concise summary; the harness stages the workspace and collects
+the diff against the pre-agent baseline. The collected Git stdout is preserved
+exactly because trailing whitespace in a final context line is part of the
+unified-diff grammar and must never be stripped.
 
 Prepare provider wheels once on the host:
 
@@ -220,11 +226,15 @@ prepare_wheelhouse(Path("evals/out/swebench/wheelhouse/cp311-manylinux"))
 PY
 ```
 
-The run entry refreshes the local `simple-agent-lab` wheel every time it mounts
-a wheelhouse. This keeps cached third-party wheels reusable while preventing the
-container from installing an older build of the current checkout. If you see an
-import error for a symbol that exists in `src/simple_agent_lab/`, rerun the
-command; the run entry rebuilds the project wheel before starting Docker.
+The direct run entry refreshes the local `simple-agent-lab` wheel before it
+mounts a wheelhouse. This keeps cached third-party wheels reusable while
+preventing the container from installing an older build of the current
+checkout. If you see an import error for a symbol that exists in
+`src/simple_agent_lab/`, rerun the command; the run entry rebuilds the project
+wheel before starting Docker.
+Batch scripts prepare and atomically publish that wheel once before starting
+workers; workers reuse the immutable wheelhouse rather than concurrently
+rewriting an archive another container may be installing.
 
 The core runtime and normal CI do not require Docker or SWE-bench. To run the
 containerized SWE-bench adapters, install the optional SWE-bench dependencies in
@@ -255,19 +265,23 @@ The run entry also passes `NO_PROXY` and `no_proxy` through when they exist.
 
 The recommended entry points are the run scripts. With no instance argument,
 each script runs a small default instance. Passing one instance id runs that
-instance. Passing `--all` runs the full dataset split; use `--parallel N` to
-limit concurrent Docker/model runs:
+instance. Passing `--ids-file PATH` runs a selected subset, one instance id per
+non-empty line (`#` comments are allowed). Passing `--all` runs the full dataset
+split; use `--parallel N` to limit concurrent Docker/model runs:
 
 ```bash
 bash runs/swebench/run_swebench.sh
 bash runs/swebench/run_swebench.sh sympy__sympy-23824
+bash runs/swebench/run_swebench.sh --ids-file evals/out/swebench/ids.txt --parallel 4
 bash runs/swebench/run_swebench.sh --all --parallel 4
 
 bash runs/swebench/run_swebench.sh --variant multilingual
+bash runs/swebench/run_swebench.sh --variant multilingual --ids-file ids.txt --parallel 4
 bash runs/swebench/run_swebench.sh --variant multilingual --all --parallel 4
 
 bash runs/swebench/run_swebench.sh --variant pro
 bash runs/swebench/run_swebench.sh --variant pro instance_navidrome__navidrome-8e640bb8580affb7e0ea6225c0bbe240186b6b08
+bash runs/swebench/run_swebench.sh --variant pro --ids-file ids.txt --parallel 4
 bash runs/swebench/run_swebench.sh --variant pro --all --parallel 4
 ```
 
@@ -302,8 +316,8 @@ environment via the container-half `evaluate` hook (graded host-side with
 Outputs land under `evals/out/swebench/<run-id>/<instance-id>/out/`:
 
 - `trajectory.jsonl`: full agent trajectory (messages, events, model turns).
-- `result.json`: the run's `model_patch` (plus the in-environment verdict when
-  `--in-env-scoring` is set).
+- `result.json`: the run's collected `model_patch` and any in-environment
+  verdict when `--in-env-scoring` is set.
 
 The official judge runs in a separate clean container. First collect the per-run
 `result.json` files into an official predictions JSONL (the batch scripts do
@@ -317,7 +331,9 @@ uv run python evals/swebench/evaluate_predictions.py --collect-predictions \
   --predictions evals/out/swebench/my-run_predictions.jsonl
 ```
 
-then grade that file with the official harness (see below).
+Predictions collected by the run script are scoped by a run-local expected-ID
+file. A failed instance is emitted as an empty patch instead of disappearing
+from the denominator, and duplicate or unexpected instance IDs fail collection.
 
 ## Official Harness
 
@@ -364,7 +380,10 @@ bash runs/swebench/eval_swebench.sh --multilingual --run-official \
 Official SWE-bench Pro evaluation additionally requires a local checkout of
 `scaleapi/SWE-bench_Pro-os`. On first `--pro --run-official` use the harness
 auto-clones it into `evals/out/swebench_pro/official_harness` (and patches the
-docker-py socket timeout up to 600s), so no manual setup is needed.
+docker-py socket timeout up to 600s). The local wrapper also requires
+`git apply --check` and records a per-instance apply status; reset, checkout,
+check, or apply failure stops that instance and is always unresolved, while an
+ordinary nonzero test command still reaches the official parser.
 
 If your checkout is elsewhere, pass both Pro harness paths explicitly:
 

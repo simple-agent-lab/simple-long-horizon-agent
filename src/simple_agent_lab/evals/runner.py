@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -54,7 +55,7 @@ class RunPaths:
     prediction_jsonl: Path
 
 
-def _safe_part(value: str) -> str:
+def safe_path_part(value: str) -> str:
     """Filesystem/Docker-safe form of an id, collision-free across distinct ids.
 
     Plain ids (alnum / ``_.-``) are returned unchanged. When sanitization would
@@ -64,16 +65,30 @@ def _safe_part(value: str) -> str:
     """
 
     safe = "".join(c if c.isalnum() or c in "_.-" else "_" for c in value)
+    if not safe or safe in {".", ".."}:
+        safe = "run"
     if safe != value:
         digest = hashlib.sha1(value.encode("utf-8")).hexdigest()[:8]
         safe = f"{safe}-{digest}"
     return safe
 
 
+def _safe_part(value: str) -> str:
+    """Backward-compatible private name for :func:`safe_path_part`."""
+
+    return safe_path_part(value)
+
+
+def canonical_run_id(value: str) -> str:
+    """Return the single path-safe representation used for a run namespace."""
+
+    return safe_path_part(value)
+
+
 def prepare_run_directory(*, run_root: Path, run_id: str, instance_id: str) -> RunPaths:
     """Create the input/out dirs for one instance (ADR eval-output-directory-convention layout)."""
 
-    root = run_root.resolve() / _safe_part(run_id) / _safe_part(instance_id)
+    root = run_root.resolve() / canonical_run_id(run_id) / _safe_part(instance_id)
     input_dir = root / "input"
     output_dir = root / "out"
     input_dir.mkdir(parents=True, exist_ok=True)
@@ -86,6 +101,27 @@ def prepare_run_directory(*, run_root: Path, run_id: str, instance_id: str) -> R
         trajectory_jsonl=output_dir / TRACE_KEY.split("/")[-1],
         prediction_jsonl=output_dir / "prediction.jsonl",
     )
+
+
+def prepare_new_run_directory(*, run_root: Path, run_id: str) -> Path:
+    """Create a fresh run namespace, refusing to reuse existing artifacts."""
+
+    root = run_root.resolve() / canonical_run_id(run_id)
+    if root.exists() and any(root.iterdir()):
+        raise FileExistsError(
+            f"Run directory already contains artifacts: {root}. "
+            "Choose a new --run-id; exact run resume is not supported."
+        )
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def clear_run_outputs(paths: RunPaths) -> None:
+    """Remove products from an earlier execution of the same run/instance."""
+
+    if paths.output_dir.exists():
+        shutil.rmtree(paths.output_dir)
+    paths.output_dir.mkdir(parents=True, exist_ok=True)
 
 
 # Docker container names cap at 255 chars; long SWE-bench instance_ids + a long
@@ -121,7 +157,7 @@ def build_command(spec: RunSpec) -> tuple[str, ...]:
 
     runner_argv: list[str] = [
         "-m",
-        GENERIC_RUNNER_MODULE,
+        spec.runner_module,
         "--container-module",
         spec.container_module,
         "--suite-name",
@@ -161,6 +197,7 @@ def run_suite_instance(
     max_turns: int = 75,
     wall_time_seconds: float | None = None,
     provider_env: Mapping[str, str] | None = None,
+    runner_module: str = GENERIC_RUNNER_MODULE,
     install: bool = True,
     package_extras: tuple[str, ...] = (),
     wheelhouse_mount: str | None = None,
@@ -179,10 +216,11 @@ def run_suite_instance(
     """
 
     instance_id = str(instance["instance_id"])
-    launch_spec = suite.launch_spec(instance)
     paths = prepare_run_directory(
         run_root=run_root, run_id=run_id, instance_id=instance_id
     )
+    clear_run_outputs(paths)
+    launch_spec = suite.launch_spec(instance)
 
     # The agent must never see gold/private fields, so they are stripped here.
     # Oracle mode is the trusted exception: it *applies* the reference solution,
@@ -205,6 +243,7 @@ def run_suite_instance(
         provider=provider,
         api_kind=api_kind,
         provider_env=dict(provider_env or {}),
+        runner_module=runner_module,
         install=install,
         package_extras=package_extras,
         wheelhouse_mount=wheelhouse_mount,

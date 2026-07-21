@@ -53,7 +53,7 @@ class BashToolTest(unittest.TestCase):
         self.assertFalse(result.is_error)
         self.assertIn("hello", tool_result_text(result))
         self.assertEqual(result.details["exit_code"], 0)
-        self.assertEqual(result.details["raw_stdout"], "hello")
+        self.assertEqual(result.details["raw_stdout"], "hello\n")
 
     def test_successful_empty_output_reports_done(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -120,7 +120,7 @@ class BashToolTest(unittest.TestCase):
                 timeout_seconds=3,
             )
         self.assertEqual(execution.exit_code, 0)
-        self.assertEqual(execution.raw_stdout, "cat,1,off")
+        self.assertEqual(execution.raw_stdout, "cat,1,off\n")
 
     def test_caller_env_overrides_non_interactive_defaults(self) -> None:
         import os
@@ -571,7 +571,7 @@ class BashToolCrashSafetyTest(unittest.TestCase):
 
     def test_valid_utf8_emoji_passes_through(self) -> None:
         execution = run_bash("printf '🦀\\n'", cwd=ROOT, timeout_seconds=3)
-        self.assertEqual(execution.raw_stdout, "🦀")
+        self.assertEqual(execution.raw_stdout, "🦀\n")
         self.assertFalse(execution.is_error)
 
     def test_binary_output_via_tool_returns_structured_result(self) -> None:
