@@ -51,6 +51,7 @@ product direction, especially if future contributors may wonder why it was chose
 - [Trajectory Schema v5 — Append-only Event Stream](20260628-trajectory-schema-v5.md)
 - [Bound Filesystem Memory Growth](20260714-bound-filesystem-memory-growth.md)
 - [Serialize Filesystem Memory Consolidation](20260714-serialize-filesystem-memory-consolidation.md)
+- [Use Harbor as the Eval Harness for Harbor Datasets](20260706-harbor-as-eval-harness.md)
 
 ## Proposed
 

@@ -414,7 +414,9 @@ class SwebenchHarnessTest(unittest.TestCase):
         # Core runtime is pinned to exact versions (reproducible wheelhouse).
         self.assertRegex(text, r"(?m)^anthropic==")
         self.assertRegex(text, r"(?m)^openai==")
-        self.assertNotIn(">=", text)
+        for line in text.splitlines():
+            requirement = line.split(";", 1)[0].strip()
+            self.assertRegex(requirement, r"^[A-Za-z0-9_.-]+==[^<>=!~ ]+$")
         # Host-only dependencies (swebench extra + dev tools) stay out.
         self.assertNotRegex(text, r"(?m)^(datasets|docker|swebench|pytest|ruff)[=<>]")
 
