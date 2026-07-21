@@ -52,7 +52,6 @@ TRACE_RAW_KEY = "out/trajectory.jsonl.raw.jsonl"  # provider raw pool sidecar
 # package remains local-filesystem-only; container backends may bind-mount a host
 # directory and point in-container agent assembly at it with this env var.
 MEMORY_HOME_ENV = "SAL_MEMORY_HOME"
-MEMORY_ROOT_VIEW_ENV = "SAL_MEMORY_ROOT_VIEW"
 DEFAULT_MEMORY_CONTAINER_HOME = "/agent/memory"
 # Optional in-container memory namespace + run id. The host sets these so the
 # in-container assembly can name the FilesystemMemory namespace (e.g. the repo)

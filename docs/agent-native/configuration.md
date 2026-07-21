@@ -238,7 +238,6 @@ Owner: `src/simple_agent_lab/evals/protocols.py`. See `docs/agent-native/memory.
 | --- | --- | --- |
 | `SAL_MEMORY_HOME` | unset (memory off) | Filesystem memory root; presence opts the run into memory. |
 | `SAL_MEMORY_NAME` | unset | Memory namespace. |
-| `SAL_MEMORY_ROOT_VIEW` | `complete` | Set by container backends to `isolated` when only one namespace child is mounted; isolated writers may read but never clear a shared root-level write block. |
 | `SAL_MEMORY_RUN_ID` | unset | Run id scoping memory artifacts. |
 
 ## Trace

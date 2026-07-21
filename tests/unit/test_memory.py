@@ -18,6 +18,7 @@ from simple_agent_lab.llm import Provider
 from simple_agent_lab.memory import (
     FilesystemArtifact,
     FilesystemMemory,
+    FilesystemMemoryLimits,
     FilesystemMemoryPayload,
     Memory,
     MemoryContext,
@@ -793,6 +794,43 @@ class FilesystemMemoryTest(unittest.TestCase):
             index = (memory_dir / "INDEX.md").read_text(encoding="utf-8")
             self.assertIn("runs/r1/summary.md", index)
             self.assertEqual(index.count("runs/r1/summary.md"), 1)
+
+    def test_filesystem_memory_keeps_only_the_newest_bounded_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            memory = FilesystemMemory(
+                root=tmp,
+                limits=FilesystemMemoryLimits(max_runs_per_memory=2),
+            )
+            for run_id in ("r1", "r2", "r3"):
+                state = State(run_id)
+                state.send("task", "user", "agent", run_id)
+                memory.finish(
+                    MemoryContext(
+                        agent="agent",
+                        task=run_id,
+                        memory_name="demo",
+                        run_id=run_id,
+                        state=state,
+                    )
+                )
+
+            memory_dir = Path(tmp) / "demo"
+            self.assertEqual(
+                sorted(path.name for path in (memory_dir / "runs").iterdir()),
+                ["r2", "r3"],
+            )
+            index = (memory_dir / "INDEX.md").read_text(encoding="utf-8")
+            self.assertNotIn("runs/r1/summary.md", index)
+
+    def test_filesystem_memory_refuses_namespaces_above_the_cap(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            memory = FilesystemMemory(
+                root=tmp,
+                limits=FilesystemMemoryLimits(max_namespaces_per_root=1),
+            )
+
+            self.assertTrue(memory.admit_namespace("first"))
+            self.assertFalse(memory.admit_namespace("second"))
 
     def test_filesystem_memory_sanitizes_duplicate_artifact_names(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

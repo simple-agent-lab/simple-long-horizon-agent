@@ -55,7 +55,6 @@ from ..trace import event_stream, run_trace_from_state
 from .protocols import (
     MEMORY_HOME_ENV,
     MEMORY_NAME_ENV,
-    MEMORY_ROOT_VIEW_ENV,
     MEMORY_RUN_ID_ENV,
     RESULT_KEY,
     TRACE_KEY,
@@ -124,9 +123,6 @@ def memory_hooks_from_env(
         root=memory_home,
         distiller=make_filesystem_distiller(provider, request_extra=request_extra),
         artifact_builder=artifact_builder,
-        root_view_complete=(
-            source.get(MEMORY_ROOT_VIEW_ENV, "complete").strip().lower() != "isolated"
-        ),
     )
     ctx = MemoryContext(
         agent=agent_name,

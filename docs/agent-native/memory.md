@@ -230,14 +230,11 @@ Backends are implementation details. Possible backends include:
 
 - no-op or in-memory stores for tests and demos;
 - `FilesystemMemory`, which injects a filesystem memory directory policy, writes
-  bounded host-owned evidence files at run end, keeps retained `INDEX.md`
-  summary links valid, and can apply an optional distiller result to
-  `summary.md`, `INDEX.md`, `MEMORY.md`, and `memory_summary.md`. The distiller
-  returns the full updated `MEMORY.md` handbook (the model owns merging,
-  rewriting, and dropping lessons); `finish(...)` writes that rewrite when it
-  passes size, reference, and erasure guards, keeps the prior handbook on an
-  empty or rejected rewrite, and refreshes `memory_summary.md` when the
-  distiller did not provide one;
+  bounded evidence files at run end, keeps retained `INDEX.md` links valid, and
+  can apply an optional distiller result to `summary.md`, `INDEX.md`, `MEMORY.md`,
+  and `memory_summary.md`. The distiller may decline retention entirely; when it
+  returns a handbook, `finish(...)` accepts the complete rewrite only after the
+  existing size and erasure guards;
 - SQLite or JSONL records;
 - a vector index;
 - a remote memory service.
@@ -247,18 +244,9 @@ read-distill-commit operation with one inter-process lock per memory root. The
 lock includes the optional model call because `MEMORY.md` is a full rewrite and
 because the distiller may choose the final namespace only after reading prior
 memory. Temporary-file replacement remains responsible for per-file atomicity;
-it is not a substitute for this logical single-writer boundary. A container
-that mounts only one namespace child must separately bind the shared host root
-lock directory into `<memory-root>/.memory-lock/`; mounting one lock file is not
-enough because `filelock` may unlink and recreate it. The host chain runner also
-runs root-wide maintenance before and after a child-isolated batch, because one
-child mount cannot count sibling namespaces. The Docker mount setup creates the
-lock directory and file on the host first. A root-run worker uses that shared
-owner to transfer new and legacy visible memory back to the host owner while
-keeping private directory/file modes; it never solves cross-UID access by making
-transcripts world-readable or writable. See ADR
+it is not a substitute for this logical single-writer boundary. See ADR
 [serialize-filesystem-memory-consolidation](../decisions/20260714-serialize-filesystem-memory-consolidation.md).
-Storage, retry, and routing limits are recorded in ADR
+The deliberately small storage limits are recorded in ADR
 [bound-filesystem-memory-growth](../decisions/20260714-bound-filesystem-memory-growth.md).
 
 Keep the package facade small. Top-level imports should expose the memory
@@ -316,10 +304,10 @@ Generalized shape:
   namespace names.
 - The model reads memory through existing file tools such as bash or an MCP
   filesystem server.
-- At run end, the host can write bounded `task.md`, `transcript.md`, and generic
-  `artifacts/*` snapshots, then optionally runs a no-tools distillation pass to
-  update concise summaries, the run index, and a durable handbook. A successful
-  distiller no-op (`retain_run=false`) skips the evidence write entirely.
+- At run end, the host writes bounded `task.md`, `transcript.md`, generic
+  `artifacts/*`, and optionally runs a no-tools distillation pass to update
+  concise summaries, the run index, and a durable handbook. A successful
+  distiller no-op writes nothing.
 
 Default layout:
 
@@ -337,9 +325,7 @@ Default layout:
             ├── artifacts/
             │   └── submission.txt
             ├── memory_error.md   # optional, only when memory writing fails
-            ├── summary.md
-            ├── .pending.json     # writing or bounded prepared-plan journal
-            └── .commit.json      # host-owned idempotency/ordering metadata
+            └── summary.md
 ```
 
 Mapping to this sketch:
@@ -353,10 +339,9 @@ Mapping to this sketch:
   layer may contribute no tools of its own.
 - Evidence writing and summary/index updates are `finish(...)` learner/sink
   work. Bounded run evidence and a minimal `summary.md` are still written when
-  optional distillation fails, so retained `INDEX.md` rows never point at a
-  missing summary. Distillation failures can leave a compact `memory_error.md`
-  marker while skipping only learned `MEMORY.md` updates. A successful
-  `retain_run=false` result is the disk no-op path.
+  optional distillation fails, so `INDEX.md` never points at a missing summary.
+  Distillation failures can leave a compact `memory_error.md` marker while
+  skipping only learned `MEMORY.md` updates.
 - `MEMORY.md` is a single model-owned handbook. The distiller is shown the
   current `MEMORY.md` and returns the complete updated file, doing its own
   merging, rewriting, deduplication, and pruning; `finish(...)` keeps no
@@ -367,8 +352,8 @@ Mapping to this sketch:
   `memory_summary.md` is still rebuilt from `INDEX.md` when no model-provided
   summary was accepted.
 - `make_filesystem_distiller(provider)` builds an explicit no-tools LLM
-  distiller. It chooses `retain_run` and `memory_name` after seeing the completed
-  run evidence, then returns a per-run summary, index row, the full rewritten
+  distiller. It chooses `memory_name` after seeing the completed run evidence,
+  then returns `retain_run`, a per-run summary, index row, the full rewritten
   `MEMORY.md` handbook (`memory_md`), and optionally a refreshed
   `memory_summary.md` for that namespace. Use the same
   provider as the main agent when you want the same model, but keep the extra
@@ -409,120 +394,23 @@ as a memory-path choice and let evals handle the container mechanics:
 read-write and exposes `SAL_MEMORY_HOME` inside the container. Memory
 implementations should not import Docker or evals; they should only receive the
 local path chosen by the assembly code, such as `FilesystemMemory(root=...)`.
+Child-only namespace mounts also share the root `.memory-lock/` directory so
+their read-distill-write sections remain serialized.
 
 The run directory is `runs/{run_id}`; if `run_id` is omitted, the implementation
-falls back to `session_id`, then a microsecond timestamp. The bounded evidence
-fingerprint makes an exact retry idempotent, before another distiller call. If a
-caller intentionally reuses an id with different evidence, the second logical
-run receives a deterministic `--{content_hash}` suffix; it never globally
-rewrites old handbook references.
-
-`FilesystemMemoryLimits` holds the public budgets. Defaults keep 64 runs and at
-most 128 MiB per namespace, plus root-wide targets of 1,024 runs, 512 MiB, and
-128 namespace directories. The SWE memory-chain runner may raise only the last
-value for a fresh run-local root to the already-known finite planned namespace
-count and records it in `experiment.json`; a reused `--memory-home` stays at 128
-unless the operator explicitly passes a positive
-`--memory-max-namespaces`. Task/transcript limits are 20,000/1,000,000 bytes;
-one run keeps at most 16 artifacts, 500,000 bytes each and 1,000,000 bytes in
-total. Run and navigation summaries are capped at 12,000 characters, and each
-index cell at 2,000. The handbook cap is 20,000 characters, with at most 32 run
-references per namespace and a 128-reference root-wide target (a hard rewrite
-guard only when the writer can see the full root). The final
-distiller prompt is capped at 512 KiB of UTF-8 bytes; the built-in provider
-distiller lowers that limit when provider context-window metadata requires it.
-The minimum supported rendered-prompt ceiling is 16,000 bytes; constructing the
-built-in distiller fails clearly if its output and safety reserves leave less
-usable input room. Text writers pin LF newlines on every platform, so Windows
-newline translation cannot make persisted evidence exceed the UTF-8 byte count
-used by these budgets.
-
-Retention runs under the same consolidation lock before and after commit. It
-keeps the current run and evidence cited by `MEMORY.md`, removes the oldest
-other runs until namespace and root count/byte targets hold, filters `INDEX.md`,
-and rebuilds `memory_summary.md`. Every deletion is verified before counts or
-bytes are reduced. A permission failure therefore leaves the run visible and
-produces a stable warning instead of false convergence. A post-commit deletion
-failure can temporarily leave the count at its target plus one; all subsequent
-evidence for that namespace or root is refused until maintenance actually
-removes the excess. The current maintenance result enforces this even if the
-warning path is unwritable. Early `writing` pending
-directories are removed across all namespaces. A v2 `prepared` marker contains
-a bounded commit plan and before/proposed handbook hashes; the next lock holder
-forward-completes it without another model call or a duplicate handbook lesson.
-If that recovery remains blocked, both retention passes pin the pending run and
-the namespace refuses new evidence until recovery succeeds; a persistent file
-error therefore overwrites stable warnings instead of adding one prepared run
-per attempt.
-A failed atomic replacement normally deletes its hidden `.*.tmp` file. If the
-filesystem also refuses that deletion, memory creates one direct, stable
-`.memory-write-blocked` sentinel in the affected namespace (or shared
-`.memory-lock/root-write-blocked` for a root-level write) and stops all further
-writes visible in that scope. A later
-maintenance pass removes the sentinel only after it can inspect the same scope
-and delete all stale temps. Namespace-local placement prevents a child-only
-container from clearing a sibling namespace's block merely because that sibling
-is outside its mount view; `SAL_MEMORY_ROOT_VIEW=isolated` also makes every
-child honor, but never clear, the shared root-level block.
-A legacy handbook that pins too much evidence, root-wide citation pressure, or
-an unremovable tree produces one stable `retention_warning.md`; it does not
-create a new error file per run.
+falls back to `session_id`, then a timestamp. A complete existing run with the
+same id makes `finish(...)` a no-op; callers that need distinct attempts must use
+distinct run ids. Each namespace keeps at most 64 runs and 128 MiB, pruning the
+oldest evidence and its index row after a write. Task, transcript, artifact, and
+namespace-count limits live together in `FilesystemMemoryLimits`.
 
 If the caller passes `memory_name` explicitly, `initial(...)` can expose that
 memory directory before the run so the model may inspect prior memory. If the
 caller omits it but prior memory namespaces exist, `initial(...)` can expose the
-root and at most 64 recent namespace names for lightweight selection; each
-description is at most 200 characters and the names section is at most 8,000
-bytes. The
-distiller still chooses the final namespace after the completed transcript and
-artifacts are available, but receives detailed context for at most eight recent
-namespaces. Automatic routing may create up to 64 learned namespaces and then
-uses stable `default`; a missing/failed distiller also uses `default`, never the
-session id. A new explicit caller namespace is never redirected, but a general
-or reused root admits no more than 128 by default. Batch admission checks the
-whole requested set under one lock and fails closed when adding it would cross
-the configured finite cap. If a new layout fails, the other newly-created batch
-layouts are rolled back without touching existing namespaces. Admission never deletes an
-empty-looking namespace because that directory may belong to an active run
-between `initial(...)` and `finish(...)`. An already-existing namespace remains
-usable when a legacy root is over the cap, which allows consolidation without
-permitting further directory growth.
-
-Namespace components that are already portable ASCII names stay unchanged.
-Names containing separators or surrounding whitespace, names longer than 80
-characters, root-reserved filenames, Windows device basenames, and names using
-the internal `salm-` prefix are encoded with a 20-hex-character SHA-256 suffix.
-This avoids the old lossy `a/b` -> `a_b` collision. Exact physical names returned
-by `available_memories()` round-trip as selectors, while a new raw name cannot
-impersonate a generated path; aliases that differ only by case are refused so a
-root created on Linux remains unambiguous on case-insensitive filesystems. The
-SWE chain runner uses a separate `salx-` encoding whose output is already a
-filesystem-memory fixed point. Ambiguous directories made by the old lossy
-encoder are not guessed or silently reused and should be migrated explicitly.
-Only real namespace directories are eligible for recall or writes. A namespace
-symlink is still counted conservatively for admission and retention, but
-maintenance fails closed instead of traversing, changing ownership of, or
-creating skeleton files in its external target.
-
-Root-wide run/byte/reference values are retention targets, while namespace
-admission and per-run evidence budgets provide the deterministic new-growth
-boundary. Per-namespace run/byte/reference values preserve cited or unreadable
-legacy overages with a warning; a handbook already over its reference target is
-accepted only when the rewrite strictly decreases that count.
-In a child-isolated eval container, sibling handbooks are invisible, so the
-128-reference root target cannot be a hard write gate: host maintenance detects
-and warns on an overage before/after the batch. New nondecreasing rewrites are
-guarded at 32 references per namespace; together with the configured finite
-namespace cap (128 by default, or the recorded planned count for a fresh
-run-local eval), new cited evidence cannot grow without bound. Reaching a root
-target never
-authorizes deleting cited evidence or a whole namespace automatically.
-
-A complete `MEMORY.md` replacement is accepted only if that target handbook was
-loaded in full. For one-pass dynamic routing, a run may be indexed into an older
-namespace whose handbook was not among the detailed contexts; in that case the
-host keeps the existing handbook and writes a compact rejection marker instead
-of risking silent lesson loss.
+root and at most 64 namespace names for lightweight selection. The distiller
+still chooses the final namespace after the completed transcript and artifacts
+are available, and sees detailed context for at most eight existing namespaces.
+New namespaces are refused after the configured root count (128 by default).
 
 Domain-specific details to generalize:
 
@@ -533,10 +421,9 @@ Domain-specific details to generalize:
   medical tasks can store extracted findings or recommendations.
 - Keep index fields generic: `Summary`, `Scope`, `Signals`, `Keywords`, and
   `Artifacts` instead of SWE-only files, symbols, tests, and errors.
-- Preserve the broader rule: bounded evidence snapshots are host-written,
-  distilled memory is concise, and official benchmark labels or scoring
-  outcomes must not leak into future runs. Complete audit trajectories belong
-  in the trace or artifact store, not the active memory cache.
+- Preserve the broader rule: raw evidence is host-written, distilled memory is
+  concise, and official benchmark labels or scoring outcomes must not leak into
+  future runs.
 - Borrow the progressive disclosure shape from Codex without the full pipeline:
   `memory_summary.md` is the cold-start navigation file, `MEMORY.md` is the
   durable handbook, `INDEX.md` routes to per-run evidence, and transcripts stay

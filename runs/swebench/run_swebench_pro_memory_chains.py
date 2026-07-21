@@ -378,9 +378,9 @@ def main() -> None:
         else None
     )
     if host_memory is not None:
-        # Child-only container mounts intentionally cannot see sibling
-        # namespaces. Converge root-wide quotas from the host before and after
-        # the batch, under the same shared lock directory used by containers.
+        # Child-only container mounts cannot maintain sibling namespaces. Run
+        # the same simple per-namespace cleanup from the host before and after
+        # the batch, under the lock directory shared with containers.
         host_memory.maintain()
         requested_namespaces = tuple(memory_namespaces.values())
         if not host_memory.admit_namespaces(requested_namespaces):

@@ -28,7 +28,6 @@ from ..protocols import (
     ContainerBinding,
     DEFAULT_MEMORY_CONTAINER_HOME,
     MEMORY_HOME_ENV,
-    MEMORY_ROOT_VIEW_ENV,
     RunHandle,
     RunOutcome,
     RunSpec,
@@ -206,7 +205,6 @@ def with_local_mounts(
         container_root = (memory_env_home or memory_mount).rstrip("/")
         env[MEMORY_HOME_ENV] = container_root
         root_view_isolated = container_root != memory_mount.rstrip("/")
-        env[MEMORY_ROOT_VIEW_ENV] = "isolated" if root_view_isolated else "complete"
         separate_lock_mount = bool(memory_lock_dir) or root_view_isolated
         if memory_lock_dir:
             lock_path = Path(memory_lock_dir).expanduser()
