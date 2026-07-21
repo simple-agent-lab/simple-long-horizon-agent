@@ -15,7 +15,7 @@ Example smoke:
 
     uv run --extra swebench python runs/swebench/run_swebench_pro_repo_chains.py \
       --chains-json evals/swebench/data/swe_bench_pro_chain_experiment_nodes_deep.jsonl \
-      --max-chains 1 --limit 2 --max-turns 5 --skip-official-eval
+      --max-chains 1 --limit 2 --max-turns 5
 
 Formal run shape:
 
@@ -69,9 +69,7 @@ from evals.swebench.pro_memory_chain import (  # noqa: E402
     plan_memory_chains,
 )
 from evals.swebench.pro_repo_chain import (  # noqa: E402
-    DEFAULT_PRESERVE_KINDS,
     ProRepoExperimentConfig,
-    RepoChainPart,
     group_instances_by_repo,
 )
 from evals.swebench.suite import SwebenchSuite  # noqa: E402
@@ -97,16 +95,10 @@ from simple_agent_lab.llm.env import (  # noqa: E402
     OPENAI_MODEL_ENV,
     OPENAI_REASONING_EFFORT_ENV,
     REASONING_EFFORT_ENV,
-    provider_from_env,
-    request_extra_from_env,
 )
-from simple_agent_lab.llm.provider import api_kind_defaults  # noqa: E402
 from simple_agent_lab.trace import write_jsonl_atomic  # noqa: E402
-from simple_agent_lab.protocols import Event, TurnStartEvent  # noqa: E402
 
-ENCRYPTED_REASONING_INCLUDE = "reasoning.encrypted_content"
 PRO_REPO_CHAIN_RUNNER_MODULE = "simple_agent_lab.evals.chain"
-REPO_CHAIN_MODE = "repo_chain"
 REPO_CHAIN_AGENT_FLAVORS = ("bash", "loop", "pdr")
 
 
@@ -123,8 +115,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--chains-json",
         default=None,
         help=(
-            "Required chain manifest: either a flat chain-nodes JSONL "
-            "(one node per line) or a nested issue-chains JSON. To use the "
+            "Required chain-nodes JSONL manifest (one node per line). To use the "
             "vendored deep manifest, pass "
             "evals/swebench/data/swe_bench_pro_chain_experiment_nodes_deep.jsonl. "
             "The resulting units are run with repo-chain context, not memory."
@@ -187,7 +178,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=ProRepoExperimentConfig.agent_flavor,
         choices=REPO_CHAIN_AGENT_FLAVORS,
         help=(
-            "Agent flavor for each repo-chain part. Repo chains intentionally "
+            "Agent flavor for each repo-chain unit. Repo chains intentionally "
             "exclude read-tool flavors; use --task-tool to add task."
         ),
     )
@@ -242,10 +233,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--parallel",
         default="slots",
-        help=(
-            "'slots' to size the pool from --provider-auth-envs, or an integer. "
-            "'parts' is accepted as a compatibility alias."
-        ),
+        help=("'slots' to size the pool from --provider-auth-envs, or an integer."),
     )
     parser.add_argument(
         "--provider-auth-envs",
@@ -271,11 +259,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--keep-container", action="store_true")
     parser.add_argument("--docker-timeout-seconds", type=float, default=300.0)
-    parser.add_argument(
-        "--skip-official-eval",
-        action="store_true",
-        help="Only run inference and collect predictions.",
-    )
     parser.add_argument(
         "--plan-only",
         action="store_true",
@@ -307,7 +290,7 @@ def main() -> None:
     args = build_parser().parse_args()
     if not args.all and not args.repos and not args.instance_json:
         raise SystemExit("Pass --all, --repos REPO..., or --instance-json PATH.")
-    _chains_json_path(args)
+    chains_path = _chains_json_path(args)
 
     harness.load_dotenv(args.dotenv)
     _apply_provider_env_overrides(args)
@@ -316,16 +299,18 @@ def main() -> None:
     args.run_id = canonical_run_id(_resolve_run_id(args.run_id, config))
     run_root = Path(args.run_root)
     rows = _load_rows(args)
-    raw_chains = _load_chains(args)
+    raw_chains = load_issue_chains(chains_path)
     chains, manifest = _plan_groups(
-        rows, raw_chains=raw_chains, args=args, run_root=run_root, config=config
+        rows,
+        raw_chains=raw_chains,
+        chains_path=chains_path,
+        args=args,
+        config=config,
     )
     if not chains:
         raise SystemExit("No SWE-bench Pro instances selected.")
     provider_auth_slots = _expand_auth_slots(args.provider_auth_envs)
-    parallel = _resolve_parallel(
-        args.parallel, chain_count=len(chains), slot_count=len(provider_auth_slots)
-    )
+    parallel = _resolve_parallel(args.parallel, slot_count=len(provider_auth_slots))
     lane_slots = lane_auth_slots(provider_auth_slots, parallel)
     manifest["resolved_parallel"] = parallel
     manifest["provider_auth"] = _provider_auth_manifest(
@@ -340,7 +325,7 @@ def main() -> None:
         raise SystemExit(str(exc)) from None
     predictions_path = batch_dir / f"{args.run_id}_predictions.jsonl"
     instances_json = batch_dir / "instances.jsonl"
-    _write_jsonl_records(instances_json, planned_rows)
+    write_jsonl_atomic(instances_json, planned_rows)
     _write_json(batch_dir / "experiment.json", manifest)
 
     print("=== SWE-bench Pro repo-chain experiment ===")
@@ -385,7 +370,7 @@ def main() -> None:
 
     _validate_provider_envs(lane_slots, api_kind=config.api_kind)
 
-    wheelhouse = _resolve_wheelhouse(args)
+    wheelhouse = Path(args.wheelhouse or harness.DEFAULT_PRO_WHEELHOUSE).resolve()
     harness.prepare_wheelhouse_for_run(
         wheelhouse,
         prepare_all=args.prepare_wheelhouse,
@@ -454,7 +439,7 @@ def main() -> None:
 
     if skipped_instances:
         skipped_path = batch_dir / "skipped_instances.jsonl"
-        _write_jsonl_records(skipped_path, skipped_instances)
+        write_jsonl_atomic(skipped_path, skipped_instances)
         print(f"wrote {len(skipped_instances)} skipped instances: {skipped_path}")
 
     predictions = predictions_from_run_dirs(
@@ -467,7 +452,7 @@ def main() -> None:
     write_jsonl_atomic(predictions_path, predictions)
     print(f"wrote {len(predictions)} predictions: {predictions_path}")
 
-    if args.run_official_eval and not args.skip_official_eval:
+    if args.run_official_eval:
         _run_official_eval(
             predictions_path=predictions_path,
             instances_json=instances_json,
@@ -511,9 +496,7 @@ def _experiment_config_from_args(
         context_window_tokens=args.context_window_tokens,
         threshold_tokens=args.threshold_tokens,
         keep_recent=args.keep_recent,
-        preserve_kinds=DEFAULT_PRESERVE_KINDS,
         agent_flavor=args.agent_flavor,
-        solver_read=False,
         task_tool=bool(args.task_tool),
         compression_strategy=args.compression_strategy,
         handoff=bool(args.handoff),
@@ -565,16 +548,6 @@ def _load_rows(args: argparse.Namespace) -> list[dict[str, Any]]:
     return [dict(row) for row in load_dataset(args.dataset_name, split=args.split)]
 
 
-def _load_chains(args: argparse.Namespace) -> list[RawIssueChain]:
-    path = _chains_json_path(args)
-    if not path.exists():
-        raise SystemExit(
-            f"--chains-json not found: {path}. Pass a chain-nodes JSONL "
-            "or issue-chains JSON."
-        )
-    return load_issue_chains(path)
-
-
 def _chains_json_path(args: argparse.Namespace) -> Path:
     value = str(args.chains_json or "").strip()
     if not value:
@@ -582,18 +555,22 @@ def _chains_json_path(args: argparse.Namespace) -> Path:
             "Pass --chains-json PATH for the exact chain manifest to use, e.g. "
             "evals/swebench/data/swe_bench_pro_chain_experiment_nodes_deep.jsonl."
         )
-    return Path(value).expanduser()
+    path = Path(value).expanduser()
+    if not path.exists():
+        raise SystemExit(
+            f"--chains-json not found: {path}. Pass a chain-nodes JSONL manifest."
+        )
+    return path
 
 
 def _plan_groups(
     rows: list[dict[str, Any]],
     *,
     raw_chains: list[RawIssueChain],
+    chains_path: Path,
     args: argparse.Namespace,
-    run_root: Path,
     config: ProRepoExperimentConfig,
-) -> tuple[dict[str, RepoChainPart], dict[str, Any]]:
-    del run_root
+) -> tuple[dict[str, MemoryChain], dict[str, Any]]:
     selected_rows, selected_repos = _selected_rows(rows, args=args)
     selected_raw_chains = [
         chain
@@ -607,56 +584,41 @@ def _plan_groups(
         singleton_memory=False,
     )
     units = _select_units(plan.chains, args=args)
-    chains: dict[str, RepoChainPart] = {}
+    chains: dict[str, MemoryChain] = {}
     order_manifest: list[dict[str, Any]] = []
     print(
         f"[plan] ordering {len(units)} memory-chain unit(s) longest-first",
         flush=True,
     )
     for index, unit in enumerate(units, start=1):
-        chain_id = _unique_chain_id(unit.chain_id, chains)
         print(
-            f"[plan] {index}/{len(units)} {chain_id}: {len(unit.rows)} instance(s)",
+            f"[plan] {index}/{len(units)} {unit.chain_id}: {unit.length} instance(s)",
             flush=True,
         )
-        part = RepoChainPart(
-            chain_id=chain_id,
-            repo=unit.repo,
-            part_index=1,
-            part_count=1,
-            rows=tuple(dict(row) for row in unit.rows),
-        )
-        chains[chain_id] = part
+        chains[unit.chain_id] = unit
         order_manifest.append(
             {
-                "chain_id": chain_id,
-                "source_chain_id": unit.chain_id,
+                "chain_id": unit.chain_id,
                 "repo": unit.repo,
                 "source": unit.source,
-                "length": len(unit.rows),
-                "instance_count": len(unit.rows),
-                "memory_enabled": unit.memory_enabled,
-                "instance_ids": [
-                    str(row.get("instance_id") or "") for row in unit.rows
-                ],
+                "length": unit.length,
+                "instance_ids": unit.instance_ids,
             }
         )
 
     manifest = {
         "schema": "simple-agent-lab.swebench-pro-repo-chain-experiment.v1",
         "plan_source": "memory_issue_chains",
-        "chains_json": str(_chains_json_path(args)),
+        "chains_json": str(chains_path),
         "run_id": args.run_id,
         "config": config.as_record(),
         "repo_count": len({chain.repo for chain in chains.values()}),
         "run_unit_count": len(units),
-        "chain_part_count": len(chains),
         "chain_count": sum(1 for unit in units if not unit.is_singleton),
-        "instance_count": sum(len(chain.rows) for chain in chains.values()),
+        "instance_count": sum(chain.length for chain in chains.values()),
         "chain_instance_count": sum(
-            len(unit.rows) for unit in units if not unit.is_singleton
+            unit.length for unit in units if not unit.is_singleton
         ),
-        "memory_chain_count": sum(1 for unit in units if not unit.is_singleton),
         "singleton_count": sum(1 for unit in units if unit.is_singleton),
         "missing_instance_ids": list(plan.missing_instance_ids),
         "duplicate_instance_ids": list(plan.duplicate_instance_ids),
@@ -672,7 +634,7 @@ def _plan_groups(
 def _longest_chain(manifest: Mapping[str, Any]) -> int:
     return max(
         (
-            int(entry.get("length") or entry.get("instance_count") or 0)
+            int(entry.get("length") or 0)
             for entry in manifest.get("order", [])
             if entry.get("source") != "singleton"
         ),
@@ -763,15 +725,6 @@ def _per_repo_plan_counts(units: list[MemoryChain]) -> dict[str, dict[str, int]]
     return {repo: dict(counts) for repo, counts in sorted(per_repo.items())}
 
 
-def _unique_chain_id(chain_id: str, existing: Mapping[str, RepoChainPart]) -> str:
-    if chain_id not in existing:
-        return chain_id
-    index = 2
-    while f"{chain_id}#{index}" in existing:
-        index += 1
-    return f"{chain_id}#{index}"
-
-
 def _expand_auth_slots(value: str | None) -> list[str]:
     try:
         return expand_auth_slots(value, default_env=OPENAI_ENV.auth)
@@ -796,38 +749,6 @@ def _provider_auth_slot_summary(auth_envs: list[str]) -> list[dict[str, Any]]:
         else:
             summary.append({"auth_env": auth_env, "lanes": 1})
     return summary
-
-
-def _providers_from_auth_envs(auth_envs: list[str], *, api_kind: str) -> dict[str, Any]:
-    providers: dict[str, Any] = {}
-    defaults = api_kind_defaults(api_kind)
-    for auth_env in dict.fromkeys(auth_envs):
-        providers[auth_env] = provider_from_env(
-            replace(OPENAI_ENV, auth=auth_env),
-            api_kind=api_kind,
-            default_temperature=defaults.default_temperature,
-            read_reasoning=True,
-            label=f"SWE-bench Pro repo-chain provider ({auth_env})",
-        )
-    return providers
-
-
-def _request_extra_for_api_kind(api_kind: str) -> dict[str, Any]:
-    """Build per-request extras for the selected adapter."""
-
-    extra = request_extra_from_env()
-    if api_kind != "openai-responses":
-        return extra
-    include = list(extra.get("include") or [])
-    if ENCRYPTED_REASONING_INCLUDE not in include:
-        include.append(ENCRYPTED_REASONING_INCLUDE)
-    extra["include"] = include
-    return extra
-
-
-def _resolve_wheelhouse(args: argparse.Namespace) -> Path | None:
-    wheelhouse_arg = args.wheelhouse or str(harness.DEFAULT_PRO_WHEELHOUSE)
-    return Path(wheelhouse_arg).resolve() if wheelhouse_arg else None
 
 
 def _provider_env_for_auth_env(auth_env: str, *, api_kind: str) -> dict[str, str]:
@@ -875,7 +796,7 @@ def _validate_provider_envs(auth_envs: list[str], *, api_kind: str) -> None:
 
 
 def _chain_config_payload(
-    chain: RepoChainPart,
+    chain: MemoryChain,
     *,
     config: ProRepoExperimentConfig,
     provider_auth_env: str,
@@ -883,14 +804,10 @@ def _chain_config_payload(
     write_trajectories: bool,
 ) -> dict[str, Any]:
     return {
-        "mode": REPO_CHAIN_MODE,
         "repo": chain.repo,
         "chain_id": chain.chain_id,
-        "chain_display_name": _chain_display_name(chain),
-        "part_index": chain.part_index,
-        "part_count": chain.part_count,
         "position": position,
-        "instances_in_chain": len(chain.rows),
+        "instances_in_chain": chain.length,
         "provider_auth_env": provider_auth_env,
         "write_trajectories": bool(write_trajectories),
         "config": config.as_record(),
@@ -898,7 +815,7 @@ def _chain_config_payload(
 
 
 def _run_repo_with_slot(
-    chain: RepoChainPart,
+    chain: MemoryChain,
     *,
     args: argparse.Namespace,
     config: ProRepoExperimentConfig,
@@ -908,7 +825,7 @@ def _run_repo_with_slot(
     backend: LocalDockerBackend,
     store: LocalDirStore,
     predictions_path: Path,
-    prediction_lock: threading.Lock | None,
+    prediction_lock: threading.Lock,
     expected_instance_ids: tuple[str, ...],
 ) -> dict[str, Any]:
     provider_auth_env = slot_pool.get()
@@ -931,7 +848,7 @@ def _run_repo_with_slot(
 
 
 def _run_repo(
-    chain: RepoChainPart,
+    chain: MemoryChain,
     *,
     args: argparse.Namespace,
     config: ProRepoExperimentConfig,
@@ -941,7 +858,7 @@ def _run_repo(
     backend: LocalDockerBackend,
     store: LocalDirStore,
     predictions_path: Path,
-    prediction_lock: threading.Lock | None,
+    prediction_lock: threading.Lock,
     expected_instance_ids: tuple[str, ...],
 ) -> dict[str, Any]:
     repo = chain.repo
@@ -989,14 +906,12 @@ def _run_repo(
                 store=store,
                 run_root=run_root,
                 run_id=args.run_id,
-                provider="openai",
                 api_kind=config.api_kind,
                 max_turns=config.max_turns,
                 provider_env=_provider_env_for_auth_env(
                     provider_auth_env, api_kind=config.api_kind
                 ),
                 runner_module=PRO_REPO_CHAIN_RUNNER_MODULE,
-                package_extras=(),
                 wheelhouse_mount=harness.DEFAULT_WHEELHOUSE_MOUNT,
                 name=container,
             )
@@ -1039,7 +954,6 @@ def _run_repo(
             )
 
         result.setdefault("agent_flavor", config.agent_flavor)
-        result.setdefault("solver_read", config.solver_read)
         result.setdefault("task_tool", config.task_tool)
         result.setdefault("compression_strategy", config.compression_strategy)
         result.setdefault("handoff_written", False)
@@ -1059,8 +973,6 @@ def _run_repo(
             skipped_record = {
                 "repo": repo,
                 "chain_id": chain_id,
-                "part_index": chain.part_index,
-                "part_count": chain.part_count,
                 "instance_id": instance_id,
                 "position": position,
                 "reason": str(result.get("skip_reason") or ""),
@@ -1083,22 +995,18 @@ def _run_repo(
         )
 
     repo_dir = run_root / args.run_id / "_repo_chains" / safe_path_part(chain_id)
-    repo_dir.mkdir(parents=True, exist_ok=True)
     if skipped_records:
-        _write_jsonl_records(repo_dir / "skipped_instances.jsonl", skipped_records)
+        write_jsonl_atomic(repo_dir / "skipped_instances.jsonl", skipped_records)
     _write_json(
         repo_dir / "summary.json",
         {
             "repo": repo,
             "chain_id": chain_id,
-            "part_index": chain.part_index,
-            "part_count": chain.part_count,
             "instances": len(rows),
             "errors": errors,
             "skipped": len(skipped_records),
             "provider_auth_env": provider_auth_env,
             "agent_flavor": config.agent_flavor,
-            "solver_read": config.solver_read,
             "task_tool": config.task_tool,
             "compression_strategy": config.compression_strategy,
             "handoff": config.handoff,
@@ -1111,7 +1019,6 @@ def _run_repo(
         "instances": len(rows),
         "errors": errors,
         "skipped": len(skipped_records),
-        "provider_auth_env": provider_auth_env,
         "skipped_records": skipped_records,
         "handoffs": handoffs_total,
         "mid_instance_handoffs": mid_instance_handoffs_total,
@@ -1136,7 +1043,7 @@ def _load_result_or_error(
     path: Path,
     *,
     instance_id: str,
-    chain: RepoChainPart,
+    chain: MemoryChain,
     provider_auth_env: str,
     error: str,
 ) -> dict[str, Any]:
@@ -1145,23 +1052,10 @@ def _load_result_or_error(
     return {
         "model_patch": "",
         "instance_id": instance_id,
-        "repo": chain.repo,
         "chain_id": chain.chain_id,
-        "chain_part_index": chain.part_index,
-        "chain_part_count": chain.part_count,
-        "provider_auth_env": provider_auth_env,
         "status": "error" if error else "ok",
         "error": error,
-        "skip_reason": "",
-        "invalid_prompt_retries": 0,
-        "handoff_written": False,
-        "boundary_handoff_written": False,
-        "context_window_handoffs": 0,
-        "chain_window_index": 1,
-        "baseline_commit": "",
-        "compression_metrics": {},
-        "chain_event_start": 0,
-        "chain_event_end": 0,
+        "provider_auth_env": provider_auth_env,
     }
 
 
@@ -1177,11 +1071,11 @@ def _write_incremental_predictions(
     model_name: str,
     dataset_name: str,
     expected_instance_ids: tuple[str, ...],
-    lock: threading.Lock | None,
+    lock: threading.Lock,
 ) -> None:
     """Refresh the run-level predictions file after each completed instance."""
 
-    def write() -> None:
+    with lock:
         predictions = predictions_from_run_dirs(
             run_root,
             run_id=run_id,
@@ -1190,23 +1084,6 @@ def _write_incremental_predictions(
             expected_instance_ids=expected_instance_ids,
         )
         write_jsonl_atomic(predictions_path, predictions)
-
-    if lock is None:
-        write()
-        return
-    with lock:
-        write()
-
-
-def _chain_display_name(chain: RepoChainPart) -> str:
-    if chain.part_count == 1:
-        return chain.repo
-    return f"{chain.repo} part {chain.part_index}/{chain.part_count}"
-
-
-def _remaining_turn_budget(events: list[Event], max_turns: int) -> int:
-    used = sum(1 for event in events if isinstance(event, TurnStartEvent))
-    return max(0, max_turns - used)
 
 
 def _run_official_eval(
@@ -1243,32 +1120,16 @@ def _force_remove_container(name: str) -> None:
     )
 
 
-def _resolve_parallel(
-    value: str, *, chain_count: int, slot_count: int | None = None
-) -> int:
+def _resolve_parallel(value: str, *, slot_count: int | None = None) -> int:
     if value == "slots":
         return max(1, slot_count or 1)
-    if value == "parts":
-        if slot_count is not None:
-            return max(1, min(chain_count, slot_count))
-        return max(1, chain_count)
     try:
         parsed = int(value)
     except ValueError:
-        raise SystemExit(
-            "--parallel must be 'slots', 'parts', or a positive integer"
-        ) from None
+        raise SystemExit("--parallel must be 'slots' or a positive integer") from None
     if parsed <= 0:
         raise SystemExit("--parallel must be positive")
     return parsed
-
-
-def _ensure_ok(result: Any, label: str) -> None:
-    returncode = int(getattr(result, "returncode", 0) or 0)
-    if returncode == 0:
-        return
-    stderr = str(getattr(result, "stderr", "") or "").strip()
-    raise RuntimeError(f"{label} failed with exit {returncode}: {stderr}")
 
 
 def _write_json(path: Path, value: Any) -> None:
@@ -1282,13 +1143,6 @@ def _write_json(path: Path, value: Any) -> None:
         tmp.replace(path)
     finally:
         tmp.unlink(missing_ok=True)
-
-
-def _write_jsonl_records(path: Path, records: list[dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as fh:
-        for record in records:
-            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
 if __name__ == "__main__":

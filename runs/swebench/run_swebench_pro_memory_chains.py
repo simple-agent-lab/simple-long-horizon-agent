@@ -28,7 +28,7 @@ Example smoke (no Docker cost past a couple of instances):
 
     uv run --extra swebench python runs/swebench/run_swebench_pro_memory_chains.py \
       --chains-json evals/swebench/data/swe_bench_pro_chain_experiment_nodes_deep.jsonl \
-      --max-chains 1 --limit 2 --max-turns 5 --skip-official-eval
+      --max-chains 1 --limit 2 --max-turns 5
 
 Formal run shape:
 
@@ -42,17 +42,15 @@ Formal run shape:
       --run-official-eval
 
 Pass ``--chains-json PATH`` explicitly for every experiment run. The path can be
-the vendored flat chain-nodes JSONL or another flat JSONL / nested JSON manifest.
+the vendored flat chain-nodes JSONL or another manifest with the same shape.
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import queue
-import re
 import subprocess
 import sys
 import threading
@@ -111,6 +109,7 @@ from simple_agent_lab.memory import (  # noqa: E402
     FilesystemMemory,
     FilesystemMemoryLimits,
 )
+from simple_agent_lab.memory.filesystem import safe_memory_name  # noqa: E402
 from simple_agent_lab.trace import write_jsonl_atomic  # noqa: E402
 
 
@@ -129,8 +128,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--chains-json",
         default=None,
         help=(
-            "Required chain manifest: either a flat chain-nodes JSONL "
-            "(one node per line) or a nested issue-chains JSON. To use the "
+            "Required chain-nodes JSONL manifest (one node per line). To use the "
             "vendored deep manifest, pass "
             "evals/swebench/data/swe_bench_pro_chain_experiment_nodes_deep.jsonl."
         ),
@@ -247,11 +245,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--keep-container", action="store_true")
     parser.add_argument("--docker-timeout-seconds", type=float, default=300.0)
     parser.add_argument(
-        "--skip-official-eval",
-        action="store_true",
-        help="Only run inference and collect predictions.",
-    )
-    parser.add_argument(
         "--run-official-eval",
         action="store_true",
         help="Run the official SWE-bench Pro evaluator after inference.",
@@ -273,7 +266,7 @@ def main() -> None:
     args = build_parser().parse_args()
     if not args.all and not args.repos and not args.instance_json:
         raise SystemExit("Pass --all, --repos REPO..., or --instance-json PATH.")
-    _chains_json_path(args)
+    chains_path = _chains_json_path(args)
 
     harness.load_dotenv(args.dotenv)
     _apply_provider_env_overrides(args)
@@ -283,7 +276,7 @@ def main() -> None:
     run_root = Path(args.run_root)
 
     rows = _load_rows(args)
-    raw_chains = _filter_raw_chains(_load_chains(args), repos=args.repos)
+    raw_chains = _filter_raw_chains(load_issue_chains(chains_path), repos=args.repos)
     plan = plan_memory_chains(
         rows,
         raw_chains,
@@ -300,13 +293,13 @@ def main() -> None:
 
     memory_home = _resolve_memory_home(args, run_root=run_root)
     memory_namespaces = {
-        unit.chain_id: _memory_namespace(unit.chain_id)
+        unit.chain_id: safe_memory_name(unit.chain_id)
         for unit in units
         if unit.memory_enabled
     }
     reverse: dict[str, str] = {}
     for chain_id, namespace in memory_namespaces.items():
-        prior = reverse.setdefault(_memory_namespace_collision_key(namespace), chain_id)
+        prior = reverse.setdefault(namespace.casefold(), chain_id)
         if prior != chain_id:
             raise SystemExit(
                 "filesystem memory namespace collision between chain ids "
@@ -330,7 +323,7 @@ def main() -> None:
         parallel=parallel,
         run_units=units,
     )
-    manifest["chains_json"] = str(_chains_json_path(args))
+    manifest["chains_json"] = str(chains_path)
     manifest["memory_home"] = str(memory_home)
     manifest["memory_max_namespaces"] = memory_namespace_limit
     manifest["provider_auth"] = {
@@ -346,7 +339,7 @@ def main() -> None:
         raise SystemExit(str(exc)) from None
     predictions_path = batch_dir / f"{args.run_id}_predictions.jsonl"
     instances_json = batch_dir / "instances.jsonl"
-    _write_jsonl_records(instances_json, planned_rows)
+    write_jsonl_atomic(instances_json, planned_rows)
     _write_json(batch_dir / "experiment.json", manifest)
 
     _print_plan_banner(
@@ -363,7 +356,7 @@ def main() -> None:
         agent_flavor=config.agent_flavor,
     )
 
-    wheelhouse = _resolve_wheelhouse(args)
+    wheelhouse = Path(args.wheelhouse or harness.DEFAULT_PRO_WHEELHOUSE).resolve()
     harness.prepare_wheelhouse_for_run(
         wheelhouse, prepare_all=args.prepare_wheelhouse, extras=()
     )
@@ -401,8 +394,8 @@ def main() -> None:
         if not unit.memory_enabled:
             continue
         namespace = memory_namespaces[unit.chain_id]
-        host_home = memory_home.resolve() / namespace
-        container_mount = f"{DEFAULT_MEMORY_CONTAINER_HOME.rstrip('/')}/{namespace}"
+        host_home = memory_home / namespace
+        container_mount = f"{DEFAULT_MEMORY_CONTAINER_HOME}/{namespace}"
         memory_backends[unit.chain_id] = LocalDockerBackend(
             pull=args.pull,
             keep_container=args.keep_container,
@@ -472,7 +465,7 @@ def main() -> None:
 
     if skipped_instances:
         skipped_path = batch_dir / "skipped_instances.jsonl"
-        _write_jsonl_records(skipped_path, skipped_instances)
+        write_jsonl_atomic(skipped_path, skipped_instances)
         print(f"wrote {len(skipped_instances)} skipped instances: {skipped_path}")
 
     predictions = predictions_from_run_dirs(
@@ -485,7 +478,7 @@ def main() -> None:
     write_jsonl_atomic(predictions_path, predictions)
     print(f"wrote {len(predictions)} predictions: {predictions_path}")
 
-    if args.run_official_eval and not args.skip_official_eval:
+    if args.run_official_eval:
         _run_official_eval(
             predictions_path=predictions_path,
             instances_json=instances_json,
@@ -530,7 +523,6 @@ def _experiment_config_from_args(
         ),
         max_turns=args.max_turns,
         agent_flavor=args.agent_flavor,
-        task_tool=args.agent_flavor in ("bash_task", "bash_task_read"),
         memory=bool(args.memory),
         singleton_memory=bool(args.singleton_memory),
         model_name=model_name_for_config(
@@ -585,16 +577,6 @@ def _filter_raw_chains(
     return [chain for chain in chains if chain.repo in requested]
 
 
-def _load_chains(args: argparse.Namespace):
-    path = _chains_json_path(args)
-    if not path.exists():
-        raise SystemExit(
-            f"--chains-json not found: {path}. Pass a chain-nodes JSONL "
-            "or issue-chains JSON."
-        )
-    return load_issue_chains(path)
-
-
 def _chains_json_path(args: argparse.Namespace) -> Path:
     value = str(args.chains_json or "").strip()
     if not value:
@@ -602,7 +584,12 @@ def _chains_json_path(args: argparse.Namespace) -> Path:
             "Pass --chains-json PATH for the exact chain manifest to use, e.g. "
             "evals/swebench/data/swe_bench_pro_chain_experiment_nodes_deep.jsonl."
         )
-    return Path(value).expanduser()
+    path = Path(value).expanduser()
+    if not path.exists():
+        raise SystemExit(
+            f"--chains-json not found: {path}. Pass a chain-nodes JSONL manifest."
+        )
+    return path
 
 
 def _select_units(
@@ -669,8 +656,6 @@ def _resolve_memory_namespace_limit(
 ) -> int:
     """Choose a finite namespace cap without breaking a planned run-local batch."""
 
-    if requested_count < 0:
-        raise ValueError("requested_count must not be negative")
     override = args.memory_max_namespaces
     if override is not None:
         if override <= 0:
@@ -685,70 +670,6 @@ def _resolve_memory_namespace_limit(
     # Fit that finite set exactly instead of making --singleton-memory fail on
     # full-split plans that intentionally contain more than 128 singletons.
     return max(default, requested_count)
-
-
-def _memory_namespace(chain_id: str) -> str:
-    """Return a collision-resistant ASCII namespace for one chain id."""
-
-    raw = chain_id
-    safe = "".join(
-        char if char.isascii() and (char.isalnum() or char in "_.-") else "_"
-        for char in raw
-    ).strip("._-")
-    safe = safe or "chain"
-    reserved_prefix = "salx-"
-    filesystem_reserved = {"retention_warning.md", "memory_error.md"}
-    _stem, separator, suffix = raw.rpartition("-")
-    legacy_ambiguous = (
-        bool(separator)
-        and all(char in "0123456789abcdef" for char in suffix)
-        and len(suffix) in (8, 12)
-    )
-    if (
-        raw == safe
-        and len(raw) <= 80
-        and not raw.casefold().startswith(reserved_prefix)
-        and not raw.casefold().startswith("salm-")
-        and raw.casefold() not in filesystem_reserved
-        and not legacy_ambiguous
-        and not _is_windows_device_name(raw)
-    ):
-        # Preserve existing normal chain namespace paths across upgrades.
-        return raw
-    # Encoded outputs occupy a reserved prefix, so a legal raw id cannot
-    # impersonate another id's sanitized/hash output.
-    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
-    prefix = safe[:53].rstrip("._-") or "chain"
-    return f"{reserved_prefix}{prefix}--{digest}"
-
-
-def _is_windows_device_name(value: str) -> bool:
-    """Return whether Windows reserves this basename, including extensions."""
-
-    basename = value.rstrip(" .").split(".", 1)[0].casefold()
-    return basename in {"con", "prn", "aux", "nul", "clock$"} or bool(
-        re.fullmatch(r"(?:com|lpt)[1-9]", basename)
-    )
-
-
-def _memory_namespace_collision_key(namespace: str) -> str:
-    """Detect aliases that collide on case-insensitive host filesystems."""
-
-    return namespace.casefold()
-
-
-def _memory_mount_for_chain(memory_home: Path, chain_id: str) -> tuple[Path, str, str]:
-    """Map one chain to the only memory directory its containers can see."""
-
-    namespace = _memory_namespace(chain_id)
-    host_home = memory_home.resolve() / namespace
-    container_mount = f"{DEFAULT_MEMORY_CONTAINER_HOME.rstrip('/')}/{namespace}"
-    return host_home, container_mount, namespace
-
-
-def _resolve_wheelhouse(args: argparse.Namespace) -> Path | None:
-    wheelhouse_arg = args.wheelhouse or str(harness.DEFAULT_PRO_WHEELHOUSE)
-    return Path(wheelhouse_arg).resolve() if wheelhouse_arg else None
 
 
 def _print_plan_banner(
@@ -868,11 +789,9 @@ def _run_chain_with_slot(
                 store=store,
                 run_root=run_root,
                 run_id=args.run_id,
-                provider="openai",
                 api_kind=config.api_kind,
                 max_turns=config.max_turns,
                 provider_env=provider_env,
-                package_extras=(),
                 wheelhouse_mount=harness.DEFAULT_WHEELHOUSE_MOUNT,
                 name=container,
             )
@@ -948,9 +867,8 @@ def _run_chain_with_slot(
     chain_dir = (
         run_root / args.run_id / "_memory_chains" / safe_path_part(unit.chain_id)
     )
-    chain_dir.mkdir(parents=True, exist_ok=True)
     if skipped_records:
-        _write_jsonl_records(chain_dir / "skipped_instances.jsonl", skipped_records)
+        write_jsonl_atomic(chain_dir / "skipped_instances.jsonl", skipped_records)
     _write_json(
         chain_dir / "summary.json",
         {
@@ -971,7 +889,6 @@ def _run_chain_with_slot(
         "errors": errors,
         "skipped": len(skipped_records),
         "memory_enabled": unit.memory_enabled,
-        "provider_auth_env": provider_auth_env,
         "skipped_records": skipped_records,
     }
 
@@ -1051,7 +968,7 @@ def _load_result_or_error(
     error: str,
 ) -> dict[str, Any]:
     if path.exists():
-        return _read_json(path)
+        return json.loads(path.read_text(encoding="utf-8"))
     return {
         "model_patch": "",
         "instance_id": instance_id,
@@ -1066,10 +983,6 @@ def _load_result_or_error(
     }
 
 
-def _read_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
 def _write_incremental_predictions(
     *,
     predictions_path: Path,
@@ -1078,9 +991,9 @@ def _write_incremental_predictions(
     model_name: str,
     dataset_name: str,
     expected_instance_ids: tuple[str, ...],
-    lock: threading.Lock | None,
+    lock: threading.Lock,
 ) -> None:
-    def write() -> None:
+    with lock:
         predictions = predictions_from_run_dirs(
             run_root,
             run_id=run_id,
@@ -1089,12 +1002,6 @@ def _write_incremental_predictions(
             expected_instance_ids=expected_instance_ids,
         )
         write_jsonl_atomic(predictions_path, predictions)
-
-    if lock is None:
-        write()
-        return
-    with lock:
-        write()
 
 
 def _run_official_eval(
@@ -1142,13 +1049,6 @@ def _write_json(path: Path, value: Any) -> None:
         tmp.replace(path)
     finally:
         tmp.unlink(missing_ok=True)
-
-
-def _write_jsonl_records(path: Path, records: list[dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as fh:
-        for record in records:
-            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
 if __name__ == "__main__":

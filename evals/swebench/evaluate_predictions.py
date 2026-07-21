@@ -189,7 +189,7 @@ _PRO_DOCKER_TIMEOUT_S = 600
 
 
 def _ensure_pro_repo(target_dir: Path) -> None:
-    """Clone SWE-bench_Pro-os and install the local evaluator safeguards."""
+    """Clone SWE-bench_Pro-os when the evaluator is not already available."""
     eval_script = target_dir / "swe_bench_pro_eval.py"
     if eval_script.exists():
         return
@@ -204,7 +204,6 @@ def _ensure_pro_repo(target_dir: Path) -> None:
             f"Clone succeeded but {eval_script} not found — "
             "the upstream repo layout may have changed."
         )
-    _patch_pro_evaluator(eval_script)
 
 
 def _patch_pro_evaluator(eval_script: Path) -> None:
@@ -420,8 +419,6 @@ def merge_pro_apply_statuses(
 ) -> None:
     """Attach strict Pro patch-application status and force failures unresolved."""
 
-    if not official_dir.exists():
-        return
     for status_path in official_dir.glob(
         "instance_*/workspace/patch_apply_status.json"
     ):

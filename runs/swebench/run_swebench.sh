@@ -27,7 +27,7 @@ PARALLEL=1
 PULL=""
 POSITIONAL=()
 FETCH_PYTHON=()
-SECONDARY_OPENAI_AUTH_TOKEN=""
+SECONDARY_OPENAI_AUTH_TOKEN="${OPENAI_AUTH_TOKEN2:-}"
 
 usage() {
   sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
@@ -156,7 +156,7 @@ if { [ "$RUN_ALL" -eq 1 ] || [ -n "$IDS_FILE" ]; } && [ "${#POSITIONAL[@]}" -gt 
   echo "ERROR: pass only one of --all, --ids-file, or one INSTANCE_ID." >&2
   exit 2
 fi
-if [ "$RUN_ALL" -eq 0 ] && [ "${#POSITIONAL[@]}" -gt 1 ]; then
+if [ "${#POSITIONAL[@]}" -gt 1 ]; then
   echo "ERROR: pass at most one INSTANCE_ID, or use --all/--ids-file for a batch." >&2
   exit 2
 fi
@@ -331,14 +331,7 @@ ensure_default_instance_id() {
 }
 
 load_secondary_openai_auth_token() {
-  if [ -n "${SECONDARY_OPENAI_AUTH_TOKEN:-}" ]; then
-    return
-  fi
-  if [ -n "${OPENAI_AUTH_TOKEN2:-}" ]; then
-    SECONDARY_OPENAI_AUTH_TOKEN="$OPENAI_AUTH_TOKEN2"
-    return
-  fi
-  if [ ! -f .env ]; then
+  if [ -n "$SECONDARY_OPENAI_AUTH_TOKEN" ] || [ ! -f .env ]; then
     return
   fi
   SECONDARY_OPENAI_AUTH_TOKEN="$("${PYTHON[@]}" - <<'PY'
@@ -394,7 +387,6 @@ running_jobs() {
 }
 
 collect_predictions() {
-  mkdir -p "$PREDICTION_DIR"
   local expected_ids="${CONTAINER_RUN_ROOT}/${RUN_ID}/expected_instance_ids.txt"
   mkdir -p "$(dirname "$expected_ids")"
   printf '%s\n' "${INSTANCE_IDS[@]}" > "$expected_ids"
@@ -437,13 +429,8 @@ harness.prepare_wheelhouse(getattr(harness, os.environ["WHEELHOUSE_CONST"]))
 PY
 
   FAIL=0
-  PIDS=()
-  # Each job records its own exit code to a status file; the drain loop tallies
-  # failures from those, never from `wait`. The throttle below polls `jobs -pr`,
-  # which makes bash reap finished jobs from its table — so a later `wait "$pid"`
-  # reports "not a child" (rc 127) for a job that already finished, regardless of
-  # whether it actually succeeded or failed. `wait` is therefore useless as a
-  # failure signal here (it over- and under-counts); the status file is reliable.
+  # Jobs record their own exit codes because the throttle polls `jobs -pr`, which
+  # can reap completed jobs before the final wait.
   STATUS_DIR="${CONTAINER_RUN_ROOT}/${RUN_ID}/.exit_codes"
   mkdir -p "$STATUS_DIR"
   job_index=0
@@ -466,16 +453,11 @@ PY
         --reuse-prepared-wheelhouse || rc=$?
       echo "$rc" > "$status_file"
     ) > "$log" 2>&1 &
-    PIDS+=("$!")
     job_index=$((job_index + 1))
   done
 
-  # Drain: let every job finish (ignore `wait`'s own rc — see above), then tally
-  # real failures from the recorded exit codes. A missing file means the job was
-  # killed before it could record one, which is itself a failure.
-  for pid in "${PIDS[@]}"; do
-    wait "$pid" 2>/dev/null || true
-  done
+  wait 2>/dev/null || true
+  # A missing status file means the job ended before it could record one.
   for instance_id in "${INSTANCE_IDS[@]}"; do
     rc="$(cat "${STATUS_DIR}/${instance_id}.rc" 2>/dev/null || echo missing)"
     if [ "$rc" != "0" ]; then

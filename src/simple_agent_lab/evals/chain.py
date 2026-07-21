@@ -38,7 +38,6 @@ from simple_agent_lab.llm import Provider
 from simple_agent_lab.llm.env import API_KIND_CHOICES, request_extra_from_env
 from simple_agent_lab.llm_agent import make_llm_agent
 from simple_agent_lab.messages import (
-    AssistantMessage,
     ContentBlock,
     ContentInput,
     ImageBlock,
@@ -140,20 +139,10 @@ CHAIN_HANDOFF_CONTEXT_PREFACE = (
 )
 
 
-def start_chain_state(
-    task: ContentInput,
-    *,
-    agent_name: str,
-    metadata: Mapping[str, Any] | None = None,
-) -> State:
+def start_chain_state(task: ContentInput) -> State:
     """Create the persistent transcript seed for one eval chain."""
 
-    state = State(task)
-    state.data[CHAIN_DATA_KEY] = {
-        "agent_name": agent_name,
-        **dict(metadata or {}),
-    }
-    return state
+    return State(task)
 
 
 def append_chain_task(
@@ -182,7 +171,7 @@ def append_chain_task(
     )
 
 
-def demote_prior_chain_tasks(state: State, *, agent_name: str) -> int:
+def demote_prior_chain_tasks(state: State, *, agent_name: str) -> None:
     """Make already-started chain item prompts compressible.
 
     Only the current benchmark item should stay pinned as ``kind="task"``.
@@ -192,39 +181,35 @@ def demote_prior_chain_tasks(state: State, *, agent_name: str) -> int:
     context re-point, preserving the original trace entries for audit.
     """
 
-    demoted = 0
-    while True:
-        active_items = state.active_context_items()
-        target = next(
-            (
-                (index, message)
-                for index, message in active_items
-                if message.kind == "task" and message_chain_item_id(message)
-            ),
-            None,
-        )
-        if target is None:
-            return demoted
+    active_items = state.active_context_items()
+    target = next(
+        (
+            (index, message)
+            for index, message in active_items
+            if message.kind == "task" and message_chain_item_id(message)
+        ),
+        None,
+    )
+    if target is None:
+        return
 
-        target_index, message = target
-        replacement = replace(message, kind="message")
-        state.record(replacement)
-        replacement_index = len(state.messages) - 1
-        state.record_event(
-            ContextCompressionEvent(
-                agent=agent_name,
-                summary_message_index=replacement_index,
-                compressed_message_indices=[target_index],
-                active_context_indices=[
-                    replacement_index if index == target_index else index
-                    for index, _ in active_items
-                ],
-                before_tokens=0,
-                after_tokens=0,
-                strategy=CHAIN_TASK_DEMOTE_REASON,
-            )
+    target_index, message = target
+    state.record(replace(message, kind="message"))
+    replacement_index = len(state.messages) - 1
+    state.record_event(
+        ContextCompressionEvent(
+            agent=agent_name,
+            summary_message_index=replacement_index,
+            compressed_message_indices=[target_index],
+            active_context_indices=[
+                replacement_index if index == target_index else index
+                for index, _ in active_items
+            ],
+            before_tokens=0,
+            after_tokens=0,
+            strategy=CHAIN_TASK_DEMOTE_REASON,
         )
-        demoted += 1
+    )
 
 
 def state_to_chain_payload(state: State) -> dict[str, Any]:
@@ -235,12 +220,7 @@ def state_to_chain_payload(state: State) -> dict[str, Any]:
         "schema": CHAIN_STATE_SCHEMA,
         "task": _content_input_to_record(state.task),
         "messages": [_message_to_record(message) for _, message in active_items],
-        "active_context_indices": list(range(len(active_items))),
         "data": json_safe(state.data),
-        "meta": {
-            "source_message_count": len(state.messages),
-            "source_event_count": len(state.events),
-        },
     }
 
 
@@ -255,7 +235,7 @@ def state_from_chain_payload(payload: Mapping[str, Any]) -> State:
     data = payload.get("data")
     if isinstance(data, Mapping):
         state.data.update(dict(data))
-    _ensure_chain_data(state)
+    _chain_data(state)
 
     messages = payload.get("messages", [])
     if not isinstance(messages, Sequence) or isinstance(messages, (str, bytes)):
@@ -264,25 +244,6 @@ def state_from_chain_payload(payload: Mapping[str, Any]) -> State:
         if not isinstance(record, Mapping):
             raise ValueError("chain message records must be objects")
         state.record(_message_from_record(record))
-
-    indices = payload.get("active_context_indices")
-    if indices is None:
-        indices = list(range(len(state.messages)))
-    if not isinstance(indices, Sequence) or isinstance(indices, (str, bytes)):
-        raise ValueError("chain payload 'active_context_indices' must be a list")
-    active = [int(index) for index in indices]
-    chain_data = _ensure_chain_data(state)
-    state.record_event(
-        ContextCompressionEvent(
-            agent=str(chain_data.get("agent_name") or ""),
-            summary_message_index=active[-1] if active else -1,
-            compressed_message_indices=[],
-            active_context_indices=active,
-            before_tokens=0,
-            after_tokens=0,
-            strategy="chain-state-restore",
-        )
-    )
     return state
 
 
@@ -373,95 +334,20 @@ def replace_latest_tool_exchange_for_invalid_prompt(
 def tool_exchange_indices(
     active_items: list[tuple[int, Any]], tool_call_ids: set[str]
 ) -> set[int]:
-    """Return the connected tool-call/tool-result component for call ids."""
-
-    wanted = set(tool_call_ids)
-    dropped: set[int] = set()
-    changed = True
-    while changed:
-        changed = False
-        for index, message in active_items:
-            calls = message_tool_calls(message)
-            result_ids = {
-                block.tool_call_id for block in tool_results_of(message.content)
-            }
-            if calls and any(call.id in wanted for call in calls):
-                before = len(wanted)
-                wanted.update(call.id for call in calls)
-                dropped.add(index)
-                changed = changed or len(wanted) != before
-            if result_ids and result_ids & wanted:
-                before = len(wanted)
-                wanted.update(result_ids)
-                dropped.add(index)
-                changed = changed or len(wanted) != before
-    return dropped
-
-
-def repair_active_tool_pairs(state: Any, *, agent_name: str) -> bool:
-    """Drop active tool-call/result orphans before the next provider request."""
-
-    active_items = state.active_context_items()
-    kept = tool_pair_safe_indices(active_items)
-    if len(kept) == len(active_items):
-        return False
-
-    dropped = [index for index, _ in active_items if index not in set(kept)]
-    note = user_message(
-        "Removed an incomplete tool call/tool result exchange from context.",
-        sender="user",
-        target=agent_name,
-        kind="message",
-    )
-    state.record(note)
-    note_index = len(state.messages) - 1
-    state.record_event(
-        ContextCompressionEvent(
-            agent=agent_name,
-            summary_message_index=note_index,
-            compressed_message_indices=dropped,
-            active_context_indices=[*kept, note_index],
-            before_tokens=0,
-            after_tokens=0,
-            strategy="tool-pair-orphan-repair",
+    return {
+        index
+        for index, message in active_items
+        if any(call.id in tool_call_ids for call in message_tool_calls(message))
+        or any(
+            result.tool_call_id in tool_call_ids
+            for result in tool_results_of(message.content)
         )
-    )
-    return True
-
-
-def tool_pair_safe_indices(active_items: list[tuple[int, Any]]) -> list[int]:
-    remaining = {index for index, _ in active_items}
-    messages = dict(active_items)
-    changed = True
-    while changed:
-        changed = False
-        call_ids = {
-            call.id
-            for index in remaining
-            for call in message_tool_calls(messages[index])
-        }
-        result_ids = {
-            block.tool_call_id
-            for index in remaining
-            for block in tool_results_of(messages[index].content)
-        }
-        drop: set[int] = set()
-        for index in remaining:
-            calls = message_tool_calls(messages[index])
-            if calls and any(call.id not in result_ids for call in calls):
-                drop.add(index)
-            results = tool_results_of(messages[index].content)
-            if results and any(block.tool_call_id not in call_ids for block in results):
-                drop.add(index)
-        if drop:
-            remaining -= drop
-            changed = True
-    return [index for index, _ in active_items if index in remaining]
+    }
 
 
 def drop_chain_task_for_invalid_prompt_skip(
     state: Any, *, agent_name: str, item_id: str
-) -> bool:
+) -> None:
     """Drop a skipped chain item prompt from active context."""
 
     active_items = state.active_context_items()
@@ -474,7 +360,7 @@ def drop_chain_task_for_invalid_prompt_skip(
             target_index = index
             break
     if target_index is None:
-        return False
+        return
 
     state.record_event(
         ContextCompressionEvent(
@@ -489,17 +375,16 @@ def drop_chain_task_for_invalid_prompt_skip(
             strategy="invalid-prompt-chain-task-drop",
         )
     )
-    return True
 
 
 def end_chain_item_after_invalid_prompt_tool_retry_limit(
     state: Any, *, agent_name: str, item_id: str
-) -> bool:
+) -> None:
     """Clear active context after persistent invalid_prompt for one chain item."""
 
     active_items = state.active_context_items()
     if not active_items:
-        return False
+        return
 
     end_message = user_message(
         INVALID_PROMPT_ITEM_END_MESSAGE.format(item_id=item_id),
@@ -520,7 +405,6 @@ def end_chain_item_after_invalid_prompt_tool_retry_limit(
             strategy="invalid-prompt-clear-context",
         )
     )
-    return True
 
 
 def _recover_invalid_prompt(
@@ -581,9 +465,6 @@ def message_chain_item_id(message: Any) -> str:
     chain = details.get("chain", {})
     if isinstance(chain, Mapping) and chain.get("item_id"):
         return str(chain.get("item_id") or "")
-    swebench = details.get("swebench", {})
-    if isinstance(swebench, Mapping):
-        return str(swebench.get("instance_id") or "")
     return ""
 
 
@@ -598,19 +479,16 @@ def run_chain_in_container(
     store: ArtifactStore,
     trace_id: str,
     producer: str,
-    suite_name: str,
     request_extra: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], State]:
     """Run one eval instance while preserving chain state."""
 
-    del suite_name
     module = importlib.import_module(container_module)
     tasks = cast(ContainerTask, module)
     workdir = Path(workdir)
     config = _load_chain_config(store)
     spec = _chain_agent_spec(module, config)
-    state = _load_state(store, module=module, config=config, agent_name=spec.name)
-    _update_state_metadata(module, state, instance=instance, config=config, spec=spec)
+    state = _load_state(store, module=module, config=config)
 
     context: dict[str, Any] = {}
     prepare = getattr(module, "prepare", None)
@@ -626,7 +504,6 @@ def run_chain_in_container(
         agent_name=spec.name,
         item_id=item_id,
         task=str(task),
-        details=_chain_task_details(module, instance=instance, config=config),
         demote_prior_tasks=False,
     )
     # The current instance's task message is kept active across mid-instance
@@ -637,11 +514,7 @@ def run_chain_in_container(
     error = ""
     skip_reason = ""
     invalid_prompt_retries = 0
-    chain_window_index = int(
-        _chain_data(state).get("window_index", 1)
-        if isinstance(_chain_data(state), Mapping)
-        else 1
-    )
+    chain_window_index = int(_chain_data(state).get("window_index", 1) or 1)
     handoff_active = _handoff_active(config)
     window_limit = _context_window_tokens(config)
     position = int(config.get("position", 0) or 0)
@@ -671,7 +544,6 @@ def run_chain_in_container(
         # they are excluded from the instance's turn budget below.
         handoff_gen_turns = 0
         while status == "ok":
-            repair_active_tool_pairs(state, agent_name=spec.name)
             turn_budget = max(
                 0,
                 max_turns
@@ -679,17 +551,23 @@ def run_chain_in_container(
             )
             if turn_budget <= 0:
                 prompt_source = invalid_prompt_source(state, item_id=item_id)
-                if prompt_source == "tool_output" or invalid_prompt_retries:
-                    end_chain_item_after_invalid_prompt_tool_retry_limit(
-                        state, agent_name=spec.name, item_id=item_id
+                invalid_retry = prompt_source == "tool_output" or bool(
+                    invalid_prompt_retries
+                )
+                if invalid_retry:
+                    if prompt_source == "tool_output":
+                        end_chain_item_after_invalid_prompt_tool_retry_limit(
+                            state, agent_name=spec.name, item_id=item_id
+                        )
+                    elif prompt_source == "chain_task":
+                        drop_chain_task_for_invalid_prompt_skip(
+                            state, agent_name=spec.name, item_id=item_id
+                        )
+                    status = "skipped"
+                    skip_reason = "invalid_prompt_turn_budget_exhausted"
+                    error = (
+                        "invalid_prompt retry exhausted this chain item's turn budget"
                     )
-                elif prompt_source == "chain_task":
-                    drop_chain_task_for_invalid_prompt_skip(
-                        state, agent_name=spec.name, item_id=item_id
-                    )
-                status = "skipped"
-                skip_reason = "invalid_prompt_turn_budget_exhausted"
-                error = "invalid_prompt retry exhausted this chain item's turn budget"
                 break
             since_event_index = len(state.events)
             window_abort = (
@@ -857,11 +735,8 @@ def run_chain_in_container(
         **result_product,
         "instance_id": item_id,
         "chain_id": chain_id,
-        "chain_part_index": int(config.get("part_index", 1) or 1),
-        "chain_part_count": int(config.get("part_count", 1) or 1),
         "provider_auth_env": str(config.get("provider_auth_env") or ""),
         "agent_flavor": _agent_flavor(config, default=spec.flavor),
-        "solver_read": _solver_read(config),
         "task_tool": _task_tool_enabled(config),
         "compression_strategy": _compression_strategy(config),
         "status": status,
@@ -877,15 +752,7 @@ def run_chain_in_container(
         "compression_metrics": metrics.as_dict(),
         "chain_event_start": event_start,
         "chain_event_end": len(state.events),
-        **_chain_result_metadata(
-            module, instance=instance, config=config, context=context
-        ),
     }
-    state.data["result"] = result
-    _chain_data(state)["last_item_id"] = item_id
-    if outgoing_state is not state:
-        _chain_data(outgoing_state)["last_item_id"] = item_id
-
     store.put(
         RESULT_KEY, (json.dumps(result, ensure_ascii=False) + "\n").encode("utf-8")
     )
@@ -908,9 +775,6 @@ def run_chain_in_container(
                 "provider_auth_env": result["provider_auth_env"],
                 "agent_flavor": result["agent_flavor"],
                 "compression_strategy": result["compression_strategy"],
-                **_chain_trace_metadata(
-                    module, instance=instance, config=config, result=result
-                ),
             },
         )
         store.put(TRACE_KEY, trace_bytes)
@@ -944,7 +808,7 @@ def _build_agent(
             config=config,
         ),
         enable_default_compression=False,
-        solver_read=_solver_read(config),
+        solver_read=False,
         solver_task=_task_tool_enabled(config),
     )
 
@@ -989,30 +853,19 @@ def _load_state(
     *,
     module: ModuleType,
     config: Mapping[str, Any],
-    agent_name: str,
 ) -> State:
     try:
         payload = json.loads(store.get(CHAIN_STATE_INPUT_KEY).decode("utf-8"))
-    except (FileNotFoundError, OSError):
-        return _start_state(module, config=config, agent_name=agent_name)
+    except OSError:
+        return _start_state(module, config=config)
     return state_from_chain_payload(payload)
 
 
-def _start_state(
-    module: ModuleType, *, config: Mapping[str, Any], agent_name: str
-) -> State:
+def _start_state(module: ModuleType, *, config: Mapping[str, Any]) -> State:
     hook = getattr(module, "chain_start_state", None)
     if callable(hook):
-        return hook(config=config, agent_name=agent_name)
-    return start_chain_state(
-        _chain_display_name(config),
-        agent_name=agent_name,
-        metadata={
-            "chain_id": _chain_id(config, {}),
-            "part_index": int(config.get("part_index", 1) or 1),
-            "part_count": int(config.get("part_count", 1) or 1),
-        },
-    )
+        return hook(config=config)
+    return start_chain_state(_chain_display_name(config))
 
 
 def _generate_handoff_doc(
@@ -1069,7 +922,7 @@ def _handoff_reset_state(
     into the new window, which is the whole point of the handoff mechanism.
     """
 
-    state = _start_state(module, config=config, agent_name=spec.name)
+    state = _start_state(module, config=config)
     _chain_data(state)["window_index"] = window_index
     state.send(
         "context",
@@ -1130,7 +983,7 @@ def _apply_context_window_handoff(
     request_extra: Mapping[str, Any] | None,
     *,
     window_index: int,
-    task_message_index: int | None,
+    task_message_index: int,
     item_id: str,
 ) -> tuple[bool, int, int]:
     """Write a handoff doc mid-instance and reset the ACTIVE context in place.
@@ -1170,12 +1023,7 @@ def _apply_context_window_handoff(
         sidecar={"details": {"chain": {"handoff": True}}},
     )
     doc_index = len(state.messages) - 1
-    keep = [
-        index
-        for index in (task_message_index,)
-        if index is not None and 0 <= index < doc_index
-    ]
-    keep.append(doc_index)
+    keep = [task_message_index, doc_index]
     dropped = [index for index in prior_active if index not in set(keep)]
     _chain_data(state)["window_index"] = window_index
     after_tokens = estimate_context_tokens([state.messages[index] for index in keep])
@@ -1201,75 +1049,15 @@ def _apply_context_window_handoff(
 def _load_chain_config(store: ArtifactStore) -> dict[str, Any]:
     try:
         raw = store.get(CHAIN_CONFIG_KEY)
-    except (FileNotFoundError, OSError):
+    except OSError:
         return {}
     return json.loads(raw.decode("utf-8") or "{}")
 
 
-def _update_state_metadata(
-    module: ModuleType,
-    state: State,
-    *,
-    instance: Mapping[str, Any],
-    config: Mapping[str, Any],
-    spec: AgentSpec,
-) -> None:
-    data = _chain_data(state)
-    data.update(
-        {
-            "chain_id": _chain_id(config, instance),
-            "part_index": int(config.get("part_index", 1) or 1),
-            "part_count": int(config.get("part_count", 1) or 1),
-            "agent_name": spec.name,
-        }
-    )
-    hook = getattr(module, "chain_state_metadata", None)
-    if callable(hook):
-        data.update(dict(hook(instance=instance, config=config) or {}))
-
-
 def _chain_agent_spec(module: ModuleType, config: Mapping[str, Any]) -> AgentSpec:
-    hook = getattr(module, "chain_agent_spec", None)
-    if callable(hook):
-        return hook(config=config)
     factory = getattr(module, "agent_spec", None)
     spec = factory() if callable(factory) else AgentSpec()
     return replace(spec, flavor=_agent_flavor(config, default=spec.flavor))
-
-
-def _chain_task_details(
-    module: ModuleType, *, instance: Mapping[str, Any], config: Mapping[str, Any]
-) -> Mapping[str, Any]:
-    hook = getattr(module, "chain_task_details", None)
-    if callable(hook):
-        return dict(hook(instance=instance, config=config) or {})
-    return {}
-
-
-def _chain_result_metadata(
-    module: ModuleType,
-    *,
-    instance: Mapping[str, Any],
-    config: Mapping[str, Any],
-    context: Mapping[str, Any],
-) -> dict[str, Any]:
-    hook = getattr(module, "chain_result_metadata", None)
-    if callable(hook):
-        return dict(hook(instance=instance, config=config, context=context) or {})
-    return {}
-
-
-def _chain_trace_metadata(
-    module: ModuleType,
-    *,
-    instance: Mapping[str, Any],
-    config: Mapping[str, Any],
-    result: Mapping[str, Any],
-) -> dict[str, Any]:
-    hook = getattr(module, "chain_trace_metadata", None)
-    if callable(hook):
-        return dict(hook(instance=instance, config=config, result=result) or {})
-    return {}
 
 
 def _chain_data(state: State) -> dict[str, Any]:
@@ -1280,18 +1068,10 @@ def _chain_data(state: State) -> dict[str, Any]:
     return cast(dict[str, Any], state.data[CHAIN_DATA_KEY])
 
 
-def _ensure_chain_data(state: State) -> dict[str, Any]:
-    existing = state.data.get(CHAIN_DATA_KEY)
-    if isinstance(existing, dict):
-        return existing
-    state.data[CHAIN_DATA_KEY] = {}
-    return cast(dict[str, Any], state.data[CHAIN_DATA_KEY])
-
-
 def _content_input_to_record(content: ContentInput) -> str | list[dict[str, Any]]:
     if isinstance(content, str):
         return content
-    return [_block_to_record(block) for block in content]
+    return cast(list[dict[str, Any]], json_safe(content))
 
 
 def _content_input_from_record(value: Any) -> ContentInput:
@@ -1303,23 +1083,9 @@ def _content_input_from_record(value: Any) -> ContentInput:
 
 
 def _message_to_record(message: Message) -> dict[str, Any]:
-    record = {
-        "role": message.role,
-        "sender": message.sender,
-        "target": message.target,
-        "kind": message.kind,
-        "content": [_block_to_record(block) for block in message.content],
-        "sidecar": json_safe(message.sidecar),
-    }
-    if isinstance(message, AssistantMessage):
-        record["model"] = message.model
-        if message.usage is not None:
-            record["usage"] = {
-                "input_tokens": message.usage.input_tokens,
-                "output_tokens": message.usage.output_tokens,
-                "cache_read_tokens": message.usage.cache_read_tokens,
-                "cache_write_tokens": message.usage.cache_write_tokens,
-            }
+    record = cast(dict[str, Any], json_safe(message))
+    if record.get("usage") is None:
+        record.pop("usage", None)
     return record
 
 
@@ -1350,37 +1116,6 @@ def _message_from_record(record: Mapping[str, Any]) -> Message:
             model=str(record.get("model") or ""),
         )
     raise ValueError(f"Unsupported chain message role: {role!r}")
-
-
-def _block_to_record(block: ContentBlock) -> dict[str, Any]:
-    if isinstance(block, TextBlock):
-        return {"kind": "text", "text": block.text}
-    if isinstance(block, ImageBlock):
-        return {"kind": "image", "data": block.data, "mime_type": block.mime_type}
-    if isinstance(block, ThinkingBlock):
-        return {
-            "kind": "thinking",
-            "text": block.text,
-            "signature": block.signature,
-            "redacted": block.redacted,
-            "source_field": block.source_field,
-        }
-    if isinstance(block, ToolCallBlock):
-        return {
-            "kind": "tool_call",
-            "id": block.id,
-            "name": block.name,
-            "arguments": json_safe(dict(block.arguments)),
-        }
-    if isinstance(block, ToolResultBlock):
-        return {
-            "kind": "tool_result",
-            "tool_call_id": block.tool_call_id,
-            "tool_name": block.tool_name,
-            "content": [_block_to_record(item) for item in block.content],
-            "is_error": block.is_error,
-        }
-    raise TypeError(f"Unsupported content block: {type(block)!r}")
 
 
 def _block_from_record(record: Any) -> ContentBlock:
@@ -1450,10 +1185,6 @@ def _agent_flavor(config: Mapping[str, Any], *, default: str = "bash") -> str:
     return str(_runtime_config(config).get("agent_flavor") or default)
 
 
-def _solver_read(config: Mapping[str, Any]) -> bool:
-    return bool(_runtime_config(config).get("solver_read", True))
-
-
 def _task_tool_enabled(config: Mapping[str, Any]) -> bool:
     value = config.get("task_tool")
     if value is not None:
@@ -1498,15 +1229,7 @@ def _chain_id(config: Mapping[str, Any], instance: Mapping[str, Any]) -> str:
 
 
 def _chain_display_name(config: Mapping[str, Any]) -> str:
-    display = str(config.get("chain_display_name") or "")
-    if display:
-        return display
-    chain_id = str(config.get("chain_id") or "chain")
-    part_index = int(config.get("part_index", 1) or 1)
-    part_count = int(config.get("part_count", 1) or 1)
-    if part_count <= 1:
-        return chain_id
-    return f"{chain_id} part {part_index}/{part_count}"
+    return str(config.get("chain_display_name") or config.get("chain_id") or "chain")
 
 
 def _context_kwargs(
@@ -1604,7 +1327,6 @@ def main(argv: list[str] | None = None) -> None:
         store=store,
         trace_id=f"{args.suite_name}.{args.instance_id}",
         producer=f"suite:{args.suite_name}",
-        suite_name=args.suite_name,
         request_extra=_request_extra_for_api_kind(args.api_kind),
     )
     print(f"wrote chain result for {args.instance_id} via artifact store")
