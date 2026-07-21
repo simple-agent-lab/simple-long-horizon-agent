@@ -1,7 +1,7 @@
 """Build shipped agent flavors from shared flavor names.
 
 This module owns the mapping from a flavor string (``bash``, ``bash_task``,
-``bash_task_read``, ``bash_skills``, ``loop``, ``goal``, ``pdr``) to concrete
+``bash_task_read``, ``bash_skills``, ``loop``, ``pdr``) to concrete
 agent capabilities. Runners pass in name/role/prompt/cwd; the agent layer
 decides which tools, prompt addenda, sessions, or workflow choreography
 implement that flavor.
@@ -27,25 +27,19 @@ from simple_agent_lab.messages import Message, assistant_message, text_of
 from simple_agent_lab.model_metadata import default_context_window_book
 from simple_agent_lab.skills import system_prompt_with_skills
 from simple_agent_lab.state import State
-from simple_agent_lab.tools import AbortFlag, AgentTool
+from simple_agent_lab.tools import AgentTool
 from simple_agent_lab.tools.bash import make_bash_tool
 from simple_agent_lab.tools.read import make_read_tool
 from simple_agent_lab.workflow import (
     VERIFY_BEFORE_DONE_ADDENDUM,
     VERIFY_CONTINUATION,
     GoalBudgets,
-    ThreadGoalResult,
-    ThreadGoalStore,
     WorkflowResult,
     compose_workflow_trace_state,
     executed_completion_check,
-    make_get_goal_tool,
-    make_update_goal_tool,
     make_distiller_agent,
-    never_abort,
     run_goal_loop,
     run_pdr,
-    run_thread_goal_loop,
     update_goal_tool,
     workflow_steps_breakdown,
     write_workflow_subagent_traces,
@@ -91,7 +85,7 @@ def build_flavor_agent(
 ) -> Agent:
     """Build an Agent for one shipped flavor, simple or workflow.
 
-    Dispatches on the flavor vocabulary: workflow flavors (``loop``, ``goal``,
+    Dispatches on the flavor vocabulary: workflow flavors (``loop`` and
     ``pdr``) return a facade Agent that runs the whole arm in its single
     ``generate``; every other flavor returns a resource-free simple Agent. The
     workflow-only knobs (``prepare_workspace``/``trace_put``) are ignored by
@@ -332,85 +326,6 @@ def _build_workflow_flavor_agent(
     )
 
 
-def run_goal_flavor(
-    provider: Provider,
-    workdir: Path,
-    request_extra: Mapping[str, Any] | None,
-    *,
-    name: str,
-    role: str,
-    system_prompt: str,
-    context_policy: ContextPolicy | None,
-    bash_exec_prefix: tuple[str, ...] = (),
-    solver_read: bool,
-    solver_task: bool,
-    objective: str,
-    state: State | None = None,
-    steering_preface: str = "",
-    goal_store: ThreadGoalStore | None = None,
-    goal_id: str | None = None,
-    loop_turns: int | None = None,
-    inner_max_turns: int | None = None,
-    abort: AbortFlag = never_abort,
-) -> ThreadGoalResult:
-    """Run the Codex-style ``goal`` flavor and return its ``ThreadGoalResult``.
-
-    Single construction site shared by the standalone ``goal`` workflow facade
-    (``run_goal_arm``) and the repo-chain runner, so both build the identical
-    bash solver + ``get_goal``/``update_goal`` tools and drive the identical
-    ``run_thread_goal_loop``. A chain only needs two extra knobs:
-
-    - ``state``: seed the loop with the shared chain state so the goal solver
-      inherits every earlier instance's context (resumes on it from segment 1).
-    - ``steering_preface``: trusted host framing prepended to each steering
-      message (e.g. "this is one long chain of sub-problems; reuse the context").
-
-    With both left at their defaults this reproduces the standalone ``goal`` arm
-    exactly, so ``goal`` behaves the same inside and outside a chain.
-
-    ``abort`` is forwarded to the goal loop so a caller can stop the run at a
-    turn boundary (the repo chain uses it to break out when the active context
-    reaches the context-window handoff threshold, then reset and resume).
-    """
-
-    goal_store = goal_store or ThreadGoalStore()
-    agent = _solver_agent(
-        provider,
-        workdir,
-        request_extra,
-        name=name,
-        role=role,
-        system_prompt=system_prompt,
-        context_policy=context_policy,
-        extra_tools=[
-            make_get_goal_tool(goal_store),
-            make_update_goal_tool(goal_store),
-        ],
-        bash_exec_prefix=bash_exec_prefix,
-        read=solver_read,
-        task=solver_task,
-    )
-    return run_thread_goal_loop(
-        agent,
-        objective,
-        budgets=GoalBudgets(
-            max_turns=(
-                loop_turns if loop_turns is not None else config.LOOP_MAX_TURNS.get()
-            )
-        ),
-        inner_max_turns=(
-            inner_max_turns
-            if inner_max_turns is not None
-            else config.WORKER_MAX_TURNS.get()
-        ),
-        goal_store=goal_store,
-        goal_id=goal_id,
-        state=state,
-        steering_preface=steering_preface,
-        abort=abort,
-    )
-
-
 def make_workflow_runner_for_flavor(
     flavor: str,
     provider: Provider,
@@ -470,27 +385,6 @@ def make_workflow_runner_for_flavor(
             return WorkflowResult(output=result.output, steps=result.steps)
 
         return run_loop
-
-    if selected == "goal":
-
-        def run_goal_arm(task: str) -> WorkflowResult:
-            result = run_goal_flavor(
-                provider,
-                workdir,
-                request_extra,
-                name=name,
-                role=role,
-                system_prompt=system_prompt,
-                context_policy=context_policy,
-                bash_exec_prefix=bash_exec_prefix,
-                solver_read=solver_read,
-                solver_task=solver_task,
-                objective=task,
-                inner_max_turns=worker_max_turns,
-            )
-            return WorkflowResult(output=result.output, steps=result.steps)
-
-        return run_goal_arm
 
     if selected == "pdr":
         rounds = config.PDR_ROUNDS.get()

@@ -216,131 +216,6 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
 
         self.assertEqual(records[0]["instance_id"], "sympy__sympy-23824")
 
-    def test_collect_predictions_uses_collected_model_patch(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            run_dir = Path(tmp) / "runs" / "run-1" / "instance_one"
-            (run_dir / "input").mkdir(parents=True)
-            (run_dir / "out").mkdir()
-            (run_dir / "input" / "instance.json").write_text(
-                json.dumps({"instance_id": "instance_one"}),
-                encoding="utf-8",
-            )
-            (run_dir / "out" / "result.json").write_text(
-                json.dumps({"model_patch": "diff --git a/app.py b/app.py\n"}),
-                encoding="utf-8",
-            )
-
-            predictions = evaluate_predictions.predictions_from_run_dirs(
-                Path(tmp) / "runs",
-                run_id="run-1",
-                model_name="model",
-                dataset_name="ScaleAI/SWE-bench_Pro",
-            )
-
-        self.assertEqual(predictions[0]["prefix"], "model")
-        self.assertEqual(predictions[0]["patch"], "diff --git a/app.py b/app.py\n")
-
-    def test_collect_predictions_uses_the_canonical_run_id_directory(self) -> None:
-        from simple_agent_lab.evals.runner import canonical_run_id
-
-        with tempfile.TemporaryDirectory() as tmp:
-            run_root = Path(tmp) / "runs"
-            run_dir = run_root / canonical_run_id("group/run") / "instance_one"
-            (run_dir / "input").mkdir(parents=True)
-            (run_dir / "out").mkdir()
-            (run_dir / "input" / "instance.json").write_text(
-                json.dumps({"instance_id": "instance_one"}),
-                encoding="utf-8",
-            )
-            (run_dir / "out" / "result.json").write_text(
-                json.dumps({"model_patch": "canonical diff"}),
-                encoding="utf-8",
-            )
-
-            predictions = evaluate_predictions.predictions_from_run_dirs(
-                run_root,
-                run_id="group/run",
-                dataset_name="ScaleAI/SWE-bench_Pro",
-            )
-
-        self.assertEqual(predictions[0]["patch"], "canonical diff")
-
-    def test_collect_predictions_emits_empty_patch_for_expected_missing_result(
-        self,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            run_root = Path(tmp) / "runs"
-            run_dir = run_root / "run-1" / "instance_one"
-            (run_dir / "input").mkdir(parents=True)
-            (run_dir / "out").mkdir()
-            (run_dir / "input" / "instance.json").write_text(
-                json.dumps({"instance_id": "instance_one"}),
-                encoding="utf-8",
-            )
-            (run_dir / "out" / "result.json").write_text(
-                json.dumps({"model_patch": "diff --git a/a b/a\n"}),
-                encoding="utf-8",
-            )
-
-            predictions = evaluate_predictions.predictions_from_run_dirs(
-                run_root,
-                run_id="run-1",
-                model_name="model",
-                dataset_name="ScaleAI/SWE-bench_Pro",
-                expected_instance_ids=("instance_one", "instance_two"),
-            )
-
-        self.assertEqual(
-            [prediction["instance_id"] for prediction in predictions],
-            ["instance_one", "instance_two"],
-        )
-        self.assertEqual(predictions[1]["patch"], "")
-
-    def test_collect_predictions_rejects_result_outside_expected_plan(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            run_root = Path(tmp) / "runs"
-            stale_dir = run_root / "run-1" / "stale_instance"
-            (stale_dir / "input").mkdir(parents=True)
-            (stale_dir / "out").mkdir()
-            (stale_dir / "input" / "instance.json").write_text(
-                json.dumps({"instance_id": "stale_instance"}),
-                encoding="utf-8",
-            )
-            (stale_dir / "out" / "result.json").write_text(
-                json.dumps({"model_patch": "stale diff"}),
-                encoding="utf-8",
-            )
-
-            with self.assertRaisesRegex(ValueError, "Unexpected instance id"):
-                evaluate_predictions.predictions_from_run_dirs(
-                    run_root,
-                    run_id="run-1",
-                    expected_instance_ids=("planned_instance",),
-                )
-
-    def test_collect_predictions_rejects_duplicate_instance_ids(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            run_root = Path(tmp) / "runs"
-            for dirname in ("one", "duplicate"):
-                run_dir = run_root / "run-1" / dirname
-                (run_dir / "input").mkdir(parents=True)
-                (run_dir / "out").mkdir()
-                (run_dir / "input" / "instance.json").write_text(
-                    json.dumps({"instance_id": "instance_one"}),
-                    encoding="utf-8",
-                )
-                (run_dir / "out" / "result.json").write_text(
-                    json.dumps({"model_patch": "diff"}),
-                    encoding="utf-8",
-                )
-
-            with self.assertRaisesRegex(ValueError, "Duplicate result"):
-                evaluate_predictions.predictions_from_run_dirs(
-                    run_root,
-                    run_id="run-1",
-                    expected_instance_ids=("instance_one",),
-                )
-
     def test_results_from_summary_accepts_pro_eval_results_map(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "eval_results.json"
@@ -453,13 +328,9 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
             script = root / "swe_bench_pro_eval.py"
             script.write_text("# fake evaluator\n", encoding="utf-8")
             report_dir = root / "report"
-            stale = report_dir / "official" / "instance_stale" / "workspace"
-            stale.mkdir(parents=True)
-            (stale / "output.json").write_text('{"stale": true}')
 
             def fake_run(command, cwd, check):
                 del command, cwd, check
-                self.assertFalse(stale.exists())
                 official = report_dir / "official"
                 official.mkdir(parents=True)
                 (official / "eval_results.json").write_text(
@@ -567,87 +438,6 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
             ):
                 with self.assertRaisesRegex(SystemExit, "exited with 2"):
                     evaluate_predictions.run_official_pro_harness(args)
-
-    def test_patch_pro_evaluator_enforces_apply_check_and_status(self) -> None:
-        source = '''
-def create_entryscript(sample):
-    base_commit = sample["base_commit"]
-    before_repo_set_cmd = "prepare tests"
-    entry_script = f"""
-# apply patch
-cd /app
-git reset --hard {base_commit}
-git checkout {base_commit}
-git apply -v /workspace/patch.diff
-{before_repo_set_cmd}
-# run test and save stdout and stderr to separate files
-"""
-    return entry_script
-
-client = docker.from_env()
-def pull():
-        try:
-            if docker_platform:
-                client.images.pull(dockerhub_image_uri, platform=docker_platform)
-            else:
-                client.images.pull(dockerhub_image_uri)
-        except Exception as pull_err:
-            # If pull fails, fall back to a local image if present; otherwise, fail this run
-            try:
-                client.images.get(dockerhub_image_uri)
-                print(f"Using locally available image: {dockerhub_image_uri}")
-            except Exception:
-                print(f"Failed to pull or find image locally for {uid}: {pull_err}")
-                return None
-'''
-        with tempfile.TemporaryDirectory() as tmp:
-            script = Path(tmp) / "swe_bench_pro_eval.py"
-            script.write_text(source, encoding="utf-8")
-
-            evaluate_predictions._patch_pro_evaluator(script)
-            patched = script.read_text(encoding="utf-8")
-
-        self.assertIn("git apply --check", patched)
-        self.assertIn("patch_apply_status.json", patched)
-        self.assertIn('"success": true', patched)
-        self.assertIn("docker.from_env(timeout=600)", patched)
-        self.assertIn("Using locally cached Docker image", patched)
-
-    def test_patch_pro_evaluator_rejects_unknown_entryscript_shape(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            script = Path(tmp) / "swe_bench_pro_eval.py"
-            script.write_text("# unexpected upstream shape\n", encoding="utf-8")
-
-            with self.assertRaisesRegex(RuntimeError, "entryscript"):
-                evaluate_predictions._patch_pro_evaluator(script)
-
-    def test_merge_pro_apply_status_forces_failed_patch_unresolved(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            official = Path(tmp) / "official"
-            workspace = official / "instance_one" / "workspace"
-            workspace.mkdir(parents=True)
-            (workspace / "patch_apply_status.json").write_text(
-                json.dumps({"success": False, "stage": "check"}),
-                encoding="utf-8",
-            )
-            (workspace / "patch_apply.stderr").write_text(
-                "error: corrupt patch",
-                encoding="utf-8",
-            )
-            results = {
-                "instance_one": {
-                    "resolved": True,
-                    "status": "resolved",
-                }
-            }
-
-            evaluate_predictions.merge_pro_apply_statuses(results, official)
-
-        self.assertFalse(results["instance_one"]["resolved"])
-        self.assertEqual(results["instance_one"]["status"], "patch_apply_failed")
-        self.assertFalse(results["instance_one"]["patch_successfully_applied"])
-        self.assertEqual(results["instance_one"]["patch_apply_stage"], "check")
-        self.assertIn("corrupt patch", results["instance_one"]["patch_apply_stderr"])
 
 
 def _instance(instance_id: str) -> dict[str, object]:

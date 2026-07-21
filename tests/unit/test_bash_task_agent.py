@@ -29,8 +29,6 @@ from simple_agent_lab.agents.starter import (
     BASH_AGENT_SYSTEM_PROMPT,
     BASH_TASK_AGENT_SYSTEM_PROMPT,
     BASH_TASK_ADDENDUM,
-    DEFAULT_TASK_MAX_TURNS,
-    DEFAULT_TASK_SOFT_TURN_LIMIT,
     GENERAL_PURPOSE_AGENT_DEFAULT_NAME,
     make_bash_task_agent,
 )
@@ -58,14 +56,6 @@ class BashTaskAgentTest(unittest.TestCase):
         )
         self.assertIn(GENERAL_PURPOSE_AGENT_DEFAULT_NAME, task_tool_def.description)
 
-    def test_default_task_turn_limits_leave_ten_turns_after_warning(self) -> None:
-        self.assertEqual(DEFAULT_TASK_SOFT_TURN_LIMIT, 60)
-        self.assertEqual(DEFAULT_TASK_MAX_TURNS, 70)
-        self.assertEqual(
-            DEFAULT_TASK_MAX_TURNS - DEFAULT_TASK_SOFT_TURN_LIMIT,
-            10,
-        )
-
     def test_system_prompt_extends_bash_prompt_with_short_addendum(self) -> None:
         self.assertTrue(
             BASH_TASK_AGENT_SYSTEM_PROMPT.startswith(BASH_AGENT_SYSTEM_PROMPT),
@@ -78,23 +68,6 @@ class BashTaskAgentTest(unittest.TestCase):
             5,
             f"Addendum should stay short; got ~{addendum_lines} sentences.",
         )
-
-    def test_system_prompt_strongly_prefers_task_without_extra_examples(
-        self,
-    ) -> None:
-        self.assertIn("Use `task` aggressively as the default", BASH_TASK_ADDENDUM)
-        self.assertIn(
-            "delegate multiple independent sub-tasks separately", BASH_TASK_ADDENDUM
-        )
-        self.assertIn("When uncertain, delegate", BASH_TASK_ADDENDUM)
-        self.assertNotIn("aggressively and repeatedly", BASH_TASK_ADDENDUM)
-        for example in (
-            "locating relevant code",
-            "reading long files",
-            "tracing failing tests",
-            "collecting evidence before an edit",
-        ):
-            self.assertNotIn(example, BASH_TASK_ADDENDUM)
 
     def test_delegating_to_general_purpose_returns_sub_agent_final_as_tool_result(
         self,

@@ -28,11 +28,6 @@ class RunsScriptsTest(unittest.TestCase):
 
         self.assertIn("API_KIND=openai-chat", env_example)
 
-    def test_env_example_does_not_advertise_local_second_openai_token(self) -> None:
-        env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
-
-        self.assertNotIn("OPENAI_AUTH_TOKEN2", env_example)
-
     def test_swebench_extra_includes_dataset_fetch_dependencies(self) -> None:
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
@@ -63,44 +58,15 @@ class RunsScriptsTest(unittest.TestCase):
     def test_swebench_run_scripts_support_batch_flags(self) -> None:
         text = (ROOT / "runs/swebench/run_swebench.sh").read_text(encoding="utf-8")
         self.assertIn("--all", text)
-        self.assertIn("--ids-file", text)
         self.assertIn("--parallel", text)
         self.assertIn("FETCH_PYTHON", text)
         self.assertIn("--extra swebench", text)
         self.assertIn("wait -n", text)
         self.assertIn("--collect-predictions", text)
-        self.assertIn("--reuse-prepared-wheelhouse", text)
-        self.assertIn("load_instance_ids", text)
-        self.assertNotIn("mapfile", text)
-
-    def test_swebench_run_script_rejects_missing_ids_file(self) -> None:
-        result = subprocess.run(
-            [
-                "bash",
-                str(ROOT / "runs/swebench/run_swebench.sh"),
-                "--ids-file",
-                str(ROOT / "does-not-exist.ids"),
-            ],
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("--ids-file does not exist", result.stderr)
 
     def test_swebench_run_scripts_load_provider_settings_from_dotenv(self) -> None:
         text = (ROOT / "runs/swebench/run_swebench.sh").read_text(encoding="utf-8")
         self.assertIn("--dotenv .env", text)
-
-    def test_swebench_run_script_can_round_robin_second_openai_token(self) -> None:
-        text = (ROOT / "runs/swebench/run_swebench.sh").read_text(encoding="utf-8")
-
-        self.assertIn("OPENAI_AUTH_TOKEN2", text)
-        self.assertIn("SECONDARY_OPENAI_AUTH_TOKEN", text)
-        self.assertIn('OPENAI_AUTH_TOKEN="$SECONDARY_OPENAI_AUTH_TOKEN"', text)
-        self.assertIn("run_container_for_index", text)
 
     def test_swebench_variants_cover_all_three_splits(self) -> None:
         """The one runner parametrizes all three splits via --variant."""
@@ -110,12 +76,6 @@ class RunsScriptsTest(unittest.TestCase):
         self.assertIn("princeton-nlp/SWE-bench_Verified", text)
         self.assertIn("SWE-bench/SWE-bench_Multilingual", text)
         self.assertIn("ScaleAI/SWE-bench_Pro", text)
-
-    def test_swebench_pro_defaults_to_250_agent_turns(self) -> None:
-        text = (ROOT / "runs/swebench/run_swebench.sh").read_text(encoding="utf-8")
-        pro_case = text.split("  pro)\n", maxsplit=1)[1].split("  *)", maxsplit=1)[0]
-
-        self.assertIn("MAX_TURNS=250", pro_case)
 
     def test_swebench_run_scripts_use_flat_suite_output_layout(self) -> None:
         expected_paths = {

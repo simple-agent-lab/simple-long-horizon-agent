@@ -19,9 +19,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, Literal, cast
 
-from simple_agent_lab.agents.flavors import build_flavor_agent, run_goal_flavor
+from simple_agent_lab.agents.flavors import build_flavor_agent
 from simple_agent_lab.compression import SummarizeStrategy, summarize_compression
-from simple_agent_lab.config import LOOP_MAX_TURNS, WORKER_MAX_TURNS
 from simple_agent_lab.context_view import ContextPolicy, estimate_context_tokens
 from simple_agent_lab.core import Agent, run as run_agent
 from simple_agent_lab.evals.in_container import provider_from_env
@@ -55,7 +54,6 @@ from simple_agent_lab.messages import (
     is_tool_result_message,
     message_tool_calls,
     runtime_message,
-    text_of,
     tool_results_of,
     user_message,
 )
@@ -72,7 +70,7 @@ from simple_agent_lab.state import State
 from simple_agent_lab.tools import AbortFlag
 from simple_agent_lab.trace import event_stream, run_trace_from_state
 from simple_agent_lab.trace.jsonl import json_safe
-from simple_agent_lab.workflow import ThreadGoalStore, final_output, never_abort
+from simple_agent_lab.workflow import final_output, never_abort
 
 CHAIN_DATA_KEY = "eval_chain"
 CHAIN_STATE_INPUT_KEY = "input/chain_state.json"
@@ -89,7 +87,6 @@ INVALID_PROMPT_ITEM_END_MESSAGE = (
     "triggering invalid_prompt. Continue to the next item."
 )
 INVALID_PROMPT_TOOL_RETRY_LIMIT = 20
-GOAL_STEERING_MARKER = "Continue working toward the active goal."
 InvalidPromptSource = Literal["chain_task", "tool_output", "unknown"]
 
 
@@ -100,15 +97,6 @@ class _InvalidPromptRecovery:
     skip_reason: str = ""
     error: str = ""
 
-
-CHAIN_GOAL_PREFACE = (
-    "You are working through one long chained problem made of many smaller "
-    "sub-problems, delivered to you in order. The transcript above is your own "
-    "accumulated work on the earlier sub-problems in this chain; reuse that "
-    "context and what you already learned instead of starting over. Focus only "
-    "on the current sub-problem now, and make its solution address just that "
-    "sub-problem."
-)
 
 CONTEXT_WINDOW_HANDOFF_REASON = "context_window_handoff"
 
@@ -315,7 +303,6 @@ def invalid_prompt_source(
     state: Any,
     *,
     item_id: str,
-    skip_goal_steering_messages: bool = False,
 ) -> InvalidPromptSource:
     """Classify which latest user-visible message caused invalid_prompt."""
 
@@ -326,10 +313,6 @@ def invalid_prompt_source(
             return "tool_output"
         if message_chain_item_id(message) == item_id:
             return "chain_task"
-        if skip_goal_steering_messages and GOAL_STEERING_MARKER in text_of(
-            message.content
-        ):
-            continue
         return "unknown"
     return "unknown"
 
@@ -547,17 +530,12 @@ def _recover_invalid_prompt(
     item_id: str,
     exc: BaseException,
     retries: int,
-    skip_goal_steering_messages: bool = False,
 ) -> _InvalidPromptRecovery | None:
     """Apply the shared chain invalid-prompt policy, or return None to re-raise."""
 
     if not is_invalid_prompt_error(exc):
         return None
-    prompt_source = invalid_prompt_source(
-        state,
-        item_id=item_id,
-        skip_goal_steering_messages=skip_goal_steering_messages,
-    )
+    prompt_source = invalid_prompt_source(state, item_id=item_id)
     provider_error = f"{type(exc).__name__}: {exc}"
     if prompt_source == "chain_task":
         drop_chain_task_for_invalid_prompt_skip(
@@ -682,101 +660,17 @@ def run_chain_in_container(
         return deadline is not None and time.monotonic() >= deadline
 
     try:
-        flavor = _agent_flavor(config, default=spec.flavor)
-        if flavor == "goal":
-            # Approach A: run the ORIGINAL Codex-style thread-goal loop, but seed
-            # it with the shared chain state so the goal solver inherits every
-            # earlier instance's context (the whole point in a repo chain). The
-            # goal mechanism is unchanged (same solver, steering, budgets, and
-            # update_goal completion); only the starting state and a chain preface
-            # differ. When handoff is active the loop also resets the context
-            # window mid-instance and keeps solving. Simple flavors keep the
-            # run_agent loop below.
-            goal_store = ThreadGoalStore()
-            retry_turn_budget: int | None = None
-            while status == "ok":
-                repair_active_tool_pairs(state, agent_name=spec.name)
-                goal_event_start = len(state.events)
-                try:
-                    chain_window_index, mid_handoffs, mid_before_tokens = (
-                        _run_goal_flavor_with_handoffs(
-                            provider,
-                            workdir,
-                            request_extra,
-                            module=module,
-                            spec=spec,
-                            config=config,
-                            state=state,
-                            objective=str(task),
-                            handoff_active=handoff_active,
-                            window_limit=window_limit,
-                            chain_window_index=chain_window_index,
-                            task_message_index=task_message_index,
-                            item_id=item_id,
-                            turn_budget=retry_turn_budget,
-                            goal_store=goal_store,
-                            outer_abort=deadline_abort,
-                        )
-                    )
-                    if _task_tool_enabled(config) and any(
-                        _message_has_invalid_prompt_task_error(event)
-                        for event in state.events[goal_event_start:]
-                    ):
-                        raise RuntimeError("invalid_prompt surfaced by task tool")
-                except Exception as exc:
-                    recovery = _recover_invalid_prompt(
-                        state,
-                        agent_name=spec.name,
-                        item_id=item_id,
-                        exc=exc,
-                        retries=invalid_prompt_retries,
-                        skip_goal_steering_messages=True,
-                    )
-                    if recovery is None:
-                        raise
-                    invalid_prompt_retries = recovery.retries
-                    if not recovery.retry:
-                        status = "skipped"
-                        skip_reason = recovery.skip_reason
-                        error = recovery.error
-                        break
-                    retry_turn_budget = max(
-                        0,
-                        _goal_total_turn_budget()
-                        - _count_turns(state.events[event_start:]),
-                    )
-                    if retry_turn_budget <= 0:
-                        end_chain_item_after_invalid_prompt_tool_retry_limit(
-                            state, agent_name=spec.name, item_id=item_id
-                        )
-                        status = "skipped"
-                        skip_reason = "invalid_prompt_turn_budget_exhausted"
-                        error = (
-                            "invalid_prompt retry exhausted this chain item's "
-                            "turn budget"
-                        )
-                        break
-                    continue
-                if mid_handoffs:
-                    handoff_written = True
-                    context_window_handoffs += mid_handoffs
-                    handoff_context_tokens = mid_before_tokens
-                break
-        agent = (
-            None
-            if flavor == "goal"
-            else _build_agent(
-                provider=provider,
-                workdir=workdir,
-                request_extra=request_extra,
-                config=config,
-                container_module=container_module,
-            )
+        agent = _build_agent(
+            provider=provider,
+            workdir=workdir,
+            request_extra=request_extra,
+            config=config,
+            container_module=container_module,
         )
         # Turns spent generating handoff docs are overhead, not solver work, so
         # they are excluded from the instance's turn budget below.
         handoff_gen_turns = 0
-        while status == "ok" and agent is not None:
+        while status == "ok":
             repair_active_tool_pairs(state, agent_name=spec.name)
             turn_budget = max(
                 0,
@@ -1302,124 +1196,6 @@ def _apply_context_window_handoff(
         flush=True,
     )
     return True, gen_turns, before_tokens
-
-
-def _goal_total_turn_budget() -> int:
-    """Total inner-turn budget for a goal instance across its context windows.
-
-    The standalone goal loop budget is ``LOOP_MAX_TURNS`` steering segments of
-    ``WORKER_MAX_TURNS`` inner turns each. The repo chain spends that same total
-    across handoff windows instead (each window runs one steering segment), so a
-    handoff never grants extra turns; it only resets the context.
-    """
-
-    return max(1, LOOP_MAX_TURNS.get()) * max(1, WORKER_MAX_TURNS.get())
-
-
-def _run_goal_flavor_with_handoffs(
-    provider: Provider,
-    workdir: Path,
-    request_extra: Mapping[str, Any] | None,
-    *,
-    module: ModuleType,
-    spec: AgentSpec,
-    config: Mapping[str, Any],
-    state: State,
-    objective: str,
-    handoff_active: bool,
-    window_limit: int,
-    chain_window_index: int,
-    task_message_index: int | None,
-    item_id: str,
-    turn_budget: int | None = None,
-    goal_store: ThreadGoalStore | None = None,
-    outer_abort: AbortFlag = never_abort,
-) -> tuple[int, int, int]:
-    """Drive the goal flavor, resetting the context window mid-instance.
-
-    Returns ``(chain_window_index, mid_handoffs, last_before_tokens)``. When
-    ``handoff_active`` is False this runs the goal loop exactly as the standalone
-    arm does (one call using the env budgets) so behavior is unchanged.
-    """
-
-    context_policy = _context_policy(
-        module, provider=provider, request_extra=request_extra, config=config
-    )
-    solver_read = _solver_read(config)
-    solver_task = _task_tool_enabled(config)
-    store = goal_store or ThreadGoalStore()
-
-    def run_segment(abort: AbortFlag, inner_max_turns: int | None) -> Any:
-        current_goal = store.current_goal()
-        goal_id = current_goal.goal_id if current_goal is not None else None
-        # A handoff call should permit exactly one more outer steering segment;
-        # the actual inner-turn budget remains shared in `turns_left` below.
-        loop_turns = (
-            current_goal.turns_used + 1
-            if inner_max_turns is not None and current_goal is not None
-            else (1 if inner_max_turns is not None else None)
-        )
-        return run_goal_flavor(
-            provider,
-            workdir,
-            request_extra,
-            name=spec.name,
-            role=spec.role,
-            system_prompt=spec.system_prompt,
-            context_policy=context_policy,
-            solver_read=solver_read,
-            solver_task=solver_task,
-            objective=objective,
-            state=state,
-            steering_preface=CHAIN_GOAL_PREFACE,
-            goal_store=store,
-            goal_id=goal_id,
-            loop_turns=loop_turns,
-            inner_max_turns=inner_max_turns,
-            abort=abort,
-        )
-
-    if not handoff_active:
-        run_segment(outer_abort, turn_budget)
-        return chain_window_index, 0, 0
-
-    turns_left = (
-        max(1, turn_budget) if turn_budget is not None else _goal_total_turn_budget()
-    )
-    mid_handoffs = 0
-    last_before_tokens = 0
-    while True:
-        before_events = len(state.events)
-        window_abort = _context_window_abort(
-            state, window_limit, since_event_index=before_events
-        )
-        abort = lambda: outer_abort() or window_abort()  # noqa: E731
-        result = run_segment(abort, max(1, turns_left))
-        turns_left -= _count_turns(state.events[before_events:])
-        if result.stop_reason in ("complete", "blocked"):
-            break
-        if outer_abort() or turns_left <= 0 or not _over_window(state, window_limit):
-            break
-        if mid_handoffs >= MAX_CONTEXT_WINDOW_HANDOFFS:
-            break
-        did_reset, _gen_turns, before_tokens = _apply_context_window_handoff(
-            provider,
-            state,
-            spec,
-            request_extra,
-            window_index=chain_window_index + 1,
-            task_message_index=task_message_index,
-            item_id=item_id,
-        )
-        if not did_reset:
-            # The handoff attempt did not mutate state. Keep using the remaining
-            # budget against the intact context rather than reporting success
-            # after prematurely abandoning the current goal.
-            continue
-        chain_window_index += 1
-        mid_handoffs += 1
-        last_before_tokens = before_tokens
-    return chain_window_index, mid_handoffs, last_before_tokens
 
 
 def _load_chain_config(store: ArtifactStore) -> dict[str, Any]:

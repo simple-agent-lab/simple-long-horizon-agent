@@ -23,11 +23,9 @@ of this runner, not separate host scripts.
 
 The supported comparison modes are:
 
-- `--agent-flavor {bash,loop,goal,pdr}`: selects the chain agent. The default
-  `bash` flavor is the plain bash-tool agent. The `goal` flavor maps to the
-  current `thread_goal_loop`; in a repo chain it reuses that same loop but is
-  seeded with the shared chain state, so it inherits earlier instances' context
-  (see "Goal Flavor In A Chain").
+- `--agent-flavor {bash,loop,pdr}`: selects the chain agent. The default `bash`
+  flavor is the plain bash-tool agent; `loop` and `pdr` select the remaining
+  workflow arms.
 - `--compression-strategy none`: the default; no context summarization. Long
   chains stay under the window through handoff instead (see "Handoff").
 - `--compression-strategy summarize`: turns on chain compression
@@ -42,7 +40,7 @@ The supported comparison modes are:
 
 When `--run-id` is omitted, the runner derives a timestamped prefix from the
 selected variables, such as `pro-repo-chain-none-*` (default bash + none),
-`pro-repo-chain-summarize-*`, or `pro-repo-chain-goal-task-none-*`.
+`pro-repo-chain-summarize-*`, or `pro-repo-chain-pdr-task-none-*`.
 Run IDs identify one invocation: both Pro chain runners refuse a non-empty
 existing run directory. Choose a new `--run-id` after an interrupted run; exact
 chain resume is not supported, and refusing reuse prevents stale per-instance
@@ -59,12 +57,10 @@ follow the memory-chain manifest order, and run units are submitted
 longest-first so long chains occupy provider lanes early while shorter chains
 backfill. The default variable set studies
 `agent_flavor=bash`, `compression_strategy=none`, and `task_tool=false`;
-the runner also supports goal-loop flavors, `summarize` compression, and
-task-tool delegation. Common baselines are bash, goal (`--agent-flavor goal`),
-goal + compression (`--agent-flavor goal --compression-strategy summarize`),
-and goal + task (`--agent-flavor goal --task-tool`). The non-compression
-baselines keep long chains under the context window with handoff (default on);
-compression arms use `summarize` (which turns handoff off).
+the runner also supports `loop` and `pdr` workflow flavors, `summarize`
+compression, and task-tool delegation. The non-compression baselines keep long
+chains under the context window with handoff (default on); compression arms use
+`summarize` (which turns handoff off).
 
 ## Container-Inside Migration Checklist
 
@@ -104,9 +100,8 @@ compression arms use `summarize` (which turns handoff off).
 ## Agent And Model
 
 - Agent selection: `--agent-flavor` controls the chain agent. The default
-  `bash` flavor is the plain bash-tool agent; `goal` maps to
-  `thread_goal_loop`; `loop` and `pdr` are also supported no-read repo-chain
-  flavors.
+  `bash` flavor is the plain bash-tool agent; `loop` and `pdr` are the supported
+  no-read workflow flavors.
 - Tools: repo-chain flavors intentionally exclude the dedicated `read` tool.
   The baseline tool surface is bash. `--task-tool` adds the task tool to the
   selected chain agent or workflow solver.
@@ -136,38 +131,6 @@ compression arms use `summarize` (which turns handoff off).
   host copies the selected token value into the container's canonical
   `OPENAI_AUTH_TOKEN`, because the provider is now constructed inside the
   container.
-
-### Goal Flavor In A Chain
-
-The `goal` flavor uses the same `run_thread_goal_loop` inside and outside a
-chain; the repo chain only changes where the loop starts and how each steering
-message is framed:
-
-- Context inheritance: the loop is seeded with the shared chain `State`
-  (the `state=` argument of `run_thread_goal_loop`), so the goal solver resumes
-  on top of every earlier instance's accumulated context from its first segment
-  instead of starting fresh per instance. Its bash turns are recorded on the
-  same chain state, so they carry forward to the next instance.
-- Steering preface: a trusted host preface (`CHAIN_GOAL_PREFACE` in
-  `simple_agent_lab.evals.chain`) is prepended to every steering message. It
-  tells the model this is one long chain of ordered sub-problems, to reuse the
-  accumulated context instead of starting over, and to solve only the current
-  sub-problem.
-- Unchanged mechanics: the goal store, `get_goal`/`update_goal` tools, steering
-  body, and completion rules are identical to the standalone `goal` arm. With
-  `state` and the preface left at their defaults, the chain goal path reproduces
-  the standalone goal behavior exactly.
-- Budgets: the goal loop runs a segmented budget (`SAL_WORKFLOW_LOOP_MAX_TURNS`
-  outer segments, each up to `SAL_WORKFLOW_WORKER_MAX_TURNS` inner turns). For the
-  `goal` flavor the runner maps `--max-turns` onto `SAL_WORKFLOW_WORKER_MAX_TURNS`
-  (overriding any `.env` value) and defaults `SAL_WORKFLOW_LOOP_MAX_TURNS` to `1`,
-  so one segment runs up to `--max-turns` inner turns; set
-  `SAL_WORKFLOW_LOOP_MAX_TURNS` in `.env` to restore multi-segment goal. For the
-  non-goal `while`-loop flavors, `--max-turns` is the per-instance turn budget
-  directly.
-- Shared construction: both the standalone goal arm and the chain goal path
-  build the solver and drive the loop through the single `run_goal_flavor`
-  helper in `simple_agent_lab.agents.flavors`.
 
 ## Compression
 
@@ -346,11 +309,8 @@ Batch-level outputs include:
 ## Invalid Prompt Handling
 
 If the provider raises `invalid_prompt` or code `-4321`, the in-container
-repo-chain runner applies the same recovery policy to every agent flavor,
-including `goal`, and classifies the latest relevant active user-visible
-message. Goal-loop steering messages are skipped during classification so the
-runner reaches the current instance prompt or tool output that caused the
-provider rejection:
+repo-chain runner applies the same recovery policy to every agent flavor and
+classifies the latest relevant active user-visible message:
 
 - If it is the current instance prompt, the instance is skipped and that prompt
   is dropped from active context so the next instance can proceed.
@@ -393,12 +353,9 @@ uv run --extra swebench python runs/swebench/run_swebench_pro_repo_chains.py \
 ```
 
 This default command runs the `bash` flavor with no chain compression
-(`--compression-strategy none`). Add `--agent-flavor goal` for the goal-loop
-baseline, `--agent-flavor goal --compression-strategy summarize` for the
-goal compression baseline, or `--agent-flavor goal --task-tool` for the goal
-task-delegation baseline. For the `goal` flavor, `--max-turns` sets the goal
-worker budget (`SAL_WORKFLOW_WORKER_MAX_TURNS`) and the outer loop defaults to a
-single segment (`SAL_WORKFLOW_LOOP_MAX_TURNS=1`); see "Goal Flavor In A Chain".
+(`--compression-strategy none`). Add `--compression-strategy summarize` for the
+compression baseline, `--task-tool` for task delegation, or
+`--agent-flavor loop` / `--agent-flavor pdr` for the remaining workflow arms.
 
 Full trajectories are written by default. Pass `--no-write-trajectories` only
 when storage cost is unacceptable; long repo chains can grow to hundreds of GB

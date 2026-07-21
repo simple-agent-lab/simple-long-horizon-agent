@@ -52,6 +52,7 @@ import hashlib
 import json
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -105,6 +106,10 @@ from simple_agent_lab.llm.env import (  # noqa: E402
     OPENAI_MODEL_ENV,
     OPENAI_REASONING_EFFORT_ENV,
     REASONING_EFFORT_ENV,
+)
+from simple_agent_lab.memory import (  # noqa: E402
+    FilesystemMemory,
+    FilesystemMemoryLimits,
 )
 from simple_agent_lab.trace import write_jsonl_atomic  # noqa: E402
 
@@ -204,6 +209,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--memory-max-namespaces",
+        type=int,
+        default=None,
+        help=(
+            "Namespace admission cap. Persistent --memory-home roots default to "
+            "128; a run-local root automatically fits the finite planned batch."
+        ),
+    )
+    parser.add_argument(
         "--parallel",
         default="slots",
         help="'slots' to size the pool from --provider-auth-envs, or an integer.",
@@ -285,6 +299,30 @@ def main() -> None:
     lane_slots = lane_auth_slots(expanded_slots, parallel)
 
     memory_home = _resolve_memory_home(args, run_root=run_root)
+    memory_namespaces = {
+        unit.chain_id: _memory_namespace(unit.chain_id)
+        for unit in units
+        if unit.memory_enabled
+    }
+    reverse: dict[str, str] = {}
+    for chain_id, namespace in memory_namespaces.items():
+        prior = reverse.setdefault(_memory_namespace_collision_key(namespace), chain_id)
+        if prior != chain_id:
+            raise SystemExit(
+                "filesystem memory namespace collision between chain ids "
+                f"{prior!r} and {chain_id!r}: {namespace!r}"
+            )
+    memory_namespace_limit = _resolve_memory_namespace_limit(
+        args,
+        requested_count=len(memory_namespaces),
+    )
+    if not args.memory_home and len(memory_namespaces) > memory_namespace_limit:
+        raise SystemExit(
+            "filesystem memory namespace cap cannot fit this batch: "
+            f"requested={len(memory_namespaces)}, cap={memory_namespace_limit}. "
+            "Use a fresh run-local memory root or raise "
+            "--memory-max-namespaces to an intentional finite bound."
+        )
     manifest = plan_manifest(
         plan,
         config=config,
@@ -294,6 +332,7 @@ def main() -> None:
     )
     manifest["chains_json"] = str(_chains_json_path(args))
     manifest["memory_home"] = str(memory_home)
+    manifest["memory_max_namespaces"] = memory_namespace_limit
     manifest["provider_auth"] = {
         "spec": args.provider_auth_envs or f"{OPENAI_ENV.auth}:1",
         "lane_slots": lane_slots,
@@ -328,6 +367,29 @@ def main() -> None:
     harness.prepare_wheelhouse_for_run(
         wheelhouse, prepare_all=args.prepare_wheelhouse, extras=()
     )
+    host_memory = (
+        FilesystemMemory(
+            root=memory_home,
+            limits=FilesystemMemoryLimits(
+                max_namespaces_per_root=memory_namespace_limit,
+            ),
+        )
+        if memory_namespaces
+        else None
+    )
+    if host_memory is not None:
+        # Child-only container mounts intentionally cannot see sibling
+        # namespaces. Converge root-wide quotas from the host before and after
+        # the batch, under the same shared lock directory used by containers.
+        host_memory.maintain()
+        requested_namespaces = tuple(memory_namespaces.values())
+        if not host_memory.admit_namespaces(requested_namespaces):
+            raise SystemExit(
+                "filesystem memory namespace admission refused: "
+                f"root={memory_home}, requested={len(requested_namespaces)}, "
+                f"cap={memory_namespace_limit}. Use a fresh --memory-home or "
+                "raise --memory-max-namespaces to an intentional finite bound."
+            )
     suite = SwebenchSuite(
         dataset_name=config.dataset_name,
         namespace="swebench",
@@ -338,9 +400,9 @@ def main() -> None:
     for unit in units:
         if not unit.memory_enabled:
             continue
-        host_home, container_mount, _namespace = _memory_mount_for_chain(
-            memory_home, unit.chain_id
-        )
+        namespace = memory_namespaces[unit.chain_id]
+        host_home = memory_home.resolve() / namespace
+        container_mount = f"{DEFAULT_MEMORY_CONTAINER_HOME.rstrip('/')}/{namespace}"
         memory_backends[unit.chain_id] = LocalDockerBackend(
             pull=args.pull,
             keep_container=args.keep_container,
@@ -350,6 +412,7 @@ def main() -> None:
             memory_home=host_home,
             memory_mount=container_mount,
             memory_env_home=DEFAULT_MEMORY_CONTAINER_HOME,
+            memory_lock_dir=memory_home / ".memory-lock",
         )
     plain_backend = LocalDockerBackend(
         pull=args.pull,
@@ -377,6 +440,7 @@ def main() -> None:
                 run_root=run_root,
                 suite=suite,
                 memory_backends=memory_backends,
+                memory_namespaces=memory_namespaces,
                 plain_backend=plain_backend,
                 store=store,
                 predictions_path=predictions_path,
@@ -402,6 +466,9 @@ def main() -> None:
                     f"memory={'on' if result['memory_enabled'] else 'off'}",
                     flush=True,
                 )
+
+    if host_memory is not None:
+        host_memory.maintain()
 
     if skipped_instances:
         skipped_path = batch_dir / "skipped_instances.jsonl"
@@ -595,19 +662,79 @@ def _resolve_memory_home(args: argparse.Namespace, *, run_root: Path) -> Path:
     return (run_root / args.run_id / "memory").resolve()
 
 
+def _resolve_memory_namespace_limit(
+    args: argparse.Namespace,
+    *,
+    requested_count: int,
+) -> int:
+    """Choose a finite namespace cap without breaking a planned run-local batch."""
+
+    if requested_count < 0:
+        raise ValueError("requested_count must not be negative")
+    override = args.memory_max_namespaces
+    if override is not None:
+        if override <= 0:
+            raise SystemExit("--memory-max-namespaces must be positive")
+        return override
+    default = FilesystemMemoryLimits().max_namespaces_per_root
+    if args.memory_home:
+        # A reused root can contain unknown historical namespaces, so retain the
+        # conservative default unless the operator explicitly raises the cap.
+        return default
+    # A run-local root is new and its complete namespace set is already known.
+    # Fit that finite set exactly instead of making --singleton-memory fail on
+    # full-split plans that intentionally contain more than 128 singletons.
+    return max(default, requested_count)
+
+
 def _memory_namespace(chain_id: str) -> str:
     """Return a collision-resistant ASCII namespace for one chain id."""
 
-    raw = chain_id.strip()
+    raw = chain_id
     safe = "".join(
         char if char.isascii() and (char.isalnum() or char in "_.-") else "_"
         for char in raw
     ).strip("._-")
     safe = safe or "chain"
-    if safe != raw:
-        digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
-        safe = f"{safe}-{digest}"
-    return safe
+    reserved_prefix = "salx-"
+    filesystem_reserved = {"retention_warning.md", "memory_error.md"}
+    _stem, separator, suffix = raw.rpartition("-")
+    legacy_ambiguous = (
+        bool(separator)
+        and all(char in "0123456789abcdef" for char in suffix)
+        and len(suffix) in (8, 12)
+    )
+    if (
+        raw == safe
+        and len(raw) <= 80
+        and not raw.casefold().startswith(reserved_prefix)
+        and not raw.casefold().startswith("salm-")
+        and raw.casefold() not in filesystem_reserved
+        and not legacy_ambiguous
+        and not _is_windows_device_name(raw)
+    ):
+        # Preserve existing normal chain namespace paths across upgrades.
+        return raw
+    # Encoded outputs occupy a reserved prefix, so a legal raw id cannot
+    # impersonate another id's sanitized/hash output.
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
+    prefix = safe[:53].rstrip("._-") or "chain"
+    return f"{reserved_prefix}{prefix}--{digest}"
+
+
+def _is_windows_device_name(value: str) -> bool:
+    """Return whether Windows reserves this basename, including extensions."""
+
+    basename = value.rstrip(" .").split(".", 1)[0].casefold()
+    return basename in {"con", "prn", "aux", "nul", "clock$"} or bool(
+        re.fullmatch(r"(?:com|lpt)[1-9]", basename)
+    )
+
+
+def _memory_namespace_collision_key(namespace: str) -> str:
+    """Detect aliases that collide on case-insensitive host filesystems."""
+
+    return namespace.casefold()
 
 
 def _memory_mount_for_chain(memory_home: Path, chain_id: str) -> tuple[Path, str, str]:
@@ -661,6 +788,7 @@ def _run_chain(
     run_root: Path,
     suite: SwebenchSuite,
     memory_backends: dict[str, LocalDockerBackend],
+    memory_namespaces: dict[str, str],
     plain_backend: LocalDockerBackend,
     store: LocalDirStore,
     predictions_path: Path,
@@ -681,6 +809,9 @@ def _run_chain(
             backend=(
                 memory_backends[unit.chain_id] if unit.memory_enabled else plain_backend
             ),
+            memory_name=(
+                memory_namespaces[unit.chain_id] if unit.memory_enabled else ""
+            ),
             store=store,
             predictions_path=predictions_path,
             prediction_lock=prediction_lock,
@@ -699,6 +830,7 @@ def _run_chain_with_slot(
     run_root: Path,
     suite: SwebenchSuite,
     backend: LocalDockerBackend,
+    memory_name: str,
     store: LocalDirStore,
     predictions_path: Path,
     prediction_lock: threading.Lock,
@@ -724,9 +856,7 @@ def _run_chain_with_slot(
                 provider_auth_env,
                 api_kind=config.api_kind,
                 agent_flavor=config.agent_flavor,
-                memory_name=(
-                    _memory_namespace(unit.chain_id) if unit.memory_enabled else ""
-                ),
+                memory_name=memory_name,
                 memory_run_id=f"{position:03d}_{instance_id}",
             )
             if args.force:

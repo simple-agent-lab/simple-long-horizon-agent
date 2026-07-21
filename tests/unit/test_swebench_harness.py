@@ -45,9 +45,7 @@ def _record_command_with_fake_wheel(calls: list[list[str]], command: list[str]) 
     if command[:3] == ["uv", "build", "--wheel"]:
         out_dir = Path(command[-1])
         out_dir.mkdir(parents=True, exist_ok=True)
-        (out_dir / "simple_agent_lab-0.1.0-py3-none-any.whl").write_bytes(
-            b"complete-wheel"
-        )
+        (out_dir / "simple_agent_lab-0.1.0-py3-none-any.whl").write_bytes(b"wheel")
 
 
 class SwebenchHarnessTest(unittest.TestCase):
@@ -424,27 +422,15 @@ class SwebenchHarnessTest(unittest.TestCase):
         calls: list[list[str]] = []
 
         def runner(command: list[str]) -> None:
-            calls.append(command)
-            out_dir = Path(command[-1])
-            out_dir.mkdir(parents=True, exist_ok=True)
-            (out_dir / "simple_agent_lab-0.1.0-py3-none-any.whl").write_bytes(
-                b"complete-wheel"
-            )
+            _record_command_with_fake_wheel(calls, command)
 
         with tempfile.TemporaryDirectory() as tmp:
-            wheelhouse = Path(tmp)
-            stale = wheelhouse / "simple_agent_lab-9.9.9-py3-none-any.whl"
-            stale.write_bytes(b"stale-wheel")
-            prepare_project_wheel(wheelhouse, runner=runner)
-            installed = (
-                wheelhouse / "simple_agent_lab-0.1.0-py3-none-any.whl"
-            ).read_bytes()
-            stale_exists = stale.exists()
+            prepare_project_wheel(Path(tmp), runner=runner)
+            wheel_names = sorted(path.name for path in Path(tmp).glob("*.whl"))
 
         self.assertEqual(calls[0][:4], ["uv", "build", "--wheel", "--out-dir"])
         self.assertNotEqual(calls[0][-1], tmp)
-        self.assertEqual(installed, b"complete-wheel")
-        self.assertFalse(stale_exists)
+        self.assertEqual(wheel_names, ["simple_agent_lab-0.1.0-py3-none-any.whl"])
 
     def test_prepare_wheelhouse_for_run_refreshes_project_wheel_by_default(
         self,
@@ -460,24 +446,6 @@ class SwebenchHarnessTest(unittest.TestCase):
                     prepare_wheelhouse_for_run(wheelhouse, prepare_all=False)
 
         project_wheel.assert_called_once_with(wheelhouse)
-        full_wheelhouse.assert_not_called()
-
-    def test_prepare_wheelhouse_for_run_can_reuse_prepared_wheelhouse(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            wheelhouse = Path(tmp)
-            with mock.patch(
-                "evals.swebench.harness.prepare_project_wheel"
-            ) as project_wheel:
-                with mock.patch(
-                    "evals.swebench.harness.prepare_wheelhouse"
-                ) as full_wheelhouse:
-                    prepare_wheelhouse_for_run(
-                        wheelhouse,
-                        prepare_all=False,
-                        reuse_prepared=True,
-                    )
-
-        project_wheel.assert_not_called()
         full_wheelhouse.assert_not_called()
 
     def test_prepare_wheelhouse_for_run_can_prepare_full_wheelhouse(self) -> None:

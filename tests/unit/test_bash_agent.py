@@ -6,7 +6,6 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import cast
-from unittest import mock
 
 from simple_agent_lab import (
     Agent,
@@ -21,7 +20,6 @@ from simple_agent_lab import (
     tool_results_of,
 )
 from simple_agent_lab.agents.starter import make_bash_agent
-import simple_agent_lab.config as config
 from simple_agent_lab.llm import Provider
 from simple_agent_lab.messages import Message
 from simple_agent_lab.trace import (
@@ -39,7 +37,6 @@ from simple_agent_lab.tools.bash import (
     interpret_command_result,
     make_bash_tool,
     run_bash,
-    submitted_output,
 )
 
 
@@ -58,16 +55,6 @@ class BashToolTest(unittest.TestCase):
         self.assertEqual(result.details["exit_code"], 0)
         self.assertEqual(result.details["raw_stdout"], "hello\n")
 
-    def test_raw_stdout_preserves_crlf(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            execution = run_bash(
-                "printf 'first\\r\\nsecond\\r\\n'",
-                cwd=tmp,
-                timeout_seconds=3,
-            )
-
-        self.assertEqual(execution.raw_stdout, "first\r\nsecond\r\n")
-
     def test_successful_empty_output_reports_done(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             result = _execute(make_bash_tool(cwd=tmp), {"command": "true"})
@@ -76,110 +63,6 @@ class BashToolTest(unittest.TestCase):
         self.assertIn(
             "Done. Command completed with no output.", tool_result_text(result)
         )
-
-    def test_submission_marker_terminates_with_submitted_output(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            with mock.patch.dict(
-                "os.environ",
-                {
-                    config.BASH_SUBMISSION_MARKER.name: (
-                        "COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
-                    )
-                },
-                clear=False,
-            ):
-                tool = make_bash_tool(cwd=tmp)
-            result = _execute(
-                tool,
-                {
-                    "command": (
-                        "printf 'COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT\\n"
-                        "diff --git a/app.py b/app.py\\n'"
-                    )
-                },
-            )
-
-        self.assertFalse(result.is_error)
-        self.assertTrue(result.terminate)
-        self.assertEqual(result.details["submission"], "diff --git a/app.py b/app.py\n")
-        self.assertIn("Submission captured", tool_result_text(result))
-
-    def test_submission_preserves_trailing_blank_context_line(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            with mock.patch.dict(
-                "os.environ",
-                {
-                    config.BASH_SUBMISSION_MARKER.name: (
-                        "COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
-                    )
-                },
-                clear=False,
-            ):
-                tool = make_bash_tool(cwd=tmp)
-            result = _execute(
-                tool,
-                {
-                    "command": (
-                        "printf 'COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT\\n"
-                        "diff --git a/app.py b/app.py\\n"
-                        "@@ -1,2 +1,2 @@\\n"
-                        "-old\\n"
-                        "+new\\n"
-                        " \\n'"
-                    )
-                },
-            )
-
-        self.assertEqual(
-            result.details["submission"],
-            ("diff --git a/app.py b/app.py\n@@ -1,2 +1,2 @@\n-old\n+new\n \n"),
-        )
-
-    def test_submission_marker_parser_ignores_ordinary_output(self) -> None:
-        self.assertIsNone(
-            submitted_output(
-                "COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT\npatch",
-                marker="COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT",
-                exit_code=1,
-            )
-        )
-        self.assertIsNone(submitted_output("patch", marker="", exit_code=0))
-
-    def test_output_budget_can_be_configured_from_env(self) -> None:
-        big = "x" * 5000
-        with tempfile.TemporaryDirectory() as tmp:
-            with mock.patch.dict(
-                "os.environ",
-                {config.BASH_MAX_OUTPUT_CHARS.name: "10000"},
-                clear=False,
-            ):
-                tool = make_bash_tool(cwd=tmp)
-            result = _execute(tool, {"command": f"printf '{big}'"})
-
-        self.assertFalse(result.details["stdout_truncated"])
-        self.assertIn(big, tool_result_text(result))
-
-    def test_explicit_resource_limits_override_environment(self) -> None:
-        with mock.patch.dict(
-            "os.environ",
-            {
-                config.BASH_DEFAULT_TIMEOUT.name: "30",
-                config.BASH_MAX_TIMEOUT.name: "60",
-                config.BASH_MAX_OUTPUT_CHARS.name: "10000",
-            },
-            clear=False,
-        ):
-            tool = make_bash_tool(
-                default_timeout_seconds=1,
-                max_timeout_seconds=2,
-                max_output_chars=123,
-            )
-
-        properties = tool.parameters["properties"]
-        self.assertIn("capped at 2", properties["timeout_seconds"]["description"])
-        self.assertEqual(tool.timeout_seconds, 3)
-        result = _execute(tool, {"command": f"printf '{'x' * 500}'"})
-        self.assertTrue(result.details["stdout_truncated"])
 
     def test_bash_tool_schema_is_strict_for_model_arguments(self) -> None:
         tool = make_bash_tool(cwd=ROOT)

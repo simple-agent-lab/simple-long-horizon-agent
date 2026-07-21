@@ -16,6 +16,7 @@ the run's `ArtifactStore`, so this backend never copies files itself.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
@@ -27,6 +28,7 @@ from ..protocols import (
     ContainerBinding,
     DEFAULT_MEMORY_CONTAINER_HOME,
     MEMORY_HOME_ENV,
+    MEMORY_ROOT_VIEW_ENV,
     RunHandle,
     RunOutcome,
     RunSpec,
@@ -150,6 +152,7 @@ def with_local_mounts(
     memory_home: str | Path | None = None,
     memory_mount: str = DEFAULT_MEMORY_CONTAINER_HOME,
     memory_env_home: str | None = None,
+    memory_lock_dir: str | Path | None = None,
 ) -> ContainerBinding:
     """Add local-only bind mounts for offline installs and persistent memory.
 
@@ -166,7 +169,12 @@ def with_local_mounts(
     ``memory_mount``. The backend also sets ``SAL_MEMORY_HOME`` to
     ``memory_env_home`` (or the mount itself by default) so a caller may expose
     one isolated namespace at a child mount while keeping the memory root/name
-    contract used in-container.
+    contract used in-container. The host always creates a private shared lock
+    directory/file first. When only a child namespace is mounted, the backend
+    bind-mounts ``memory_lock_dir`` (or the child path's parent lock directory)
+    into that otherwise-isolated container view. Mounting the directory (not
+    one lock file) keeps every writer coordinated even when ``filelock`` unlinks
+    and recreates its lock path.
     """
 
     extra: dict[str, dict[str, str]] = {}
@@ -190,12 +198,30 @@ def with_local_mounts(
         if not memory_mount:
             raise ValueError("LocalDockerBackend(memory_home=...) needs memory_mount")
         memory_path = Path(memory_home).expanduser()
-        memory_path.mkdir(parents=True, exist_ok=True)
+        memory_path.mkdir(parents=True, exist_ok=True, mode=0o700)
         extra[str(memory_path.resolve())] = {
             "bind": memory_mount,
             "mode": "rw",
         }
-        env[MEMORY_HOME_ENV] = memory_env_home or memory_mount
+        container_root = (memory_env_home or memory_mount).rstrip("/")
+        env[MEMORY_HOME_ENV] = container_root
+        root_view_isolated = container_root != memory_mount.rstrip("/")
+        env[MEMORY_ROOT_VIEW_ENV] = "isolated" if root_view_isolated else "complete"
+        separate_lock_mount = bool(memory_lock_dir) or root_view_isolated
+        if memory_lock_dir:
+            lock_path = Path(memory_lock_dir).expanduser()
+        elif separate_lock_mount:
+            lock_path = memory_path.parent / ".memory-lock"
+        else:
+            lock_path = memory_path / ".memory-lock"
+        lock_path.mkdir(parents=True, exist_ok=True, mode=0o700)
+        descriptor = os.open(lock_path / "memory.lock", os.O_WRONLY | os.O_CREAT, 0o600)
+        os.close(descriptor)
+        if separate_lock_mount:
+            extra[str(lock_path.resolve())] = {
+                "bind": f"{container_root}/.memory-lock",
+                "mode": "rw",
+            }
     if not extra and env == binding.env:
         return binding
     return replace(binding, mounts={**binding.mounts, **extra}, env=env)
@@ -218,6 +244,9 @@ class LocalDockerBackend:
     ``memory_mount`` and exported as ``SAL_MEMORY_HOME`` for container-side
     memory construction. ``memory_env_home`` may point at the parent of that
     mount when only one namespaced child should be visible in the container.
+    ``memory_lock_dir`` can explicitly select the shared root lock alongside
+    such a child mount; otherwise the backend derives it from the child parent,
+    without exposing sibling namespace contents.
     """
 
     def __init__(
@@ -232,6 +261,7 @@ class LocalDockerBackend:
         memory_home: str | Path | None = None,
         memory_mount: str = DEFAULT_MEMORY_CONTAINER_HOME,
         memory_env_home: str | None = None,
+        memory_lock_dir: str | Path | None = None,
     ) -> None:
         self.user = user
         self.keep_container = keep_container
@@ -242,6 +272,7 @@ class LocalDockerBackend:
         self.memory_home = memory_home
         self.memory_mount = memory_mount
         self.memory_env_home = memory_env_home
+        self.memory_lock_dir = memory_lock_dir
 
     def _client(self) -> Any:
         return _require_docker().from_env(timeout=self.docker_timeout_s)
@@ -265,6 +296,7 @@ class LocalDockerBackend:
             memory_home=self.memory_home,
             memory_mount=self.memory_mount,
             memory_env_home=self.memory_env_home,
+            memory_lock_dir=self.memory_lock_dir,
         )
         start_container(
             client,

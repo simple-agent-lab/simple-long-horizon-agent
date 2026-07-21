@@ -116,8 +116,8 @@ using another OpenAI-compatible service.
 `instance_id` values must match the dataset split; a mismatch surfaces as
 `missing_instance_ids` in the run's `experiment.json`.
 
-The focused deterministic check is:
+Run the maintained SWE-bench unit-test set with:
 
 ```bash
-uv run python -m unittest tests.unit.test_swebench_chain_data -v
+uv run python -m unittest discover -s tests/unit -p 'test_swebench_*.py'
 ```

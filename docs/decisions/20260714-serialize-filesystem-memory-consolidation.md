@@ -33,6 +33,8 @@ Serialize each `FilesystemMemory` finish operation with one inter-process lock
 scoped to its memory root.
 
 - Acquire the lock before reading any existing memory used for distillation.
+- Use the same lock for first-time layout creation in `initial(...)`, so an
+  `INDEX.md`/`MEMORY.md` skeleton can never replace a concurrent update.
 - Hold it through the distiller call, run-directory allocation, evidence write,
   and updates to `INDEX.md`, `MEMORY.md`, and `memory_summary.md`.
 - Keep the existing temporary-file plus `os.replace(...)` writes. The lock
@@ -43,6 +45,14 @@ scoped to its memory root.
   filesystem.
 - Keep the implementation in `memory/filesystem.py`; do not add a lock service,
   job database, or background worker.
+- When an eval container mounts only one namespace child, also bind-mount the
+  shared host `<memory-root>/.memory-lock/` directory at the same root-relative
+  path. Mount the directory, not one lock file: `filelock` may unlink/recreate
+  `memory.lock`, and every writer must observe that new directory entry. Create
+  the directory and private lock file on the host before container start. A
+  root-run worker uses its owner as the ownership handoff target for visible
+  memory data, so host maintenance can prune it without widening transcript or
+  artifact permissions.
 
 ## Consequences
 
@@ -54,9 +64,12 @@ scoped to its memory root.
   backend.
 - The operating system releases the underlying lock when a process exits. The
   existing distiller timeout bounds ordinary model-call stalls.
-- This is not a multi-file transaction. A process failure between separate
-  atomic replacements can leave derived files from different generations; a
-  pending-input/retry design would be needed for automatic crash recovery.
+- This is not a multi-file transaction. Per-run writing/prepared/commit markers
+  let lock-time maintenance remove early partial evidence. The prepared marker
+  contains a bounded commit plan plus handbook before/proposed hashes, so the
+  next lock holder can forward-complete it without a second model call or stale
+  overwrite. There is no background worker; recovery runs synchronously when
+  the next recall, finish, or explicit host maintenance acquires the lock.
 - Remote object stores and filesystems without reliable inter-process locking
   are outside this backend's coordination guarantee.
 

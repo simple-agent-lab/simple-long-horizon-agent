@@ -88,17 +88,6 @@ from .goal_loop import (
     GoalStatus,
     run_goal_loop,
 )
-from .thread_goal_loop import (
-    THREAD_GOAL_STORE_DATA_KEY,
-    ThreadGoal,
-    ThreadGoalResult,
-    ThreadGoalStatus,
-    ThreadGoalStore,
-    build_thread_goal_steering,
-    make_get_goal_tool,
-    make_update_goal_tool,
-    run_thread_goal_loop,
-)
 from .goal_checks import (
     COMPLETION_JUDGE_ROLE,
     COMPLETION_JUDGE_SYSTEM_PROMPT,
@@ -176,15 +165,6 @@ __all__ = [
     "CompletionCheck",
     "GoalResult",
     "GoalStatus",
-    "run_thread_goal_loop",
-    "THREAD_GOAL_STORE_DATA_KEY",
-    "ThreadGoal",
-    "ThreadGoalResult",
-    "ThreadGoalStatus",
-    "ThreadGoalStore",
-    "build_thread_goal_steering",
-    "make_get_goal_tool",
-    "make_update_goal_tool",
     # goal checks
     "update_goal_tool",
     "UPDATE_GOAL_TOOL_NAME",

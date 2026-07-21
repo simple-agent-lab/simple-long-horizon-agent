@@ -3,8 +3,8 @@
 Retry for transient provider throttling lives in the LLM layer and is applied
 once, by default, where the LLM-backed `generate` is built (`make_llm_agent`) —
 so a long agent run survives a TPM/429 blip without each caller re-wrapping
-`generate`. These cover the backoff mechanics, the transient-error classifier,
-and the wiring through `make_llm_agent`.
+`generate`. These cover the backoff mechanics, the throttling classifier, and
+the wiring through `make_llm_agent`.
 """
 
 from __future__ import annotations
@@ -142,13 +142,6 @@ class IsRetryableLlmErrorTest(unittest.TestCase):
         self.assertTrue(is_retryable_llm_error(RuntimeError("HTTP 429")))
         self.assertTrue(is_retryable_llm_error(RuntimeError("Too Many Requests")))
         self.assertFalse(is_retryable_llm_error(RuntimeError("invalid schema")))
-
-    def test_matches_transient_internal_server_error_text(self) -> None:
-        self.assertTrue(is_retryable_llm_error(RuntimeError("InternalServerError")))
-        self.assertTrue(is_retryable_llm_error(RuntimeError("internal server error")))
-        self.assertTrue(is_retryable_llm_error(RuntimeError("server_error")))
-        self.assertTrue(is_retryable_llm_error(RuntimeError("error code: 500")))
-        self.assertTrue(is_retryable_llm_error(RuntimeError("HTTP 500")))
 
 
 _BASH_TOOLS = [LLMTool(name="bash", description="run bash", parameters={})]

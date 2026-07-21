@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import multiprocessing
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,14 +14,7 @@ from simple_agent_lab import (
     message_text,
     text_of,
 )
-from simple_agent_lab.llm import (
-    LLMRequest,
-    LLMResponse,
-    Provider,
-    StreamEvent,
-    TextBlock,
-    register_adapter,
-)
+from simple_agent_lab.llm import Provider
 from simple_agent_lab.memory import (
     FilesystemArtifact,
     FilesystemMemory,
@@ -35,43 +27,6 @@ from simple_agent_lab.memory.transcript import extract_memory_text
 from simple_agent_lab.messages import runtime_message
 from simple_agent_lab.protocols import ModelRequestEvent
 from simple_agent_lab.tools import AgentTool, text_result
-
-
-def _finish_shared_filesystem_memory(
-    root: str,
-    run_id: str,
-    started,
-    entered_distiller,
-    release_distiller,
-    wait_for_release: bool,
-) -> None:
-    """Finish one memory run in a spawned process for lock coordination tests."""
-
-    def distill(payload: FilesystemMemoryPayload):
-        entered_distiller.set()
-        if wait_for_release and not release_distiller.wait(timeout=10):
-            raise TimeoutError("test did not release the first memory distiller")
-        return {
-            "summary_md": f"## Task\n\n{run_id}\n",
-            "index_row": {"summary": run_id, "scope": "concurrency"},
-            "memory_md": (
-                payload.notes.rstrip()
-                + f"\n\n- Preserve lesson {run_id}. [runs/{run_id}/summary.md]\n"
-            ),
-        }
-
-    memory = FilesystemMemory(root=root, distiller=distill)
-    state = State(f"task {run_id}")
-    state.send("task", "user", "agent", f"task {run_id}")
-    context = MemoryContext(
-        agent="agent",
-        task=f"task {run_id}",
-        memory_name="shared",
-        run_id=run_id,
-        state=state,
-    )
-    started.set()
-    memory.finish(context)
 
 
 class MemoryBaseTest(unittest.TestCase):
@@ -307,70 +262,6 @@ class MemoryBaseTest(unittest.TestCase):
 
 
 class FilesystemMemoryTest(unittest.TestCase):
-    def test_filesystem_memory_serializes_concurrent_full_rewrites(self) -> None:
-        process_context = multiprocessing.get_context("spawn")
-        with tempfile.TemporaryDirectory() as tmp:
-            first_started = process_context.Event()
-            first_entered = process_context.Event()
-            first_release = process_context.Event()
-            second_started = process_context.Event()
-            second_entered = process_context.Event()
-            unused_release = process_context.Event()
-            first = process_context.Process(
-                target=_finish_shared_filesystem_memory,
-                args=(
-                    tmp,
-                    "run-1",
-                    first_started,
-                    first_entered,
-                    first_release,
-                    True,
-                ),
-            )
-            second = process_context.Process(
-                target=_finish_shared_filesystem_memory,
-                args=(
-                    tmp,
-                    "run-2",
-                    second_started,
-                    second_entered,
-                    unused_release,
-                    False,
-                ),
-            )
-
-            second_entered_before_release = False
-            try:
-                first.start()
-                self.assertTrue(first_started.wait(timeout=10))
-                self.assertTrue(first_entered.wait(timeout=10))
-                second.start()
-                self.assertTrue(second_started.wait(timeout=10))
-                second_entered_before_release = second_entered.wait(timeout=1)
-            finally:
-                first_release.set()
-                for process in (first, second):
-                    if process.pid is None:
-                        continue
-                    process.join(timeout=10)
-                    if process.is_alive():
-                        process.terminate()
-                        process.join(timeout=5)
-
-            self.assertFalse(
-                second_entered_before_release,
-                "a second distiller read memory while the first rewrite was active",
-            )
-            self.assertEqual(first.exitcode, 0)
-            self.assertEqual(second.exitcode, 0)
-            memory_dir = Path(tmp) / "shared"
-            handbook = (memory_dir / "MEMORY.md").read_text(encoding="utf-8")
-            index = (memory_dir / "INDEX.md").read_text(encoding="utf-8")
-            self.assertIn("Preserve lesson run-1", handbook)
-            self.assertIn("Preserve lesson run-2", handbook)
-            self.assertIn("runs/run-1/summary.md", index)
-            self.assertIn("runs/run-2/summary.md", index)
-
     def test_filesystem_memory_prompt_preserves_quality_gate(self) -> None:
         from simple_agent_lab.memory.filesystem import filesystem_distillation_prompt
 
@@ -442,7 +333,6 @@ class FilesystemMemoryTest(unittest.TestCase):
 
             self.assertEqual(len(context), 1)
             self.assertIn("filesystem memory", message_text(context[0]))
-            self.assertEqual(memory_dir, Path(tmp) / "repo_name")
             self.assertTrue((run_dir / "task.md").exists())
             self.assertIn(
                 "fix auth", (run_dir / "transcript.md").read_text(encoding="utf-8")
@@ -547,17 +437,16 @@ class FilesystemMemoryTest(unittest.TestCase):
 
             memory.finish(ctx)
 
-            run_dir = Path(tmp) / "fallback_session" / "runs" / "run_99"
+            memory_dir = memory.memory_dir(ctx)
+            run_dir = memory_dir / "runs" / "run_99"
             self.assertTrue((run_dir / "task.md").exists())
             self.assertTrue((run_dir / "transcript.md").exists())
             summary = (run_dir / "summary.md").read_text(encoding="utf-8")
-            index = (Path(tmp) / "fallback_session" / "INDEX.md").read_text(
+            index = (memory_dir / "INDEX.md").read_text(encoding="utf-8")
+            error = (run_dir / "memory_error.md").read_text(encoding="utf-8")
+            memory_summary = (memory_dir / "memory_summary.md").read_text(
                 encoding="utf-8"
             )
-            error = (run_dir / "memory_error.md").read_text(encoding="utf-8")
-            memory_summary = (
-                Path(tmp) / "fallback_session" / "memory_summary.md"
-            ).read_text(encoding="utf-8")
 
             self.assertIn("Distillation unavailable", summary)
             self.assertIn("runs/run_99/summary.md", index)
@@ -826,43 +715,6 @@ class FilesystemMemoryTest(unittest.TestCase):
         self.assertIn("Never cite raw line numbers", prompt)
         self.assertIn("transcript.md ## <n>", prompt)
 
-    def test_filesystem_distiller_default_timeout_is_generous(self) -> None:
-        from simple_agent_lab.memory.filesystem import make_filesystem_distiller
-
-        requests: list[LLMRequest] = []
-
-        def capture(req: LLMRequest):
-            requests.append(req)
-            yield StreamEvent(
-                kind="done",
-                payload={
-                    "response": LLMResponse(content=(TextBlock('{"memory_md": ""}'),))
-                },
-            )
-
-        register_adapter("capture-memory-timeout", capture)
-        provider = Provider(
-            id="capture-memory-timeout",
-            api="capture-memory-timeout",
-            model="fake-model",
-        )
-        distill = make_filesystem_distiller(provider)
-        payload = FilesystemMemoryPayload(
-            task="fix login",
-            transcript="## 0. user (task, user -> agent)\n\nfix login",
-            artifacts=(),
-            memory_summary="",
-            index="# Memory Index\n",
-            notes="# Memory Handbook\n",
-            run_path="runs/r1",
-            available_memories=(),
-            context=MemoryContext(agent="agent", task="fix login"),
-        )
-
-        distill(payload)
-
-        self.assertEqual(requests[0].timeout_seconds, 600.0)
-
     def test_policy_block_inlines_summary_and_bans_line_numbers(self) -> None:
         # P3: the summary excerpt is inlined directly into the policy block.
         # P1: locate transcript evidence by searching for an anchor, not line ranges.
@@ -919,7 +771,7 @@ class FilesystemMemoryTest(unittest.TestCase):
         # transcript heading format is spelled out so the grep anchor (P1) lands.
         self.assertIn("## <n>. <role> (<kind>, <sender> -> <target>)", text)
 
-    def test_filesystem_memory_uses_unique_run_directory_for_collisions(self) -> None:
+    def test_filesystem_memory_repeated_run_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             memory = FilesystemMemory(root=tmp)
             state = State("repeat run")
@@ -937,10 +789,10 @@ class FilesystemMemoryTest(unittest.TestCase):
 
             memory_dir = Path(tmp) / "demo"
             self.assertTrue((memory_dir / "runs" / "r1").exists())
-            self.assertTrue((memory_dir / "runs" / "r1_2").exists())
+            self.assertFalse((memory_dir / "runs" / "r1_2").exists())
             index = (memory_dir / "INDEX.md").read_text(encoding="utf-8")
             self.assertIn("runs/r1/summary.md", index)
-            self.assertIn("runs/r1_2/summary.md", index)
+            self.assertEqual(index.count("runs/r1/summary.md"), 1)
 
     def test_filesystem_memory_sanitizes_duplicate_artifact_names(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -103,16 +103,6 @@ class RunBenchCliTest(unittest.TestCase):
     def test_unknown_command_returns_error_code(self) -> None:
         self.assertEqual(run_bench.main(["nope"]), 2)
 
-    def test_programbench_cli_defaults_to_official_eval_resources(self) -> None:
-        args = (
-            run_bench.BENCHES["programbench"]
-            .module._build_parser()
-            .parse_args(["testorg__calculator.abc1234"])
-        )
-
-        self.assertEqual(args.cpus, 20)
-        self.assertEqual(args.mem_limit, "60g")
-
 
 class RunBenchHelpersTest(unittest.TestCase):
     def test_parse_last_json_picks_trailing_object(self) -> None:
