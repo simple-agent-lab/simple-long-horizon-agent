@@ -379,7 +379,3 @@ class CompactControlTest(unittest.TestCase):
             "call", {"summary": "s", "keep_recent": 1.5}, _no_abort, None
         )
         self.assertTrue(result.is_error)
-
-
-if __name__ == "__main__":
-    unittest.main()

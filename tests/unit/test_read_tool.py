@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import struct
 import tempfile
 import unittest
-import zlib
 from pathlib import Path
-from typing import cast
 
-from simple_agent_lab import AgentTool, ToolResult, tool_result_text
+from simple_agent_lab import tool_result_text
 from simple_agent_lab.messages import ImageBlock
 from simple_agent_lab.tools.read import (
     DEFAULT_MAX_BYTES,
@@ -17,6 +14,8 @@ from simple_agent_lab.tools.read import (
     make_read_tool,
     truncate_head,
 )
+from tests.unit._support import execute_tool as _execute
+from tests.unit._support import make_red_png as _make_red_png
 
 
 class ReadToolTest(unittest.TestCase):
@@ -212,35 +211,3 @@ class FormatSizeTest(unittest.TestCase):
         self.assertEqual(format_size(512), "512B")
         self.assertEqual(format_size(2048), "2.0KB")
         self.assertEqual(format_size(3 * 1024 * 1024), "3.0MB")
-
-
-def _execute(tool: AgentTool, args: dict[str, object]) -> ToolResult:
-    execute = cast(object, tool.execute)
-    if not callable(execute):
-        raise AssertionError("read tool has no execute function")
-    return execute("call_1", args, lambda: False, None)
-
-
-def _make_red_png(side: int = 32) -> bytes:
-    raw = b"".join(b"\x00" + b"\xff\x00\x00" * side for _ in range(side))
-
-    def _chunk(tag: bytes, data: bytes) -> bytes:
-        return (
-            struct.pack(">I", len(data))
-            + tag
-            + data
-            + struct.pack(">I", zlib.crc32(tag + data))
-        )
-
-    ihdr = struct.pack(">IIBBBBB", side, side, 8, 2, 0, 0, 0)
-    idat = zlib.compress(raw)
-    return (
-        b"\x89PNG\r\n\x1a\n"
-        + _chunk(b"IHDR", ihdr)
-        + _chunk(b"IDAT", idat)
-        + _chunk(b"IEND", b"")
-    )
-
-
-if __name__ == "__main__":
-    unittest.main()

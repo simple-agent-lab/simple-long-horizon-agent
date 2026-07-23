@@ -350,7 +350,3 @@ class HarborAgentOptionalImportTest(unittest.TestCase):
         self.assertEqual(1, len(runner_commands))
         self.assertEqual("/app/personal-site", runner_commands[0]["cwd"])
         self.assertIn("--cwd /app/personal-site", runner_commands[0]["command"])
-
-
-if __name__ == "__main__":
-    unittest.main()

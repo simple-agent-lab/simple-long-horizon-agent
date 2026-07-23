@@ -339,7 +339,3 @@ class ChainRuntimeConfigTest(unittest.TestCase):
         self.assertEqual(policy.strategy.threshold_tokens, 123)
         self.assertEqual(policy.strategy.keep_recent, 2)
         self.assertEqual(policy.strategy.preserve_kinds, ("task", "context"))
-
-
-if __name__ == "__main__":
-    unittest.main()

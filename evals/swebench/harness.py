@@ -17,7 +17,6 @@ SWE-bench container half), so nothing here launches or talks to a container.
 from __future__ import annotations
 
 import importlib
-import json
 import os
 import re
 import shutil
@@ -60,6 +59,7 @@ from simple_agent_lab.llm.env import (  # noqa: E402
 # Re-exported so the run entry (`runs/_benches/swebench.py`) keeps calling
 # `harness.load_dotenv`; the implementation is owned by `llm.env`.
 from simple_agent_lab.llm.env import load_dotenv as load_dotenv  # noqa: E402,F401
+from simple_agent_lab.trace import read_jsonl  # noqa: E402
 
 DEFAULT_DATASET = "princeton-nlp/SWE-bench_Verified"
 DEFAULT_MULTILINGUAL_DATASET = "SWE-bench/SWE-bench_Multilingual"
@@ -287,7 +287,7 @@ def _pro_dockerhub_tag_from_instance(instance: dict[str, Any]) -> str:
 def load_instance(path: str | Path, instance_id: str | None) -> dict[str, Any]:
     """Load one instance record from JSON or JSONL."""
 
-    records = _load_instance_records(Path(path))
+    records = load_instance_records(path)
     if not records:
         raise SystemExit(f"No instance records found in {path}")
     if instance_id is None:
@@ -298,37 +298,45 @@ def load_instance(path: str | Path, instance_id: str | None) -> dict[str, Any]:
     raise SystemExit(f"Instance {instance_id!r} not found in {path}")
 
 
-def _load_instance_records(path: Path) -> list[dict[str, Any]]:
-    raw = path.read_text(encoding="utf-8").strip()
-    if not raw:
-        return []
-    if raw.startswith("[") or raw.startswith("{"):
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            if raw.startswith("["):
-                raise SystemExit(f"Expected valid JSON list in {path}")
-        else:
-            return _records_from_json(parsed, path)
-    records: list[dict[str, Any]] = []
-    for line in raw.splitlines():
-        line = line.strip()
-        if line:
-            records.append(dict(json.loads(line)))
-    return records
+def load_instance_records(path: str | Path) -> list[dict[str, Any]]:
+    return load_records(path, collection_key="instances")
 
 
-def _records_from_json(parsed: Any, path: Path) -> list[dict[str, Any]]:
-    if isinstance(parsed, list):
-        return [dict(item) for item in parsed]
-    if isinstance(parsed, dict):
-        if "instances" in parsed:
-            instances = parsed["instances"]
-            if not isinstance(instances, list):
-                raise SystemExit(f"Expected instances to be a JSON list in {path}")
-            return [dict(item) for item in instances]
-        return [dict(parsed)]
-    raise SystemExit(f"Expected JSON object, JSON list, or JSONL records in {path}")
+def load_records(
+    path: str | Path,
+    *,
+    collection_key: str | None = None,
+) -> list[dict[str, Any]]:
+    """Load records from a JSON array, wrapper object, or JSONL file."""
+
+    record_path = Path(path)
+    records: list[Any] = read_jsonl(record_path)
+    if len(records) > 1:
+        return [dict(record) for record in records]
+    if not records:
+        raw = record_path.read_text(encoding="utf-8").strip()
+        if not raw:
+            return []
+        if raw.startswith("["):
+            raise SystemExit(f"Expected valid JSON list in {record_path}")
+        raise SystemExit(
+            f"Expected JSON object, JSON list, or JSONL records in {record_path}"
+        )
+
+    value = records[0]
+    if collection_key and isinstance(value, dict) and collection_key in value:
+        value = value[collection_key]
+        if not isinstance(value, list):
+            raise SystemExit(
+                f"Expected {collection_key} to be a JSON list in {record_path}"
+            )
+    if isinstance(value, dict):
+        return [dict(value)]
+    if isinstance(value, list):
+        return [dict(record) for record in value]
+    raise SystemExit(
+        f"Expected JSON object, JSON list, or JSONL records in {record_path}"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -603,8 +611,3 @@ def _project_runtime_dependencies() -> list[str]:
 
 def _run_checked(command: list[str]) -> None:
     subprocess.run(command, check=True)
-
-
-def _get_container(client: Any, name: str) -> Any | None:
-    matches = client.containers.list(all=True, filters={"name": name})
-    return next((container for container in matches if container.name == name), None)

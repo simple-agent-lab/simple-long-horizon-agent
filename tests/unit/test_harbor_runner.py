@@ -58,7 +58,3 @@ class HarborRunnerTest(unittest.TestCase):
                 "simple-agent-lab.trajectory",
                 trace.read_text(encoding="utf-8"),
             )
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -107,7 +107,3 @@ class LiveTraceTest(unittest.TestCase):
             self.assertEqual(msg_event["message"]["sidecar"]["raw"], {"raw_ref": 0})
             raw_records = read_jsonl(path.with_name(f"{path.name}.raw.jsonl"))
             self.assertEqual(raw_records[0]["request"]["model"], "m")
-
-
-if __name__ == "__main__":
-    unittest.main()

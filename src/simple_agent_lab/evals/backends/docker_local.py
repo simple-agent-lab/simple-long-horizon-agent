@@ -70,8 +70,9 @@ def _require_docker() -> Any:
 def ensure_docker_host_env() -> None:
     """Use a known Docker Desktop or Colima socket when none is configured."""
 
-    if os.environ.get("DOCKER_HOST"):
+    if os.environ.get("DOCKER_HOST"):  # env-ok: honor the standard Docker client env
         return
+    # env-ok: locate standard Docker Desktop and Colima sockets under the host home
     home = Path(os.environ.get("HOME") or "~").expanduser()
     for socket_path in (
         home / ".docker/run/docker.sock",
@@ -79,6 +80,7 @@ def ensure_docker_host_env() -> None:
     ):
         try:
             if stat.S_ISSOCK(socket_path.stat().st_mode):
+                # env-ok: hand discovered socket to the standard Docker client
                 os.environ["DOCKER_HOST"] = f"unix://{socket_path}"
                 return
         except FileNotFoundError:

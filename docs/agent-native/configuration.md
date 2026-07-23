@@ -137,7 +137,7 @@ hierarchy. Knobs not yet migrated stay in the hand-written sections that follow.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `SAL_BASH_DEFAULT_TIMEOUT_SECONDS` | unset | Default timeout for bash tool commands; unset uses the tool default. |
-| `SAL_BASH_MAX_TIMEOUT_SECONDS` | unset | Maximum model-selectable timeout for bash tool commands; unset uses the 300-second tool default. |
+| `SAL_BASH_MAX_TIMEOUT_SECONDS` | unset | Maximum model-selectable timeout for bash tool commands; unset uses the tool default. |
 | `SAL_BASH_MAX_OUTPUT_CHARS` | unset | Maximum model-visible characters per bash output stream; unset uses the tool default. |
 | `SAL_BASH_SUBMISSION_MARKER` | `` | When set, a bash command whose first output line matches this marker terminates the run and stores the remaining output as a submission. |
 

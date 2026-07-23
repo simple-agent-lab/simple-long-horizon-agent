@@ -51,45 +51,12 @@ class AuthLanes:
 
 @dataclass(frozen=True)
 class BatchOutput:
-    """Run-level paths and prediction writer shared by chain workers."""
+    """Run-level paths and the complete expected prediction set."""
 
     batch_dir: Path
     instances_json: Path
-    predictions: PredictionWriter
-
-
-class PredictionWriter:
-    """Serialize prediction refreshes across concurrent chain workers."""
-
-    def __init__(
-        self,
-        *,
-        path: Path,
-        run_root: Path,
-        run_id: str,
-        model_name: str,
-        dataset_name: str,
-        expected_instance_ids: Sequence[str],
-    ) -> None:
-        self.path = path
-        self.run_root = run_root
-        self.run_id = run_id
-        self.model_name = model_name
-        self.dataset_name = dataset_name
-        self.expected_instance_ids = tuple(expected_instance_ids)
-        self._lock = threading.Lock()
-
-    def write(self) -> list[dict[str, Any]]:
-        with self._lock:
-            predictions = predictions_from_run_dirs(
-                self.run_root,
-                run_id=self.run_id,
-                model_name=self.model_name,
-                dataset_name=self.dataset_name,
-                expected_instance_ids=self.expected_instance_ids,
-            )
-            write_jsonl_atomic(self.path, predictions)
-            return predictions
+    predictions_path: Path
+    expected_instance_ids: tuple[str, ...]
 
 
 def add_common_arguments(
@@ -212,7 +179,7 @@ def load_rows(
     """Load a local manifest or dataset split, optionally filtering repos."""
 
     if instance_json:
-        rows = harness._load_instance_records(Path(instance_json))
+        rows = harness.load_instance_records(instance_json)
     else:
         try:
             from datasets import load_dataset
@@ -388,8 +355,6 @@ def prepare_batch_output(
     run_id: str,
     rows: list[dict[str, Any]],
     manifest: Mapping[str, Any],
-    model_name: str,
-    dataset_name: str,
 ) -> BatchOutput:
     """Create run-level files and retain the full expected prediction denominator."""
 
@@ -403,15 +368,28 @@ def prepare_batch_output(
     return BatchOutput(
         batch_dir=batch_dir,
         instances_json=instances_json,
-        predictions=PredictionWriter(
-            path=batch_dir / f"{run_id}_predictions.jsonl",
-            run_root=run_root,
-            run_id=run_id,
-            model_name=model_name,
-            dataset_name=dataset_name,
-            expected_instance_ids=tuple(str(row["instance_id"]) for row in rows),
-        ),
+        predictions_path=batch_dir / f"{run_id}_predictions.jsonl",
+        expected_instance_ids=tuple(str(row["instance_id"]) for row in rows),
     )
+
+
+def write_predictions(
+    output: BatchOutput,
+    *,
+    model_name: str,
+    dataset_name: str,
+) -> list[dict[str, Any]]:
+    """Collect final results once all concurrent chain workers have stopped."""
+
+    predictions = predictions_from_run_dirs(
+        output.batch_dir.parent,
+        run_id=output.batch_dir.name,
+        model_name=model_name,
+        dataset_name=dataset_name,
+        expected_instance_ids=output.expected_instance_ids,
+    )
+    write_jsonl_atomic(output.predictions_path, predictions)
+    return predictions
 
 
 def run_auth_lanes(

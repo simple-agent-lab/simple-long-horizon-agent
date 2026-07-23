@@ -489,7 +489,3 @@ class SwebenchHarnessTest(unittest.TestCase):
 
         project_wheel.assert_not_called()
         full_wheelhouse.assert_called_once_with(wheelhouse)
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -136,15 +136,17 @@ class ProChainRunnerTest(unittest.TestCase):
                 run_id="run-1",
                 rows=rows,
                 manifest={"schema": "test.v1"},
-                model_name="model",
-                dataset_name="dataset",
             )
             with mock.patch.object(
                 pro_chain_runner,
                 "predictions_from_run_dirs",
                 return_value=[],
             ) as predictions:
-                output.predictions.write()
+                pro_chain_runner.write_predictions(
+                    output,
+                    model_name="model",
+                    dataset_name="dataset",
+                )
 
             predictions.assert_called_once_with(
                 run_root,
@@ -152,6 +154,10 @@ class ProChainRunnerTest(unittest.TestCase):
                 model_name="model",
                 dataset_name="dataset",
                 expected_instance_ids=("first", "second"),
+            )
+            self.assertEqual(
+                output.predictions_path,
+                output.batch_dir / "run-1_predictions.jsonl",
             )
             self.assertEqual(
                 json.loads(
@@ -197,7 +203,3 @@ class ProChainRunnerTest(unittest.TestCase):
             run.call_args.kwargs,
             {"cwd": pro_chain_runner.ROOT, "check": True},
         )
-
-
-if __name__ == "__main__":
-    unittest.main()

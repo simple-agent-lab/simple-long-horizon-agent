@@ -70,7 +70,3 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual(config.LOOP_MAX_TURNS.get({}), 6)
         self.assertEqual(config.PDR_ROUNDS.get({}), 2)
         self.assertEqual(config.PDR_WIDTH.get({}), 3)
-
-
-if __name__ == "__main__":
-    unittest.main()

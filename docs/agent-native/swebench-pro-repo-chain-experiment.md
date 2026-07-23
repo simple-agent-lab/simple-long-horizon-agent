@@ -82,11 +82,15 @@ For each planned unit, the host runs its instances in order:
 3. Launch `run_suite_instance` with
    `simple_agent_lab.evals.chain` as the container runner.
 4. Collect `out/result.json`, `out/chain_state.json`, and optional trace files.
-5. Refresh the run-level predictions file.
 
 The agent and bash tool run inside the current task container. The host does
 not keep a live agent and does not proxy commands through a separate
 `docker exec` tool.
+
+Each instance writes `result.json` immediately. After every auth lane stops, the
+host scans those final instance results once and atomically writes the run-level
+predictions file; it does not repeatedly rebuild the aggregate while workers
+are active.
 
 Continuation state contains the task seed, active model-visible messages, and
 small runtime state. Inactive transcript entries are not copied to the next
@@ -148,9 +152,9 @@ no chain-part layer: one planned issue chain or singleton is one run unit.
 
 Batch outputs are `experiment.json`, `instances.jsonl`, the run predictions
 JSONL, optional skipped/failure records, and one
-`_repo_chains/<chain>/summary.json` per unit. Prediction refreshes retain every
-planned instance; missing results receive an empty patch so the denominator
-does not shrink during partial runs.
+`_repo_chains/<chain>/summary.json` per unit. Final prediction collection retains
+every planned instance; missing results receive an empty patch so failures do
+not shrink the denominator.
 
 ## Recommended Command
 

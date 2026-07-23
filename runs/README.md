@@ -53,9 +53,10 @@ bash runs/swebench/eval_swebench.sh
 
 `runs/dev/run_ci.sh` mirrors the GitHub Actions workflow at
 `.github/workflows/ci.yml`: it syncs the dev dependency group, checks Ruff
-formatting, runs docs lint, runs `ty` on `src/`, runs the full unittest suite,
-and runs the deterministic bash-agent demo smoke. Use it as the local pre-push
-gate.
+formatting and lint, checks docs plus generated references, enforces
+architecture and environment-variable boundaries, runs `ty` on `src/`, runs
+the full unittest suite, and runs the deterministic bash-agent demo smoke. Use
+it as the local pre-push gate.
 
 The Terminal-Bench 2.1 Harbor launchers run `bash` and `bash_task` experiments
 with separate job names. The sequential entry waits for the complete blocking

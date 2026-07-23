@@ -18,11 +18,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 brew install uv
 
 # from the repo root:
-uv sync --group dev   # creates .venv, installs package + dev tools (ruff, ty)
-uv run python -m unittest discover -s tests/unit
-uv run ruff format --check .
-uv run python scripts/lint_docs.py
-uv run ty check src
+bash runs/dev/run_ci.sh  # syncs dependencies, then runs the local gate
 ```
 
 Plain `python3` works too when it is Python 3.10 or newer and dependencies are
@@ -35,9 +31,9 @@ for the current src-layout:
 bash runs/demos/run_bash_agent_demo.sh
 ```
 
-The same checks (`ruff format --check .`, docs lint, `ty check src`, and the
-unittest suite on Python 3.10 through 3.13) run on every push and pull request
-via [GitHub Actions](.github/workflows/ci.yml).
+The local gate mirrors the formatting, lint, generated-doc, architecture,
+type, test, and demo checks that run on every push and pull request via
+[GitHub Actions](.github/workflows/ci.yml).
 
 Optional benchmark suites have their own setup notes under
 [evals](evals/README.md) so the root setup stays focused on normal

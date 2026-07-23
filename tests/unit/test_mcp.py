@@ -427,7 +427,3 @@ class McpToolCollisionTest(unittest.TestCase):
         with self.assertRaises(MCPError) as ctx:
             make_mcp_tools(conn)
         self.assertIn("duplicate", str(ctx.exception))
-
-
-if __name__ == "__main__":
-    unittest.main()

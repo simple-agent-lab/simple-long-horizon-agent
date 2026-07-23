@@ -400,7 +400,3 @@ class EndToEndUsagePropagationTest(unittest.TestCase):
         # `input_tokens = sum(estimate per message)` — both must be > 0.
         self.assertGreater(final.usage.output_tokens, 0)
         self.assertGreater(final.usage.input_tokens, 0)
-
-
-if __name__ == "__main__":
-    unittest.main()

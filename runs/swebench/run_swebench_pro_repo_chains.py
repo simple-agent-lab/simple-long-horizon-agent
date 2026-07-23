@@ -213,8 +213,6 @@ def main() -> None:
         run_id=args.run_id,
         rows=planned_rows,
         manifest=manifest,
-        model_name=config.model_name,
-        dataset_name=config.dataset_name,
     )
 
     print("=== SWE-bench Pro repo-chain experiment ===")
@@ -293,7 +291,6 @@ def main() -> None:
             suite=suite,
             backend=backend,
             store=store,
-            predictions=output.predictions,
         )
 
     def repo_done(chain_id: str, result: dict[str, Any]) -> None:
@@ -322,12 +319,16 @@ def main() -> None:
         write_jsonl_atomic(skipped_path, skipped_instances)
         print(f"wrote {len(skipped_instances)} skipped instances: {skipped_path}")
 
-    predictions = output.predictions.write()
-    print(f"wrote {len(predictions)} predictions: {output.predictions.path}")
+    predictions = chain_runner.write_predictions(
+        output,
+        model_name=config.model_name,
+        dataset_name=config.dataset_name,
+    )
+    print(f"wrote {len(predictions)} predictions: {output.predictions_path}")
 
     if args.run_official_eval:
         chain_runner.run_official_eval(
-            predictions_path=output.predictions.path,
+            predictions_path=output.predictions_path,
             instances_json=output.instances_json,
             run_id=args.run_id,
             max_workers=auth_lanes.parallel,
@@ -549,7 +550,6 @@ def _run_repo(
     suite: SwebenchSuite,
     backend: LocalDockerBackend,
     store: LocalDirStore,
-    predictions: chain_runner.PredictionWriter,
 ) -> dict[str, Any]:
     repo = chain.repo
     rows = list(chain.rows)
@@ -674,7 +674,6 @@ def _run_repo(
             skipped_records.append(skipped_record)
 
         chain_runner.write_json_atomic(paths.output_dir / "result.json", result)
-        predictions.write()
 
     repo_dir = run_root / args.run_id / "_repo_chains" / safe_path_part(chain_id)
     if skipped_records:

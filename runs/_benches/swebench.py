@@ -24,6 +24,7 @@ for path in (ROOT, SRC):
 from evals.swebench import harness  # noqa: E402
 from evals.swebench.suite import SwebenchSuite  # noqa: E402
 from runs.lib.container_batch import run_container_batch  # noqa: E402
+from runs.lib import docker_cli  # noqa: E402
 from simple_agent_lab.agent_flavors import (  # noqa: E402
     AGENT_FLAVOR_ENV,
     WORKFLOW_AGENT_FLAVORS,
@@ -31,7 +32,6 @@ from simple_agent_lab.agent_flavors import (  # noqa: E402
 import simple_agent_lab.config as config  # noqa: E402
 from simple_agent_lab.evals import (  # noqa: E402
     LocalDirStore,
-    LocalDockerBackend,
     run_suite_instance,
 )
 from simple_agent_lab.evals.runner import (  # noqa: E402
@@ -106,40 +106,18 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--api-kind")
     parser.add_argument("--namespace", default="swebench")
-    parser.add_argument("--network-mode", default="host")
-    parser.add_argument(
-        "--security-opt",
-        action="append",
-        help="Repeatable Docker security option (default: seccomp=unconfined).",
-    )
-    parser.add_argument(
-        "--platform", default="", help="Override docker --platform (e.g. linux/amd64)"
-    )
-    parser.add_argument(
-        "--pull",
-        choices=["missing", "always", "never"],
-        default="never",
-        help="Image pull policy (default: never).",
+    docker_cli.add_arguments(
+        parser,
+        default_uv_binary=harness.DEFAULT_UV_BINARY,
+        default_timeout_seconds=DEFAULT_SWEBENCH_DOCKER_TIMEOUT_S,
     )
     parser.add_argument("--dotenv", default=str(ROOT / ".env"))
-    parser.add_argument("--run-root")
-    parser.add_argument("--wheelhouse")
-    parser.add_argument("--uv-binary", default=harness.DEFAULT_UV_BINARY)
-    parser.add_argument(
-        "--docker-timeout-seconds",
-        type=float,
-        default=DEFAULT_SWEBENCH_DOCKER_TIMEOUT_S,
-        help="Docker SDK timeout.",
-    )
-    parser.add_argument("--prepare-wheelhouse", action="store_true")
     parser.add_argument(
         "--reuse-prepared-wheelhouse",
         action="store_true",
         help="Skip wheelhouse rebuild after the batch parent prepared it.",
     )
     parser.add_argument("--in-env-scoring", action="store_true")
-    parser.add_argument("--keep-container", action="store_true")
-    parser.add_argument("--force", action="store_true")
     return parser
 
 
@@ -150,12 +128,7 @@ def _build_batch_parser() -> argparse.ArgumentParser:
     parser.description = (
         "Run one or many SWE-bench-family instances; prepare shared assets once."
     )
-    for action in parser._actions:
-        if action.dest == "instance_id":
-            action.nargs = "?"
-        elif action.dest == "pull":
-            action.nargs = "?"
-            action.const = "missing"
+    docker_cli.enable_batch(parser, instance_nargs="?")
     parser.set_defaults(
         dataset_name=None,
         max_turns=None,
@@ -197,8 +170,9 @@ def _resolve_paths(
         else harness.DEFAULT_WHEELHOUSE
     )
     run_root = Path(args.run_root) if args.run_root else default_run_root
-    wheelhouse_arg = args.wheelhouse or str(default_wheelhouse)
-    wheelhouse = Path(wheelhouse_arg).resolve() if wheelhouse_arg else None
+    wheelhouse = (
+        Path(args.wheelhouse).resolve() if args.wheelhouse else default_wheelhouse
+    )
     return run_root, wheelhouse
 
 
@@ -236,29 +210,13 @@ def _instance_run_kwargs(
 
 
 def _suite(args: argparse.Namespace) -> SwebenchSuite:
-    security_opt = (
-        tuple(args.security_opt)
-        if args.security_opt is not None
-        else ("seccomp=unconfined",)
-    )
     return SwebenchSuite(
         dataset_name=args.dataset_name,
         namespace=args.namespace,
         platform=args.platform,
         network_mode=args.network_mode,
-        security_opt=security_opt,
+        security_opt=docker_cli.security_options(args.security_opt),
         in_env_scoring=args.in_env_scoring,
-    )
-
-
-def _backend(args: argparse.Namespace, wheelhouse: Path | None) -> LocalDockerBackend:
-    return LocalDockerBackend(
-        pull=args.pull,
-        keep_container=args.keep_container,
-        force_existing=args.force,
-        wheelhouse=wheelhouse,
-        uv_binary=args.uv_binary or None,
-        docker_timeout_s=args.docker_timeout_seconds,
     )
 
 
@@ -288,7 +246,7 @@ def run(args: argparse.Namespace) -> dict:
     )
 
     suite = _suite(args)
-    backend = _backend(args, wheelhouse)
+    backend = docker_cli.backend(args, wheelhouse)
 
     name = container_name(suite.name, args.instance_id, args.run_id)
 
@@ -296,12 +254,7 @@ def run(args: argparse.Namespace) -> dict:
         f"==> SWE-bench {args.instance_id} [{args.agent_flavor}"
         f"{' arm' if is_arm else ''}] run={args.run_id} container={name}"
     )
-    if any("seccomp=unconfined" in opt for opt in suite.security_opt):
-        print(
-            "    WARNING: seccomp disabled (seccomp=unconfined) — reduced "
-            "container isolation. Pass --security-opt seccomp=default to "
-            "restore the daemon's profile."
-        )
+    docker_cli.warn_if_unconfined(suite.security_opt)
     result = run_suite_instance(
         suite=suite,
         instance=instance,
@@ -320,13 +273,7 @@ def run(args: argparse.Namespace) -> dict:
     if result.logs:
         print(result.logs, end="" if result.logs.endswith("\n") else "\n")
     print(f"==> status={result.status_code} run_dir={result.run_dir}")
-    return {
-        "bench": NAME,
-        "status_code": result.status_code,
-        "run_dir": str(result.run_dir),
-        "result_path": str(result.run_dir / "out" / "result.json"),
-        "summary": None,
-    }
+    return docker_cli.result_record(NAME, result)
 
 
 def _dataset_rows(dataset_name: str) -> list[dict[str, Any]]:
@@ -431,7 +378,7 @@ def run_batch(args: argparse.Namespace) -> dict:
     harness.prepare_wheelhouse(wheelhouse)
 
     suite = _suite(args)
-    backend = _backend(args, wheelhouse)
+    backend = docker_cli.backend(args, wheelhouse)
     instance_ids = [str(instance["instance_id"]) for instance in instances]
     index_by_id = {instance_id: index for index, instance_id in enumerate(instance_ids)}
     expected_ids = run_root / args.run_id / "expected_instance_ids.txt"

@@ -97,7 +97,3 @@ class OneMillionContainerTest(unittest.TestCase):
         self.assertEqual(provider.model, "gen-model")
         self.assertEqual(provider.api_key_env, "OPENAI_AUTH_TOKEN")
         self.assertEqual(provider.base_url, "https://example/v1")
-
-
-if __name__ == "__main__":
-    unittest.main()

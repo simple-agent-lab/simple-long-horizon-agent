@@ -1,39 +1,27 @@
 from __future__ import annotations
 
 from argparse import Namespace
-import importlib.util
 from pathlib import Path
 import subprocess
-import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest import mock
+
+from tests.unit._support import load_module
 
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def _load_run_swebench_suite_module():
-    path = ROOT / "runs/_benches/swebench.py"
-    spec = importlib.util.spec_from_file_location("sal_run_swebench_suite", path)
-    assert spec is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-    return module
+    return load_module(ROOT / "runs/_benches/swebench.py", "sal_run_swebench_suite")
 
 
 def _load_run_programbench_suite_module():
-    path = ROOT / "runs/_benches/programbench.py"
-    spec = importlib.util.spec_from_file_location("sal_run_programbench_suite", path)
-    assert spec is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-    return module
+    return load_module(
+        ROOT / "runs/_benches/programbench.py", "sal_run_programbench_suite"
+    )
 
 
 class RunsScriptsTest(unittest.TestCase):
@@ -197,7 +185,7 @@ class RunsScriptsTest(unittest.TestCase):
                 mock.patch.object(
                     module, "_suite", return_value=SimpleNamespace(name="swebench")
                 ),
-                mock.patch.object(module, "_backend", return_value=object()),
+                mock.patch.object(module.docker_cli, "backend", return_value=object()),
                 mock.patch.object(
                     module, "run_container_batch", return_value=(report, 0)
                 ) as run_batch,
@@ -335,7 +323,3 @@ class RunsScriptsTest(unittest.TestCase):
                         "public entry is run_bench.py; per-bench logic goes in "
                         "runs/_benches/ and scripts in a concern subdir.",
                     )
-
-
-if __name__ == "__main__":
-    unittest.main()

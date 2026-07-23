@@ -295,7 +295,3 @@ class MakeLlmAgentRetryWiringTest(unittest.TestCase):
 
         self.assertEqual(attempts, 2)
         self.assertEqual([call.name for call in message_tool_calls(output)], ["bash"])
-
-
-if __name__ == "__main__":
-    unittest.main()

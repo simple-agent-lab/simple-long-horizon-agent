@@ -472,7 +472,3 @@ class ProgrambenchEndToEndTest(unittest.TestCase):
             )
             self.assertNotIn("repository", agent_view)
             self.assertNotIn("commit", agent_view)
-
-
-if __name__ == "__main__":
-    unittest.main()

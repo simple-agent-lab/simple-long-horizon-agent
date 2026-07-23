@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import importlib.util
 import os
 import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+from tests.unit._support import load_module
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -16,12 +17,7 @@ def _load_harbor_bench():
     for path in (ROOT, ROOT / "src", ROOT / "runs"):
         if str(path) not in sys.path:
             sys.path.insert(0, str(path))
-    bench_path = ROOT / "runs/_benches/harbor.py"
-    spec = importlib.util.spec_from_file_location("sal_harbor_bench", bench_path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return load_module(ROOT / "runs/_benches/harbor.py", "sal_harbor_bench")
 
 
 class HarborBenchTest(unittest.TestCase):
@@ -153,7 +149,3 @@ class HarborBenchTest(unittest.TestCase):
             "SAL_HARBOR_SETUP_PIP_INDEX_URL=https://pypi.org/simple",
             command,
         )
-
-
-if __name__ == "__main__":
-    unittest.main()

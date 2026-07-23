@@ -88,7 +88,3 @@ class OneMillionGradingTest(unittest.TestCase):
         self.assertAlmostEqual(score_summary({1: 0}, rubrics)["accuracy"], 1.0)
         # Penalty triggered -> accuracy degrades.
         self.assertAlmostEqual(score_summary({1: -4}, rubrics)["accuracy"], 0.0)
-
-
-if __name__ == "__main__":
-    unittest.main()

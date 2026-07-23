@@ -23,7 +23,6 @@ from simple_agent_lab.llm import (
     LLMRequest,
     LLMTool,
     Provider,
-    StreamEvent,
     TextBlock,
     ThinkingBlock,
     ToolCallBlock,
@@ -104,7 +103,7 @@ def _stub_module(name: str, module: types.ModuleType):
     previous = sys.modules.get(name)
     sys.modules[name] = module
     try:
-        yield module
+        yield
     finally:
         if previous is None:
             sys.modules.pop(name, None)
@@ -112,8 +111,22 @@ def _stub_module(name: str, module: types.ModuleType):
             sys.modules[name] = previous
 
 
-def _capture_kwargs() -> dict[str, Any]:
-    return {}
+@contextmanager
+def _anthropic_call(module: types.ModuleType):
+    with (
+        _stub_module("anthropic", module),
+        mock.patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "k"}),
+    ):
+        yield
+
+
+@contextmanager
+def _openai_call(module: types.ModuleType):
+    with (
+        _stub_module("openai", module),
+        mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}),
+    ):
+        yield
 
 
 def _stub_anthropic(response: Any, captured: dict[str, Any]) -> types.ModuleType:
@@ -202,22 +215,15 @@ class AnthropicAdapterTest(unittest.TestCase):
                 complete(req)
 
     def test_builds_request_and_emits_events(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_anthropic(
+        captured, events = _call_adapter(
+            _tool_use_request(),
             _anthropic_response(
                 text="Final answer.",
                 tool_uses=[{"id": "t2", "name": "bash", "input": {"command": "ls"}}],
                 stop_reason="tool_use",
             ),
-            captured,
+            stream=True,
         )
-        req = _tool_use_request()
-        events: list[StreamEvent] = []
-        with (
-            _stub_module("anthropic", module),
-            mock.patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "k"}, clear=False),
-        ):
-            events = list(iter_stream(req))
 
         self.assertEqual(captured["__init_api_key"], "k")
         self.assertEqual(captured["model"], "claude-test-1")
@@ -281,8 +287,6 @@ class AnthropicAdapterTest(unittest.TestCase):
         self.assertEqual(response.usage.output_tokens, 5)
 
     def test_drops_assistant_message_with_no_blocks(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_anthropic(_anthropic_response(text="hi"), captured)
         req = LLMRequest(
             provider=ANTHROPIC_PROVIDER,
             messages=[
@@ -290,11 +294,7 @@ class AnthropicAdapterTest(unittest.TestCase):
                 LLMMessage(role="assistant", content=""),  # empty, should drop
             ],
         )
-        with (
-            _stub_module("anthropic", module),
-            mock.patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "k"}, clear=False),
-        ):
-            complete(req)
+        captured, _ = _call_adapter(req, _anthropic_response(text="hi"))
         # Only the original user message should be sent.
         self.assertEqual(len(captured["messages"]), 1)
 
@@ -302,8 +302,6 @@ class AnthropicAdapterTest(unittest.TestCase):
         # Reasoning has no single shape; the adapter forwards both keys
         # verbatim so the caller matches the model (adaptive thinking +
         # effort here; older models would send thinking.budget_tokens).
-        captured: dict[str, Any] = {}
-        module = _stub_anthropic(_anthropic_response(text="ok"), captured)
         req = LLMRequest(
             provider=ANTHROPIC_PROVIDER,
             messages=[LLMMessage(role="user", content="hi")],
@@ -312,17 +310,11 @@ class AnthropicAdapterTest(unittest.TestCase):
                 "output_config": {"effort": "high"},
             },
         )
-        with (
-            _stub_module("anthropic", module),
-            mock.patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "k"}, clear=False),
-        ):
-            complete(req)
+        captured, _ = _call_adapter(req, _anthropic_response())
         self.assertEqual(captured["thinking"], {"type": "adaptive"})
         self.assertEqual(captured["output_config"], {"effort": "high"})
 
     def _capture_reasoning(self, *, model: str, **req_kw: Any) -> dict[str, Any]:
-        captured: dict[str, Any] = {}
-        module = _stub_anthropic(_anthropic_response(text="ok"), captured)
         provider = Provider(
             id="claude-test",
             api="anthropic-messages",
@@ -335,58 +327,66 @@ class AnthropicAdapterTest(unittest.TestCase):
             messages=[LLMMessage(role="user", content="hi")],
             **{k: v for k, v in req_kw.items() if k != "default_reasoning"},
         )
-        with (
-            _stub_module("anthropic", module),
-            mock.patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "k"}, clear=False),
-        ):
-            complete(req)
+        captured, _ = _call_adapter(req, _anthropic_response())
         return captured
 
-    def test_normalized_reasoning_uses_adaptive_for_46_plus(self) -> None:
-        captured = self._capture_reasoning(model="claude-opus-4-7", reasoning="high")
-        self.assertEqual(captured["thinking"], {"type": "adaptive"})
-        self.assertEqual(captured["output_config"], {"effort": "high"})
-
-    def test_normalized_reasoning_uses_budget_tokens_for_old_model(self) -> None:
-        captured = self._capture_reasoning(model="claude-sonnet-4-5", reasoning="high")
-        self.assertEqual(
-            captured["thinking"], {"type": "enabled", "budget_tokens": 4096}
-        )
-        self.assertNotIn("output_config", captured)
-
-    def test_old_model_budget_clamps_to_floor(self) -> None:
-        captured = self._capture_reasoning(
-            model="claude-sonnet-4-5", reasoning="minimal"
-        )
-        self.assertEqual(captured["thinking"]["budget_tokens"], 1024)
-
-    def test_provider_default_reasoning_applies(self) -> None:
-        captured = self._capture_reasoning(
-            model="claude-opus-4-7", default_reasoning="medium"
-        )
-        self.assertEqual(captured["output_config"], {"effort": "medium"})
-
-    def test_request_reasoning_overrides_provider_default(self) -> None:
-        captured = self._capture_reasoning(
-            model="claude-opus-4-7", default_reasoning="low", reasoning="high"
-        )
-        self.assertEqual(captured["output_config"], {"effort": "high"})
-
-    def test_extra_thinking_escape_hatch_wins_over_normalized(self) -> None:
-        captured = self._capture_reasoning(
-            model="claude-opus-4-7",
-            reasoning="high",
-            extra={"thinking": {"type": "enabled", "budget_tokens": 2048}},
-        )
-        # Raw extra overrides the normalized knob's adaptive shape.
-        self.assertEqual(
-            captured["thinking"], {"type": "enabled", "budget_tokens": 2048}
-        )
-
-    def test_no_reasoning_sends_no_thinking(self) -> None:
-        captured = self._capture_reasoning(model="claude-opus-4-7")
-        self.assertNotIn("thinking", captured)
-        self.assertNotIn("output_config", captured)
+    def test_reasoning_configuration(self) -> None:
+        cases = [
+            (
+                "new model uses adaptive",
+                "claude-opus-4-7",
+                {"reasoning": "high"},
+                {"thinking": {"type": "adaptive"}, "output_config": {"effort": "high"}},
+            ),
+            (
+                "old model uses budget",
+                "claude-sonnet-4-5",
+                {"reasoning": "high"},
+                {"thinking": {"type": "enabled", "budget_tokens": 4096}},
+            ),
+            (
+                "old model clamps budget",
+                "claude-sonnet-4-5",
+                {"reasoning": "minimal"},
+                {"thinking": {"type": "enabled", "budget_tokens": 1024}},
+            ),
+            (
+                "provider default applies",
+                "claude-opus-4-7",
+                {"default_reasoning": "medium"},
+                {
+                    "thinking": {"type": "adaptive"},
+                    "output_config": {"effort": "medium"},
+                },
+            ),
+            (
+                "request overrides provider default",
+                "claude-opus-4-7",
+                {"default_reasoning": "low", "reasoning": "high"},
+                {"thinking": {"type": "adaptive"}, "output_config": {"effort": "high"}},
+            ),
+            (
+                "raw thinking overrides normalized",
+                "claude-opus-4-7",
+                {
+                    "reasoning": "high",
+                    "extra": {"thinking": {"type": "enabled", "budget_tokens": 2048}},
+                },
+                {
+                    "thinking": {"type": "enabled", "budget_tokens": 2048},
+                    "output_config": {"effort": "high"},
+                },
+            ),
+            ("no reasoning emits nothing", "claude-opus-4-7", {}, {}),
+        ]
+        for name, model, request_kwargs, expected in cases:
+            with self.subTest(name):
+                captured = self._capture_reasoning(model=model, **request_kwargs)
+                for key in ("thinking", "output_config"):
+                    if key in expected:
+                        self.assertEqual(captured[key], expected[key])
+                    else:
+                        self.assertNotIn(key, captured)
 
 
 def _stub_openai(
@@ -419,6 +419,26 @@ def _stub_openai(
 
     module.OpenAI = OpenAI
     return module
+
+
+def _call_adapter(
+    request: LLMRequest,
+    canned_response: Any,
+    *,
+    stream: bool = False,
+) -> tuple[dict[str, Any], Any]:
+    """Call an adapter against its fake SDK and return wire kwargs + result."""
+    captured: dict[str, Any] = {}
+    if request.provider.api == "anthropic-messages":
+        module = _stub_anthropic(canned_response, captured)
+        context = _anthropic_call(module)
+    else:
+        kind = "chat" if request.provider.api == "openai-chat" else "responses"
+        module = _stub_openai(canned_response, captured, kind=kind)
+        context = _openai_call(module)
+    with context:
+        result = list(iter_stream(request)) if stream else complete(request)
+    return captured, result
 
 
 def _chat_response(
@@ -458,22 +478,6 @@ def _chat_response(
 
 class OpenAIChatAdapterTest(unittest.TestCase):
     def test_builds_request_and_emits_events(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_openai(
-            _chat_response(
-                text="Calling bash.",
-                tool_calls=[
-                    {
-                        "id": "t2",
-                        "name": "bash",
-                        "arguments": json.dumps({"command": "ls"}),
-                    }
-                ],
-                finish_reason="tool_calls",
-            ),
-            captured,
-            kind="chat",
-        )
         req = LLMRequest(
             provider=OPENAI_CHAT_PROVIDER,
             system_prompt="be helpful",
@@ -500,12 +504,21 @@ class OpenAIChatAdapterTest(unittest.TestCase):
             ],
             tools=[_bash_tool()],
         )
-        events: list[StreamEvent] = []
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            events = list(iter_stream(req))
+        captured, events = _call_adapter(
+            req,
+            _chat_response(
+                text="Calling bash.",
+                tool_calls=[
+                    {
+                        "id": "t2",
+                        "name": "bash",
+                        "arguments": json.dumps({"command": "ls"}),
+                    }
+                ],
+                finish_reason="tool_calls",
+            ),
+            stream=True,
+        )
 
         self.assertEqual(captured["__init_api_key"], "k")
         self.assertEqual(captured["model"], "gpt-test-1")
@@ -566,21 +579,13 @@ class OpenAIChatAdapterTest(unittest.TestCase):
         self.assertEqual(response.usage.output_tokens, 4)
 
     def test_handles_response_without_text_or_tools(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_openai(
-            _chat_response(text=None, finish_reason="length"),
-            captured,
-            kind="chat",
-        )
         req = LLMRequest(
             provider=OPENAI_CHAT_PROVIDER,
             messages=[LLMMessage(role="user", content="hi")],
         )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            events = list(iter_stream(req))
+        _, events = _call_adapter(
+            req, _chat_response(text=None, finish_reason="length"), stream=True
+        )
         kinds = [event.kind for event in events]
         # No text → no text_delta event.
         self.assertEqual(kinds, ["usage_update", "done"])
@@ -588,51 +593,23 @@ class OpenAIChatAdapterTest(unittest.TestCase):
         self.assertEqual(response.text, "")
         self.assertEqual(response.stop_reason, "max_tokens")
 
-    def test_passes_reasoning_effort_to_chat_create(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_openai(_chat_response(text="ok"), captured, kind="chat")
-        req = LLMRequest(
-            provider=OPENAI_CHAT_PROVIDER,
-            messages=[LLMMessage(role="user", content="hi")],
-            extra={"reasoning_effort": "high"},
-        )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            complete(req)
-        self.assertEqual(captured["reasoning_effort"], "high")
-
-    def test_normalized_reasoning_becomes_top_level_effort(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_openai(_chat_response(text="ok"), captured, kind="chat")
-        req = LLMRequest(
-            provider=OPENAI_CHAT_PROVIDER,
-            messages=[LLMMessage(role="user", content="hi")],
-            reasoning="high",
-        )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            complete(req)
-        self.assertEqual(captured["reasoning_effort"], "high")
-
-    def test_extra_reasoning_effort_overrides_normalized(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_openai(_chat_response(text="ok"), captured, kind="chat")
-        req = LLMRequest(
-            provider=OPENAI_CHAT_PROVIDER,
-            messages=[LLMMessage(role="user", content="hi")],
-            reasoning="low",
-            extra={"reasoning_effort": "high"},
-        )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            complete(req)
-        self.assertEqual(captured["reasoning_effort"], "high")
+    def test_reasoning_effort_configuration(self) -> None:
+        for name, request_kwargs in [
+            ("raw extra", {"extra": {"reasoning_effort": "high"}}),
+            ("normalized", {"reasoning": "high"}),
+            (
+                "raw extra overrides normalized",
+                {"reasoning": "low", "extra": {"reasoning_effort": "high"}},
+            ),
+        ]:
+            with self.subTest(name):
+                request = LLMRequest(
+                    provider=OPENAI_CHAT_PROVIDER,
+                    messages=[LLMMessage(role="user", content="hi")],
+                    **request_kwargs,
+                )
+                captured, _ = _call_adapter(request, _chat_response())
+                self.assertEqual(captured["reasoning_effort"], "high")
 
     def test_missing_api_key_raises_clear_error(self) -> None:
         captured: dict[str, Any] = {}
@@ -707,59 +684,57 @@ def _responses_response(
 
 
 class OpenAIResponsesAdapterTest(unittest.TestCase):
-    def test_normalized_reasoning_nests_under_effort(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_openai(
-            _responses_response(text_blocks=["ok"]), captured, kind="responses"
+    def _capture_replay(
+        self,
+        content: list[Any],
+        *,
+        extra: dict[str, Any] | None = None,
+        provider: Provider = OPENAI_RESPONSES_PROVIDER,
+        tool_call_id: str | None = None,
+    ) -> dict[str, Any]:
+        tail: str | list[ToolResultBlock] = "thanks"
+        if tool_call_id:
+            tail = [
+                ToolResultBlock(
+                    tool_call_id=tool_call_id,
+                    tool_name="bash",
+                    content=(TextBlock("437"),),
+                )
+            ]
+        request = LLMRequest(
+            provider=provider,
+            messages=[
+                LLMMessage(role="user", content="multiply 23 and 19"),
+                LLMMessage(role="assistant", content=content, extra=extra or {}),
+                LLMMessage(role="user", content=tail),
+            ],
+            tools=[_bash_tool()] if tool_call_id else [],
         )
-        req = LLMRequest(
-            provider=OPENAI_RESPONSES_PROVIDER,
-            messages=[LLMMessage(role="user", content="hi")],
-            reasoning="high",
-        )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            complete(req)
-        self.assertEqual(captured["reasoning"], {"effort": "high"})
-        self.assertEqual(captured["include"], ["reasoning.encrypted_content"])
+        captured, _ = _call_adapter(request, _responses_response(text_blocks=["done"]))
+        return captured
 
-    def test_extra_reasoning_overrides_normalized(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_openai(
-            _responses_response(text_blocks=["ok"]), captured, kind="responses"
-        )
-        req = LLMRequest(
-            provider=OPENAI_RESPONSES_PROVIDER,
-            messages=[LLMMessage(role="user", content="hi")],
-            reasoning="low",
-            extra={"reasoning": {"effort": "high"}},
-        )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            complete(req)
-        self.assertEqual(captured["reasoning"], {"effort": "high"})
-        self.assertEqual(captured["include"], ["reasoning.encrypted_content"])
+    def test_reasoning_configuration(self) -> None:
+        cases = [
+            ("normalized", {"reasoning": "high"}),
+            (
+                "raw extra overrides normalized",
+                {"reasoning": "low", "extra": {"reasoning": {"effort": "high"}}},
+            ),
+        ]
+        for name, request_kwargs in cases:
+            with self.subTest(name):
+                request = LLMRequest(
+                    provider=OPENAI_RESPONSES_PROVIDER,
+                    messages=[LLMMessage(role="user", content="hi")],
+                    **request_kwargs,
+                )
+                captured, _ = _call_adapter(
+                    request, _responses_response(text_blocks=["ok"])
+                )
+                self.assertEqual(captured["reasoning"], {"effort": "high"})
+                self.assertEqual(captured["include"], ["reasoning.encrypted_content"])
 
     def test_builds_request_with_instructions_and_flat_tools(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_openai(
-            _responses_response(
-                text_blocks=["First.", " Second."],
-                function_calls=[
-                    {
-                        "call_id": "call_42",
-                        "name": "bash",
-                        "arguments": json.dumps({"command": "pwd"}),
-                    }
-                ],
-            ),
-            captured,
-            kind="responses",
-        )
         req = LLMRequest(
             provider=OPENAI_RESPONSES_PROVIDER,
             system_prompt="be brief",
@@ -784,11 +759,20 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
             ],
             tools=[_bash_tool()],
         )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            events = list(iter_stream(req))
+        captured, events = _call_adapter(
+            req,
+            _responses_response(
+                text_blocks=["First.", " Second."],
+                function_calls=[
+                    {
+                        "call_id": "call_42",
+                        "name": "bash",
+                        "arguments": json.dumps({"command": "pwd"}),
+                    }
+                ],
+            ),
+            stream=True,
+        )
 
         self.assertEqual(captured["instructions"], "be brief")
         self.assertEqual(
@@ -831,25 +815,19 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
         """An output ``reasoning`` item's summary text is lifted into a
         ThinkingBlock, with the item id kept on ``signature`` so the next
         outbound turn can echo the exact wire item back."""
-        captured: dict[str, Any] = {}
-        module = _stub_openai(
+        req = LLMRequest(
+            provider=OPENAI_RESPONSES_PROVIDER,
+            messages=[LLMMessage(role="user", content="23*19?")],
+        )
+        _, events = _call_adapter(
+            req,
             _responses_response(
                 reasoning_summary="23*19 is 437.",
                 reasoning_id="rs_abc",
                 text_blocks=["437"],
             ),
-            captured,
-            kind="responses",
+            stream=True,
         )
-        req = LLMRequest(
-            provider=OPENAI_RESPONSES_PROVIDER,
-            messages=[LLMMessage(role="user", content="23*19?")],
-        )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            events = list(iter_stream(req))
 
         response = events[-1].payload["response"]
         self.assertEqual(len(response.thinking_blocks), 1)
@@ -862,39 +840,13 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
         """A reasoning model served over Responses (deepseek-via-zenmux)
         rejects the next turn unless the prior reasoning item is echoed
         back ahead of the function_call it preceded."""
-        captured: dict[str, Any] = {}
-        module = _stub_openai(
-            _responses_response(text_blocks=["done"]), captured, kind="responses"
-        )
-        req = LLMRequest(
-            provider=OPENAI_RESPONSES_PROVIDER,  # replay_reasoning=True by default
-            messages=[
-                LLMMessage(role="user", content="multiply 23 and 19"),
-                LLMMessage(
-                    role="assistant",
-                    content=[
-                        ThinkingBlock(text="23*19 is 437.", signature="rs_abc"),
-                        ToolCall(id="c1", name="bash", arguments={"command": "echo"}),
-                    ],
-                ),
-                LLMMessage(
-                    role="user",
-                    content=[
-                        ToolResultBlock(
-                            tool_call_id="c1",
-                            tool_name="bash",
-                            content=(TextBlock("437"),),
-                        )
-                    ],
-                ),
+        captured = self._capture_replay(
+            [
+                ThinkingBlock(text="23*19 is 437.", signature="rs_abc"),
+                ToolCall(id="c1", name="bash", arguments={"command": "echo"}),
             ],
-            tools=[_bash_tool()],
+            tool_call_id="c1",
         )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            complete(req)
 
         input_items = captured["input"]
         reasoning_items = [i for i in input_items if i["type"] == "reasoning"]
@@ -912,51 +864,22 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
         self.assertLess(reasoning_pos, call_pos)
 
     def test_outbound_replays_reasoning_encrypted_content(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_openai(
-            _responses_response(text_blocks=["done"]), captured, kind="responses"
-        )
-        req = LLMRequest(
-            provider=OPENAI_RESPONSES_PROVIDER,
-            messages=[
-                LLMMessage(role="user", content="multiply 23 and 19"),
-                LLMMessage(
-                    role="assistant",
-                    extra={
-                        "openai_responses.reasoning_items": [
-                            {
-                                "type": "reasoning",
-                                "id": "rs_abc",
-                                "encrypted_content": "enc_abc",
-                            }
-                        ]
-                    },
-                    content=[
-                        ThinkingBlock(
-                            text="23*19 is 437.",
-                            signature="rs_abc",
-                        ),
-                        ToolCall(id="c1", name="bash", arguments={"command": "echo"}),
-                    ],
-                ),
-                LLMMessage(
-                    role="user",
-                    content=[
-                        ToolResultBlock(
-                            tool_call_id="c1",
-                            tool_name="bash",
-                            content=(TextBlock("437"),),
-                        )
-                    ],
-                ),
+        captured = self._capture_replay(
+            [
+                ThinkingBlock(text="23*19 is 437.", signature="rs_abc"),
+                ToolCall(id="c1", name="bash", arguments={"command": "echo"}),
             ],
-            tools=[_bash_tool()],
+            extra={
+                "openai_responses.reasoning_items": [
+                    {
+                        "type": "reasoning",
+                        "id": "rs_abc",
+                        "encrypted_content": "enc_abc",
+                    }
+                ]
+            },
+            tool_call_id="c1",
         )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            complete(req)
 
         reasoning_item = next(
             item for item in captured["input"] if item["type"] == "reasoning"
@@ -971,41 +894,21 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
     def test_outbound_ignores_stale_reasoning_extra_for_mismatched_signature(
         self,
     ) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_openai(
-            _responses_response(text_blocks=["done"]), captured, kind="responses"
-        )
-        req = LLMRequest(
-            provider=OPENAI_RESPONSES_PROVIDER,
-            messages=[
-                LLMMessage(role="user", content="multiply 23 and 19"),
-                LLMMessage(
-                    role="assistant",
-                    extra={
-                        "openai_responses.reasoning_items": [
-                            {
-                                "type": "reasoning",
-                                "id": "rs_old",
-                                "encrypted_content": "enc_old",
-                            }
-                        ]
-                    },
-                    content=[
-                        ThinkingBlock(
-                            text="23*19 is 437.",
-                            signature="rs_new",
-                        ),
-                        TextBlock(text="437"),
-                    ],
-                ),
-                LLMMessage(role="user", content="thanks"),
+        captured = self._capture_replay(
+            [
+                ThinkingBlock(text="23*19 is 437.", signature="rs_new"),
+                TextBlock(text="437"),
             ],
+            extra={
+                "openai_responses.reasoning_items": [
+                    {
+                        "type": "reasoning",
+                        "id": "rs_old",
+                        "encrypted_content": "enc_old",
+                    }
+                ]
+            },
         )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            complete(req)
 
         reasoning_item = next(
             item for item in captured["input"] if item["type"] == "reasoning"
@@ -1018,47 +921,19 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
         self.assertNotIn("encrypted_content", reasoning_item)
 
     def test_outbound_replays_encrypted_reasoning_with_empty_summary(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_openai(
-            _responses_response(text_blocks=["done"]), captured, kind="responses"
+        captured = self._capture_replay(
+            [ToolCall(id="c1", name="bash", arguments={"command": "echo"})],
+            extra={
+                "openai_responses.reasoning_items": [
+                    {
+                        "type": "reasoning",
+                        "id": "rs_abc",
+                        "encrypted_content": "enc_abc",
+                    }
+                ]
+            },
+            tool_call_id="c1",
         )
-        req = LLMRequest(
-            provider=OPENAI_RESPONSES_PROVIDER,
-            messages=[
-                LLMMessage(role="user", content="multiply 23 and 19"),
-                LLMMessage(
-                    role="assistant",
-                    extra={
-                        "openai_responses.reasoning_items": [
-                            {
-                                "type": "reasoning",
-                                "id": "rs_abc",
-                                "encrypted_content": "enc_abc",
-                            }
-                        ]
-                    },
-                    content=[
-                        ToolCall(id="c1", name="bash", arguments={"command": "echo"})
-                    ],
-                ),
-                LLMMessage(
-                    role="user",
-                    content=[
-                        ToolResultBlock(
-                            tool_call_id="c1",
-                            tool_name="bash",
-                            content=(TextBlock("437"),),
-                        )
-                    ],
-                ),
-            ],
-            tools=[_bash_tool()],
-        )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            complete(req)
 
         reasoning_item = next(
             item for item in captured["input"] if item["type"] == "reasoning"
@@ -1069,52 +944,24 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
     def test_outbound_replays_extra_reasoning_summary_without_encrypted_content(
         self,
     ) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_openai(
-            _responses_response(text_blocks=["done"]), captured, kind="responses"
-        )
-        req = LLMRequest(
-            provider=OPENAI_RESPONSES_PROVIDER,
-            messages=[
-                LLMMessage(role="user", content="multiply 23 and 19"),
-                LLMMessage(
-                    role="assistant",
-                    extra={
-                        "openai_responses.reasoning_items": [
+        captured = self._capture_replay(
+            [ToolCall(id="c1", name="bash", arguments={"command": "echo"})],
+            extra={
+                "openai_responses.reasoning_items": [
+                    {
+                        "type": "reasoning",
+                        "id": "rs_abc",
+                        "summary": [
                             {
-                                "type": "reasoning",
-                                "id": "rs_abc",
-                                "summary": [
-                                    {
-                                        "type": "summary_text",
-                                        "text": "23*19 is 437.",
-                                    }
-                                ],
+                                "type": "summary_text",
+                                "text": "23*19 is 437.",
                             }
-                        ]
-                    },
-                    content=[
-                        ToolCall(id="c1", name="bash", arguments={"command": "echo"})
-                    ],
-                ),
-                LLMMessage(
-                    role="user",
-                    content=[
-                        ToolResultBlock(
-                            tool_call_id="c1",
-                            tool_name="bash",
-                            content=(TextBlock("437"),),
-                        )
-                    ],
-                ),
-            ],
-            tools=[_bash_tool()],
+                        ],
+                    }
+                ]
+            },
+            tool_call_id="c1",
         )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            complete(req)
 
         reasoning_item = next(
             item for item in captured["input"] if item["type"] == "reasoning"
@@ -1129,78 +976,32 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
     def test_outbound_skips_extra_reasoning_item_without_summary_or_encrypted(
         self,
     ) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_openai(
-            _responses_response(text_blocks=["done"]), captured, kind="responses"
+        captured = self._capture_replay(
+            [ToolCall(id="c1", name="bash", arguments={"command": "echo"})],
+            extra={
+                "openai_responses.reasoning_items": [
+                    {"type": "reasoning", "id": "rs_empty"}
+                ]
+            },
+            tool_call_id="c1",
         )
-        req = LLMRequest(
-            provider=OPENAI_RESPONSES_PROVIDER,
-            messages=[
-                LLMMessage(role="user", content="multiply 23 and 19"),
-                LLMMessage(
-                    role="assistant",
-                    extra={
-                        "openai_responses.reasoning_items": [
-                            {"type": "reasoning", "id": "rs_empty"}
-                        ]
-                    },
-                    content=[
-                        ToolCall(id="c1", name="bash", arguments={"command": "echo"})
-                    ],
-                ),
-                LLMMessage(
-                    role="user",
-                    content=[
-                        ToolResultBlock(
-                            tool_call_id="c1",
-                            tool_name="bash",
-                            content=(TextBlock("437"),),
-                        )
-                    ],
-                ),
-            ],
-            tools=[_bash_tool()],
-        )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            complete(req)
-
         self.assertFalse(
             [item for item in captured["input"] if item["type"] == "reasoning"]
         )
 
     def test_outbound_skips_orphan_extra_reasoning_item(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_openai(
-            _responses_response(text_blocks=["done"]), captured, kind="responses"
+        captured = self._capture_replay(
+            [],
+            extra={
+                "openai_responses.reasoning_items": [
+                    {
+                        "type": "reasoning",
+                        "id": "rs_abc",
+                        "encrypted_content": "enc_abc",
+                    }
+                ]
+            },
         )
-        req = LLMRequest(
-            provider=OPENAI_RESPONSES_PROVIDER,
-            messages=[
-                LLMMessage(role="user", content="multiply 23 and 19"),
-                LLMMessage(
-                    role="assistant",
-                    extra={
-                        "openai_responses.reasoning_items": [
-                            {
-                                "type": "reasoning",
-                                "id": "rs_abc",
-                                "encrypted_content": "enc_abc",
-                            }
-                        ]
-                    },
-                    content=[],
-                ),
-                LLMMessage(role="user", content="thanks"),
-            ],
-        )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            complete(req)
 
         self.assertEqual(
             [item["type"] for item in captured["input"]],
@@ -1211,12 +1012,7 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
         )
 
     def test_outbound_skips_reasoning_when_replay_disabled(self) -> None:
-        """With ``replay_reasoning=False`` no reasoning item is sent, for
-        endpoints that manage reasoning continuity server-side."""
-        captured: dict[str, Any] = {}
-        module = _stub_openai(
-            _responses_response(text_blocks=["done"]), captured, kind="responses"
-        )
+        """Endpoints that manage continuity server-side can disable replay."""
         provider = Provider(
             id="gpt-resp-noreplay",
             api="openai-responses",
@@ -1224,34 +1020,18 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
             api_key_env="TEST_OPENAI_KEY",
             replay_reasoning=False,
         )
-        req = LLMRequest(
-            provider=provider,
-            messages=[
-                LLMMessage(role="user", content="multiply 23 and 19"),
-                LLMMessage(
-                    role="assistant",
-                    content=[
-                        ThinkingBlock(text="23*19 is 437.", signature="rs_abc"),
-                        TextBlock(text="437"),
-                    ],
-                ),
-                LLMMessage(role="user", content="thanks"),
+        captured = self._capture_replay(
+            [
+                ThinkingBlock(text="23*19 is 437.", signature="rs_abc"),
+                TextBlock(text="437"),
             ],
+            provider=provider,
         )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            complete(req)
 
         self.assertFalse([i for i in captured["input"] if i["type"] == "reasoning"])
         self.assertNotIn("include", captured)
 
     def test_explicit_include_is_preserved_when_replay_disabled(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_openai(
-            _responses_response(text_blocks=["done"]), captured, kind="responses"
-        )
         provider = Provider(
             id="gpt-resp-noreplay",
             api="openai-responses",
@@ -1264,41 +1044,26 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
             messages=[LLMMessage(role="user", content="hi")],
             extra={"include": ["message.input_image.image_url"]},
         )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            complete(req)
+        captured, _ = _call_adapter(req, _responses_response(text_blocks=["done"]))
 
         self.assertEqual(captured["include"], ["message.input_image.image_url"])
 
     def test_incomplete_max_tokens_maps_to_max_tokens_stop(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_openai(
+        req = LLMRequest(
+            provider=OPENAI_RESPONSES_PROVIDER,
+            messages=[LLMMessage(role="user", content="hi")],
+        )
+        _, response = _call_adapter(
+            req,
             _responses_response(
                 text_blocks=["partial"],
                 incomplete_reason="max_output_tokens",
                 status="incomplete",
             ),
-            captured,
-            kind="responses",
         )
-        req = LLMRequest(
-            provider=OPENAI_RESPONSES_PROVIDER,
-            messages=[LLMMessage(role="user", content="hi")],
-        )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            response = complete(req)
         self.assertEqual(response.stop_reason, "max_tokens")
 
     def test_passes_extra_headers_to_responses_create(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_openai(
-            _responses_response(text_blocks=["ok"]), captured, kind="responses"
-        )
         req = LLMRequest(
             provider=OPENAI_RESPONSES_PROVIDER,
             messages=[LLMMessage(role="user", content="hi")],
@@ -1309,11 +1074,7 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
                 }
             },
         )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            complete(req)
+        captured, _ = _call_adapter(req, _responses_response(text_blocks=["ok"]))
 
         self.assertEqual(
             captured["extra_headers"],
@@ -1339,175 +1100,76 @@ class OpenAIResponsesAdapterTest(unittest.TestCase):
 
 
 class OpenAIChatReasoningTest(unittest.TestCase):
-    def test_inbound_reasoning_content_becomes_thinking_block(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_openai(
-            _chat_response(
-                text="Result: 6.",
-                reasoning_content="2*3 is 6.",
-                finish_reason="stop",
-            ),
-            captured,
-            kind="chat",
-        )
-        req = LLMRequest(
-            provider=OPENAI_CHAT_PROVIDER,
-            messages=[LLMMessage(role="user", content="2*3?")],
-        )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            events = list(iter_stream(req))
-
-        kinds = [event.kind for event in events]
-        self.assertIn("thinking_delta", kinds)
-        # Thinking arrives before text so consumers see the model's
-        # reasoning step before the user-visible answer.
-        self.assertLess(kinds.index("thinking_delta"), kinds.index("text_delta"))
-
-        response = events[-1].payload["response"]
-        thinking_blocks = response.thinking_blocks
-        self.assertEqual(len(thinking_blocks), 1)
-        self.assertEqual(thinking_blocks[0].text, "2*3 is 6.")
-        # Derived views agree with content.
-        self.assertEqual(response.text, "Result: 6.")
-        # Content preserves order: thinking, then text.
-        self.assertEqual(
-            [block.kind for block in response.content], ["thinking", "text"]
-        )
-
-    def test_outbound_replays_thinking_as_reasoning_content(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_openai(_chat_response(text="ok"), captured, kind="chat")
-        req = LLMRequest(
-            provider=OPENAI_CHAT_PROVIDER,  # replay_reasoning=True by default
-            messages=[
-                LLMMessage(role="user", content="Compute 2*3."),
-                LLMMessage(
-                    role="assistant",
-                    content=[
-                        ThinkingBlock(text="2*3 is 6."),
-                        TextBlock(text="6"),
-                    ],
-                ),
-                LLMMessage(role="user", content="now double it"),
-            ],
-        )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            complete(req)
-
-        assistant_entry = next(
-            m for m in captured["messages"] if m["role"] == "assistant"
-        )
-        self.assertEqual(assistant_entry["reasoning_content"], "2*3 is 6.")
-        self.assertEqual(assistant_entry["content"], "6")
-
-    def test_outbound_skips_replay_when_opted_out(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_openai(_chat_response(text="ok"), captured, kind="chat")
-        provider = Provider(
-            id="gpt-chat-test",
-            api="openai-chat",
-            model="gpt-test-1",
-            api_key_env="TEST_OPENAI_KEY",
-            replay_reasoning=False,
-        )
-        req = LLMRequest(
+    def _assistant_wire(
+        self, *, replay: bool = True, source_field: str | None = None
+    ) -> dict[str, Any]:
+        provider = OPENAI_CHAT_PROVIDER
+        if not replay:
+            provider = Provider(
+                id="gpt-chat-test",
+                api="openai-chat",
+                model="gpt-test-1",
+                api_key_env="TEST_OPENAI_KEY",
+                replay_reasoning=False,
+            )
+        request = LLMRequest(
             provider=provider,
             messages=[
-                LLMMessage(role="user", content="hi"),
-                LLMMessage(
-                    role="assistant",
-                    content=[
-                        ThinkingBlock(text="careful now"),
-                        TextBlock(text="hello"),
-                    ],
-                ),
-                LLMMessage(role="user", content="again"),
-            ],
-        )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            complete(req)
-
-        assistant_entry = next(
-            m for m in captured["messages"] if m["role"] == "assistant"
-        )
-        self.assertNotIn("reasoning_content", assistant_entry)
-
-    def test_inbound_reasoning_alias_field_becomes_thinking_block(self) -> None:
-        """Some DeepSeek-via-gateway deployments return the reasoning under
-        ``message.reasoning`` instead of ``message.reasoning_content``. The
-        adapter must still lift it into a ThinkingBlock so subsequent turns
-        can replay it."""
-        captured: dict[str, Any] = {}
-        module = _stub_openai(
-            _chat_response(
-                text="Result: 6.",
-                reasoning="2*3 is 6.",
-                finish_reason="stop",
-            ),
-            captured,
-            kind="chat",
-        )
-        req = LLMRequest(
-            provider=OPENAI_CHAT_PROVIDER,
-            messages=[LLMMessage(role="user", content="2*3?")],
-        )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            events = list(iter_stream(req))
-
-        response = events[-1].payload["response"]
-        self.assertEqual(len(response.thinking_blocks), 1)
-        block = response.thinking_blocks[0]
-        self.assertEqual(block.text, "2*3 is 6.")
-        # Source field is recorded so the next outbound turn echoes the
-        # same key back to the provider.
-        self.assertEqual(block.source_field, "reasoning")
-
-    def test_outbound_always_uses_canonical_reasoning_content(self) -> None:
-        """Even when a prior assistant turn recorded a non-canonical
-        ``source_field`` (e.g. ``"reasoning"`` for deepseek-via-zenmux),
-        the outbound request must replay thinking under the canonical
-        ``reasoning_content``. Empirically the strict gateways emit
-        ``reasoning`` but still require the canonical key on echo;
-        ``source_field`` is retained as a trace-debug memo only."""
-        captured: dict[str, Any] = {}
-        module = _stub_openai(_chat_response(text="ok"), captured, kind="chat")
-        req = LLMRequest(
-            provider=OPENAI_CHAT_PROVIDER,  # replay_reasoning=True by default
-            messages=[
                 LLMMessage(role="user", content="Compute 2*3."),
                 LLMMessage(
                     role="assistant",
                     content=[
-                        ThinkingBlock(text="2*3 is 6.", source_field="reasoning"),
+                        ThinkingBlock(text="2*3 is 6.", source_field=source_field),
                         TextBlock(text="6"),
                     ],
                 ),
                 LLMMessage(role="user", content="now double it"),
             ],
         )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            complete(req)
+        captured, _ = _call_adapter(request, _chat_response())
+        return next(m for m in captured["messages"] if m["role"] == "assistant")
 
-        assistant_entry = next(
-            m for m in captured["messages"] if m["role"] == "assistant"
-        )
-        self.assertEqual(assistant_entry["reasoning_content"], "2*3 is 6.")
-        self.assertNotIn("reasoning", assistant_entry)
+    def test_inbound_reasoning_fields_become_thinking_blocks(self) -> None:
+        for field in ("reasoning_content", "reasoning"):
+            with self.subTest(field):
+                request = LLMRequest(
+                    provider=OPENAI_CHAT_PROVIDER,
+                    messages=[LLMMessage(role="user", content="2*3?")],
+                )
+                _, events = _call_adapter(
+                    request,
+                    _chat_response(
+                        text="Result: 6.",
+                        **{field: "2*3 is 6."},
+                    ),
+                    stream=True,
+                )
+                kinds = [event.kind for event in events]
+                self.assertLess(
+                    kinds.index("thinking_delta"), kinds.index("text_delta")
+                )
+                response = events[-1].payload["response"]
+                self.assertEqual(response.thinking_blocks[0].text, "2*3 is 6.")
+                self.assertEqual(response.text, "Result: 6.")
+                self.assertEqual(
+                    [block.kind for block in response.content],
+                    ["thinking", "text"],
+                )
+                if field == "reasoning":
+                    self.assertEqual(
+                        response.thinking_blocks[0].source_field, "reasoning"
+                    )
+
+    def test_outbound_uses_canonical_reasoning_content(self) -> None:
+        for source_field in (None, "reasoning"):
+            with self.subTest(source_field):
+                assistant = self._assistant_wire(source_field=source_field)
+                self.assertEqual(assistant["reasoning_content"], "2*3 is 6.")
+                self.assertEqual(assistant["content"], "6")
+                self.assertNotIn("reasoning", assistant)
+
+    def test_outbound_skips_replay_when_opted_out(self) -> None:
+        self.assertNotIn("reasoning_content", self._assistant_wire(replay=False))
 
 
 class AnthropicReasoningReplayTest(unittest.TestCase):
@@ -1517,17 +1179,11 @@ class AnthropicReasoningReplayTest(unittest.TestCase):
     }
 
     def test_inbound_captures_thinking_with_signature(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_anthropic(_anthropic_response(**self._RESPONSE_KW), captured)
         req = LLMRequest(
             provider=ANTHROPIC_PROVIDER,
             messages=[LLMMessage(role="user", content="hi")],
         )
-        with (
-            _stub_module("anthropic", module),
-            mock.patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "k"}, clear=False),
-        ):
-            response = complete(req)
+        _, response = _call_adapter(req, _anthropic_response(**self._RESPONSE_KW))
 
         self.assertEqual(len(response.thinking_blocks), 1)
         block = response.thinking_blocks[0]
@@ -1537,8 +1193,6 @@ class AnthropicReasoningReplayTest(unittest.TestCase):
         self.assertEqual([b.kind for b in response.content], ["thinking", "text"])
 
     def test_outbound_replays_thinking_block_first(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_anthropic(_anthropic_response(**self._RESPONSE_KW), captured)
         req = LLMRequest(
             provider=ANTHROPIC_PROVIDER,
             messages=[
@@ -1563,11 +1217,7 @@ class AnthropicReasoningReplayTest(unittest.TestCase):
                 ),
             ],
         )
-        with (
-            _stub_module("anthropic", module),
-            mock.patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "k"}, clear=False),
-        ):
-            complete(req)
+        captured, _ = _call_adapter(req, _anthropic_response(**self._RESPONSE_KW))
 
         assistant_msg = next(
             m for m in captured["messages"] if m["role"] == "assistant"
@@ -1580,8 +1230,6 @@ class AnthropicReasoningReplayTest(unittest.TestCase):
         self.assertEqual(blocks[2]["type"], "tool_use")
 
     def test_outbound_skips_replay_when_opted_out(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_anthropic(_anthropic_response(**self._RESPONSE_KW), captured)
         provider = Provider(
             id="claude-test",
             api="anthropic-messages",
@@ -1600,11 +1248,7 @@ class AnthropicReasoningReplayTest(unittest.TestCase):
                 LLMMessage(role="user", content="again"),
             ],
         )
-        with (
-            _stub_module("anthropic", module),
-            mock.patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "k"}, clear=False),
-        ):
-            complete(req)
+        captured, _ = _call_adapter(req, _anthropic_response(**self._RESPONSE_KW))
 
         for msg in (m for m in captured["messages"] if m["role"] == "assistant"):
             for block in msg["content"]:
@@ -1635,7 +1279,7 @@ class BridgeThinkingPreservationTest(unittest.TestCase):
         self.assertEqual(msg.thinking[1].signature, "s2")
         self.assertTrue(msg.thinking[1].redacted)
 
-    def test_responses_encrypted_reasoning_rides_in_message_extra(self) -> None:
+    def test_responses_reasoning_metadata_rides_in_message_extra(self) -> None:
         from simple_agent_lab.llm.bridge import (
             llm_response_to_assistant_message,
             message_to_llm_message,
@@ -1643,131 +1287,37 @@ class BridgeThinkingPreservationTest(unittest.TestCase):
         from simple_agent_lab.llm.types import LLMResponse
         from simple_agent_lab.messages import AssistantMessage
 
-        response = LLMResponse(
-            content=[ThinkingBlock(text="step 1", signature="rs_1")],
-            raw={
-                "response": SimpleNamespace(
-                    output=[
-                        SimpleNamespace(
-                            type="reasoning",
-                            id="rs_1",
-                            encrypted_content="enc_1",
-                        )
-                    ]
+        summary = [SimpleNamespace(type="summary_text", text="step 1")]
+        expected_summary = [{"type": "summary_text", "text": "step 1"}]
+        cases = [
+            ("encrypted only", {"encrypted_content": "enc_1"}),
+            (
+                "summary and encrypted",
+                {"summary": summary, "encrypted_content": "enc_1"},
+            ),
+            ("summary only", {"summary": summary, "encrypted_content": None}),
+        ]
+        for name, metadata in cases:
+            with self.subTest(name):
+                raw_item = SimpleNamespace(type="reasoning", id="rs_1", **metadata)
+                response = LLMResponse(
+                    content=[ThinkingBlock(text="step 1", signature="rs_1")],
+                    raw={"response": SimpleNamespace(output=[raw_item])},
                 )
-            },
-        )
-        msg = llm_response_to_assistant_message(
-            response, sender="agent", target="user", kind="final"
-        )
-        assert isinstance(msg, AssistantMessage)
-
-        projected = message_to_llm_message(msg)
-        self.assertEqual(
-            projected.extra["openai_responses.reasoning_items"],
-            [
-                {
-                    "type": "reasoning",
-                    "id": "rs_1",
-                    "encrypted_content": "enc_1",
-                }
-            ],
-        )
-
-    def test_responses_reasoning_summary_and_encrypted_content_ride_in_extra(
-        self,
-    ) -> None:
-        from simple_agent_lab.llm.bridge import (
-            llm_response_to_assistant_message,
-            message_to_llm_message,
-        )
-        from simple_agent_lab.llm.types import LLMResponse
-        from simple_agent_lab.messages import AssistantMessage
-
-        response = LLMResponse(
-            content=[ThinkingBlock(text="step 1", signature="rs_1")],
-            raw={
-                "response": SimpleNamespace(
-                    output=[
-                        SimpleNamespace(
-                            type="reasoning",
-                            id="rs_1",
-                            summary=[
-                                SimpleNamespace(
-                                    type="summary_text",
-                                    text="step 1",
-                                )
-                            ],
-                            encrypted_content="enc_1",
-                        )
-                    ]
+                msg = llm_response_to_assistant_message(
+                    response, sender="agent", target="user", kind="final"
                 )
-            },
-        )
-        msg = llm_response_to_assistant_message(
-            response, sender="agent", target="user", kind="final"
-        )
-        assert isinstance(msg, AssistantMessage)
-
-        projected = message_to_llm_message(msg)
-        self.assertEqual(
-            projected.extra["openai_responses.reasoning_items"],
-            [
-                {
-                    "type": "reasoning",
-                    "id": "rs_1",
-                    "summary": [{"type": "summary_text", "text": "step 1"}],
-                    "encrypted_content": "enc_1",
-                }
-            ],
-        )
-
-    def test_responses_reasoning_summary_without_encrypted_content_rides_in_extra(
-        self,
-    ) -> None:
-        from simple_agent_lab.llm.bridge import (
-            llm_response_to_assistant_message,
-            message_to_llm_message,
-        )
-        from simple_agent_lab.llm.types import LLMResponse
-        from simple_agent_lab.messages import AssistantMessage
-
-        response = LLMResponse(
-            content=[ThinkingBlock(text="step 1", signature="rs_1")],
-            raw={
-                "response": SimpleNamespace(
-                    output=[
-                        SimpleNamespace(
-                            type="reasoning",
-                            id="rs_1",
-                            summary=[
-                                SimpleNamespace(
-                                    type="summary_text",
-                                    text="step 1",
-                                )
-                            ],
-                            encrypted_content=None,
-                        )
-                    ]
+                assert isinstance(msg, AssistantMessage)
+                expected = {"type": "reasoning", "id": "rs_1"}
+                if "summary" in metadata:
+                    expected["summary"] = expected_summary
+                if metadata.get("encrypted_content"):
+                    expected["encrypted_content"] = "enc_1"
+                projected = message_to_llm_message(msg)
+                self.assertEqual(
+                    projected.extra["openai_responses.reasoning_items"],
+                    [expected],
                 )
-            },
-        )
-        msg = llm_response_to_assistant_message(
-            response, sender="agent", target="user", kind="final"
-        )
-        assert isinstance(msg, AssistantMessage)
-
-        projected = message_to_llm_message(msg)
-        self.assertEqual(
-            projected.extra["openai_responses.reasoning_items"],
-            [
-                {
-                    "type": "reasoning",
-                    "id": "rs_1",
-                    "summary": [{"type": "summary_text", "text": "step 1"}],
-                }
-            ],
-        )
 
 
 class MessageExtraTest(unittest.TestCase):
@@ -1778,8 +1328,6 @@ class MessageExtraTest(unittest.TestCase):
     """
 
     def test_anthropic_cache_breakpoint_attaches_cache_control(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_anthropic(_anthropic_response(text="ok"), captured)
         req = LLMRequest(
             provider=ANTHROPIC_PROVIDER,
             messages=[
@@ -1790,19 +1338,13 @@ class MessageExtraTest(unittest.TestCase):
                 ),
             ],
         )
-        with (
-            _stub_module("anthropic", module),
-            mock.patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "k"}, clear=False),
-        ):
-            complete(req)
+        captured, _ = _call_adapter(req, _anthropic_response())
 
         user_msg = next(m for m in captured["messages"] if m["role"] == "user")
         last_block = user_msg["content"][-1]
         self.assertEqual(last_block.get("cache_control"), {"type": "ephemeral"})
 
     def test_unknown_namespace_silently_ignored(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_anthropic(_anthropic_response(text="ok"), captured)
         req = LLMRequest(
             provider=ANTHROPIC_PROVIDER,
             messages=[
@@ -1813,11 +1355,7 @@ class MessageExtraTest(unittest.TestCase):
                 ),
             ],
         )
-        with (
-            _stub_module("anthropic", module),
-            mock.patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "k"}, clear=False),
-        ):
-            complete(req)
+        captured, _ = _call_adapter(req, _anthropic_response())
 
         user_msg = next(m for m in captured["messages"] if m["role"] == "user")
         for block in user_msg["content"]:
@@ -1879,13 +1417,9 @@ class ParallelToolResultBundleTest(unittest.TestCase):
         )
 
     def test_anthropic_bundles_into_one_user_wire_message(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_anthropic(_anthropic_response(text="done"), captured)
-        with (
-            _stub_module("anthropic", module),
-            mock.patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "k"}, clear=False),
-        ):
-            complete(self._bundled_request(ANTHROPIC_PROVIDER))
+        captured, _ = _call_adapter(
+            self._bundled_request(ANTHROPIC_PROVIDER), _anthropic_response(text="done")
+        )
 
         user_msgs = [m for m in captured["messages"] if m["role"] == "user"]
         bundles = [
@@ -1902,13 +1436,9 @@ class ParallelToolResultBundleTest(unittest.TestCase):
         )
 
     def test_openai_chat_splits_into_n_tool_wire_entries(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_openai(_chat_response(text="done"), captured, kind="chat")
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            complete(self._bundled_request(OPENAI_CHAT_PROVIDER))
+        captured, _ = _call_adapter(
+            self._bundled_request(OPENAI_CHAT_PROVIDER), _chat_response(text="done")
+        )
 
         tool_entries = [m for m in captured["messages"] if m["role"] == "tool"]
         self.assertEqual(len(tool_entries), 2)
@@ -1960,13 +1490,9 @@ class MultimodalToolResultTest(unittest.TestCase):
         )
 
     def test_anthropic_carries_image_inside_tool_result_content(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_anthropic(_anthropic_response(text="ok"), captured)
-        with (
-            _stub_module("anthropic", module),
-            mock.patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "k"}, clear=False),
-        ):
-            complete(self._request_with_image(ANTHROPIC_PROVIDER))
+        captured, _ = _call_adapter(
+            self._request_with_image(ANTHROPIC_PROVIDER), _anthropic_response()
+        )
 
         bundle = next(
             m
@@ -1984,13 +1510,10 @@ class MultimodalToolResultTest(unittest.TestCase):
         self.assertEqual(image["source"]["media_type"], "image/png")
 
     def test_openai_chat_splits_image_into_adjacent_user_message(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_openai(_chat_response(text="red"), captured, kind="chat")
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            complete(self._request_with_image(OPENAI_CHAT_PROVIDER))
+        captured, _ = _call_adapter(
+            self._request_with_image(OPENAI_CHAT_PROVIDER),
+            _chat_response(text="red"),
+        )
 
         wire = captured["messages"]
         # Find the role=tool entry — content is a plain string with no image.
@@ -2009,17 +1532,10 @@ class MultimodalToolResultTest(unittest.TestCase):
         self.assertIn(self.IMAGE_DATA, image_part["image_url"]["url"])
 
     def test_openai_responses_splits_image_into_adjacent_user_item(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_openai(
+        captured, _ = _call_adapter(
+            self._request_with_image(OPENAI_RESPONSES_PROVIDER),
             _responses_response(text_blocks=["red"]),
-            captured,
-            kind="responses",
         )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            complete(self._request_with_image(OPENAI_RESPONSES_PROVIDER))
 
         items = captured["input"]
         # function_call_output stays text-only.
@@ -2045,58 +1561,48 @@ class RawCaptureTest(unittest.TestCase):
     replay record.
     """
 
-    def test_openai_chat_raw_preserves_messages_and_other_fields(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_openai(_chat_response(text="ok"), captured, kind="chat")
-        req = LLMRequest(
-            provider=OPENAI_CHAT_PROVIDER,
-            system_prompt="be brief",
-            messages=[LLMMessage(role="user", content="hello")],
-        )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            response = complete(req)
-
-        request_snapshot = response.raw["request"]
-        self.assertIsInstance(request_snapshot["messages"], list)
-        self.assertEqual(len(request_snapshot["messages"]), 2)  # system + user
-        self.assertEqual(request_snapshot["model"], "gpt-test-1")
-        self.assertIn("temperature", request_snapshot)
-        self.assertTrue(response.raw["response"])
-
-    def test_anthropic_raw_preserves_messages(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_anthropic(_anthropic_response(text="ok"), captured)
-        req = LLMRequest(
-            provider=ANTHROPIC_PROVIDER,
-            messages=[LLMMessage(role="user", content="hi")],
-        )
-        with (
-            _stub_module("anthropic", module),
-            mock.patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "k"}, clear=False),
-        ):
-            response = complete(req)
-        self.assertIsInstance(response.raw["request"]["messages"], list)
-        self.assertEqual(len(response.raw["request"]["messages"]), 1)
-
-    def test_openai_responses_raw_preserves_input(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_openai(
-            _responses_response(text_blocks=["ok"]), captured, kind="responses"
-        )
-        req = LLMRequest(
-            provider=OPENAI_RESPONSES_PROVIDER,
-            messages=[LLMMessage(role="user", content="hi")],
-        )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            response = complete(req)
-        self.assertIsInstance(response.raw["request"]["input"], list)
-        self.assertEqual(len(response.raw["request"]["input"]), 1)
+    def test_raw_preserves_outbound_history(self) -> None:
+        cases = [
+            (
+                "openai chat",
+                OPENAI_CHAT_PROVIDER,
+                _chat_response(),
+                "messages",
+                "be brief",
+                2,
+            ),
+            (
+                "anthropic",
+                ANTHROPIC_PROVIDER,
+                _anthropic_response(),
+                "messages",
+                None,
+                1,
+            ),
+            (
+                "openai responses",
+                OPENAI_RESPONSES_PROVIDER,
+                _responses_response(text_blocks=["ok"]),
+                "input",
+                None,
+                1,
+            ),
+        ]
+        for name, provider, canned, history_key, system_prompt, expected_len in cases:
+            with self.subTest(name):
+                request = LLMRequest(
+                    provider=provider,
+                    system_prompt=system_prompt,
+                    messages=[LLMMessage(role="user", content="hello")],
+                )
+                _, response = _call_adapter(request, canned)
+                snapshot = response.raw["request"]
+                self.assertIsInstance(snapshot[history_key], list)
+                self.assertEqual(len(snapshot[history_key]), expected_len)
+                self.assertTrue(response.raw["response"])
+                if provider is OPENAI_CHAT_PROVIDER:
+                    self.assertEqual(snapshot["model"], "gpt-test-1")
+                    self.assertIn("temperature", snapshot)
 
 
 class CachedTokenNormalizationTest(unittest.TestCase):
@@ -2110,78 +1616,36 @@ class CachedTokenNormalizationTest(unittest.TestCase):
     prompt served almost entirely from cache.
     """
 
-    def test_openai_chat_subtracts_cached_from_prompt_tokens(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_openai(
-            _chat_response(prompt_tokens=2007, completion_tokens=90, cached=1984),
-            captured,
-            kind="chat",
-        )
-        req = LLMRequest(
-            provider=OPENAI_CHAT_PROVIDER,
-            messages=[LLMMessage(role="user", content="hi")],
-        )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            response = complete(req)
-
-        usage = response.usage
-        self.assertEqual(usage.input_tokens, 23)  # 2007 - 1984 cached
-        self.assertEqual(usage.cache_read_tokens, 1984)
-        # The window is the true 2097, not the double-counted 4081.
-        self.assertEqual(usage.context_tokens, 2097)
-
-    def test_openai_responses_subtracts_cached_from_input_tokens(self) -> None:
-        captured: dict[str, Any] = {}
-        module = _stub_openai(
-            _responses_response(
-                text_blocks=["ok"], input_tokens=2007, output_tokens=90, cached=1984
+    def test_cache_tokens_are_normalized_as_additive(self) -> None:
+        cases = [
+            (
+                "openai chat subtracts cache",
+                OPENAI_CHAT_PROVIDER,
+                _chat_response(prompt_tokens=2007, completion_tokens=90, cached=1984),
             ),
-            captured,
-            kind="responses",
-        )
-        req = LLMRequest(
-            provider=OPENAI_RESPONSES_PROVIDER,
-            messages=[LLMMessage(role="user", content="hi")],
-        )
-        with (
-            _stub_module("openai", module),
-            mock.patch.dict("os.environ", {"TEST_OPENAI_KEY": "k"}, clear=False),
-        ):
-            response = complete(req)
-
-        usage = response.usage
-        self.assertEqual(usage.input_tokens, 23)
-        self.assertEqual(usage.cache_read_tokens, 1984)
-        self.assertEqual(usage.context_tokens, 2097)  # 23 + 90 + 1984
-
-    def test_anthropic_keeps_native_additive_cache(self) -> None:
-        # Anthropic already reports input_tokens WITHOUT cache, so no
-        # subtraction: input + cache_read + cache_write is the full window.
-        captured: dict[str, Any] = {}
-        module = _stub_anthropic(
-            _anthropic_response(
-                text="ok", input_tokens=23, output_tokens=90, cache_read=1984
+            (
+                "openai responses subtracts cache",
+                OPENAI_RESPONSES_PROVIDER,
+                _responses_response(
+                    text_blocks=["ok"],
+                    input_tokens=2007,
+                    output_tokens=90,
+                    cached=1984,
+                ),
             ),
-            captured,
-        )
-        req = LLMRequest(
-            provider=ANTHROPIC_PROVIDER,
-            messages=[LLMMessage(role="user", content="hi")],
-        )
-        with (
-            _stub_module("anthropic", module),
-            mock.patch.dict("os.environ", {"TEST_ANTHROPIC_KEY": "k"}, clear=False),
-        ):
-            response = complete(req)
-
-        usage = response.usage
-        self.assertEqual(usage.input_tokens, 23)
-        self.assertEqual(usage.cache_read_tokens, 1984)
-        self.assertEqual(usage.context_tokens, 2097)
-
-
-if __name__ == "__main__":  # pragma: no cover
-    unittest.main()
+            (
+                "anthropic already reports additive input",
+                ANTHROPIC_PROVIDER,
+                _anthropic_response(input_tokens=23, output_tokens=90, cache_read=1984),
+            ),
+        ]
+        for name, provider, canned in cases:
+            with self.subTest(name):
+                request = LLMRequest(
+                    provider=provider,
+                    messages=[LLMMessage(role="user", content="hi")],
+                )
+                _, response = _call_adapter(request, canned)
+                self.assertEqual(response.usage.input_tokens, 23)
+                self.assertEqual(response.usage.cache_read_tokens, 1984)
+                self.assertEqual(response.usage.context_tokens, 2097)

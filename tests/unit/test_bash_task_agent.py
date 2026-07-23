@@ -139,7 +139,3 @@ def _make_parent_generate(*, delegated_task: str):
         )
 
     return generate
-
-
-if __name__ == "__main__":
-    unittest.main()
