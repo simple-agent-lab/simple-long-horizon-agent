@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -26,6 +27,7 @@ from evals.swebench.harness import (
     container_entrypoint_override,
     docker_image_for_instance,
     docker_run_command,
+    ensure_linux_uv,
     is_swebench_multilingual,
     is_swebench_pro,
     is_swebench_pro_instance,
@@ -72,6 +74,30 @@ class SwebenchHarnessTest(unittest.TestCase):
             DEFAULT_PRO_WHEELHOUSE,
             Path("evals/out/swebench_pro/wheelhouse/cp311-manylinux").resolve(),
         )
+
+    def test_linux_uv_is_downloaded_once_and_reused(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "cache"
+
+            def download(_url: str, destination: Path) -> None:
+                source = Path(tmp) / "uv"
+                source.write_bytes(b"uv")
+                with tarfile.open(destination, "w:gz") as bundle:
+                    bundle.add(source, arcname="uv-test-target/uv")
+
+            binary = ensure_linux_uv(
+                target="uv-test-target", root=root, downloader=download
+            )
+            self.assertEqual(binary.read_bytes(), b"uv")
+            self.assertTrue(binary.stat().st_mode & 0o100)
+
+            with mock.patch(
+                "evals.swebench.harness._download_file",
+                side_effect=AssertionError("cache should be reused"),
+            ):
+                self.assertEqual(
+                    ensure_linux_uv(target="uv-test-target", root=root), binary
+                )
 
     def test_sanitized_instance_drops_gold_fields(self) -> None:
         instance = {

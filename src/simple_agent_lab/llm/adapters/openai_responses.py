@@ -92,7 +92,7 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         ) from exc
 
     client = OpenAI(
-        api_key=_api_key(req),
+        api_key=resolve_api_key(req.provider, placeholder="not-needed"),
         base_url=req.provider.base_url,
     )
 
@@ -186,11 +186,6 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         sdk_response=sdk_response,
         request_kwargs=kwargs,
     )
-
-
-def _api_key(req: LLMRequest) -> str | None:
-    # OpenAI SDKs reject an empty key; a key-free endpoint gets a placeholder.
-    return resolve_api_key(req.provider, placeholder="not-needed")
 
 
 def _include_items(

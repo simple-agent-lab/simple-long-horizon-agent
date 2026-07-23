@@ -19,6 +19,7 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -44,6 +45,7 @@ from simple_agent_lab.agent_flavors import (  # noqa: E402
 )
 from simple_agent_lab.llm.env import (  # noqa: E402
     API_KIND_ENV,
+    OPENAI_API_KIND_CHOICES,
     OPENAI_AUTH_ENV,
     OPENAI_BASE_URL_ENV,
     OPENAI_LOG_ID_ENV,
@@ -51,6 +53,8 @@ from simple_agent_lab.llm.env import (  # noqa: E402
     OPENAI_REASONING_EFFORT_ENV,
     OPENAI_SESSION_ID_ENV,
     REASONING_EFFORT_ENV,
+    container_provider_env,
+    resolve_openai_api_kind,
 )
 
 # Re-exported so the run entry (`runs/_benches/swebench.py`) keeps calling
@@ -73,11 +77,8 @@ DEFAULT_MULTILINGUAL_WHEELHOUSE = (
 DEFAULT_PRO_RUN_ROOT = ROOT / "evals/out/swebench_pro"
 DEFAULT_PRO_WHEELHOUSE = ROOT / "evals/out/swebench_pro/wheelhouse/cp311-manylinux"
 DEFAULT_UV_BINARY = shutil.which("uv") or ""
-# This suite intentionally accepts only the OpenAI-protocol adapters (not the
-# broader set in `llm.env.API_KIND_CHOICES`), so it is declared locally. The
-# reasoning-effort names are imported above from `llm.env`; forwarding them keeps
-# the in-container agent from silently running at the endpoint's default depth.
-API_KIND_CHOICES = ("openai-chat", "openai-responses")
+DEFAULT_LINUX_UV_ROOT = ROOT / "evals/out/uv-linux"
+API_KIND_CHOICES = OPENAI_API_KIND_CHOICES
 # The single agent selector (`--agent-flavor` / AGENT_FLAVOR). The vocabulary is
 # owned by `simple_agent_lab.agent_flavors` so host and container choices cannot
 # drift.
@@ -334,35 +335,10 @@ def _records_from_json(parsed: Any, path: Path) -> list[dict[str, Any]]:
 # Provider environment + dotenv
 # --------------------------------------------------------------------------- #
 def _container_environment(provider: str) -> dict[str, str]:
-    env: dict[str, str] = {}
-    if provider != "openai":
-        return env
-    for name in OPENAI_PASSTHROUGH_ENVS:
-        value = os.environ.get(name)
-        if value:
-            env[name] = value
-    for name in ("NO_PROXY", "no_proxy"):
-        value = os.environ.get(name)
-        if value:
-            env[name] = value
-    missing = [name for name in (OPENAI_MODEL_ENV, OPENAI_AUTH_ENV) if name not in env]
-    if missing:
-        raise SystemExit(
-            "Missing required env vars for --provider openai: " + ", ".join(missing)
-        )
-    return env
+    return container_provider_env(provider, OPENAI_PASSTHROUGH_ENVS)
 
 
-def resolve_api_kind(value: str | None) -> str:
-    """Return the requested adapter API kind, defaulting through API_KIND."""
-
-    api_kind = (value or os.environ.get(API_KIND_ENV) or "openai-chat").strip()
-    if api_kind not in API_KIND_CHOICES:
-        raise SystemExit(
-            f"Unsupported API_KIND {api_kind!r}; expected one of: "
-            + ", ".join(API_KIND_CHOICES)
-        )
-    return api_kind
+resolve_api_kind = resolve_openai_api_kind
 
 
 # --------------------------------------------------------------------------- #
@@ -391,6 +367,35 @@ def prediction_record(
 # --------------------------------------------------------------------------- #
 # Offline wheelhouse (provider wheels + the current project wheel)
 # --------------------------------------------------------------------------- #
+def ensure_linux_uv(
+    *,
+    target: str | None = None,
+    root: Path = DEFAULT_LINUX_UV_ROOT,
+    downloader: Callable[[str, Path], None] | None = None,
+) -> Path:
+    """Return a cached static Linux ``uv`` suitable for eval containers."""
+
+    target = target or os.environ.get("UV_LINUX_TARGET", "uv-x86_64-unknown-linux-musl")
+    if not re.fullmatch(r"uv-[A-Za-z0-9_.-]+", target):
+        raise ValueError(f"Invalid UV_LINUX_TARGET: {target!r}")
+    binary = root / target / "uv"
+    if binary.is_file() and os.access(binary, os.X_OK):
+        return binary
+
+    print(f"==> Fetching Linux uv ({target}) for the container...", file=sys.stderr)
+    root.mkdir(parents=True, exist_ok=True)
+    url = f"https://github.com/astral-sh/uv/releases/latest/download/{target}.tar.gz"
+    archive = root / "uv.tgz"
+    (downloader or _download_file)(url, archive)
+    subprocess.run(["tar", "xzf", str(archive), "-C", str(root)], check=True)
+    binary.chmod(0o755)
+    return binary
+
+
+def _download_file(url: str, destination: Path) -> None:
+    subprocess.run(["curl", "-fsSL", url, "-o", str(destination)], check=True)
+
+
 def prepare_wheelhouse_for_run(
     wheelhouse: Path | None,
     *,

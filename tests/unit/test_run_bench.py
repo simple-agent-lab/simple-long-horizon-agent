@@ -9,6 +9,7 @@ import sys
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -104,6 +105,18 @@ class RunBenchCliTest(unittest.TestCase):
 
     def test_unknown_command_returns_error_code(self) -> None:
         self.assertEqual(run_bench.main(["nope"]), 2)
+
+    def test_batch_dispatches_to_bench_batch_api(self) -> None:
+        module = run_bench.BENCHES["swebench"].module
+        with mock.patch.object(
+            module,
+            "run_batch",
+            return_value={"bench": "swebench", "status_code": 0},
+        ) as runner:
+            code = run_bench.main(["batch", "swebench", "--variant", "pro"])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(runner.call_args.args[0].variant, "pro")
 
 
 class RunBenchHelpersTest(unittest.TestCase):

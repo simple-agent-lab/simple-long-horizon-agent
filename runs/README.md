@@ -8,11 +8,11 @@ useful as the reference way to run an experiment), grouped by concern.
 
 ```
 runs/
-  run_bench.py               # the one entry over every bench (list/setup/<bench>/score/oracle/all)
+  run_bench.py               # one entry (list/setup/<bench>/batch/score/oracle/all)
   bench-manifest.example.json
   profiles/                  # per-bench run-profiles (*.example.json)
   _benches/                  # internal per-bench modules (imported by run_bench.py)
-  lib/                       # shared sourced helpers (_python.sh, _swebench_uv.sh)
+  lib/                       # small shared launch helpers
   harbor/                    # Terminal-Bench 2.1 Harbor batch launchers
   swebench/                  # SWE-bench batch/setup/eval scripts
   programbench/              # ProgramBench batch/setup scripts
@@ -26,6 +26,7 @@ Start with the unified entry:
 uv run python runs/run_bench.py list            # what benches exist
 uv run python runs/run_bench.py setup           # is my environment ready?
 uv run python runs/run_bench.py <bench> ...     # run one bench
+uv run python runs/run_bench.py batch <bench> ...   # select/run a concurrent batch
 uv run python runs/run_bench.py score <bench> ...   # official scorer (or note inline scoring)
 uv run python runs/run_bench.py oracle <bench> ...  # gold/model-free reference run (wiring check)
 uv run python runs/run_bench.py all --manifest runs/bench-manifest.json
@@ -107,7 +108,8 @@ bash runs/swebench/setup_swebench_docker.sh sympy__sympy-23824
 These run the containerized SWE-bench agent for one default instance, one named
 instance, a selected subset, or the full dataset split. Subset and full-split
 runs can limit Docker/model concurrency with `--parallel N`; subset files use
-one instance id per line and may include `#` comments:
+one instance id per line and may include `#` comments. The shell script is a
+six-line compatibility wrapper over `run_bench.py batch swebench`:
 
 ```bash
 bash runs/swebench/run_swebench.sh
@@ -123,15 +125,19 @@ bash runs/swebench/run_swebench.sh --variant pro
 bash runs/swebench/run_swebench.sh --variant pro instance_navidrome__navidrome-8e640bb8580affb7e0ea6225c0bbe240186b6b08
 bash runs/swebench/run_swebench.sh --variant pro --ids-file ids.txt --parallel 4
 bash runs/swebench/run_swebench.sh --variant pro --all --parallel 4
+
+# The same Python entry, without the compatibility wrapper:
+uv run --extra swebench python runs/run_bench.py batch swebench \
+  --variant pro --all --parallel 4
 ```
 
 SWE-bench Verified artifacts land under `evals/out/swebench/`; SWE-bench
 Multilingual and Pro artifacts land under sibling roots
 `evals/out/swebench_multilingual/` and `evals/out/swebench_pro/`. All roots use
-the same flat layout: `instance_<id>.jsonl` for cached records, `wheelhouse/`
-for wheels, and `<run-id>/<instance-id>/` for per-instance outputs. When records
-are not cached, the scripts use the `datasets` package from `uv sync --extra
-swebench` to fetch the HuggingFace dataset rows.
+the same flat layout: optional `instance_<id>.jsonl` setup inputs,
+`wheelhouse/` for wheels, and `<run-id>/<instance-id>/` for per-instance
+outputs. The Python batch entry loads rows with the `datasets` package from
+`uv sync --extra swebench` (which reuses the HuggingFace cache).
 
 This wrapper runs or normalizes official SWE-bench / SWE-bench Pro evaluation
 results for an existing predictions file:

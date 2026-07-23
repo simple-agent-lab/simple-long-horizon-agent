@@ -3,8 +3,12 @@
 This is the operator contract for long SWE-bench Pro repo-chain runs. Executable
 behavior lives in:
 
-- `runs/swebench/run_swebench_pro_repo_chains.py`: planning, auth-lane
-  scheduling, container launches, and prediction collection.
+- `evals/swebench/pro_chain_runner.py`: shared CLI, auth-lane scheduling,
+  provider environment, run-level files, and prediction collection.
+- `runs/swebench/run_swebench_pro_repo_chains.py`: repo-state planning and its
+  ordered per-instance container loop.
+- `runs/swebench/run_swebench_pro_memory_chains.py`: filesystem-memory planning,
+  namespace mounts, and its ordered per-instance container loop.
 - `src/simple_agent_lab/evals/chain.py`: in-container continuation, handoff,
   compression, invalid-prompt recovery, and trace output.
 - `src/simple_agent_lab/evals/suites/swebench/container.py`: SWE-bench prompts,

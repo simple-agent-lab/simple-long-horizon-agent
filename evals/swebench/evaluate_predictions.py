@@ -17,9 +17,7 @@ from pathlib import Path
 import argparse
 import importlib.util
 import json
-import os
 import shutil
-import stat
 import subprocess
 import sys
 import tempfile
@@ -35,6 +33,9 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from simple_agent_lab.trace import json_safe, read_jsonl, write_jsonl  # noqa: E402
+from simple_agent_lab.evals.backends.docker_local import (  # noqa: E402
+    ensure_docker_host_env,
+)
 from simple_agent_lab.evals.runner import canonical_run_id  # noqa: E402
 
 
@@ -105,30 +106,6 @@ def load_predictions(path: str | Path) -> list[dict[str, Any]]:
                     return [dict(record) for record in parsed["predictions"]]
                 return [dict(parsed)]
     return [dict(record) for record in read_jsonl(prediction_path)]
-
-
-def ensure_docker_host_env() -> None:
-    """Probe known Docker socket locations when DOCKER_HOST is unset.
-
-    The Python `docker` SDK that ships with SWE-bench falls back to
-    `/var/run/docker.sock`, which doesn't exist on Docker Desktop (macOS) or
-    Colima setups. Mirror the launcher script so `--run-official` works in
-    headless / CI sessions without an explicit export.
-    """
-    if os.environ.get("DOCKER_HOST"):
-        return
-    home = Path(os.environ.get("HOME") or "~").expanduser()
-    candidates = (
-        home / ".docker/run/docker.sock",
-        home / ".colima/default/docker.sock",
-    )
-    for sock in candidates:
-        try:
-            if stat.S_ISSOCK(sock.stat().st_mode):
-                os.environ["DOCKER_HOST"] = f"unix://{sock}"
-                return
-        except FileNotFoundError:
-            continue
 
 
 def run_official_harness(args: argparse.Namespace) -> None:

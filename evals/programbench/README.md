@@ -74,15 +74,23 @@ bash runs/programbench/run_programbench.sh abishekvashok__cmatrix.5c082c6
 uv run python evals/programbench/evaluate_submissions.py --run-id <run-id>
 ```
 
-For the whole task set: `bash runs/programbench/run_programbench.sh --all --parallel 4`.
+For the whole task set:
+
+```bash
+bash runs/programbench/run_programbench.sh --all --parallel 4
+# equivalent Python entry used by that thin wrapper:
+uv run --extra programbench python runs/run_bench.py batch programbench \
+  --all --parallel 4
+```
 
 ## Running the Agent
 
 The agent runs inside the ProgramBench `:task_cleanroom` image, driven through
 `run_suite_instance(ProgrambenchSuite, LocalDockerBackend, LocalDirStore)`. The
 image is a language-toolchain image (c/rust/go/...) that need not ship Python
-3.11, so the run mounts a static Linux `uv` (fetched by `runs/lib/_swebench_uv.sh`)
-and an offline wheelhouse, exactly like SWE-bench.
+3.11, so the Python harness fetches and caches a static Linux `uv` under
+`evals/out/uv-linux/` and mounts it with an offline wheelhouse, exactly like
+SWE-bench.
 
 From the agent's point of view, `/workspace` holds `./executable` + docs and the
 bash tool is the normal local bash tool — except each command runs network-less

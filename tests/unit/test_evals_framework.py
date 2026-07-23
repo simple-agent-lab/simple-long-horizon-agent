@@ -561,6 +561,37 @@ class RunDatasetTest(unittest.TestCase):
         self.assertEqual(bad.attempts, 3)  # retried up to max_attempts
         self.assertEqual(attempts["bad"], 3)
 
+    def test_per_instance_kwargs_override_shared_run_kwargs(self) -> None:
+        from simple_agent_lab.evals import run_dataset
+
+        instances = [
+            {"instance_id": "i-0", "token": "first"},
+            {"instance_id": "i-1", "token": "second"},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            backend = FakeBackend(on_run=_simulate("ok"))
+            report = run_dataset(
+                suite=_DemoSuite(),
+                instances=instances,
+                backend=backend,
+                store=LocalDirStore(root),
+                run_root=root,
+                run_id="batch",
+                provider_env={"token": "shared"},
+                per_instance_kwargs=lambda instance: {
+                    "provider_env": {"token": str(instance["token"])},
+                    "name": f"custom.{instance['instance_id']}",
+                },
+            )
+
+        self.assertEqual(report.summary(), {"total": 2, "ok": 2, "failed": 0})
+        specs = {spec.instance_id: spec for spec in backend.runs}
+        self.assertEqual(specs["i-0"].provider_env, {"token": "first"})
+        self.assertEqual(specs["i-1"].provider_env, {"token": "second"})
+        self.assertEqual(specs["i-0"].run_name, "custom.i-0")
+        self.assertEqual(specs["i-1"].run_name, "custom.i-1")
+
 
 class SubmitReconcileTest(unittest.TestCase):
     """Host-reentrant batch: submit, drop all memory, reconcile from disk only."""
@@ -1030,11 +1061,64 @@ class ReviewFixesTest(unittest.TestCase):
 
         fake_client = object()
         fake_docker = SimpleNamespace(from_env=mock.Mock(return_value=fake_client))
-        with mock.patch.object(docker_local, "docker", fake_docker):
+        with (
+            mock.patch.object(docker_local, "docker", fake_docker),
+            mock.patch.object(docker_local, "ensure_docker_host_env") as detect_host,
+        ):
             client = LocalDockerBackend(docker_timeout_s=180.0)._client()
 
         self.assertIs(client, fake_client)
+        detect_host.assert_called_once_with()
         fake_docker.from_env.assert_called_once_with(timeout=180.0)
+
+    def test_docker_host_probe_finds_docker_desktop_socket(self) -> None:
+        from simple_agent_lab.evals.backends import docker_local
+
+        fake_stat = mock.Mock(st_mode=1)
+        home = Path("/tmp/sal-docker-home")
+        with (
+            mock.patch.dict("os.environ", {"HOME": str(home)}, clear=True),
+            mock.patch.object(Path, "stat", return_value=fake_stat),
+            mock.patch.object(docker_local.stat, "S_ISSOCK", return_value=True),
+        ):
+            docker_local.ensure_docker_host_env()
+            resolved = docker_local.os.environ.get("DOCKER_HOST")
+
+        self.assertEqual(resolved, f"unix://{home}/.docker/run/docker.sock")
+
+    def test_force_existing_removes_named_container_before_start(self) -> None:
+        from types import SimpleNamespace
+
+        from simple_agent_lab.evals.backends import docker_local
+        from simple_agent_lab.evals.backends.docker_local import LocalDockerBackend
+        from simple_agent_lab.evals.protocols import ContainerBinding
+
+        existing = mock.Mock()
+        containers = SimpleNamespace(get=mock.Mock(return_value=existing))
+        client = SimpleNamespace(containers=containers)
+        backend = LocalDockerBackend(force_existing=True)
+        backend._client = mock.Mock(return_value=client)
+        spec = RunSpec(
+            suite_name="s",
+            container_module="m",
+            instance_id="i",
+            launch_spec=LaunchSpec(image="img", workdir="/w"),
+            max_turns=1,
+            provider="fake",
+            api_kind="openai-chat",
+            run_name="run-1",
+        )
+
+        with mock.patch.object(docker_local, "start_container") as start:
+            backend.submit(
+                spec,
+                store=mock.Mock(),
+                binding=ContainerBinding(),
+            )
+
+        containers.get.assert_called_once_with("run-1")
+        existing.remove.assert_called_once_with(force=True)
+        start.assert_called_once()
 
     def test_remote_docker_backend_sets_client_timeout(self) -> None:
         from types import SimpleNamespace

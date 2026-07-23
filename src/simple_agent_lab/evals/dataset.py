@@ -112,6 +112,9 @@ def run_dataset(
     concurrency: int = 1,
     max_attempts: int = 1,
     on_result: Callable[[InstanceResult], None] | None = None,
+    per_instance_kwargs: (
+        Callable[[Mapping[str, Any]], Mapping[str, Any]] | None
+    ) = None,
     **run_kwargs: Any,
 ) -> DatasetReport:
     """Run a whole dataset by calling `run_suite_instance` once per instance.
@@ -119,9 +122,11 @@ def run_dataset(
     `concurrency` is the thread-pool size (default 1 = sequential, no behavior
     change). `max_attempts` retries only on a raised exception (infra/transient),
     not on a nonzero exit code. `on_result` is called once per finished instance
-    from the calling thread (handy for progress or live aggregation). Extra
-    keyword args (`provider`, `provider_env`, `max_turns`, `model_name`, …) pass
-    straight through to each `run_suite_instance`.
+    from the calling thread (handy for progress or live aggregation).
+    `per_instance_kwargs` adds or overrides arguments for one instance, such as
+    a deterministic container name or an assigned provider token. Extra keyword
+    args (`provider`, `provider_env`, `max_turns`, `model_name`, …) are the
+    defaults passed to every `run_suite_instance`.
 
     Per-instance artifacts land under the usual
     ``<run_root>/<run_id>/<instance_id>/`` tree, so concurrent runs never collide
@@ -146,7 +151,14 @@ def run_dataset(
                 run_root=run_root,
                 run_id=run_id,
                 max_attempts=max_attempts,
-                run_kwargs=run_kwargs,
+                run_kwargs={
+                    **run_kwargs,
+                    **(
+                        dict(per_instance_kwargs(instance))
+                        if per_instance_kwargs is not None
+                        else {}
+                    ),
+                },
             ): instance
             for instance in items
         }
