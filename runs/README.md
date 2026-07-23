@@ -13,6 +13,7 @@ runs/
   profiles/                  # per-bench run-profiles (*.example.json)
   _benches/                  # internal per-bench modules (imported by run_bench.py)
   lib/                       # shared sourced helpers (_python.sh, _swebench_uv.sh)
+  harbor/                    # Terminal-Bench 2.1 Harbor batch launchers
   swebench/                  # SWE-bench batch/setup/eval scripts
   programbench/              # ProgramBench batch/setup scripts
   demos/                     # bash-agent / MCP / trace-viewer demos
@@ -42,6 +43,7 @@ whose `--provider` accepts `oracle`).
 bash runs/dev/run_ci.sh
 bash runs/dev/run_docs_lint.sh
 bash runs/demos/run_bash_agent_demo.sh
+bash runs/harbor/run_terminal_bench_2_1_sequential.sh
 bash runs/swebench/run_swebench.sh
 bash runs/swebench/run_swebench.sh --variant multilingual
 bash runs/swebench/run_swebench.sh --variant pro
@@ -53,6 +55,19 @@ bash runs/swebench/eval_swebench.sh
 formatting, runs docs lint, runs `ty` on `src/`, runs the full unittest suite,
 and runs the deterministic bash-agent demo smoke. Use it as the local pre-push
 gate.
+
+The Terminal-Bench 2.1 Harbor launchers run `bash` and `bash_task` experiments
+with separate job names. The sequential entry waits for the complete blocking
+Harbor process for `bash` before starting `bash_task`:
+
+```bash
+bash runs/harbor/run_terminal_bench_2_1_bash.sh
+bash runs/harbor/run_terminal_bench_2_1_bash_task.sh
+bash runs/harbor/run_terminal_bench_2_1_sequential.sh
+```
+
+Use `HARBOR_DRY_RUN=1` with any launcher to validate its command without
+starting an experiment.
 
 The focused tests cover the canonical runtime:
 

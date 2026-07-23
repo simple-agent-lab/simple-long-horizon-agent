@@ -660,6 +660,7 @@ class BashToolCrashSafetyTest(unittest.TestCase):
 
     def test_max_timeout_constant_matches_resolved_cap(self) -> None:
         # Sanity: the public default cap is what _resolve_timeout enforces.
+        self.assertEqual(MAX_BASH_TIMEOUT_SECONDS, 300.0)
         self.assertGreater(MAX_BASH_TIMEOUT_SECONDS, 0)
         self.assertTrue(math.isfinite(MAX_BASH_TIMEOUT_SECONDS))
         self.assertEqual(

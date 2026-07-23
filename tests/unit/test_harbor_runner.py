@@ -11,6 +11,11 @@ from simple_agent_lab.evals.harbor import runner
 
 
 class HarborRunnerTest(unittest.TestCase):
+    def test_default_max_turns_is_150(self) -> None:
+        args = runner.parse_args(["--instruction", "do the task"])
+
+        self.assertEqual(args.max_turns, 150)
+
     def test_load_instruction_prefers_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "instruction.txt"

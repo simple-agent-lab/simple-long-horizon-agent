@@ -63,6 +63,7 @@ class HarborBenchTest(unittest.TestCase):
         self.assertIn("abc*", command)
         self.assertIn("--agent-kwarg", command)
         self.assertIn("api_kind=openai-responses", command)
+        self.assertIn("max_turns=150", command)
         self.assertNotIn("harbor_exec", " ".join(command))
 
     def test_requires_one_dataset_source(self) -> None:

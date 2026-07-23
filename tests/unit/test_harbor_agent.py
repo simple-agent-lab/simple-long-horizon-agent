@@ -91,6 +91,11 @@ class HarborAgentOptionalImportTest(unittest.TestCase):
 
         self.assertEqual(3000, module._DEFAULT_INSTALL_TIMEOUT_SEC)
 
+    def test_default_max_turns_is_150(self) -> None:
+        module = importlib.import_module("simple_agent_lab.evals.harbor.agent")
+
+        self.assertEqual(150, module.DEFAULT_MAX_TURNS)
+
     def test_system_dependencies_command_prefers_existing_python(self) -> None:
         module = importlib.import_module("simple_agent_lab.evals.harbor.agent")
         command = module.build_sal_system_dependencies_command()
@@ -105,6 +110,7 @@ class HarborAgentOptionalImportTest(unittest.TestCase):
             line for line in command.splitlines() if "apt-get install" in line
         )
         self.assertNotIn("python3-pip", apt_line)
+        self.assertIn("curl", apt_line)
         self.assertIn("Warning: No known package manager found", command)
         self.assertNotIn("apt-get update -qq", command)
 
@@ -120,6 +126,7 @@ class HarborAgentOptionalImportTest(unittest.TestCase):
         )
         self.assertIn("python3 -m venv", command)
         self.assertIn("curl -LsSf https://astral.sh/uv/install.sh | sh", command)
+        self.assertIn("--clear --seed", command)
 
     def test_package_install_command_uses_pip_without_installing_uv(self) -> None:
         module = importlib.import_module("simple_agent_lab.evals.harbor.agent")

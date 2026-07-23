@@ -12,7 +12,7 @@ from typing import Any
 
 from simple_agent_lab.agent_flavors import SIMPLE_AGENT_FLAVORS
 from simple_agent_lab.agents.starter import agent_session
-from simple_agent_lab.evals.harbor import DEFAULT_API_KIND
+from simple_agent_lab.evals.harbor import DEFAULT_API_KIND, DEFAULT_MAX_TURNS
 from simple_agent_lab.llm import Provider
 from simple_agent_lab.llm.env import (
     API_KIND_CHOICES,
@@ -36,7 +36,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--instruction", default="")
     parser.add_argument("--instruction-file", default=None)
     parser.add_argument("--cwd", default=".")
-    parser.add_argument("--max-turns", type=int, default=75)
+    parser.add_argument("--max-turns", type=int, default=DEFAULT_MAX_TURNS)
     parser.add_argument(
         "--agent-flavor",
         choices=SIMPLE_AGENT_FLAVORS,

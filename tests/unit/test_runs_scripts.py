@@ -177,6 +177,7 @@ class RunsScriptsTest(unittest.TestCase):
             "_benches",
             "profiles",
             "lib",
+            "harbor",
             "swebench",
             "programbench",
             "demos",
