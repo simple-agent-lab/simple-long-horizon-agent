@@ -150,6 +150,17 @@ class ComposePromptTest(unittest.TestCase):
         )
         self.assertEqual(prompt, BASH_AGENT_SYSTEM_PROMPT + "\n\n" + SKILLS_ADDENDUM)
 
+    def test_bash_prompt_is_omitted_when_bash_is_disabled(self) -> None:
+        from simple_agent_lab.agents.starter import (
+            SKILLS_ADDENDUM,
+            compose_agent_system_prompt,
+        )
+
+        prompt = compose_agent_system_prompt(
+            bash=False, general_purpose=False, skills=True, mcp=False
+        )
+        self.assertEqual(prompt, SKILLS_ADDENDUM)
+
 
 FIXTURE_SKILLS = ROOT / "tests" / "fixtures" / "skills"
 
@@ -397,10 +408,14 @@ class MakeAgentTest(unittest.TestCase):
         self.assertEqual([t.name for t in agent.tools], ["bash", "x"])
 
     def test_bash_can_be_disabled(self) -> None:
-        from simple_agent_lab.agents.starter import make_agent
+        from simple_agent_lab.agents.starter import (
+            BASH_AGENT_SYSTEM_PROMPT,
+            make_agent,
+        )
 
         agent = make_agent(FAKE_PROVIDER, cwd=str(ROOT), bash=False, read=True)
         self.assertEqual([t.name for t in agent.tools], ["read"])
+        self.assertNotIn(BASH_AGENT_SYSTEM_PROMPT, agent.system_prompt)
 
     def test_system_prompt_override_wins(self) -> None:
         from simple_agent_lab.agents.starter import make_agent

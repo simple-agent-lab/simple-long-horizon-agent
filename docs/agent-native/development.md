@@ -25,15 +25,20 @@ but stays behind the optional `mcp` extra. The gate therefore syncs
 
 ## The quality gate
 
-Five checks must pass before a change ships. They're cheap; run them often.
+Ten checks must pass before a change ships. They're cheap; run them often.
 
 | Check | Command | Scope |
 | --- | --- | --- |
 | Format | `uv run ruff format --check .` | Python code in the repo |
 | Lint | `uv run ruff check .` | Python code in the repo |
 | Docs lint | `uv run python scripts/lint_docs.py` | Local Markdown links and backticked path references |
+| ADR index | `uv run python docs/decisions/build_index.py --check` | Generated architecture-decision index |
+| Config reference | `uv run python scripts/build_config_reference.py --check` | Generated environment-variable reference |
+| Architecture lint | `uv run python scripts/arch_lint.py` | Internal layering and optional-dependency boundaries |
+| Environment lint | `uv run python scripts/env_lint.py` | Central environment-variable ownership |
 | Type check | `uv run ty check src` | Every module under `src/` |
 | Unit tests | `uv run python -m unittest discover -s tests/unit` | Every unit test under `tests/unit/` |
+| Demo smoke | `bash runs/demos/run_bash_agent_demo.sh` | Public deterministic teaching path |
 
 All checks must exit `0`. Use `uv run ruff format .` to format Python code
 before running the check. There are no warn-only or skip lists — if a diagnostic
@@ -58,10 +63,12 @@ The script:
 3. Runs `uv run ruff format --check .`.
 4. Runs `uv run ruff check .`.
 5. Runs `uv run python scripts/lint_docs.py`.
-6. Runs `uv run ty check src`.
-7. Runs `uv run python -m unittest discover -s tests/unit`.
-8. Runs `bash runs/demos/run_bash_agent_demo.sh` so the public teaching demo stays runnable.
-9. Prints `All CI checks passed.` only if every step exited `0`.
+6. Checks the generated ADR index and config reference.
+7. Runs the architecture and environment-registry lints.
+8. Runs `uv run ty check src`.
+9. Runs `uv run python -m unittest discover -s tests/unit`.
+10. Runs `bash runs/demos/run_bash_agent_demo.sh` so the public teaching demo stays runnable.
+11. Prints `All CI checks passed.` only if every step exited `0`.
 
 If you want the same checks individually (e.g. while iterating on one of
 them), run the commands from the table above directly. `run_ci.sh` is the
@@ -72,20 +79,22 @@ them), run the commands from the table above directly. `run_ci.sh` is the
 GitHub Actions runs the same gate on every push to `main` and every pull
 request. The workflow is at [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml).
 
-Three job groups run in parallel:
+Five job groups run in parallel:
 
 - **`tests / py3.10`** through **`tests / py3.13`** — the unittest suite on
   supported interpreters, plus the deterministic bash-agent demo smoke.
 - **`ty / src`** — the type check, on Python 3.13 only. ty's diagnostics
   don't depend on the runtime Python version, so a single job is enough.
 - **`docs lint`** — local Markdown link and backticked path-reference checks,
-  on Python 3.13 only.
+  plus generated ADR-index and config-reference checks, on Python 3.13 only.
+- **`architecture lint`** — internal layering and centralized environment
+  ownership, on Python 3.13 only.
 - **`ruff format / check`** — the formatter check (`ruff format --check .`)
   plus the linter (`ruff check .`), on Python 3.13 only. Run
   `uv run ruff format .` (and `uv run ruff check --fix .`) locally when this
   fails.
 
-A pull request is mergeable only when all three jobs pass. There is no
+A pull request is mergeable only when all five job groups pass. There is no
 auto-merge or required-reviewer config in this repo yet; the gate is
 advisory but expected.
 

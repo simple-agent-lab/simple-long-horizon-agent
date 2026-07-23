@@ -27,6 +27,18 @@ uv run ruff check .
 printf '\n=== docs lint ===\n'
 uv run python scripts/lint_docs.py
 
+printf '\n=== decision-record index ===\n'
+uv run python docs/decisions/build_index.py --check
+
+printf '\n=== config reference ===\n'
+uv run python scripts/build_config_reference.py --check
+
+printf '\n=== architecture lint ===\n'
+uv run python scripts/arch_lint.py
+
+printf '\n=== env-registry lint ===\n'
+uv run python scripts/env_lint.py
+
 printf '\n=== ty check src ===\n'
 uv run ty check src
 

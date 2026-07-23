@@ -55,6 +55,19 @@ class RunsScriptsTest(unittest.TestCase):
 
                 self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_trace_viewer_run_script_resolves_server(self) -> None:
+        result = subprocess.run(
+            ["bash", "runs/demos/run_trace_viewer.sh", "--help"],
+            cwd=ROOT,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Serve the Observatory trace viewer", result.stdout)
+
     def test_swebench_run_scripts_support_batch_flags(self) -> None:
         text = (ROOT / "runs/swebench/run_swebench.sh").read_text(encoding="utf-8")
         self.assertIn("--all", text)
