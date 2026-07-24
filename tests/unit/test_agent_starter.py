@@ -193,6 +193,11 @@ class ComposePromptTest(unittest.TestCase):
                 {"skills": True},
                 [BASH_AGENT_SYSTEM_PROMPT, SKILLS_ADDENDUM],
             ),
+            (
+                "skills without bash",
+                {"bash": False, "skills": True},
+                [SKILLS_ADDENDUM],
+            ),
         ]
         for label, enabled, expected in cases:
             with self.subTest(label):
@@ -369,6 +374,7 @@ class AgentFactoryTest(unittest.TestCase):
     def test_resource_free_options(self) -> None:
         agent = make_agent(FAKE_PROVIDER, cwd=str(ROOT), bash=False, read=True)
         self.assertEqual(_tool_names(agent), ["read"])
+        self.assertNotIn(BASH_AGENT_SYSTEM_PROMPT, agent.system_prompt)
 
         hooks = {HookPoint.SESSION_END: [lambda ctx: None]}
         for factory in self.factories:

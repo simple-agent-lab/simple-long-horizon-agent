@@ -15,4 +15,4 @@ set -e
 export PYTHONDONTWRITEBYTECODE=1
 source "$(dirname "$0")/../lib/_python.sh"
 
-"${PYTHON[@]}" "$(dirname "$0")/../studio/trace-viewer/serve.py" "$@"
+"${PYTHON[@]}" "$(dirname "$0")/../../studio/trace-viewer/serve.py" "$@"

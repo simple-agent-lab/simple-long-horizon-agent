@@ -25,7 +25,7 @@ but stays behind the optional `mcp` extra. The gate therefore syncs
 
 ## The quality gate
 
-The checks below must pass before a change ships. They're cheap; run them often.
+Ten checks must pass before a change ships. They're cheap; run them often.
 
 | Check | Command | Scope |
 | --- | --- | --- |
@@ -38,6 +38,7 @@ The checks below must pass before a change ships. They're cheap; run them often.
 | Environment lint | `uv run python scripts/env_lint.py` | Environment-variable registry boundaries |
 | Type check | `uv run ty check src` | Every module under `src/` |
 | Unit tests | `uv run python -m unittest discover -s tests/unit` | Every unit test under `tests/unit/` |
+| Demo smoke | `bash runs/demos/run_bash_agent_demo.sh` | Public deterministic teaching path |
 
 All checks must exit `0`. Use `uv run ruff format .` to format Python code
 before running the check. There are no warn-only or skip lists — if a diagnostic
@@ -84,16 +85,16 @@ Five job groups run in parallel:
   supported interpreters, plus the deterministic bash-agent demo smoke.
 - **`ty / src`** — the type check, on Python 3.13 only. ty's diagnostics
   don't depend on the runtime Python version, so a single job is enough.
-- **`docs lint`** — local Markdown references plus generated ADR/config indexes,
-  on Python 3.13 only.
-- **`architecture lint`** — package boundaries and environment-variable
+- **`docs lint`** — local Markdown link and backticked path-reference checks,
+  plus generated ADR-index and config-reference checks, on Python 3.13 only.
+- **`architecture lint`** — internal layering and centralized environment
   ownership, on Python 3.13 only.
 - **`ruff format / check`** — the formatter check (`ruff format --check .`)
   plus the linter (`ruff check .`), on Python 3.13 only. Run
   `uv run ruff format .` (and `uv run ruff check --fix .`) locally when this
   fails.
 
-A pull request is mergeable only when all five jobs pass. There is no
+A pull request is mergeable only when all five job groups pass. There is no
 auto-merge or required-reviewer config in this repo yet; the gate is
 advisory but expected.
 

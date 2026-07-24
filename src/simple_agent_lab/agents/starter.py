@@ -284,15 +284,13 @@ def compose_agent_system_prompt(
 ) -> str:
     """Build a system prompt by appending capability fragments to the base.
 
-    The base is always the bash-agent prompt; ``general_purpose``/``skills``/
-    ``mcp`` each append their fragment in that fixed order. Callers that pass an
-    explicit ``system_prompt`` bypass this entirely. When ``bash`` is false the
-    base still reads as the bash prompt, so a bash-less agent should supply its
-    own ``system_prompt`` (see the design spec's edge-case note).
+    The bash prompt is present only when bash is enabled.
+    ``general_purpose``/``skills``/``mcp`` each append their fragment in that
+    fixed order. Callers that pass an explicit ``system_prompt`` bypass this
+    entirely.
     """
 
-    del bash  # base is unconditional today; kept for signature symmetry
-    parts = [BASH_AGENT_SYSTEM_PROMPT]
+    parts = [BASH_AGENT_SYSTEM_PROMPT] if bash else []
     if general_purpose:
         parts.append(BASH_TASK_ADDENDUM)
     if skills:
