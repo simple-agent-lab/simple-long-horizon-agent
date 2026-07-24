@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -44,6 +46,72 @@ def _echo_builder(options: AgentCallOptions, provider: Provider, cwd: Path) -> A
 
 
 class DynamicWorkflowRuntimeTest(unittest.TestCase):
+    def test_runtime_process_prefix_wraps_node(self) -> None:
+        script = """
+const escaped = this.constructor.constructor("return process")();
+return escaped.env.SAL_WORKFLOW_PREFIX || "";
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = SimpleAgentCallRunner(
+                provider=FAKE_PROVIDER,
+                cwd=tmp,
+                build_agent=_echo_builder,
+            )
+            runtime = DynamicWorkflowRuntime(
+                runner=runner,
+                options=WorkflowRuntimeOptions(
+                    process_prefix=("env", "SAL_WORKFLOW_PREFIX=wrapped")
+                ),
+            )
+            result = runtime.run(
+                script=script,
+                task="task",
+                artifacts_dir=Path(tmp) / "artifacts",
+            )
+
+        self.assertEqual(result.output, "wrapped")
+
+    def test_runner_caps_workflow_requested_turns(self) -> None:
+        observed: list[int] = []
+
+        def builder(options: AgentCallOptions, provider: Provider, cwd: Path) -> Agent:
+            observed.append(options.max_turns)
+            return _echo_builder(options, provider, cwd)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = SimpleAgentCallRunner(
+                provider=FAKE_PROVIDER,
+                cwd=tmp,
+                build_agent=builder,
+                max_turns_cap=3,
+            )
+            runner.run_agent(
+                "task",
+                options=AgentCallOptions(name="worker", max_turns=99),
+                call_id="worker",
+                phase="test",
+                artifacts_dir=Path(tmp) / "artifacts",
+            )
+
+        self.assertEqual(observed, [3])
+
+    def test_runner_can_disable_worktrees_for_suite_owned_workspaces(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = SimpleAgentCallRunner(
+                provider=FAKE_PROVIDER,
+                cwd=tmp,
+                build_agent=_echo_builder,
+                allow_worktrees=False,
+            )
+            with self.assertRaisesRegex(ValueError, "worktrees are disabled"):
+                runner.run_agent(
+                    "task",
+                    options=AgentCallOptions(name="worker", worktree=True),
+                    call_id="worker",
+                    phase="test",
+                    artifacts_dir=Path(tmp) / "artifacts",
+                )
+
     def test_executes_js_parallel_agent_calls_and_writes_artifacts(self) -> None:
         script = """
 phase("fanout");
@@ -266,6 +334,59 @@ return {{ envValue }};
             finally:
                 runner.release.set()
             self.assertLess(time.monotonic() - started, 0.8)
+
+    def test_timeout_does_not_block_interpreter_exit(self) -> None:
+        code = r"""
+import tempfile
+import threading
+from pathlib import Path
+
+from simple_agent_lab.dynamic_workflows import (
+    AgentCallResult,
+    DynamicWorkflowRuntime,
+    WorkflowRuntimeOptions,
+)
+
+
+class BlockingRunner:
+    def run_agent(self, prompt, *, options, call_id, phase, artifacts_dir):
+        del prompt, options, phase, artifacts_dir
+        threading.Event().wait(30)
+        return AgentCallResult(
+            call_id=call_id,
+            name="blocked",
+            phase="",
+            status="completed",
+            output="too late",
+            trace_path="",
+        )
+
+
+with tempfile.TemporaryDirectory() as tmp:
+    runtime = DynamicWorkflowRuntime(
+        runner=BlockingRunner(),
+        options=WorkflowRuntimeOptions(max_concurrency=1, timeout_seconds=0.1),
+    )
+    try:
+        runtime.run(
+            script='return (await agent("slow")).output;',
+            task="task",
+            artifacts_dir=Path(tmp) / "artifacts",
+        )
+    except TimeoutError:
+        pass
+    else:
+        raise AssertionError("workflow did not time out")
+"""
+        started = time.monotonic()
+        completed = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertLess(time.monotonic() - started, 2.0)
 
     def test_extract_javascript_from_fence(self) -> None:
         text = "Here:\n```js\nphase('x');\nreturn 'ok';\n```"

@@ -16,6 +16,12 @@ env/
 # Live model-config file (may hold an inline auth_token); commit models.example.json only.
 models.json
 *.local.json
+# Run-profiles may reference local paths/creds; commit only *.example.json.
+runs/profiles/*.json
+!runs/profiles/*.example.json
+# Multi-bench manifests for `run_bench.py all`; commit only the example.
+runs/bench-manifest*.json
+!runs/bench-manifest.example.json
 
 # Tooling caches
 .pytest_cache/
@@ -41,6 +47,9 @@ evals/out/onemillion/*
 !evals/out/programbench/
 evals/out/programbench/*
 !evals/out/programbench/README.md
+!evals/out/harbor/
+evals/out/harbor/*
+!evals/out/harbor/README.md
 logs/
 .tmp/
 
@@ -85,3 +94,6 @@ node_modules/
 .idea/
 .vscode/
 *.swp
+
+# Riptide artifacts (cloud-synced)
+.humanlayer/tasks/

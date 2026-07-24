@@ -22,7 +22,7 @@ from ..protocols import ArtifactStore, ContainerBinding, RunOutcome, RunSpec
 
 
 class LocalProcessBackend:
-    """Execute a `RunSpec` in this process by calling the generic runner directly.
+    """Execute a `RunSpec` in this process through its selected runner module.
 
     Concurrency note: a single fixed `workspace` is shared by every run, so it is
     only safe with `concurrency=1`. To fan out in-process safely, pass either
@@ -69,12 +69,13 @@ class LocalProcessBackend:
     ) -> RunOutcome:
         # Imported lazily so host-only callers (and `import ...evals`) stay light:
         # this pulls in the agent runtime.
+        import importlib
+        import inspect
         import json
 
         from ..in_container import (
             provider_from_env,
             request_extra_from_env,
-            run_in_container,
         )
         from ..protocols import INSTANCE_KEY
 
@@ -98,18 +99,44 @@ class LocalProcessBackend:
             else {}
         )
         try:
-            run_in_container(
-                instance=instance,
-                container_module=spec.container_module,
-                provider=provider,
-                workdir=workdir,
-                max_turns=spec.max_turns,
-                store=store,
-                trace_id=f"{spec.suite_name}.{spec.instance_id}",
-                producer=f"suite:{spec.suite_name}",
-                suite_name=spec.suite_name,
-                request_extra=request_extra,
-                oracle=oracle,
+            runner_module = importlib.import_module(spec.runner_module)
+            runner = getattr(runner_module, "run_in_container", None)
+            if not callable(runner):
+                runner = getattr(runner_module, "run_chain_in_container", None)
+            if not callable(runner):
+                raise AttributeError(
+                    f"{spec.runner_module!r} exposes neither "
+                    "run_in_container nor run_chain_in_container"
+                )
+            parameters = inspect.signature(runner).parameters
+            accepts_kwargs = any(
+                parameter.kind is inspect.Parameter.VAR_KEYWORD
+                for parameter in parameters.values()
+            )
+            if oracle and "oracle" not in parameters and not accepts_kwargs:
+                raise ValueError(
+                    f"runner {spec.runner_module!r} does not support oracle mode"
+                )
+            runner_kwargs = {
+                "instance": instance,
+                "container_module": spec.container_module,
+                "provider": provider,
+                "workdir": workdir,
+                "max_turns": spec.max_turns,
+                "wall_time_seconds": spec.wall_time_seconds,
+                "store": store,
+                "trace_id": f"{spec.suite_name}.{spec.instance_id}",
+                "producer": f"suite:{spec.suite_name}",
+                "suite_name": spec.suite_name,
+                "request_extra": request_extra,
+                "oracle": oracle,
+            }
+            runner(
+                **{
+                    key: value
+                    for key, value in runner_kwargs.items()
+                    if accepts_kwargs or key in parameters
+                }
             )
         except Exception as exc:  # surface as a nonzero status, like a container
             return RunOutcome(status_code=1, logs=f"{type(exc).__name__}: {exc}")

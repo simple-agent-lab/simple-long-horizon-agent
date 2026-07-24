@@ -45,6 +45,12 @@ ZONE_RANK = {FOUNDATION: 0, CORE: 1, PERIPHERAL: 2, API: 3}
 MODULE_ZONES = {
     # foundation: the message protocol, the root of everything
     "messages": FOUNDATION,
+    # foundation: shared flavor / agent-config name constants, a pure leaf with
+    # no internal deps, imported by both peripheral agents and eval harnesses.
+    "agent_flavors": FOUNDATION,
+    # foundation: the env-config registry (ADR centralized-env-config), a pure
+    # leaf with no internal deps so every layer can read config through it.
+    "config": FOUNDATION,
     # core runtime: orchestration, state, context, model boundary, tools
     "protocols": CORE,
     "context_view": CORE,
@@ -55,6 +61,9 @@ MODULE_ZONES = {
     "llm_agent": CORE,
     "llm": CORE,
     "tools": CORE,
+    # core: pricing / context-window metadata, a leaf depending only on messages
+    # (foundation); the model boundary (`llm`) reads it to size providers.
+    "model_metadata": CORE,
     # peripheral subsystems: may depend on core, but core must not depend back
     "agents": PERIPHERAL,
     "trace": PERIPHERAL,

@@ -1,0 +1,26 @@
+{
+  "_comment": "One-click multi-bench launch for `run_bench.py all`. Copy to runs/bench-manifest.json (gitignored), edit the ids/datasets/profiles, then: uv run python runs/run_bench.py all --manifest runs/bench-manifest.json. Each entry is {bench, args:[...]} where `args` is exactly that bench's own CLI (positional id + flags); optional `profile` is sugar for prepending --profile. `parallel` (or --parallel N) runs entries concurrently as isolated subprocesses. The combined result is one JSON object on stdout.",
+  "parallel": 1,
+  "runs": [
+    {
+      "bench": "swebench",
+      "profile": "runs/profiles/swebench-loop.json",
+      "args": ["sympy__sympy-23824"]
+    },
+    {
+      "bench": "programbench",
+      "profile": "runs/profiles/programbench.json",
+      "args": ["abishekvashok__cmatrix.5c082c6"]
+    },
+    {
+      "bench": "onemillion",
+      "profile": "runs/profiles/onemillion.json",
+      "args": ["--all", "--dataset", "datasets/OneMillion-Bench/healthcare_and_medicine", "--limit", "20"]
+    },
+    {
+      "bench": "onemillion",
+      "profile": "runs/profiles/onemillion.json",
+      "args": ["--all", "--agent-flavor", "reflection", "--dataset", "datasets/OneMillion-Bench/law", "--limit", "20"]
+    }
+  ]
+}

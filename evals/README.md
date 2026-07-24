@@ -6,6 +6,44 @@ Unit tests live in `tests/`. Evals are for feedback that compares agent
 behavior across prompts, recipes, context views, runtime designs, or model
 adapters.
 
+## Where things live (two homes, split by what ships in the wheel)
+
+The eval system spans two trees. The split is **by deployment, not by
+accident**: the engine plus each suite's *light* half ship in the wheel and get
+imported inside the container; the *heavy* host-side half (Docker SDK, official
+scorers) stays out of the wheel. See ADR
+[`generic-containerized-eval-framework`](../docs/decisions/20260531-generic-containerized-eval-framework.md).
+
+```
+src/simple_agent_lab/evals/     ← the ENGINE — ships in the wheel
+    protocols.py runner.py batch.py dataset.py in_container.py chain.py bootstrap.py
+    backends/   where a run executes (LocalProcess / LocalDocker / RemoteDocker / Fake)
+    stores/     where bytes live   (LocalDir / HostHttp)
+    suites/<suite>/   ← each suite's CONTAINER HALF — runs inside the image,
+                        imports only stdlib + the installed wheel (build_task / extract_result)
+
+evals/                          ← HOST side — does NOT ship in the wheel
+    <suite>/    ← each suite's HOST HALF — heavy host-only deps are fine here
+                  suite.py      the Suite protocol (launch_spec / task_input / eval_inputs)
+                  harness.py    image / env / wheelhouse resolution
+                  evaluate_*.py official scorer invocation
+    out/        ← run artifacts (gitignored)
+    README.md   ← this file
+```
+
+**One suite = one host half (`evals/<suite>/`) + one container half
+(`src/simple_agent_lab/evals/suites/<suite>/`).** They are two different
+programs, not a copy: the host half orchestrates Docker and scoring; the
+container half is the thing the agent runs inside the image. The host `suite.py`
+is the readable entry point and names its container half via `container_module`.
+The reference pair is `evals/swebench/suite.py` +
+`simple_agent_lab.evals.suites.swebench.container`.
+
+Ordered multi-instance runs use the generic chain module in the engine:
+`simple_agent_lab.evals.chain` restores `input/chain_state.json`, runs one
+instance, and writes `out/chain_state.json`; suites keep only their
+chain-specific hooks in their container half.
+
 Trajectory collection for shared demos can live outside this directory because
 trajectories are fact records, not scores. Scene-level suite adapters can keep
 their collector beside their scorer when that makes the suite easier to read.
@@ -331,9 +369,9 @@ scan dir) and start the viewer:
 
 ```bash
 # run with run_root=Path("evals/out/mysuite"), then:
-bash runs/run_trace_viewer.sh            # scans evals/out/
+bash runs/demos/run_trace_viewer.sh            # scans evals/out/
 # or target a specific tree:
-bash runs/run_trace_viewer.sh --dir evals/out/mysuite
+bash runs/demos/run_trace_viewer.sh --dir evals/out/mysuite
 ```
 
 The demo and tests use a throwaway `tempfile` dir to avoid leaving artifacts; use

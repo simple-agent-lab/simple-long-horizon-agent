@@ -79,6 +79,7 @@ return edit.output;
         workflow = result["dynamic_workflow"]
         self.assertIn('phase("edit")', workflow["workflow_js"])
         self.assertEqual(len(workflow["agent_calls"]), 1)
+        self.assertIn("trace", workflow["agent_calls"][0])
         self.assertEqual(sorted(workflow["subagent_traces"]), ["edit"])
 
 

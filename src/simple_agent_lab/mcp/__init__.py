@@ -21,22 +21,28 @@ Quick start::
         agent = make_llm_agent(name="a", provider=p, tools=tools)
         ...
 
-Importing this package pulls in the `mcp` SDK; if the extra is not
-installed, that import raises a clear `ModuleNotFoundError`.
+SDK-backed exports pull in the `mcp` SDK lazily; if the extra is not
+installed, importing those exports raises a clear `ModuleNotFoundError`.
+Pure config helpers under `simple_agent_lab.mcp.config_file` stay importable
+without the extra so eval launchers can validate staged JSON before deciding
+whether to open a live MCP connection.
 """
 
 from __future__ import annotations
 
-from .client import (
-    MCPConnection,
-    MCPError,
-    SessionFactory,
-    connect_mcp,
-    make_mcp_tools,
-    mcp_tool_to_agent_tool,
-)
+from typing import Any
+
 from .config import MCPServerConfig, Transport
-from .content import mcp_content_to_blocks
+
+_CLIENT_EXPORTS = {
+    "MCPConnection",
+    "MCPError",
+    "SessionFactory",
+    "connect_mcp",
+    "make_mcp_tools",
+    "mcp_tool_to_agent_tool",
+}
+_CONTENT_EXPORTS = {"mcp_content_to_blocks"}
 
 
 __all__ = [
@@ -50,3 +56,18 @@ __all__ = [
     "mcp_content_to_blocks",
     "mcp_tool_to_agent_tool",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    if name in _CLIENT_EXPORTS:
+        from . import client
+
+        value = getattr(client, name)
+    elif name in _CONTENT_EXPORTS:
+        from . import content
+
+        value = getattr(content, name)
+    else:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    globals()[name] = value
+    return value

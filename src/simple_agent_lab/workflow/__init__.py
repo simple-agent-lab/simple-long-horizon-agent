@@ -36,7 +36,9 @@ from .base import (
     as_text,
     final_output,
     never_abort,
+    pick_index,
     run_agent,
+    state_output_tokens,
 )
 from .parallel import (
     AGGREGATOR_ROLE,
@@ -72,6 +74,41 @@ from .routing import (
     select_route,
 )
 from .sequential import JoinFn, default_join, run_chain
+from .pdr import (
+    DISTILLER_ROLE,
+    DISTILLER_SYSTEM_PROMPT,
+    make_distiller_agent,
+    run_pdr,
+)
+from .goal_loop import (
+    CompletionCheck,
+    CompletionResult,
+    GoalBudgets,
+    GoalResult,
+    GoalStatus,
+    run_goal_loop,
+)
+from .goal_checks import (
+    COMPLETION_JUDGE_ROLE,
+    COMPLETION_JUDGE_SYSTEM_PROMPT,
+    UPDATE_GOAL_TOOL_NAME,
+    VERIFY_BEFORE_DONE_ADDENDUM,
+    VERIFY_CONTINUATION,
+    command_verifier_check,
+    default_check,
+    executed_completion_check,
+    judge_agent_check,
+    make_completion_judge,
+    model_declared_check,
+    update_goal_tool,
+    verified_completion_check,
+)
+from .trace import (
+    compose_workflow_trace_state,
+    workflow_overview_summary,
+    workflow_steps_breakdown,
+    write_workflow_subagent_traces,
+)
 
 __all__ = [
     # base
@@ -79,8 +116,10 @@ __all__ = [
     "WorkflowResult",
     "run_agent",
     "final_output",
+    "state_output_tokens",
     "as_text",
     "never_abort",
+    "pick_index",
     # sequential
     "run_chain",
     "default_join",
@@ -114,4 +153,36 @@ __all__ = [
     "make_aggregator_agent",
     "AGGREGATOR_ROLE",
     "AGGREGATOR_SYSTEM_PROMPT",
+    # parallel-distill-refine (PDR)
+    "run_pdr",
+    "make_distiller_agent",
+    "DISTILLER_ROLE",
+    "DISTILLER_SYSTEM_PROMPT",
+    # goal loop
+    "run_goal_loop",
+    "GoalBudgets",
+    "CompletionResult",
+    "CompletionCheck",
+    "GoalResult",
+    "GoalStatus",
+    # goal checks
+    "update_goal_tool",
+    "UPDATE_GOAL_TOOL_NAME",
+    "model_declared_check",
+    "command_verifier_check",
+    "executed_completion_check",
+    "judge_agent_check",
+    "default_check",
+    # verified completion (the reusable judge-gate optimization)
+    "make_completion_judge",
+    "verified_completion_check",
+    "COMPLETION_JUDGE_ROLE",
+    "COMPLETION_JUDGE_SYSTEM_PROMPT",
+    "VERIFY_BEFORE_DONE_ADDENDUM",
+    "VERIFY_CONTINUATION",
+    # trace helpers
+    "compose_workflow_trace_state",
+    "workflow_overview_summary",
+    "workflow_steps_breakdown",
+    "write_workflow_subagent_traces",
 ]

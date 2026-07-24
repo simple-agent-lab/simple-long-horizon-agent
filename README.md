@@ -18,11 +18,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 brew install uv
 
 # from the repo root:
-uv sync --group dev   # creates .venv, installs package + dev tools (ruff, ty)
-uv run python -m unittest discover -s tests/unit
-uv run ruff format --check .
-uv run python scripts/lint_docs.py
-uv run ty check src
+bash runs/dev/run_ci.sh  # syncs dependencies, then runs the local gate
 ```
 
 Plain `python3` works too when it is Python 3.10 or newer and dependencies are
@@ -32,12 +28,12 @@ when `uv` is installed and fall back to `python3`; they also set `PYTHONPATH=src
 for the current src-layout:
 
 ```bash
-bash runs/run_bash_agent_demo.sh
+bash runs/demos/run_bash_agent_demo.sh
 ```
 
-The same checks (`ruff format --check .`, docs lint, `ty check src`, and the
-unittest suite on Python 3.10 through 3.13) run on every push and pull request
-via [GitHub Actions](.github/workflows/ci.yml).
+The local gate mirrors the formatting, lint, generated-doc, architecture,
+type, test, and demo checks that run on every push and pull request via
+[GitHub Actions](.github/workflows/ci.yml).
 
 Optional benchmark suites have their own setup notes under
 [evals](evals/README.md) so the root setup stays focused on normal
@@ -89,7 +85,7 @@ Development follows the
 repo itself as the source of truth, make changes small and verifiable, and
 improve docs, examples, scripts, or tests when an agent workflow is ambiguous.
 Concrete day-to-day commands and the quality gate (ruff format, ty, and
-unittest, run by `runs/run_ci.sh` locally and `.github/workflows/ci.yml`
+unittest, run by `runs/dev/run_ci.sh` locally and `.github/workflows/ci.yml`
 remotely) are spelled out in
 [docs/agent-native/development.md](docs/agent-native/development.md).
 
@@ -101,6 +97,8 @@ eval architecture is the generic containerized framework in
 a suite is one host-side `Suite` plus a container half of two functions, run
 through `run_suite_instance` over swappable `ContainerBackend` (in-process /
 local Docker / remote) and `ArtifactStore` (local dir / host HTTP / S3) seams.
+Ordered multi-instance evals reuse the engine-level `evals.chain` module;
+suites keep benchmark-specific chain hooks in their container half.
 
 ## Non-Goals
 
@@ -115,7 +113,7 @@ local Docker / remote) and `ArtifactStore` (local dir / host HTTP / S3) seams.
 - [docs/agent-native](docs/agent-native/README.md): the single future-agent loading map, plus project intent, code style, development workflow, source-of-truth routing, and unresolved owner questions.
 - [docs/decisions](docs/decisions/README.md): architecture decision records.
 - [docs/glossary.md](docs/glossary.md): shared vocabulary.
-- [src/simple_agent_lab](src/simple_agent_lab/core.py): the installable package - `core.py` (canonical tiny run loop), `context_view.py` (model-visible context projection), `compression/` (context-compression strategies run before each model request), `messages.py` (shared message protocol), `tools/` (shared tool values plus concrete tools like bash and the sub-agent `task` tool), `trace/` (the three-layer trace: span/training transforms over the event log, record schema, JSONL IO, console rendering, OpenAI Chat JSONL export, and the live-trace edge), `llm/` (shared LLM access layer and message bridge), `mcp/` (optional Model Context Protocol integration: wrap an MCP server's tools — including multimodal results — as `AgentTool`s, behind the `mcp` extra), `memory/` (optional filesystem-backed memory via ordinary lifecycle hooks), `agents/` (the general agent starter: one `AgentSession` runner plus `Toolset`s and a single composable `agent_session()` front door — turn on bash/read/explorer/skills/MCP as needed), and `evals/` (the generic containerized eval framework - two seams `ContainerBackend` x `ArtifactStore`, the `run_suite_instance` entry point, and in-wheel suite container halves under `src/simple_agent_lab/evals/suites/`; see [ADR generic-containerized-eval-framework](docs/decisions/20260531-generic-containerized-eval-framework.md)).
+- [src/simple_agent_lab](src/simple_agent_lab/core.py): the installable package - `core.py` (canonical tiny run loop), `context_view.py` (model-visible context projection), `compression/` (context-compression strategies run before each model request), `messages.py` (shared message protocol), `tools/` (shared tool values plus concrete tools like bash and the sub-agent `task` tool), `trace/` (the three-layer trace: span/training transforms over the event log, record schema, JSONL IO, console rendering, OpenAI Chat JSONL export, and the live-trace edge), `llm/` (shared LLM access layer and message bridge), `mcp/` (optional Model Context Protocol integration: wrap an MCP server's tools — including multimodal results — as `AgentTool`s, behind the `mcp` extra), `memory/` (optional filesystem-backed memory via ordinary lifecycle hooks), `agents/` (the general agent starter: one `AgentSession` runner plus `Toolset`s and a single composable `agent_session()` front door — turn on bash/read/general-purpose/skills/MCP as needed), and `evals/` (the generic containerized eval framework - two seams `ContainerBackend` x `ArtifactStore`, the `run_suite_instance` entry point, and in-wheel suite container halves under `src/simple_agent_lab/evals/suites/`; see [ADR generic-containerized-eval-framework](docs/decisions/20260531-generic-containerized-eval-framework.md)).
 - [evals](evals/README.md): suite adapters (host halves) and the "add a suite" guide; the framework itself ships in the package above.
 - [examples/bench_suite](examples/bench_suite/README.md): agent-as-judge worked example - candidate + judge runs composed over the shared artifact store, runnable with no Docker.
 - [tests](tests/README.md): future test strategy.

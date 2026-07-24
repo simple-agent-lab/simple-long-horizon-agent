@@ -29,39 +29,33 @@ discovery (also surfaces ~/.agents/skills).
 from __future__ import annotations
 
 import argparse
-import json
-import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from simple_agent_lab import (  # noqa: E402
+from simple_agent_lab import (
     AssistantMessage,
     Event,
     message_text,
     text_of,
     tool_results_of,
 )
-from simple_agent_lab.llm import Provider  # noqa: E402
-from simple_agent_lab.llm.env import (  # noqa: E402
+from simple_agent_lab.llm import Provider
+from simple_agent_lab.llm.env import (
     FAKE_PROVIDER,
     load_dotenv,
     provider_from_env,
 )
-from simple_agent_lab.llm_agent import make_llm_agent  # noqa: E402
-from simple_agent_lab.skills import (  # noqa: E402
+from simple_agent_lab.llm_agent import make_llm_agent
+from simple_agent_lab.skills import (
     BUNDLED_LIBRARY_DIR,
     SkillRoot,
     default_skill_roots,
     run_with_skills,
 )
-from simple_agent_lab.tools.bash import make_bash_tool  # noqa: E402
-from simple_agent_lab.tools.read import make_read_tool  # noqa: E402
-from simple_agent_lab.trace import run_trace_from_state, trace_record  # noqa: E402
+from simple_agent_lab.tools.bash import make_bash_tool
+from simple_agent_lab.tools.read import make_read_tool
+from simple_agent_lab.trace import run_trace_from_state, write_event_stream
 
+ROOT = Path(__file__).resolve().parents[1]
 AGENT_NAME = "skill_agent"
 AGENT_ROLE = (
     "You are a capable software agent with a bash tool and a read tool. Use the "
@@ -160,9 +154,7 @@ def main() -> None:
         )
         out = Path(args.save_trace)
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(
-            json.dumps(trace_record(trace), ensure_ascii=False) + "\n", encoding="utf-8"
-        )
+        write_event_stream(out, trace)
         print(f"\n=== saved trace to {out} ===")
 
 

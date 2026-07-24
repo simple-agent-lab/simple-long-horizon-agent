@@ -35,6 +35,7 @@ class EventKind(str, Enum):
     TOOL_EXECUTION_UPDATE = "tool_execution_update"
     TOOL_EXECUTION_END = "tool_execution_end"
     HOOK_FIRED = "hook_fired"
+    GOAL_STATUS = "goal_status"
 
     def __str__(self) -> str:
         return self.value
@@ -43,8 +44,12 @@ class EventKind(str, Enum):
 @dataclass(frozen=True, kw_only=True)
 class _BaseEvent:
     # Placeholders; `State.record_event` stamps the real values on append.
+    # `uuid` is a stable, globally-unique id for this event — independent of its
+    # positional `index`, so the append-only stream survives merges/resumes and
+    # an event can be referenced across files (cf. Claude Code's transcript).
     index: int = -1
     elapsed: float = 0.0
+    uuid: str = ""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -58,6 +63,12 @@ class AgentStartEvent(_BaseEvent):
     kind: Literal[EventKind.AGENT_START] = field(
         default=EventKind.AGENT_START, init=False
     )
+    # The agent that started and its (constant, per-agent) system prompt. The
+    # prompt is the one request field not otherwise in the event stream, so it
+    # rides here for readers to build the `agents` registry (schema v5 ADR).
+    # Both default-empty so legacy `AgentStartEvent()` construction still works.
+    agent: AgentName = ""
+    system_prompt: str = ""
 
 
 # Why an agent's run loop stopped. Closed set so static checkers catch
@@ -106,6 +117,18 @@ class ModelRequestEvent(_BaseEvent):
     context_view: dict[str, Any]
     tools: list[dict[str, Any]]
     llm_payload: list[Any]
+    # The agent's system prompt, set only when this call's agent does NOT go
+    # through `run()` (so no `agent_start` carries it) — currently the context
+    # compressor. Lets `collect_agents` register it; empty for normal agents,
+    # whose prompt rides on `agent_start`. Kept out of the serialized record's
+    # bulk because it is constant per agent, recorded once where it's known.
+    system_prompt: str = ""
+    # Provider wire-adapter that served this call: ``"fake"`` for the
+    # deterministic test adapter, e.g. ``"openai-chat"`` for a real one. A fake
+    # call is still a model call, so it is recorded and *tagged* here rather
+    # than dropped — derived spans / training turns carry `api` so a downstream
+    # consumer can filter fake data out instead of the runtime hiding it.
+    api: str = ""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -123,6 +146,9 @@ class ModelResponseEvent(_BaseEvent):
     # span layer fold cost without walking messages or the raw blob.
     usage: TokenUsage | None = None
     model: str = ""
+    # Provider wire-adapter that served this call (see ModelRequestEvent.api);
+    # ``"fake"`` marks the deterministic test adapter.
+    api: str = ""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -145,6 +171,11 @@ class ContextCompressionEvent(_BaseEvent):
     ``"agent-compact"``), so a fold is attributable without sniffing the summary
     text — including which `TieredStrategy` stage fired. Empty when the strategy
     set no label.
+
+    `start_elapsed` is the run-relative time when compression work began. The
+    event's inherited `elapsed` remains the completion time, so compression
+    spans can show real duration even when a strategy performs nested model
+    calls before the summary event is appended.
     """
 
     kind: Literal[EventKind.CONTEXT_COMPRESSION] = field(
@@ -157,6 +188,7 @@ class ContextCompressionEvent(_BaseEvent):
     before_tokens: int
     after_tokens: int
     strategy: str = ""
+    start_elapsed: float | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -212,6 +244,34 @@ class HookFiredEvent(_BaseEvent):
     emitted: int = 0
 
 
+# The goal loop's lifecycle status. Superset of GoalResult's terminal
+# `GoalStatus`: "active" marks a turn where the loop is still continuing.
+GoalLifecycleStatus: TypeAlias = Literal[
+    "active", "complete", "blocked", "budget_exhausted", "aborted"
+]
+
+
+@dataclass(frozen=True, kw_only=True)
+class GoalStatusEvent(_BaseEvent):
+    """One goal-loop turn's outcome — an append-only, replay-able record of the
+    goal's lifecycle.
+
+    Recorded by `run_goal_loop` (not the inner ReAct loop). `StateSnapshot.apply`
+    ignores it, so it lives only in `state.events` (trace/audit/replay) and never
+    enters the model context. The objective is carried so a goal is fully
+    reconstructable from the log alone.
+    """
+
+    kind: Literal[EventKind.GOAL_STATUS] = field(
+        default=EventKind.GOAL_STATUS, init=False
+    )
+    objective: str
+    status: GoalLifecycleStatus
+    turns_used: int
+    tokens_used: int = 0
+    reason: str = ""
+
+
 Event: TypeAlias = (
     MessageEvent
     | AgentStartEvent
@@ -225,4 +285,5 @@ Event: TypeAlias = (
     | ToolExecutionUpdateEvent
     | ToolExecutionEndEvent
     | HookFiredEvent
+    | GoalStatusEvent
 )

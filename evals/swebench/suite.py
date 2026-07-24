@@ -41,8 +41,9 @@ class SwebenchSuite:
         dockerhub_username: str = harness.DEFAULT_PRO_DOCKERHUB_USERNAME,
         platform: str = "",
         network_mode: str = "",
+        security_opt: tuple[str, ...] = ("seccomp=unconfined",),
         in_env_scoring: bool = False,
-        mem_limit: str | None = "8g",
+        mem_limit: str | None = "16g",
     ) -> None:
         self.dataset_name = dataset_name
         self.name = harness.suite_for_instance(
@@ -55,6 +56,10 @@ class SwebenchSuite:
         self.dockerhub_username = dockerhub_username
         self.platform = platform
         self.network_mode = network_mode
+        # Default seccomp=unconfined: SWE-bench eval containers are disposable
+        # sandboxes, and old daemons (≤18.09) block clone3 under their default
+        # profile, which glibc ≥2.34 needs for threads. Override via --security-opt.
+        self.security_opt = tuple(security_opt)
         # Where scoring runs (ADR collapse-scorer-seam-into-run-primitive). Default: score separately with the
         # official harness (`evaluate_predictions.py`) — re-scorable, parity by
         # definition. Set `in_env_scoring=True` to also stage the official eval
@@ -66,8 +71,8 @@ class SwebenchSuite:
         # one runaway build/test step can't exhaust the host or starve sibling
         # runs in a parallel batch. memswap_limit is left unset so Docker keeps
         # its default swap headroom — a brief overshoot degrades instead of
-        # OOM-killing the instance. "8g" covers SWE-bench build/test peaks; pass
-        # None to disable.
+        # OOM-killing the instance. "16g" matches the mini-SWE-agent Pro
+        # baseline envelope; pass None to disable.
         self.mem_limit = mem_limit
 
     def launch_spec(self, instance: Mapping[str, Any]) -> LaunchSpec:
@@ -98,6 +103,7 @@ class SwebenchSuite:
             platform=self.platform or None,
             network_mode=self.network_mode or None,
             cap_add=self._cap_add(record),
+            security_opt=self.security_opt,
             mem_limit=self.mem_limit,
         )
 

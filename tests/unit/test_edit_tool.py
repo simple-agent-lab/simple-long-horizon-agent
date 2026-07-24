@@ -3,14 +3,14 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
-from typing import cast
 
-from simple_agent_lab import AgentTool, ToolResult, tool_result_text
+from simple_agent_lab import tool_result_text
 from simple_agent_lab.tools.edit import (
     EDIT_TOOL_NAME,
     edit_file,
     make_edit_tool,
 )
+from tests.unit._support import execute_tool as _execute
 
 
 class EditToolTest(unittest.TestCase):
@@ -180,14 +180,3 @@ class EditFileTest(unittest.TestCase):
         self.assertFalse(result.is_error)
         self.assertEqual(result.details["replacements"], 2)
         self.assertEqual(written, "one 2 2\n")
-
-
-def _execute(tool: AgentTool, args: dict[str, object]) -> ToolResult:
-    execute = cast(object, tool.execute)
-    if not callable(execute):
-        raise AssertionError("edit tool has no execute function")
-    return execute("call_1", args, lambda: False, None)
-
-
-if __name__ == "__main__":
-    unittest.main()

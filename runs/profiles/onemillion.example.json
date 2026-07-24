@@ -1,0 +1,13 @@
+{
+  "_comment": "Default OneMillion-Bench arm: one tool-free generation turn graded by the in-environment rubric judge. Copy to onemillion.json and run: uv run python runs/run_bench.py onemillion <case-id> --dataset datasets/OneMillion-Bench/<domain> --profile runs/profiles/onemillion.json. Generator + judge creds (OPENAI_*, JUDGE_*) stay in .env.",
+  "env": {
+    "_comment": "Catalogued knobs read by the in-process generator (see docs/agent-native/configuration.md). Applied fill-the-gaps: a real export still wins.",
+    "REASONING_EFFORT": "high"
+  },
+  "run": {
+    "_comment": "onemillion long options (run_bench.py onemillion; without --). Defaults; an explicit CLI flag overrides. Set `agent-flavor` to single (default) or a workflow (reflection|planner_executor|parallel|chain|routing|pdr). Add `all: true` plus a domain `dataset` for a sweep.",
+    "agent-flavor": "single",
+    "concurrency": 8,
+    "max-turns": 1
+  }
+}

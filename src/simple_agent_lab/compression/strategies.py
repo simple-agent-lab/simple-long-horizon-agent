@@ -1,8 +1,8 @@
 """Concrete compression strategies — the strategy-author surface.
 
-A strategy is a pure decision function `(active, agent_name) -> decision`.
-It looks at the messages the agent currently sees and returns a
-`CompressionDecision`:
+A strategy is usually a pure decision function
+`(active, agent_name) -> decision`. It looks at the messages the agent
+currently sees and returns a `CompressionDecision`:
 
     return CompressionDecision(
         compress_indices=(...),   # which messages to remove from active view
@@ -13,6 +13,10 @@ That's the entire surface. The `runtime` module handles everything else:
 filtering `model_invisible_kinds`, validating pinned messages, auto-fixing
 tool_call / tool_result pair splits, sizing, recording the replacement, and
 emitting the `ContextCompressionEvent`.
+
+A strategy may also expose `decisions(active, agent_name)` when one trigger
+should produce several independent folds. The runtime applies those decisions
+in order; plain `__call__` remains the single-decision compatibility path.
 
 Setting `rewrite=True` switches the decision from this N->1 fold to a 1->1,
 in-place substitution: `compress_indices` names exactly one message and
@@ -36,20 +40,31 @@ one `strategy` slot.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from ..context_view import CompressionDecision, CompressionStrategy
+from ..context_view import (
+    CompressionDecision,
+    CompressionStrategy,
+    build_context_view,
+    estimate_context_tokens,
+)
+from ..llm.bridge import messages_to_llm_messages
+from ..llm.types import llm_message
 from ..messages import (
     AssistantMessage,
     Message,
+    MessageSidecar,
     MessageKind,
     make_message,
     text_of,
+    tool_calls_of,
     tool_results_of,
 )
-from .runtime import _active_context_tokens, _tool_partners
+from ..protocols import ModelRequestEvent, ModelResponseEvent
+from .runtime import _active_context_tokens, _align_tool_pairs, _tool_partners
 
 if TYPE_CHECKING:
     from ..core import Agent
@@ -90,19 +105,14 @@ def format_index_ranges(indices: Sequence[int]) -> str:
     return ", ".join(ranges)
 
 
-def source_note(indices: Sequence[int]) -> str:
-    """Provenance footer naming the transcript messages a replacement folded.
+def continuation_preamble() -> str:
 
-    `State` is append-only, so compression never deletes the originals — it
-    only removes them from the active view. This line tells the model where
-    they live; the `recall` tool (`simple_agent_lab.tools.recall`) reads the
-    citation back and fetches the originals by index. Summaries cite, recall
-    retrieves: compression becomes recoverable instead of lossy.
-    """
     return (
-        f"[Compressed from transcript messages {format_index_ranges(indices)}. "
-        "Originals are retrievable by index via the `recall` tool when it is "
-        "available.]"
+        "[This session continues a previous one. Its earlier context was "
+        "compressed into the summary below; treat that summary as established "
+        "working memory carried over from the previous session — its facts, "
+        "decisions, and progress already hold — and resume the task from there "
+        "rather than restarting or re-deriving what it records.]"
     )
 
 
@@ -148,10 +158,8 @@ class ToolCompactStrategy:
         return CompressionDecision(
             compress_indices=compress_indices,
             replacement=make_message(
-                "system",
-                _format_compact_summary(active, old, self.preview_chars)
-                + "\n"
-                + source_note(compress_indices),
+                "user",
+                _format_compact_summary(active, old, self.preview_chars) + "\n",
                 sender="runtime",
                 target=agent_name,
                 kind="summary",
@@ -235,35 +243,137 @@ class SummarizeStrategy:
         active: list[tuple[int, Message]],
         agent_name: str,
     ) -> CompressionDecision | None:
+        spans = self._selected_spans(active)
+        return self._decision_for_span(spans[0], agent_name) if spans else None
+
+    def decisions(
+        self,
+        active: list[tuple[int, Message]],
+        agent_name: str,
+    ) -> tuple[CompressionDecision, ...]:
+        return tuple(
+            self._decision_for_span(to_compress, agent_name)
+            for to_compress in self._selected_spans(active)
+        )
+
+    def _selected_spans(
+        self,
+        active: list[tuple[int, Message]],
+    ) -> tuple[list[tuple[int, Message]], ...]:
         if not active:
-            return None
+            return ()
         before_tokens = _active_context_tokens(active)
         if before_tokens <= self.threshold_tokens:
-            return None
+            return ()
         droppable = [item for item in active if item[1].kind not in self.preserve_kinds]
         if len(droppable) <= self.keep_recent:
-            return None
-        to_compress = droppable[: -self.keep_recent] if self.keep_recent else droppable
-        if not to_compress:
-            return None
+            return ()
+        candidate = droppable[: -self.keep_recent] if self.keep_recent else droppable
+        compress_set = _align_tool_pairs(active, {index for index, _ in candidate})
+        runs = _contiguous_runs(active, compress_set)
+        if not runs:
+            return ()
 
+        task_pos = _last_task_position(active)
+        selected_runs: list[list[tuple[int, Message]]] = []
+        if task_pos is None:
+            selected_runs.append(_largest_run(runs))
+        else:
+            before_runs = [
+                (start_pos, run)
+                for start_pos, run in runs
+                if start_pos + len(run) - 1 < task_pos
+            ]
+            after_runs = [
+                (start_pos, run) for start_pos, run in runs if start_pos > task_pos
+            ]
+            before_run = _largest_run(before_runs)
+            after_run = _largest_run(after_runs)
+            if before_run:
+                selected_runs.append(before_run)
+            if after_run:
+                selected_runs.append(after_run)
+
+        return tuple(selected_runs)
+
+    def _decision_for_span(
+        self,
+        to_compress: list[tuple[int, Message]],
+        agent_name: str,
+    ) -> CompressionDecision:
         instruction = make_message(
             "user",
             (
-                f"Summarize the older conversation context above for agent "
-                f"{agent_name!r}.\n"
-                "Keep durable facts, decisions, tool results, constraints, "
-                "and unresolved questions. Omit low-value wording. Your "
-                "summary will replace the prior messages while the task and "
-                "recent messages stay visible."
+                f"Compact the older conversation above into working memory for "
+                f"agent {agent_name!r}. It replaces those messages; the task and "
+                "recent messages stay visible.\n\n"
+                "Write a terse, self-contained summary under these headings, "
+                "omitting any that have nothing:\n"
+                "- Goal: the objective plus constraints / acceptance criteria.\n"
+                "- Done: what has been accomplished and verified.\n"
+                "- State: where the work stands now.\n"
+                "- Facts & identifiers: key facts, decisions, and tool results, "
+                "with exact paths, symbols, commands, errors, test names, and "
+                "values kept VERBATIM.\n"
+                "- Open: unresolved questions and blockers.\n"
+                "- Next: the next concrete action(s).\n"
+                "- Tried & rejected: approaches already attempted that failed, "
+                "and why.\n\n"
+                "Preserve facts exactly; never invent. Omit low-value wording."
             ),
             sender="runtime",
             target=self.compressor.name,
             kind="task",
         )
-        output = self.compressor.generate(
-            [message for _, message in to_compress] + [instruction]
+        compressor_messages = [message for _, message in to_compress] + [instruction]
+        compressor_context = build_context_view(
+            self.compressor.name,
+            compressor_messages,
         )
+        llm_payload = messages_to_llm_messages(
+            list(compressor_context.messages),
+            with_header=False,
+        )
+        if self.compressor.system_prompt:
+            llm_payload = [
+                llm_message("system", self.compressor.system_prompt),
+                *llm_payload,
+            ]
+        compressor_provider = self.compressor.llm_provider
+        api = compressor_provider.api if compressor_provider is not None else ""
+        request_event = ModelRequestEvent(
+            agent=self.compressor.name,
+            api=api,
+            # The compressor does not go through `run()`, so no `agent_start`
+            # carries its prompt — record it here so `collect_agents` sees it.
+            system_prompt=self.compressor.system_prompt,
+            visible_count=len(compressor_context.messages),
+            llm_message_count=len(llm_payload),
+            context_view=compressor_context.as_dict(),
+            tools=[
+                {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters,
+                }
+                for tool in self.compressor.tools
+            ],
+            llm_payload=llm_payload,
+        )
+        started = time.monotonic()
+        output = self.compressor.generate(compressor_messages)
+        elapsed = time.monotonic() - started
+        response_event = ModelResponseEvent(
+            agent=self.compressor.name,
+            api=api,
+            output_kind=output.kind,
+            target=output.target,
+            tool_call_count=len(tool_calls_of(output.content)),
+            usage=output.usage if isinstance(output, AssistantMessage) else None,
+            model=output.model if isinstance(output, AssistantMessage) else "",
+            elapsed=elapsed,
+        )
+        trace_events = (request_event, response_event)
         summary_text = _output_text(output).strip() or (
             "Context was compressed, but the compressor returned no text."
         )
@@ -271,14 +381,83 @@ class SummarizeStrategy:
         return CompressionDecision(
             compress_indices=compress_indices,
             replacement=make_message(
-                "system",
-                summary_text + "\n\n" + source_note(compress_indices),
+                "user",
+                continuation_preamble() + "\n\n" + summary_text + "\n\n",
                 sender="runtime",
                 target=agent_name,
                 kind="summary",
+                sidecar=_compression_sidecar(output),
             ),
             label="summarize",
+            trace_events=trace_events,
         )
+
+
+def _last_task_position(active: list[tuple[int, Message]]) -> int | None:
+    for pos in range(len(active) - 1, -1, -1):
+        if active[pos][1].kind == "task":
+            return pos
+    return None
+
+
+def _contiguous_runs(
+    active: list[tuple[int, Message]],
+    indices: set[int],
+) -> list[tuple[int, list[tuple[int, Message]]]]:
+    """Return active-order candidate runs with their starting positions."""
+
+    runs: list[tuple[int, list[tuple[int, Message]]]] = []
+    current: list[tuple[int, Message]] = []
+    current_start = 0
+    for pos, item in enumerate(active):
+        if item[0] in indices:
+            if not current:
+                current_start = pos
+            current.append(item)
+            continue
+        if current:
+            runs.append((current_start, current))
+            current = []
+    if current:
+        runs.append((current_start, current))
+    return runs
+
+
+def _largest_run(
+    runs: list[tuple[int, list[tuple[int, Message]]]],
+) -> list[tuple[int, Message]]:
+    if not runs:
+        return []
+    return max(
+        runs,
+        key=lambda pair: (
+            estimate_context_tokens(
+                [message for _, message in pair[1]], allow_usage_baseline=False
+            ),
+            len(pair[1]),
+            -pair[0],
+        ),
+    )[1]
+
+
+def _compression_sidecar(output: Message) -> MessageSidecar:
+    sidecar: MessageSidecar = {}
+    raw = output.sidecar.get("raw")
+    if raw:
+        sidecar["raw"] = raw
+    if isinstance(output, AssistantMessage):
+        metadata: dict[str, object] = {"compressor": output.sender}
+        if output.model:
+            metadata["model"] = output.model
+        if output.usage is not None:
+            metadata["usage"] = {
+                "input_tokens": output.usage.input_tokens,
+                "output_tokens": output.usage.output_tokens,
+                "cache_read_tokens": output.usage.cache_read_tokens,
+                "cache_write_tokens": output.usage.cache_write_tokens,
+            }
+        sidecar["compression"] = metadata
+    return sidecar
 
 
 def _output_text(message: Message) -> str:
@@ -305,9 +484,9 @@ class TieredStrategy:
             SummarizeStrategy(compressor=summarizer, threshold_tokens=4000),
         )))
 
-    One decision is applied per compression pass (per model request); across
-    turns the stages keep firing as the context grows. Applying more than one
-    stage within a single pass would be a runtime choice, not this strategy's.
+    The first applicable stage wins. If that stage exposes multi-decision
+    compression, its decisions ride through; otherwise the stage contributes a
+    single decision.
     """
 
     stages: tuple[CompressionStrategy, ...]
@@ -322,3 +501,20 @@ class TieredStrategy:
             if decision is not None:
                 return decision
         return None
+
+    def decisions(
+        self,
+        active: list[tuple[int, Message]],
+        agent_name: str,
+    ) -> tuple[CompressionDecision, ...]:
+        for stage in self.stages:
+            multi_decision = getattr(stage, "decisions", None)
+            if callable(multi_decision):
+                decisions = tuple(multi_decision(active, agent_name) or ())
+                if decisions:
+                    return decisions
+                continue
+            decision = stage(active, agent_name)
+            if decision is not None:
+                return (decision,)
+        return ()

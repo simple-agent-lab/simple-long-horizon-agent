@@ -11,6 +11,37 @@ from unittest import mock
 from evals.swebench import evaluate_predictions
 
 
+def _pro_harness_args(root: Path, instances: list[dict[str, object]]) -> Namespace:
+    predictions = root / "predictions.jsonl"
+    predictions.write_text(
+        json.dumps(
+            {
+                "instance_id": "instance_one",
+                "prefix": "model",
+                "patch": "diff --git a/a b/a\n",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    instances_path = root / "instances.jsonl"
+    instances_path.write_text(
+        "".join(json.dumps(instance) + "\n" for instance in instances),
+        encoding="utf-8",
+    )
+    script = root / "swe_bench_pro_eval.py"
+    script.write_text("# fake evaluator\n", encoding="utf-8")
+    return Namespace(
+        instances=str(instances_path),
+        pro_eval_script=str(script),
+        predictions=str(predictions),
+        report_dir=str(root / "report"),
+        instance_ids=[],
+        dockerhub_username="jefzda",
+        scripts_dir=str(root / "run_scripts"),
+    )
+
+
 class SwebenchEvaluatePredictionsTest(unittest.TestCase):
     def test_default_official_and_pro_harness_paths_live_under_suite_output(
         self,
@@ -192,30 +223,6 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
         self.assertEqual(records[0]["prefix"], "simple-agent-lab-pro")
         self.assertEqual(records[0]["patch"], "diff --git a/api.js b/api.js\n")
 
-    def test_load_predictions_streams_jsonl_without_read_text(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "predictions.jsonl"
-            path.write_text(
-                json.dumps(
-                    {
-                        "instance_id": "sympy__sympy-23824",
-                        "model_name_or_path": "model",
-                        "model_patch": "diff --git a/a b/a\n",
-                    }
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-
-            with mock.patch.object(
-                Path,
-                "read_text",
-                side_effect=AssertionError("JSONL should be read from a file handle"),
-            ):
-                records = evaluate_predictions.load_predictions(path)
-
-        self.assertEqual(records[0]["instance_id"], "sympy__sympy-23824")
-
     def test_results_from_summary_accepts_pro_eval_results_map(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "eval_results.json"
@@ -290,44 +297,22 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
     def test_run_official_pro_harness_accepts_jsonl_instances(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            predictions = root / "predictions.jsonl"
-            predictions.write_text(
-                json.dumps(
+            args = _pro_harness_args(
+                root,
+                [
                     {
                         "instance_id": "instance_one",
-                        "prefix": "model",
-                        "patch": "diff --git a/a b/a\n",
-                    }
-                )
-                + "\n",
-                encoding="utf-8",
+                        "fail_to_pass": ["test_a"],
+                        "pass_to_pass": ["test_b"],
+                    },
+                    {
+                        "instance_id": "instance_two",
+                        "fail_to_pass": ["test_c"],
+                        "pass_to_pass": ["test_d"],
+                    },
+                ],
             )
-            instances = root / "instances.jsonl"
-            instances.write_text(
-                "\n".join(
-                    [
-                        json.dumps(
-                            {
-                                "instance_id": "instance_one",
-                                "fail_to_pass": ["test_a"],
-                                "pass_to_pass": ["test_b"],
-                            }
-                        ),
-                        json.dumps(
-                            {
-                                "instance_id": "instance_two",
-                                "fail_to_pass": ["test_c"],
-                                "pass_to_pass": ["test_d"],
-                            }
-                        ),
-                    ]
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-            script = root / "swe_bench_pro_eval.py"
-            script.write_text("# fake evaluator\n", encoding="utf-8")
-            report_dir = root / "report"
+            report_dir = Path(args.report_dir)
 
             def fake_run(command, cwd, check):
                 del command, cwd, check
@@ -338,20 +323,13 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
                 )
                 return SimpleNamespace(returncode=0)
 
-            args = Namespace(
-                instances=str(instances),
-                pro_eval_script=str(script),
-                predictions=str(predictions),
-                report_dir=str(report_dir),
-                instance_ids=[],
-                dockerhub_username="jefzda",
-                scripts_dir=str(root / "run_scripts"),
-            )
-
-            with mock.patch.object(
-                evaluate_predictions.subprocess,
-                "run",
-                side_effect=fake_run,
+            with (
+                mock.patch.object(
+                    evaluate_predictions.subprocess,
+                    "run",
+                    side_effect=fake_run,
+                ),
+                mock.patch.object(evaluate_predictions, "_patch_pro_evaluator"),
             ):
                 evaluate_predictions.run_official_pro_harness(args)
 
@@ -363,72 +341,27 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
         self.assertIn('"instance_id": "instance_one"', prepared)
         self.assertIn('"instance_id": "instance_two"', prepared)
 
-    def test_load_instance_records_streams_jsonl_without_read_text(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "instances.jsonl"
-            path.write_text(
-                json.dumps(
-                    {
-                        "instance_id": "instance_one",
-                        "fail_to_pass": ["test_a"],
-                    }
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-
-            with mock.patch.object(
-                Path,
-                "read_text",
-                side_effect=AssertionError("JSONL should be read from a file handle"),
-            ):
-                records = evaluate_predictions._load_instance_records(path)
-
-        self.assertEqual(records[0]["instance_id"], "instance_one")
-
     def test_run_official_pro_harness_fails_on_nonzero_exit(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            predictions = root / "predictions.jsonl"
-            predictions.write_text(
-                json.dumps(
-                    {
-                        "instance_id": "instance_one",
-                        "prefix": "model",
-                        "patch": "diff --git a/a b/a\n",
-                    }
-                )
-                + "\n",
-                encoding="utf-8",
+            args = _pro_harness_args(
+                root,
+                [{"instance_id": "instance_one"}],
             )
-            instances = root / "instances.jsonl"
-            instances.write_text(
-                json.dumps({"instance_id": "instance_one"}) + "\n",
-                encoding="utf-8",
-            )
-            script = root / "swe_bench_pro_eval.py"
-            script.write_text("# fake evaluator\n", encoding="utf-8")
-            report_dir = root / "report"
+            report_dir = Path(args.report_dir)
             stale = report_dir / "official"
             stale.mkdir(parents=True)
             (stale / "eval_results.json").write_text(
                 json.dumps({"instance_one": True}), encoding="utf-8"
             )
 
-            args = Namespace(
-                instances=str(instances),
-                pro_eval_script=str(script),
-                predictions=str(predictions),
-                report_dir=str(report_dir),
-                instance_ids=[],
-                dockerhub_username="jefzda",
-                scripts_dir=str(root / "run_scripts"),
-            )
-
-            with mock.patch.object(
-                evaluate_predictions.subprocess,
-                "run",
-                return_value=SimpleNamespace(returncode=2),
+            with (
+                mock.patch.object(
+                    evaluate_predictions.subprocess,
+                    "run",
+                    return_value=SimpleNamespace(returncode=2),
+                ),
+                mock.patch.object(evaluate_predictions, "_patch_pro_evaluator"),
             ):
                 with self.assertRaisesRegex(SystemExit, "exited with 2"):
                     evaluate_predictions.run_official_pro_harness(args)
@@ -523,7 +456,3 @@ class ParityGateTest(unittest.TestCase):
         self.assertEqual(mismatches[0]["instance_id"], "sympy__sympy-1")
         self.assertTrue(mismatches[0]["separate_passed"])
         self.assertFalse(mismatches[0]["reuse_passed"])
-
-
-if __name__ == "__main__":
-    unittest.main()

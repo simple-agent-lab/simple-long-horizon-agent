@@ -30,17 +30,14 @@ import inspect
 import json
 import os
 import time
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, cast
 
-from ..agents.starter import (
-    MCP_ADDENDUM,
-    AgentSession,
-    agent_session,
-    make_bash_agent,
-    make_bash_task_agent,
+from ..agents.flavors import (
+    ArtifactPut,
+    build_flavor_agent,
 )
 from ..core import Agent
 from ..hooks import HookMap
@@ -53,18 +50,15 @@ from ..llm.env import (
     request_extra_from_env,
 )
 from ..llm.env import provider_from_env as _env_provider_from_env
-from ..llm_agent import make_llm_agent
-from ..skills import system_prompt_with_skills
 from ..state import State
-from ..tools.bash import make_bash_tool
-from ..tools.read import make_read_tool
-from ..trace import run_trace_from_state, trace_record
+from ..trace import event_stream, run_trace_from_state
 from .protocols import (
     MEMORY_HOME_ENV,
     MEMORY_NAME_ENV,
     MEMORY_RUN_ID_ENV,
     RESULT_KEY,
     TRACE_KEY,
+    TRACE_RAW_KEY,
     AgentSpec,
     ArtifactStore,
     ContainerTask,
@@ -91,7 +85,7 @@ TRACE_FLUSH_INTERVAL_S = 2.0
 def memory_home_from_env(env: Mapping[str, str] | None = None) -> Path | None:
     """Return the optional in-container persistent-memory directory."""
 
-    source = env if env is not None else os.environ
+    source = env if env is not None else os.environ  # env-ok: default to process env
     value = source.get(MEMORY_HOME_ENV, "").strip()
     if not value:
         return None
@@ -124,7 +118,7 @@ def memory_hooks_from_env(
         make_filesystem_distiller,
     )
 
-    source = env if env is not None else os.environ
+    source = env if env is not None else os.environ  # env-ok: default to process env
     memory = FilesystemMemory(
         root=memory_home,
         distiller=make_filesystem_distiller(provider, request_extra=request_extra),
@@ -170,47 +164,21 @@ def build_agent(
     request_extra: Mapping[str, Any] | None = None,
     hooks: HookMap | None = None,
 ) -> Agent:
-    """Build the agent for `spec.flavor` with the suite's prompt/role/name."""
+    """Build the agent for `spec.flavor` with the suite's prompt/role/name.
 
-    hooks = hooks or {}
+    Kept as the eval-facing compatibility wrapper; the flavor implementation is
+    owned by `simple_agent_lab.agents.flavors`.
+    """
 
-    if spec.flavor == "bash":
-        return make_bash_agent(
-            provider=provider,
-            cwd=cwd,
-            name=spec.name,
-            role=spec.role,
-            system_prompt=spec.system_prompt,
-            request_extra=request_extra,
-            hooks=hooks,
-        )
-    if spec.flavor == "bash_task":
-        return make_bash_task_agent(
-            provider=provider,
-            cwd=cwd,
-            name=spec.name,
-            role=spec.role,
-            system_prompt=spec.system_prompt,
-            request_extra=request_extra,
-            hooks=hooks,
-        )
-    if spec.flavor == "bash_skills":
-        # bash + read, with agent skills discovered under `cwd` and advertised
-        # in the system prompt; the model loads a skill by reading its SKILL.md
-        # and runs its scripts via bash (ADR add-agent-skills).
-        return make_llm_agent(
-            name=spec.name,
-            provider=provider,
-            role=spec.role,
-            tools=[make_bash_tool(cwd=cwd), make_read_tool(cwd=cwd)],
-            system_prompt=system_prompt_with_skills(spec.system_prompt, cwd=cwd),
-            target="user",
-            request_extra=request_extra,
-            hooks=hooks,
-        )
-    raise SystemExit(
-        f"Unsupported agent flavor {spec.flavor!r}; "
-        "expected 'bash', 'bash_task', or 'bash_skills'."
+    return build_flavor_agent(
+        flavor=spec.flavor,
+        provider=provider,
+        cwd=cwd,
+        name=spec.name,
+        role=spec.role,
+        system_prompt=spec.system_prompt,
+        request_extra=request_extra,
+        hooks=hooks,
     )
 
 
@@ -244,6 +212,7 @@ def _resolve_agent(
     request_extra: Mapping[str, Any] | None,
     instance: Mapping[str, Any],
     context: Mapping[str, Any],
+    trace_put: ArtifactPut | None = None,
 ) -> Agent:
     """A container module may supply `build_agent` for full control, else `agent_spec`.
 
@@ -252,9 +221,19 @@ def _resolve_agent(
     `ContainerTask` (which `run_in_container` casts to for the required calls).
     """
 
-    custom = getattr(module, "build_agent", None)
-    if callable(custom):
-        return custom(provider=provider, cwd=cwd, request_extra=request_extra)
+    # A custom build_agent may handle only SOME flavors (e.g. the workflow arms)
+    # and return None for the rest, delegating those back to the agent_spec path
+    # so they still get memory hooks. Non-None wins.
+    agent = _custom_build_agent(
+        module,
+        provider=provider,
+        cwd=cwd,
+        request_extra=request_extra,
+        context=context,
+        trace_put=trace_put,
+    )
+    if agent is not None:
+        return agent
     factory = getattr(module, "agent_spec", None)
     spec = factory() if callable(factory) else AgentSpec()
     hooks = memory_hooks_from_env(
@@ -274,90 +253,36 @@ def _resolve_agent(
     )
 
 
-def _agent_spec(module: ModuleType) -> AgentSpec:
-    factory = getattr(module, "agent_spec", None)
-    return factory() if callable(factory) else AgentSpec()
-
-
-def _resolve_mcp_session(
+def _custom_build_agent(
     module: ModuleType,
     *,
     provider: Provider,
     cwd: Path,
     request_extra: Mapping[str, Any] | None,
-    mcp_servers: Sequence[Any],
-    max_turns: int,
-    instance: Mapping[str, Any],
-    context: Mapping[str, Any],
-) -> AgentSession:
-    """Build an MCP-owning session for the suite's supported agent flavor."""
+    context: Mapping[str, Any] | None = None,
+    trace_put: ArtifactPut | None = None,
+) -> Agent | None:
+    """The module's optional `build_agent` hook, or None when absent or declined.
 
-    if callable(getattr(module, "build_agent", None)):
-        raise SystemExit(
-            "MCP config is not supported with a custom container build_agent hook; "
-            "use agent_spec() with a supported flavor instead."
-        )
+    A custom `build_agent` claims a flavor by returning an `Agent` and declines
+    one by returning None (so it falls through to the `agent_spec` path).
 
-    spec = _agent_spec(module)
-    hooks = memory_hooks_from_env(
-        provider,
-        agent_name=spec.name,
+    ``trace_put`` is the artifact sink for workflow sub-agent traces; it is
+    passed only to hooks that declare it, so a suite building a workflow arm
+    does not re-fetch the container store itself.
+    """
+    custom = getattr(module, "build_agent", None)
+    if not callable(custom):
+        return None
+    extra = _context_kwargs(custom, context or {})
+    if "trace_put" in inspect.signature(custom).parameters:
+        extra["trace_put"] = trace_put
+    return custom(
+        provider=provider,
+        cwd=cwd,
         request_extra=request_extra,
-        artifact_builder=_memory_artifact_builder(
-            module, workdir=cwd, instance=instance, context=context
-        ),
+        **extra,
     )
-    system_prompt = _with_mcp_addendum(spec.system_prompt)
-    if spec.flavor == "bash":
-        return agent_session(
-            provider,
-            cwd=cwd,
-            name=spec.name,
-            role=spec.role,
-            system_prompt=system_prompt,
-            mcp_servers=mcp_servers,
-            request_extra=request_extra,
-            max_turns=max_turns,
-            hooks=hooks,
-        )
-    if spec.flavor == "bash_task":
-        return agent_session(
-            provider,
-            cwd=cwd,
-            explorer=True,
-            name=spec.name,
-            role=spec.role,
-            system_prompt=system_prompt,
-            mcp_servers=mcp_servers,
-            request_extra=request_extra,
-            max_turns=max_turns,
-            hooks=hooks,
-        )
-    if spec.flavor == "bash_skills":
-        return agent_session(
-            provider,
-            cwd=cwd,
-            read=True,
-            name=spec.name,
-            role=spec.role,
-            system_prompt=_with_mcp_addendum(
-                system_prompt_with_skills(spec.system_prompt, cwd=cwd)
-            ),
-            mcp_servers=mcp_servers,
-            request_extra=request_extra,
-            max_turns=max_turns,
-            hooks=hooks,
-        )
-    raise SystemExit(
-        f"Unsupported agent flavor {spec.flavor!r}; "
-        "expected 'bash', 'bash_task', or 'bash_skills'."
-    )
-
-
-def _with_mcp_addendum(system_prompt: str) -> str:
-    if MCP_ADDENDUM in system_prompt:
-        return system_prompt
-    return "\n\n".join(part for part in (system_prompt, MCP_ADDENDUM) if part)
 
 
 # --------------------------------------------------------------------------- #
@@ -432,9 +357,12 @@ def run_in_container(
     task = tasks.build_task(instance, workdir=str(workdir))
     instance_id = str(instance.get("instance_id", "?"))
 
-    def trace_bytes(*, in_progress: bool) -> bytes:
+    def trace_artifacts(
+        *, in_progress: bool, trace_state: State | None = None
+    ) -> tuple[bytes, bytes | None]:
+        src = trace_state if trace_state is not None else state
         trace = run_trace_from_state(
-            state=state,
+            state=src,
             trace_id=trace_id,
             producer=producer,
             meta={
@@ -442,12 +370,28 @@ def run_in_container(
                 "instance_id": instance_id,
                 "in_progress": in_progress,
                 "oracle": oracle,
-                "result_keys": sorted(state.data.get("result", {})),
+                "result_keys": sorted(src.data.get("result", {})),
             },
         )
-        return (json.dumps(trace_record(trace), ensure_ascii=False) + "\n").encode(
-            "utf-8"
+        header, lines, raw_pool = event_stream(trace)
+        raw_bytes = None
+        if raw_pool:
+            raw_bytes = "".join(
+                json.dumps(blob, ensure_ascii=False) + "\n" for blob in raw_pool
+            ).encode("utf-8")
+        trace_bytes = "".join(
+            json.dumps(rec, ensure_ascii=False) + "\n" for rec in (header, *lines)
+        ).encode("utf-8")
+        return trace_bytes, raw_bytes
+
+    def put_trace(*, in_progress: bool, trace_state: State | None = None) -> None:
+        trace_data, raw_data = trace_artifacts(
+            in_progress=in_progress,
+            trace_state=trace_state,
         )
+        store.put(TRACE_KEY, trace_data)
+        if raw_data is not None:
+            store.put(TRACE_RAW_KEY, raw_data)
 
     if oracle:
         # No model, no turns: apply the reference solution, then extract.
@@ -456,8 +400,13 @@ def run_in_container(
     else:
         if provider is None:
             raise SystemExit("a Provider is required unless oracle=True")
-        mcp_servers = _load_mcp_servers(store)
+        trace_agent: Agent | None = None
         abort_fn = lambda: False  # noqa: E731
+        context["runtime"] = {
+            "max_turns": max_turns,
+            "wall_time_seconds": wall_time_seconds,
+            "started_monotonic": time.monotonic(),
+        }
         if wall_time_seconds is not None:
             _deadline = time.monotonic() + wall_time_seconds
             abort_fn = lambda: time.monotonic() >= _deadline  # noqa: E731
@@ -467,43 +416,34 @@ def run_in_container(
                 flush=True,
             )
         last = 0.0
-        if mcp_servers:
-            if not isinstance(task, str):
-                raise SystemExit("MCP-enabled eval runs currently require a text task")
-            with _resolve_mcp_session(
-                module,
-                provider=provider,
-                cwd=workdir,
-                request_extra=request_extra,
-                mcp_servers=mcp_servers,
-                max_turns=max_turns,
-                instance=instance,
-                context=context,
-            ) as session:
-                state, events = session.run(task, max_turns=max_turns, abort=abort_fn)
-                for _ in events:
-                    now = time.monotonic()
-                    if now - last >= flush_interval_s:
-                        store.put(TRACE_KEY, trace_bytes(in_progress=True))
-                        last = now
-        else:
-            agent = _resolve_agent(
-                module,
-                provider=provider,
-                cwd=workdir,
-                request_extra=request_extra,
-                instance=instance,
-                context=context,
-            )
-            state, events = agent.run(task, max_turns=max_turns, abort=abort_fn)
-            for _ in events:
-                now = time.monotonic()
-                if now - last >= flush_interval_s:
-                    store.put(TRACE_KEY, trace_bytes(in_progress=True))
-                    last = now
+        agent = _resolve_agent(
+            module,
+            provider=provider,
+            cwd=workdir,
+            request_extra=request_extra,
+            instance=instance,
+            context=context,
+            trace_put=store.put,
+        )
+        trace_agent = agent
+        state, events = agent.run(task, max_turns=max_turns, abort=abort_fn)
+        for _ in events:
+            now = time.monotonic()
+            if now - last >= flush_interval_s:
+                put_trace(in_progress=True)
+                last = now
 
     extract = tasks.extract_result
-    result = dict(extract(workdir, instance, **_context_kwargs(extract, context)))
+    result = dict(
+        extract(workdir, instance, **_context_kwargs(extract, context, state=state))
+    )
+
+    # A workflow facade stashes its per-step breakdown on the run state at
+    # session end; fold it into the result here so every suite reports it
+    # without each re-implementing the recording + extract wiring.
+    workflow_breakdown = state.data.get("workflow")
+    if workflow_breakdown is not None:
+        result.setdefault("workflow", workflow_breakdown)
 
     # Optional in-environment scoring: a suite that scores where the run ran
     # exposes ``evaluate(workspace, instance, *, context)`` and stages gold via
@@ -524,16 +464,35 @@ def run_in_container(
     store.put(
         RESULT_KEY, (json.dumps(result, ensure_ascii=False) + "\n").encode("utf-8")
     )
-    store.put(TRACE_KEY, trace_bytes(in_progress=False))
+    # An agent may compose a richer FINAL trace than the bare run state — e.g. a
+    # workflow facade whose real work ran in sub-agents folds them into a
+    # lightweight tree (one node per sub-agent) for the viewer. Optional + best
+    # effort; the live in-progress writes above always used the real run state.
+    final_trace_state = state
+    if not oracle and trace_agent is not None:
+        try:
+            final_trace_state = trace_agent.trace_state(state)
+        except Exception:
+            pass
+    put_trace(in_progress=False, trace_state=final_trace_state)
     return result, state
 
 
 def _context_kwargs(
-    fn: Callable[..., Any], context: Mapping[str, Any]
+    fn: Callable[..., Any],
+    context: Mapping[str, Any],
+    *,
+    state: State | None = None,
 ) -> dict[str, Any]:
-    """Pass ``context`` only to hooks that declare it (keeps the surface optional)."""
+    """Pass optional hook context only to hooks that declare it."""
 
-    return {"context": context} if "context" in inspect.signature(fn).parameters else {}
+    parameters = inspect.signature(fn).parameters
+    kwargs: dict[str, Any] = {}
+    if "context" in parameters:
+        kwargs["context"] = context
+    if state is not None and "state" in parameters:
+        kwargs["state"] = state
+    return kwargs
 
 
 def _load_eval_inputs(store: ArtifactStore) -> dict[str, Any]:
@@ -546,20 +505,6 @@ def _load_eval_inputs(store: ArtifactStore) -> dict[str, Any]:
     except (FileNotFoundError, OSError):
         return {}
     return json.loads(raw.decode("utf-8") or "{}")
-
-
-def _load_mcp_servers(store: ArtifactStore) -> tuple[Any, ...]:
-    """Read optional staged MCP config and return validated server configs."""
-
-    from .protocols import MCP_KEY
-
-    try:
-        raw = store.get(MCP_KEY)
-    except (FileNotFoundError, OSError):
-        return ()
-    from simple_agent_lab.mcp.config_file import mcp_server_configs_from_json
-
-    return mcp_server_configs_from_json(raw.decode("utf-8"), source=MCP_KEY)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -581,6 +526,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--api-kind",
         choices=API_KIND_CHOICES,
+        # env-ok: CLI default mirrors API_KIND for the in-container entrypoint
         default=os.environ.get(API_KIND_ENV, "openai-chat"),
     )
     args = parser.parse_args(argv)

@@ -24,6 +24,10 @@ auto-imported by the top-level ``simple_agent_lab`` namespace — importing them
 here keeps that surface focused on the protocol and runtime.
 """
 
+from .flavors import (
+    build_flavor_agent,
+    make_workflow_runner_for_flavor,
+)
 from .starter import (
     BASH_AGENT_DEFAULT_NAME,
     BASH_AGENT_DEFAULT_ROLE,
@@ -31,12 +35,13 @@ from .starter import (
     BASH_TASK_AGENT_DEFAULT_NAME,
     BASH_TASK_AGENT_DEFAULT_ROLE,
     BASH_TASK_AGENT_SYSTEM_PROMPT,
-    BASH_TASK_EXPLORER_ADDENDUM,
+    BASH_TASK_ADDENDUM,
     DEFAULT_AGENT_NAME,
     DEFAULT_TASK_MAX_TURNS,
-    EXPLORER_AGENT_DEFAULT_NAME,
-    EXPLORER_AGENT_DEFAULT_ROLE,
-    EXPLORER_AGENT_SYSTEM_PROMPT,
+    DEFAULT_TASK_SOFT_TURN_LIMIT,
+    GENERAL_PURPOSE_AGENT_DEFAULT_NAME,
+    GENERAL_PURPOSE_AGENT_DEFAULT_ROLE,
+    GENERAL_PURPOSE_AGENT_SYSTEM_PROMPT,
     MCP_ADDENDUM,
     SKILLS_ADDENDUM,
     AgentSession,
@@ -56,6 +61,8 @@ __all__ = [
     "SkillConfig",
     "Toolset",
     "MCPToolset",
+    "build_flavor_agent",
+    "make_workflow_runner_for_flavor",
     "agent_session",
     "mcp_session",
     "compose_agent_system_prompt",
@@ -72,9 +79,10 @@ __all__ = [
     "BASH_TASK_AGENT_SYSTEM_PROMPT",
     "BASH_TASK_AGENT_DEFAULT_ROLE",
     "BASH_TASK_AGENT_DEFAULT_NAME",
-    "BASH_TASK_EXPLORER_ADDENDUM",
-    "EXPLORER_AGENT_DEFAULT_NAME",
-    "EXPLORER_AGENT_DEFAULT_ROLE",
-    "EXPLORER_AGENT_SYSTEM_PROMPT",
+    "BASH_TASK_ADDENDUM",
+    "GENERAL_PURPOSE_AGENT_DEFAULT_NAME",
+    "GENERAL_PURPOSE_AGENT_DEFAULT_ROLE",
+    "GENERAL_PURPOSE_AGENT_SYSTEM_PROMPT",
     "DEFAULT_TASK_MAX_TURNS",
+    "DEFAULT_TASK_SOFT_TURN_LIMIT",
 ]

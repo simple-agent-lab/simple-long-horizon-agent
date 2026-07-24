@@ -5,7 +5,8 @@ import time
 import unittest
 from pathlib import Path
 
-from simple_agent_lab.protocols import AgentEndEvent, AgentStartEvent
+from simple_agent_lab.messages import AssistantMessage, TextBlock
+from simple_agent_lab.protocols import AgentEndEvent, AgentStartEvent, MessageEvent
 from simple_agent_lab.state import State
 from simple_agent_lab.trace import (
     LiveTraceSession,
@@ -41,10 +42,13 @@ class LiveTraceTest(unittest.TestCase):
                 state.record_event(AgentEndEvent(reason="done"))
 
             self.assertTrue(path.is_file())
-            live_records = read_jsonl(path)
-            self.assertEqual(len(live_records), 1)
-            self.assertGreaterEqual(len(live_records[0]["events"]), 1)
-            self.assertEqual(live_records[0]["events"][0]["kind"], "agent_start")
+            # v5 stream: a header line then one line per event (appended live).
+            live = read_jsonl(path)
+            header, events = live[0], live[1:]
+            self.assertEqual(header["trace_id"], "test.live")
+            self.assertNotIn("events", header)
+            self.assertGreaterEqual(len(events), 1)
+            self.assertEqual(events[0]["kind"], "agent_start")
             self.assertFalse(path.with_name(f"{path.name}.part").exists())
 
             write_canonical_trace(
@@ -52,10 +56,9 @@ class LiveTraceTest(unittest.TestCase):
                 state=state,
                 trace_meta=TraceMeta("test.live", "test:live"),
             )
-            final_records = read_jsonl(path)
-            self.assertEqual(len(final_records), 1)
-            self.assertEqual(final_records[0]["trace_id"], "test.live")
-            self.assertGreaterEqual(len(final_records[0]["events"]), 2)
+            final = read_jsonl(path)
+            self.assertEqual(final[0]["trace_id"], "test.live")
+            self.assertGreaterEqual(len(final[1:]), 2)
 
     def test_final_flush_on_exit_writes_without_extra_canonical_step(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -73,10 +76,34 @@ class LiveTraceTest(unittest.TestCase):
                 state.record_event(AgentEndEvent(reason="done"))
 
             records = read_jsonl(path)
-            self.assertEqual(len(records), 1)
             self.assertEqual(records[0]["trace_id"], "test.live.exit")
+            self.assertNotIn("events", records[0])
             self.assertFalse(path.with_name(f"{path.name}.part").exists())
 
+    def test_canonical_trace_externalizes_raw_sidecar(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "trajectory.jsonl"
+            state = State(task="demo")
+            state.record_event(
+                MessageEvent(
+                    message=AssistantMessage(
+                        content=(TextBlock(text="hi"),),
+                        sender="a",
+                        target="a",
+                        sidecar={
+                            "raw": {"request": {"model": "m"}, "response": {"id": "r"}}
+                        },
+                    )
+                )
+            )
+            write_canonical_trace(
+                path, state=state, trace_meta=TraceMeta("raw", "test:raw")
+            )
 
-if __name__ == "__main__":
-    unittest.main()
+            # The message event's raw snapshot is externalized to a {raw_ref}
+            # pointer; the blob lands in the sibling pool.
+            stream = read_jsonl(path)
+            msg_event = next(e for e in stream[1:] if e["kind"] == "message")
+            self.assertEqual(msg_event["message"]["sidecar"]["raw"], {"raw_ref": 0})
+            raw_records = read_jsonl(path.with_name(f"{path.name}.raw.jsonl"))
+            self.assertEqual(raw_records[0]["request"]["model"], "m")

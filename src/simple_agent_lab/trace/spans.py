@@ -150,6 +150,10 @@ def spans_from_events(
                     input=event.llm_payload,
                     attributes={
                         "agent": event.agent,
+                        # Provider that served the call ("fake" for the test
+                        # adapter): a fake model_call is kept in the span tree
+                        # and tagged here so consumers can filter, not dropped.
+                        "api": event.api,
                         "visible_count": event.visible_count,
                         "llm_message_count": event.llm_message_count,
                         "tools": event.tools,
@@ -229,12 +233,30 @@ def spans_from_events(
 
         elif isinstance(event, ContextCompressionEvent):
             span_id = _next_id("compression")
+            start = (
+                event.start_elapsed
+                if event.start_elapsed is not None
+                else event.elapsed
+            )
+            if event.start_elapsed is None:
+                prior_compressor_call = next(
+                    (
+                        span
+                        for span in reversed(spans)
+                        if span.kind == "model_call"
+                        and (span.attributes or {}).get("agent") == "context_compressor"
+                        and span.end <= event.elapsed
+                    ),
+                    None,
+                )
+                if prior_compressor_call is not None:
+                    start = prior_compressor_call.start
             spans.append(
                 Span(
                     id=span_id,
                     parent_id=_parent_id(),
                     kind="compression",
-                    start=event.elapsed,
+                    start=start,
                     end=event.elapsed,
                     attributes={
                         "agent": event.agent,

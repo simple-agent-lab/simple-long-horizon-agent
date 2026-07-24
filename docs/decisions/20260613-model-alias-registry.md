@@ -66,7 +66,7 @@ but no existing call site is rewired to require it.
 - Still env-first: no config-file (`models.json`) loader yet. The same
   `ModelRegistry` is the place to add one later if a deployment outgrows env.
 - The convenience layer (`agent_session`/`make_agent`) still threads one
-  provider to its explorer sub-agent; wiring a registry through it (a
+  provider to its general-purpose sub-agent; wiring a registry through it (a
   per-sub-agent provider knob) is a separate, still-open follow-up.
 
 ## Alternatives Considered

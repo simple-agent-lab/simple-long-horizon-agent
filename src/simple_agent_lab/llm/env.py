@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -39,6 +39,7 @@ from .provider import (
     ReasoningEffort,
     api_kind_defaults,
 )
+from ..model_metadata import default_context_window_book
 
 # --------------------------------------------------------------------------- #
 # Canonical env-var names (declared once; everyone else imports these)
@@ -65,10 +66,51 @@ API_KIND_CHOICES: tuple[str, ...] = (
     "openai-responses",
     "anthropic-messages",
 )
+OPENAI_API_KIND_CHOICES = ("openai-chat", "openai-responses")
 
 # The one deterministic, key-free provider — replaces a dozen copies of the
 # `Provider(id="fake", api="fake", model="fake-model")` literal.
 FAKE_PROVIDER = Provider(id="fake", api="fake", model="fake-model")
+
+
+def container_provider_env(
+    provider: str,
+    passthrough_names: Iterable[str],
+    *,
+    env: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Collect the shared OpenAI container env contract used by eval harnesses."""
+
+    if provider != "openai":
+        return {}
+    source = os.environ if env is None else env
+    names = (*passthrough_names, "NO_PROXY", "no_proxy")
+    resolved = {name: source[name] for name in names if source.get(name)}
+    missing = [
+        name for name in (OPENAI_MODEL_ENV, OPENAI_AUTH_ENV) if name not in resolved
+    ]
+    if missing:
+        raise SystemExit(
+            "Missing required env vars for --provider openai: " + ", ".join(missing)
+        )
+    return resolved
+
+
+def resolve_openai_api_kind(
+    value: str | None,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> str:
+    """Resolve the narrow OpenAI-protocol adapter choice used by eval harnesses."""
+
+    source = os.environ if env is None else env
+    api_kind = (value or source.get(API_KIND_ENV) or "openai-chat").strip()
+    if api_kind not in OPENAI_API_KIND_CHOICES:
+        raise SystemExit(
+            f"Unsupported API_KIND {api_kind!r}; expected one of: "
+            + ", ".join(OPENAI_API_KIND_CHOICES)
+        )
+    return api_kind
 
 
 @dataclass(frozen=True)
@@ -251,6 +293,7 @@ def provider_from_env(
         default_max_tokens=api_kind_defaults(resolved_kind).default_max_tokens,
         default_temperature=default_temperature,
         default_reasoning=reasoning,
+        context_window=default_context_window_book().window_for(model),
     )
 
 

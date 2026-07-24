@@ -10,8 +10,8 @@ import shutil
 import subprocess
 import threading
 import time
-from concurrent.futures import Future, ThreadPoolExecutor
-from collections.abc import Mapping
+from concurrent.futures import Future
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -27,6 +27,7 @@ class WorkflowRuntimeOptions:
     max_agents: int = 1000
     timeout_seconds: float | None = None
     node_binary: str = "node"
+    process_prefix: tuple[str, ...] = ()
     enforce_node_permissions: bool = True
 
 
@@ -132,10 +133,13 @@ class DynamicWorkflowRuntime:
         budget: dict[str, Any],
         filename: str,
     ) -> tuple[Any, list[dict[str, Any]]]:
-        command = _node_command(
-            self.options.node_binary,
-            enforce_permissions=self.options.enforce_node_permissions,
-        )
+        command = [
+            *self.options.process_prefix,
+            *_node_command(
+                self.options.node_binary,
+                enforce_permissions=self.options.enforce_node_permissions,
+            ),
+        ]
         proc = subprocess.Popen(
             command,
             stdin=subprocess.PIPE,
@@ -180,11 +184,11 @@ class DynamicWorkflowRuntime:
         )
         agent_count = 0
         futures: dict[Future[dict[str, Any]], str] = {}
-        pool: ThreadPoolExecutor | None = None
+        pool: _DaemonThreadPool | None = None
         pool_closed = False
 
         try:
-            pool = ThreadPoolExecutor(max_workers=max(1, self.options.max_concurrency))
+            pool = _DaemonThreadPool(max_workers=max(1, self.options.max_concurrency))
             while True:
                 if deadline is not None and time.monotonic() >= deadline:
                     _abort_process(proc)
@@ -387,6 +391,88 @@ def _flush_completed(
             _send(proc, {"id": req_id, "ok": True, "result": result})
 
 
+class _DaemonThreadPool:
+    """Small executor whose abandoned workers do not block process shutdown.
+
+    Python's standard ThreadPoolExecutor registers every worker with an
+    interpreter-exit hook that joins the thread even after shutdown(wait=False).
+    That defeats the workflow deadline when an agent call is stuck. Dynamic
+    workflows cannot forcibly stop an in-flight Python call, so timed-out calls
+    run only on daemon threads while queued calls are cancelled. Normal runs
+    still join every worker before returning.
+    """
+
+    def __init__(self, *, max_workers: int) -> None:
+        self._tasks: queue.Queue[
+            tuple[Future[Any], Callable[..., Any], tuple[Any, ...], dict[str, Any]]
+            | None
+        ] = queue.Queue()
+        self._lock = threading.Lock()
+        self._shutdown = False
+        self._threads = [
+            threading.Thread(
+                target=self._worker,
+                name=f"dynamic-workflow-{index}",
+                daemon=True,
+            )
+            for index in range(max_workers)
+        ]
+        for thread in self._threads:
+            thread.start()
+
+    def submit(
+        self, function: Callable[..., Any], /, *args: Any, **kwargs: Any
+    ) -> Future[Any]:
+        future: Future[Any] = Future()
+        with self._lock:
+            if self._shutdown:
+                raise RuntimeError("cannot schedule work after shutdown")
+            self._tasks.put((future, function, args, kwargs))
+        return future
+
+    def shutdown(self, *, wait: bool, cancel_futures: bool = False) -> None:
+        with self._lock:
+            if not self._shutdown:
+                self._shutdown = True
+                if cancel_futures:
+                    self._cancel_queued()
+                for _thread in self._threads:
+                    self._tasks.put(None)
+        if wait:
+            for thread in self._threads:
+                thread.join()
+
+    def _cancel_queued(self) -> None:
+        while True:
+            try:
+                task = self._tasks.get_nowait()
+            except queue.Empty:
+                return
+            try:
+                if task is not None:
+                    task[0].cancel()
+            finally:
+                self._tasks.task_done()
+
+    def _worker(self) -> None:
+        while True:
+            task = self._tasks.get()
+            try:
+                if task is None:
+                    return
+                future, function, args, kwargs = task
+                if not future.set_running_or_notify_cancel():
+                    continue
+                try:
+                    result = function(*args, **kwargs)
+                except BaseException as exc:
+                    future.set_exception(exc)
+                else:
+                    future.set_result(result)
+            finally:
+                self._tasks.task_done()
+
+
 def _cancel_futures(futures: dict[Future[dict[str, Any]], str]) -> None:
     for future in futures:
         future.cancel()
@@ -481,6 +567,7 @@ def _node_permission_flag(node_binary: str) -> str:
 def _node_env() -> dict[str, str]:
     env: dict[str, str] = {}
     for name in ("PATH", "SystemRoot", "WINDIR", "PATHEXT"):
+        # env-ok: copy only executable-discovery variables into the scrubbed child.
         value = os.environ.get(name)
         if value:
             env[name] = value

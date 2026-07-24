@@ -230,16 +230,24 @@ Backends are implementation details. Possible backends include:
 
 - no-op or in-memory stores for tests and demos;
 - `FilesystemMemory`, which injects a filesystem memory directory policy, writes
-  host-owned evidence files at run end, always keeps `INDEX.md` summary links
-  valid, and can apply an optional distiller result to `summary.md`, `INDEX.md`,
-  `MEMORY.md`, and `memory_summary.md`. The distiller returns the full updated
-  `MEMORY.md` handbook (the model owns merging, rewriting, and dropping lessons);
-  `finish(...)` writes that rewrite verbatim when it passes size/erasure guards,
-  keeps the prior handbook on an empty or rejected rewrite, and refreshes
-  `memory_summary.md` when the distiller did not provide one;
+  bounded evidence files at run end, keeps retained `INDEX.md` links valid, and
+  can apply an optional distiller result to `summary.md`, `INDEX.md`, `MEMORY.md`,
+  and `memory_summary.md`. The distiller may decline retention entirely; when it
+  returns a handbook, `finish(...)` accepts the complete rewrite only after the
+  existing size and erasure guards;
 - SQLite or JSONL records;
 - a vector index;
 - a remote memory service.
+
+`FilesystemMemory.finish(...)` serializes the complete
+read-distill-commit operation with one inter-process lock per memory root. The
+lock includes the optional model call because `MEMORY.md` is a full rewrite and
+because the distiller may choose the final namespace only after reading prior
+memory. Temporary-file replacement remains responsible for per-file atomicity;
+it is not a substitute for this logical single-writer boundary. See ADR
+[serialize-filesystem-memory-consolidation](../decisions/20260714-serialize-filesystem-memory-consolidation.md).
+The deliberately small storage limits are recorded in ADR
+[bound-filesystem-memory-growth](../decisions/20260714-bound-filesystem-memory-growth.md).
 
 Keep the package facade small. Top-level imports should expose the memory
 protocol and complete memory implementations. For the starter mechanisms, keep
@@ -296,9 +304,10 @@ Generalized shape:
   namespace names.
 - The model reads memory through existing file tools such as bash or an MCP
   filesystem server.
-- At run end, the host writes `task.md`, `transcript.md`, generic
+- At run end, the host writes bounded `task.md`, `transcript.md`, generic
   `artifacts/*`, and optionally runs a no-tools distillation pass to update
-  concise summaries, the run index, and a durable handbook.
+  concise summaries, the run index, and a durable handbook. A successful
+  distiller no-op writes nothing.
 
 Default layout:
 
@@ -329,7 +338,7 @@ Mapping to this sketch:
 - The existing bash or MCP filesystem tool provides tool exposure; the memory
   layer may contribute no tools of its own.
 - Evidence writing and summary/index updates are `finish(...)` learner/sink
-  work. Raw run evidence and a minimal `summary.md` should still be written when
+  work. Bounded run evidence and a minimal `summary.md` are still written when
   optional distillation fails, so `INDEX.md` never points at a missing summary.
   Distillation failures can leave a compact `memory_error.md` marker while
   skipping only learned `MEMORY.md` updates.
@@ -344,9 +353,9 @@ Mapping to this sketch:
   summary was accepted.
 - `make_filesystem_distiller(provider)` builds an explicit no-tools LLM
   distiller. It chooses `memory_name` after seeing the completed run evidence,
-  then returns a per-run summary, index row, the full rewritten `MEMORY.md`
-  handbook (`memory_md`), and optionally a refreshed `memory_summary.md` for that
-  namespace. Use the same
+  then returns `retain_run`, a per-run summary, index row, the full rewritten
+  `MEMORY.md` handbook (`memory_md`), and optionally a refreshed
+  `memory_summary.md` for that namespace. Use the same
   provider as the main agent when you want the same model, but keep the extra
   model call visible in code rather than implicit. Put this in the high-level
   assembly code that already has the provider:
@@ -385,18 +394,23 @@ as a memory-path choice and let evals handle the container mechanics:
 read-write and exposes `SAL_MEMORY_HOME` inside the container. Memory
 implementations should not import Docker or evals; they should only receive the
 local path chosen by the assembly code, such as `FilesystemMemory(root=...)`.
+Child-only namespace mounts also share the root `.memory-lock/` directory so
+their read-distill-write sections remain serialized.
 
 The run directory is `runs/{run_id}`; if `run_id` is omitted, the implementation
-falls back to `session_id`, then a timestamp. Existing run directories are not
-overwritten; repeat ids receive a numeric suffix.
+falls back to `session_id`, then a timestamp. A complete existing run with the
+same id makes `finish(...)` a no-op; callers that need distinct attempts must use
+distinct run ids. Each namespace keeps at most 64 runs and 128 MiB, pruning the
+oldest evidence and its index row after a write. Task, transcript, artifact, and
+namespace-count limits live together in `FilesystemMemoryLimits`.
 
 If the caller passes `memory_name` explicitly, `initial(...)` can expose that
 memory directory before the run so the model may inspect prior memory. If the
 caller omits it but prior memory namespaces exist, `initial(...)` can expose the
-root and namespace names for lightweight selection. The distiller still chooses
-the final namespace after the completed transcript and artifacts are available,
-and should see compact existing `memory_summary.md` / `INDEX.md` / `MEMORY.md`
-context before merging.
+root and at most 64 namespace names for lightweight selection. The distiller
+still chooses the final namespace after the completed transcript and artifacts
+are available, and sees detailed context for at most eight existing namespaces.
+New namespaces are refused after the configured root count (128 by default).
 
 Domain-specific details to generalize:
 

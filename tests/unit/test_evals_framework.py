@@ -13,16 +13,23 @@ import json
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
+from dataclasses import asdict
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Mapping
 from unittest import mock
 
 from simple_agent_lab.evals import (
+    AgentSpec,
+    ContainerBinding,
     DEFAULT_MEMORY_CONTAINER_HOME,
     EVAL_KEY,
     INSTANCE_KEY,
     MEMORY_HOME_ENV,
+    MEMORY_NAME_ENV,
+    MEMORY_RUN_ID_ENV,
     RESULT_KEY,
     TRACE_KEY,
     FakeBackend,
@@ -33,23 +40,20 @@ from simple_agent_lab.evals import (
     RunOutcome,
     RunSpec,
     Suite,
+    reconcile_dataset,
+    run_dataset,
     run_suite_instance,
+    submit_dataset,
 )
-from simple_agent_lab.evals.protocols import MCP_KEY
+from simple_agent_lab.evals.bootstrap import bootstrap_script
+from simple_agent_lab.llm import Provider
+from simple_agent_lab.memory import FilesystemArtifact
 
 # Internal helpers live in their own modules, not the top-level facade.
 from simple_agent_lab.evals.runner import build_command, container_name
 from simple_agent_lab.evals.stores import HttpArtifactClient
 
 SWEBENCH_CONTAINER = "simple_agent_lab.evals.suites.swebench.container"
-try:
-    import mcp  # noqa: F401
-
-    HAS_MCP = True
-except ImportError:  # pragma: no cover - exercised only without the extra
-    HAS_MCP = False
-
-_MCP_SKIP_REASON = "mcp extra not installed (install with: uv sync --extra mcp)"
 
 
 class _DemoSuite:
@@ -79,86 +83,113 @@ def _simulate(answer: str):
     return on_run
 
 
-class OrchestrationTest(unittest.TestCase):
+def _run_spec(**overrides: Any) -> RunSpec:
+    values: dict[str, Any] = {
+        "suite_name": "s",
+        "container_module": "m",
+        "instance_id": "i",
+        "launch_spec": LaunchSpec(image="img", workdir="/w"),
+        "max_turns": 1,
+        "provider": "fake",
+        "api_kind": "openai-chat",
+        "run_name": "run-1",
+    }
+    values.update(overrides)
+    return RunSpec(**values)
+
+
+def _read_json(path: Path) -> Any:
+    return json.loads(path.read_text())
+
+
+def _git(repo: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", *args], cwd=repo, check=True, capture_output=True, text=True
+    ).stdout
+
+
+def _git_repo(root: Path, contents: str = "x = 1\n") -> Path:
+    repo = root / "testbed"
+    repo.mkdir()
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "t@example.invalid")
+    _git(repo, "config", "user.name", "T")
+    _git(repo, "config", "commit.gpgsign", "false")
+    (repo / "app.py").write_text(contents, encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", "base")
+    return repo
+
+
+class _TempDirTest(unittest.TestCase):
+    root: Path
+
+    def setUp(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        self.root = Path(temp_dir.name).resolve()
+
+
+def _memory_container_module(
+    name: str,
+    *,
+    patch_text: str,
+    observed: dict[str, Any],
+    artifact: FilesystemArtifact | None,
+) -> types.ModuleType:
+    module = types.ModuleType(name)
+    module.build_task = lambda instance, *, workdir: "do the stub task"  # type: ignore[attr-defined]
+    module.agent_spec = lambda: AgentSpec(name="stub_agent", flavor="bash")  # type: ignore[attr-defined]
+    module.extract_result = (  # type: ignore[attr-defined]
+        lambda workspace, instance, *, context=None: {"model_patch": patch_text}
+    )
+
+    def memory_artifacts(
+        workspace: Any,
+        instance: Mapping[str, Any],
+        *,
+        context: Mapping[str, Any] | None = None,
+    ) -> list[FilesystemArtifact]:
+        del context
+        observed.update(
+            collector_ran=True,
+            artifact_workspace=workspace,
+            artifact_instance_id=instance["instance_id"],
+        )
+        return [artifact] if artifact else []
+
+    module.memory_artifacts = memory_artifacts  # type: ignore[attr-defined]
+    return module
+
+
+class OrchestrationTest(_TempDirTest):
     def test_demo_suite_satisfies_protocol(self) -> None:
         self.assertIsInstance(_DemoSuite(), Suite)
 
     def test_run_suite_instance_fake_backend(self) -> None:
         instance = {"instance_id": "demo-1", "problem": "p", "gold": "SECRET"}
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp).resolve()
-            backend = FakeBackend(on_run=_simulate("42"), log_text="ok\n")
-            artifacts = run_suite_instance(
-                suite=_DemoSuite(),
-                instance=instance,
-                backend=backend,
-                store=LocalDirStore(root),
-                run_root=root,
-                run_id="run-x",
-                provider="fake",
-            )
-            # The backend received a structured spec, not a shell command.
-            self.assertEqual(backend.runs[0].suite_name, "demo")
-            self.assertEqual(backend.runs[0].instance_id, "demo-1")
-            self.assertEqual(artifacts.logs, "ok\n")
-
-            written = json.loads(
-                (artifacts.run_dir / "input" / "instance.json").read_text()
-            )
-            self.assertNotIn("gold", written)  # sanitized through the store
-
-            # A run produces result.json (+ trajectory); nothing else is shaped.
-            self.assertFalse((artifacts.run_dir / "out" / "prediction.jsonl").exists())
-            result = json.loads((artifacts.run_dir / RESULT_KEY).read_text())
-            self.assertEqual(result["answer"], "42")
-
-    def test_run_suite_instance_stages_mcp_config_separately(self) -> None:
-        instance = {"instance_id": "demo-1", "problem": "p", "gold": "SECRET"}
-        mcp_config = {
-            "servers": [
-                {
-                    "name": "workspace",
-                    "transport": "stdio",
-                    "command": "python",
-                    "args": ["-m", "server"],
-                    "cwd": "/testbed",
-                }
-            ]
-        }
-
-        def on_run(spec: RunSpec, store) -> None:
-            agent_input = json.loads(store.get(INSTANCE_KEY).decode("utf-8"))
-            staged_mcp = json.loads(store.get(MCP_KEY).decode("utf-8"))
-            self.assertNotIn("servers", agent_input)
-            self.assertEqual(staged_mcp, mcp_config)
-            store.put(TRACE_KEY, b'{"meta": {"suite": "demo"}}\n')
-            store.put(RESULT_KEY, b'{"answer": "ok"}\n')
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp).resolve()
-            artifacts = run_suite_instance(
-                suite=_DemoSuite(),
-                instance=instance,
-                backend=FakeBackend(on_run=on_run),
-                store=LocalDirStore(root),
-                run_root=root,
-                run_id="run-x",
-                provider="fake",
-                mcp_config=mcp_config,
-            )
-
-            staged = json.loads((artifacts.run_dir / MCP_KEY).read_text())
-            self.assertEqual(staged, mcp_config)
+        backend = FakeBackend(on_run=_simulate("42"), log_text="ok\n")
+        artifacts = run_suite_instance(
+            suite=_DemoSuite(),
+            instance=instance,
+            backend=backend,
+            store=LocalDirStore(self.root),
+            run_root=self.root,
+            run_id="run-x",
+            provider="fake",
+        )
+        self.assertEqual(
+            (backend.runs[0].suite_name, backend.runs[0].instance_id),
+            ("demo", "demo-1"),
+        )
+        self.assertEqual(artifacts.logs, "ok\n")
+        self.assertNotIn("gold", _read_json(artifacts.run_dir / INSTANCE_KEY))
+        self.assertFalse((artifacts.run_dir / "out" / "prediction.jsonl").exists())
+        self.assertEqual(_read_json(artifacts.run_dir / RESULT_KEY)["answer"], "42")
 
     def test_build_command_targets_the_generic_runner(self) -> None:
-        spec = RunSpec(
-            suite_name="s",
-            container_module="m",
-            instance_id="i",
-            launch_spec=LaunchSpec(image="img", workdir="/w"),
+        spec = _run_spec(
             max_turns=5,
-            provider="fake",
-            api_kind="openai-chat",
             wheelhouse_mount="/wh",
             run_name="n",
         )
@@ -168,14 +199,8 @@ class OrchestrationTest(unittest.TestCase):
         self.assertIn("--find-links /wh", cmd[-1])
 
     def test_build_command_installs_mcp_extra_when_requested(self) -> None:
-        spec = RunSpec(
-            suite_name="s",
-            container_module="m",
-            instance_id="i",
-            launch_spec=LaunchSpec(image="img", workdir="/w"),
+        spec = _run_spec(
             max_turns=5,
-            provider="fake",
-            api_kind="openai-chat",
             wheelhouse_mount="/wh",
             run_name="n",
             package_extras=("mcp",),
@@ -185,30 +210,67 @@ class OrchestrationTest(unittest.TestCase):
         self.assertIn("simple-agent-lab[mcp]", cmd[-1])
 
 
-class HostHttpStoreTest(unittest.TestCase):
+class BootstrapScriptTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.offline_script = bootstrap_script(
+            runner_argv=("-m", "runner"),
+            install=False,
+            wheelhouse_mount="/agent/wheelhouse",
+        )
+
+    def test_wheelhouse_bootstrap_selects_python_for_container_libc(self) -> None:
+        script = self.offline_script
+        self.assertIn('_PYTHON_LIBC="linux-x86_64-musl"', script)
+        self.assertIn('_PYTHON_LIBC="linux-x86_64-gnu"', script)
+        self.assertIn(
+            '"/agent/wheelhouse/uv-python"/cpython-3.11.*-"$_PYTHON_LIBC"'
+            "/bin/python3.11",
+            script,
+        )
+        self.assertIn('"$OFFLINE_PYTHON" -m venv /opt/agent-venv', script)
+        self.assertLess(
+            script.index('if [ -x "$OFFLINE_PYTHON" ]; then'),
+            script.index('elif [ -n "$UV_BIN" ]; then'),
+        )
+
+    def test_wheelhouse_bootstrap_requires_cpython_311(self) -> None:
+        self.assertIn("wheelhouse installs require CPython 3.11", self.offline_script)
+        self.assertIn("sys.version_info[:2] == (3, 11)", self.offline_script)
+
+    def test_online_bootstrap_keeps_python310_fallback(self) -> None:
+        script = bootstrap_script(
+            runner_argv=("-m", "runner"),
+            install=False,
+            wheelhouse_mount=None,
+        )
+
+        self.assertIn('"$UV_BIN" venv --python 3.11', script)
+        self.assertIn('|| "$UV_BIN" venv --python python3', script)
+        self.assertIn("sys.version_info >= (3, 10)", script)
+        self.assertIn("WHEELHOUSE_PYTHON_REQUIRED=0", script)
+
+
+class HostHttpStoreTest(_TempDirTest):
     def test_http_client_round_trip(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            base = Path(tmp).resolve()
-            with HostHttpStore(base, container_host="127.0.0.1") as store:
-                bound = store.bind(base / "run-1" / "inst-1")
-                binding = bound.container_binding()
-                client = HttpArtifactClient(
-                    binding.env["SAL_STORE_URL"], binding.env["SAL_STORE_TOKEN"]
-                )
-                client.put("out/result.json", b'{"ok": true}')
-                self.assertEqual(bound.get("out/result.json"), b'{"ok": true}')
-                self.assertEqual(client.get("out/result.json"), b'{"ok": true}')
-                self.assertFalse(client.exists("out/missing.json"))
+        with HostHttpStore(self.root, container_host="127.0.0.1") as store:
+            bound = store.bind(self.root / "run-1" / "inst-1")
+            binding = bound.container_binding()
+            client = HttpArtifactClient(
+                binding.env["SAL_STORE_URL"], binding.env["SAL_STORE_TOKEN"]
+            )
+            client.put("out/result.json", b'{"ok": true}')
+            self.assertEqual(bound.get("out/result.json"), b'{"ok": true}')
+            self.assertEqual(client.get("out/result.json"), b'{"ok": true}')
+            self.assertFalse(client.exists("out/missing.json"))
 
     def test_bad_token_is_rejected(self) -> None:
         import urllib.error
 
-        with tempfile.TemporaryDirectory() as tmp:
-            with HostHttpStore(Path(tmp), container_host="127.0.0.1") as store:
-                url = store.bind(Path(tmp)).container_binding().env["SAL_STORE_URL"]
-                client = HttpArtifactClient(url, "wrong-token")
-                with self.assertRaises(urllib.error.HTTPError):
-                    client.put("x", b"y")
+        with HostHttpStore(self.root, container_host="127.0.0.1") as store:
+            url = store.bind(self.root).container_binding().env["SAL_STORE_URL"]
+            client = HttpArtifactClient(url, "wrong-token")
+            with self.assertRaises(urllib.error.HTTPError):
+                client.put("x", b"y")
 
 
 class _SwebenchLikeSuite:
@@ -227,107 +289,34 @@ class _SwebenchLikeSuite:
         return None
 
 
-class LocalProcessBackendTest(unittest.TestCase):
+class LocalProcessBackendTest(_TempDirTest):
     """Unified entry point runs a real agent in-process — no Docker, no network."""
 
     def test_run_suite_instance_in_process(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = Path(tmp) / "testbed"
-            repo.mkdir()
-
-            def git(*args: str) -> None:
-                subprocess.run(
-                    ["git", *args], cwd=repo, check=True, capture_output=True
-                )
-
-            git("init")
-            git("config", "user.email", "t@example.invalid")
-            git("config", "user.name", "T")
-            git("config", "commit.gpgsign", "false")
-            (repo / "app.py").write_text("x = 1\n", encoding="utf-8")
-            git("add", "-A")
-            git("commit", "-m", "base")
-
-            root = Path(tmp) / "runs"
-            store = LocalDirStore(root)
-            instance = {
+        repo = _git_repo(self.root)
+        runs = self.root / "runs"
+        store = LocalDirStore(runs)
+        artifacts = run_suite_instance(
+            suite=_SwebenchLikeSuite(),
+            instance={
                 "instance_id": "demo__repo-1",
                 "problem_statement": "Make it better.",
                 "language": "python",
-            }
-            artifacts = run_suite_instance(
-                suite=_SwebenchLikeSuite(),
-                instance=instance,
-                backend=LocalProcessBackend(workspace=repo),
-                store=store,
-                run_root=root,
-                run_id="r",
-                provider="fake",
-                max_turns=3,
-            )
+            },
+            backend=LocalProcessBackend(workspace=repo),
+            store=store,
+            run_root=runs,
+            run_id="r",
+            provider="fake",
+            max_turns=3,
+        )
 
-            self.assertEqual(artifacts.status_code, 0)
-            bound = store.bind(artifacts.run_dir)
-            result = json.loads(bound.get(RESULT_KEY).decode("utf-8"))
-            self.assertIn("model_patch", result)
-            trace = json.loads(bound.get(TRACE_KEY).decode("utf-8"))
-            self.assertEqual(trace["meta"]["suite"], "swebench")
-            self.assertFalse(trace["meta"]["in_progress"])
-
-    @unittest.skipUnless(HAS_MCP, _MCP_SKIP_REASON)
-    def test_run_suite_instance_in_process_with_mcp_config(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = Path(tmp) / "testbed"
-            repo.mkdir()
-
-            def git(*args: str) -> None:
-                subprocess.run(
-                    ["git", *args], cwd=repo, check=True, capture_output=True
-                )
-
-            git("init")
-            git("config", "user.email", "t@example.invalid")
-            git("config", "user.name", "T")
-            git("config", "commit.gpgsign", "false")
-            (repo / "app.py").write_text("x = 1\n", encoding="utf-8")
-            git("add", "-A")
-            git("commit", "-m", "base")
-
-            root = Path(tmp) / "runs"
-            store = LocalDirStore(root)
-            artifacts = run_suite_instance(
-                suite=_SwebenchLikeSuite(),
-                instance={
-                    "instance_id": "demo__repo-mcp",
-                    "problem_statement": "Inspect the workspace.",
-                    "language": "python",
-                },
-                backend=LocalProcessBackend(workspace=repo),
-                store=store,
-                run_root=root,
-                run_id="mcp",
-                provider="fake",
-                max_turns=1,
-                mcp_config={
-                    "servers": [
-                        {
-                            "name": "workspace",
-                            "transport": "stdio",
-                            "command": sys.executable,
-                            "args": [
-                                "-m",
-                                "simple_agent_lab.mcp.workspace_server",
-                            ],
-                            "cwd": str(repo),
-                        }
-                    ]
-                },
-            )
-
-            self.assertEqual(artifacts.status_code, 0, artifacts.logs)
-            trace = json.loads(store.bind(artifacts.run_dir).get(TRACE_KEY))
-            tools = trace["model_turns"][0]["tools"]
-            self.assertIn("workspace_list_files", {tool["name"] for tool in tools})
+        self.assertEqual(artifacts.status_code, 0)
+        bound = store.bind(artifacts.run_dir)
+        self.assertIn("model_patch", json.loads(bound.get(RESULT_KEY)))
+        header = json.loads(bound.get(TRACE_KEY).splitlines()[0])
+        self.assertEqual(header["meta"]["suite"], "swebench")
+        self.assertFalse(header["meta"]["in_progress"])
 
     def test_oracle_run_reproduces_gold_patch(self) -> None:
         """Oracle mode applies the gold patch (no model) and extract reproduces it.
@@ -338,65 +327,37 @@ class LocalProcessBackendTest(unittest.TestCase):
         No Docker, no network, no LLM — just the real container half end to end.
         """
 
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = Path(tmp) / "testbed"
-            repo.mkdir()
+        repo = _git_repo(self.root, "def f():\n    return 1\n")
+        (repo / "app.py").write_text("def f():\n    return 2\n", encoding="utf-8")
+        gold_patch = _git(repo, "diff")
+        _git(repo, "checkout", "--", "app.py")
+        self.assertIn("return 2", gold_patch)
 
-            def git(*args: str) -> str:
-                return subprocess.run(
-                    ["git", *args], cwd=repo, check=True, capture_output=True, text=True
-                ).stdout
-
-            git("init")
-            git("config", "user.email", "t@example.invalid")
-            git("config", "user.name", "T")
-            git("config", "commit.gpgsign", "false")
-            (repo / "app.py").write_text("def f():\n    return 1\n", encoding="utf-8")
-            git("add", "-A")
-            git("commit", "-m", "base")
-
-            # Build a real gold patch, then revert so the oracle has to re-apply it.
-            (repo / "app.py").write_text("def f():\n    return 2\n", encoding="utf-8")
-            gold_patch = git("diff")
-            git("checkout", "--", "app.py")
-            self.assertIn("return 2", gold_patch)
-
-            root = Path(tmp) / "runs"
-            store = LocalDirStore(root)
-            instance = {
+        runs = self.root / "runs"
+        store = LocalDirStore(runs)
+        artifacts = run_suite_instance(
+            suite=_SwebenchLikeSuite(),
+            instance={
                 "instance_id": "demo__repo-oracle",
                 "problem_statement": "Make f return 2.",
                 "language": "python",
-                "patch": gold_patch,  # gold/private — kept only for oracle mode
-            }
-            artifacts = run_suite_instance(
-                suite=_SwebenchLikeSuite(),
-                instance=instance,
-                backend=LocalProcessBackend(workspace=repo),
-                store=store,
-                run_root=root,
-                run_id="oracle",
-                provider="oracle",  # no model: apply the reference solution
-            )
+                "patch": gold_patch,
+            },
+            backend=LocalProcessBackend(workspace=repo),
+            store=store,
+            run_root=runs,
+            run_id="oracle",
+            provider="oracle",
+        )
 
-            self.assertEqual(artifacts.status_code, 0)
-            bound = store.bind(artifacts.run_dir)
-            result = json.loads(bound.get(RESULT_KEY).decode("utf-8"))
-            self.assertIn("return 2", result["model_patch"])
-            # Oracle mode keeps the gold field in the stored instance (trusted).
-            stored = json.loads(
-                (artifacts.run_dir / "input" / "instance.json").read_text()
-            )
-            self.assertIn("patch", stored)
-            # The trajectory marks the run as oracle.
-            trace = json.loads(bound.get(TRACE_KEY).decode("utf-8"))
-            self.assertTrue(trace["meta"]["oracle"])
+        self.assertEqual(artifacts.status_code, 0)
+        bound = store.bind(artifacts.run_dir)
+        self.assertIn("return 2", json.loads(bound.get(RESULT_KEY))["model_patch"])
+        self.assertIn("patch", _read_json(artifacts.run_dir / INSTANCE_KEY))
+        self.assertTrue(json.loads(bound.get(TRACE_KEY))["meta"]["oracle"])
 
     def test_oracle_without_apply_hook_fails_clearly(self) -> None:
         """A suite whose container half has no apply_oracle errors, not no-ops."""
-
-        import sys
-        import types
 
         # A real, importable container module that lacks apply_oracle.
         mod_name = "sal_test_nooracle_container"
@@ -411,58 +372,47 @@ class LocalProcessBackendTest(unittest.TestCase):
         class _NoOracleSuite(_DemoSuite):
             container_module = mod_name
 
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp).resolve()
-            instance = {"instance_id": "demo-1", "problem": "p"}
-            artifacts = run_suite_instance(
-                suite=_NoOracleSuite(),
-                instance=instance,
-                backend=LocalProcessBackend(),
-                store=LocalDirStore(root),
-                run_root=root,
-                run_id="oracle",
-                provider="oracle",
-            )
-            self.assertEqual(artifacts.status_code, 1)  # surfaced as a failed run
-            self.assertIn("apply_oracle", artifacts.logs)
+        artifacts = run_suite_instance(
+            suite=_NoOracleSuite(),
+            instance={"instance_id": "demo-1", "problem": "p"},
+            backend=LocalProcessBackend(),
+            store=LocalDirStore(self.root),
+            run_root=self.root,
+            run_id="oracle",
+            provider="oracle",
+        )
+        self.assertEqual(artifacts.status_code, 1)
+        self.assertIn("apply_oracle", artifacts.logs)
 
     def test_workspace_factory_isolates_concurrent_runs(self) -> None:
         """A workspace factory gives each run its own dir, so concurrency is safe."""
-        from simple_agent_lab.evals import run_dataset
-
-        with tempfile.TemporaryDirectory() as tmp:
-            ws_base = Path(tmp) / "ws"
-            root = Path(tmp) / "runs"
-            instances = [
-                {
-                    "instance_id": f"i-{n}",
-                    "problem_statement": "p",
-                    "language": "python",
-                }
-                for n in range(5)
-            ]
-            # Each run gets ws_base/<instance_id>; no two runs share a workspace.
-            backend = LocalProcessBackend(
-                workspace=lambda spec: ws_base / spec.instance_id
-            )
-            report = run_dataset(
-                suite=_SwebenchLikeSuite(),
-                instances=instances,
-                backend=backend,
-                store=LocalDirStore(root),
-                run_root=root,
-                run_id="batch",
-                concurrency=4,
-                provider="fake",
-                max_turns=2,
-            )
-            self.assertEqual(report.summary(), {"total": 5, "ok": 5, "failed": 0})
-            # Each run materialized its own workspace dir.
-            for n in range(5):
-                self.assertTrue((ws_base / f"i-{n}").is_dir())
+        ws_base = self.root / "ws"
+        runs = self.root / "runs"
+        instances = [
+            {
+                "instance_id": f"i-{n}",
+                "problem_statement": "p",
+                "language": "python",
+            }
+            for n in range(5)
+        ]
+        backend = LocalProcessBackend(workspace=lambda spec: ws_base / spec.instance_id)
+        report = run_dataset(
+            suite=_SwebenchLikeSuite(),
+            instances=instances,
+            backend=backend,
+            store=LocalDirStore(runs),
+            run_root=runs,
+            run_id="batch",
+            concurrency=4,
+            provider="fake",
+            max_turns=2,
+        )
+        self.assertEqual(report.summary(), {"total": 5, "ok": 5, "failed": 0})
+        self.assertTrue(all((ws_base / f"i-{n}").is_dir() for n in range(5)))
 
 
-class InEnvScoringTest(unittest.TestCase):
+class InEnvScoringTest(_TempDirTest):
     """In-environment scoring: the container-half `evaluate` hook writes the
     verdict into result.json during the run, gated on staged `eval_inputs`
     (ADR collapse-scorer-seam-into-run-primitive). No separate scoring driver."""
@@ -470,9 +420,6 @@ class InEnvScoringTest(unittest.TestCase):
     @staticmethod
     def _reuse_module() -> str:
         """Register a throwaway container module whose `evaluate` grades gold."""
-
-        import sys
-        import types
 
         mod_name = "sal_test_reuse_container"
         mod = types.ModuleType(mod_name)
@@ -491,8 +438,6 @@ class InEnvScoringTest(unittest.TestCase):
         return mod_name
 
     def test_evaluate_hook_merges_verdict_into_result(self) -> None:
-        import sys
-
         mod_name = self._reuse_module()
         self.addCleanup(lambda: sys.modules.pop(mod_name, None))
 
@@ -502,32 +447,22 @@ class InEnvScoringTest(unittest.TestCase):
             def eval_inputs(self, instance):  # type: ignore[no-untyped-def]
                 return {"expected": "solved"}
 
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp).resolve()
-            artifacts = run_suite_instance(
-                suite=_ReuseSuite(),
-                instance={"instance_id": "r-0", "gold": "solved"},
-                backend=LocalProcessBackend(),
-                store=LocalDirStore(root),
-                run_root=root,
-                run_id="reuse",
-                provider="fake",
-                max_turns=1,
-            )
-            # Gold was staged privately (EVAL_KEY), not in the agent's instance.
-            staged = json.loads((artifacts.run_dir / EVAL_KEY).read_text())
-            self.assertEqual(staged["expected"], "solved")
-            agent_view = json.loads((artifacts.run_dir / INSTANCE_KEY).read_text())
-            self.assertNotIn("gold", agent_view)
-            # The evaluate hook merged its verdict into result.json — the verdict
-            # lives next to the product, so there is no second phase to run.
-            result = json.loads((artifacts.run_dir / RESULT_KEY).read_text())
-            self.assertTrue(result["resolved"])
-            self.assertEqual(result["answer"], "solved")
+        artifacts = run_suite_instance(
+            suite=_ReuseSuite(),
+            instance={"instance_id": "r-0", "gold": "solved"},
+            backend=LocalProcessBackend(),
+            store=LocalDirStore(self.root),
+            run_root=self.root,
+            run_id="reuse",
+            provider="fake",
+            max_turns=1,
+        )
+        self.assertEqual(_read_json(artifacts.run_dir / EVAL_KEY)["expected"], "solved")
+        self.assertNotIn("gold", _read_json(artifacts.run_dir / INSTANCE_KEY))
+        result = _read_json(artifacts.run_dir / RESULT_KEY)
+        self.assertEqual((result["resolved"], result["answer"]), (True, "solved"))
 
     def test_hook_is_skipped_without_staged_eval_inputs(self) -> None:
-        import sys
-
         mod_name = self._reuse_module()
         self.addCleanup(lambda: sys.modules.pop(mod_name, None))
 
@@ -535,58 +470,59 @@ class InEnvScoringTest(unittest.TestCase):
             container_module = mod_name
             # eval_inputs inherited from _DemoSuite returns None → no staged gold.
 
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp).resolve()
-            artifacts = run_suite_instance(
-                suite=_NoGoldSuite(),
-                instance={"instance_id": "r-1"},
-                backend=LocalProcessBackend(),
-                store=LocalDirStore(root),
-                run_root=root,
-                run_id="nogold",
-                provider="fake",
-                max_turns=1,
-            )
-            result = json.loads((artifacts.run_dir / RESULT_KEY).read_text())
-            # No gold staged → the hook never ran → only the raw product remains.
-            self.assertNotIn("resolved", result)
-            self.assertEqual(result["answer"], "solved")
+        artifacts = run_suite_instance(
+            suite=_NoGoldSuite(),
+            instance={"instance_id": "r-1"},
+            backend=LocalProcessBackend(),
+            store=LocalDirStore(self.root),
+            run_root=self.root,
+            run_id="nogold",
+            provider="fake",
+            max_turns=1,
+        )
+        result = _read_json(artifacts.run_dir / RESULT_KEY)
+        self.assertNotIn("resolved", result)
+        self.assertEqual(result["answer"], "solved")
 
 
-class RunDatasetTest(unittest.TestCase):
+class RunDatasetTest(_TempDirTest):
     """The minimal controller: run many instances over a pool, aggregate outcomes."""
 
-    def test_concurrent_run_with_ordering_and_callback(self) -> None:
-        from simple_agent_lab.evals import run_dataset
+    def _run(
+        self,
+        instances: list[dict[str, Any]],
+        backend: FakeBackend,
+        **kwargs: Any,
+    ):
+        return run_dataset(
+            suite=_DemoSuite(),
+            instances=instances,
+            backend=backend,
+            store=LocalDirStore(self.root),
+            run_root=self.root,
+            run_id="batch",
+            provider="fake",
+            **kwargs,
+        )
 
+    def test_concurrent_run_with_ordering_and_callback(self) -> None:
         instances = [{"instance_id": f"i-{n}", "n": n} for n in range(6)]
         seen: list[str] = []
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp).resolve()
-            backend = FakeBackend(on_run=_simulate("ok"))
-            report = run_dataset(
-                suite=_DemoSuite(),
-                instances=instances,
-                backend=backend,
-                store=LocalDirStore(root),
-                run_root=root,
-                run_id="batch",
-                concurrency=4,
-                provider="fake",
-                on_result=lambda r: seen.append(r.instance_id),
-            )
-        # All ran; results follow input order regardless of completion order.
+        backend = FakeBackend(on_run=_simulate("ok"))
+        report = self._run(
+            instances,
+            backend,
+            concurrency=4,
+            on_result=lambda r: seen.append(r.instance_id),
+        )
         self.assertEqual(report.summary(), {"total": 6, "ok": 6, "failed": 0})
         self.assertEqual(
             [r.instance_id for r in report.results], [f"i-{n}" for n in range(6)]
         )
         self.assertEqual(len(seen), 6)
-        # Each instance got its own run dir under the batch.
         self.assertEqual(len(backend.runs), 6)
 
     def test_error_is_captured_and_retried(self) -> None:
-        from simple_agent_lab.evals import run_dataset
-
         attempts: dict[str, int] = {}
 
         def flaky(spec, store) -> None:
@@ -596,115 +532,164 @@ class RunDatasetTest(unittest.TestCase):
                 raise RuntimeError("boom")
             _simulate("ok")(spec, store)
 
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp).resolve()
-            backend = FakeBackend(on_run=flaky)
-            report = run_dataset(
-                suite=_DemoSuite(),
-                instances=[{"instance_id": "good"}, {"instance_id": "bad"}],
-                backend=backend,
-                store=LocalDirStore(root),
-                run_root=root,
-                run_id="batch",
-                concurrency=2,
-                max_attempts=3,
-                provider="fake",
-            )
+        report = self._run(
+            [{"instance_id": "good"}, {"instance_id": "bad"}],
+            FakeBackend(on_run=flaky),
+            concurrency=2,
+            max_attempts=3,
+        )
         self.assertEqual(report.summary(), {"total": 2, "ok": 1, "failed": 1})
-        bad = [r for r in report.results if r.instance_id == "bad"][0]
+        bad = next(r for r in report.results if r.instance_id == "bad")
         self.assertFalse(bad.ok)
         self.assertIn("boom", bad.error)
-        self.assertEqual(bad.attempts, 3)  # retried up to max_attempts
-        self.assertEqual(attempts["bad"], 3)
+        self.assertEqual((bad.attempts, attempts["bad"]), (3, 3))
+
+    def test_per_instance_kwargs_override_shared_run_kwargs(self) -> None:
+        instances = [
+            {"instance_id": "i-0", "token": "first"},
+            {"instance_id": "i-1", "token": "second"},
+        ]
+        backend = FakeBackend(on_run=_simulate("ok"))
+        report = self._run(
+            instances,
+            backend,
+            provider_env={"token": "shared"},
+            per_instance_kwargs=lambda instance: {
+                "provider_env": {"token": str(instance["token"])},
+                "name": f"custom.{instance['instance_id']}",
+            },
+        )
+
+        self.assertEqual(report.summary(), {"total": 2, "ok": 2, "failed": 0})
+        specs = {spec.instance_id: spec for spec in backend.runs}
+        self.assertEqual(
+            [(specs[key].provider_env, specs[key].run_name) for key in specs],
+            [
+                ({"token": "first"}, "custom.i-0"),
+                ({"token": "second"}, "custom.i-1"),
+            ],
+        )
 
 
-class SubmitReconcileTest(unittest.TestCase):
+class SubmitReconcileTest(_TempDirTest):
     """Host-reentrant batch: submit, drop all memory, reconcile from disk only."""
 
+    def _submit(
+        self,
+        *,
+        instances: list[Mapping[str, Any]] | None = None,
+        backend: Any = None,
+        suite: Any = None,
+        run_id: str = "b",
+        **options: Any,
+    ) -> Any:
+        backend = FakeBackend() if backend is None else backend
+        submit_dataset(
+            suite=_DemoSuite() if suite is None else suite,
+            instances=instances or [{"instance_id": "x"}],
+            backend=backend,
+            store=LocalDirStore(self.root),
+            run_root=self.root,
+            run_id=run_id,
+            provider=options.pop("provider", "fake"),
+            **options,
+        )
+        return backend
+
+    def _reconcile(self, backend: Any = None, **options: Any):
+        return reconcile_dataset(
+            suite=_DemoSuite(),
+            backend=FakeBackend() if backend is None else backend,
+            store=LocalDirStore(self.root),
+            run_root=self.root,
+            run_id=options.pop("run_id", "b"),
+            poll_interval_s=options.pop("poll_interval_s", 0),
+            **options,
+        )
+
+    def test_submit_preparation_matches_blocking_oracle_run(self) -> None:
+        class _ParitySuite(_DemoSuite):
+            def eval_inputs(
+                self, instance: Mapping[str, Any]
+            ) -> Mapping[str, Any] | None:
+                return {"expected": instance["gold"]}
+
+        instance = {"instance_id": "oracle-1", "problem": "p", "gold": "SECRET"}
+        options: dict[str, Any] = {
+            "provider": "oracle",
+            "api_kind": "custom-api",
+            "max_turns": 12,
+            "wall_time_seconds": 34.5,
+            "provider_env": {"TOKEN": "value"},
+            "runner_module": "custom.runner",
+            "install": False,
+            "package_extras": ("mcp",),
+            "wheelhouse_mount": "/wheelhouse",
+        }
+        blocking = FakeBackend()
+        detached = FakeBackend()
+        run_suite_instance(
+            suite=_ParitySuite(),
+            instance=instance,
+            backend=blocking,
+            store=LocalDirStore(self.root),
+            run_root=self.root,
+            run_id="blocking",
+            **options,
+        )
+        self._submit(
+            suite=_ParitySuite(),
+            instances=[instance],
+            backend=detached,
+            run_id="detached",
+            **options,
+        )
+        for run_id in ("blocking", "detached"):
+            run_dir = self.root / run_id / "oracle-1"
+            self.assertEqual(_read_json(run_dir / INSTANCE_KEY), instance)
+            self.assertEqual(_read_json(run_dir / EVAL_KEY), {"expected": "SECRET"})
+
+        blocking_spec = asdict(blocking.runs[0])
+        detached_spec = asdict(detached.runs[0])
+        for spec in (blocking_spec, detached_spec):
+            spec.pop("run_name")
+        self.assertEqual(blocking_spec, detached_spec)
+
     def test_submit_then_reconcile_from_fresh_process(self) -> None:
-        from simple_agent_lab.evals import reconcile_dataset, submit_dataset
-
         instances = [{"instance_id": f"i-{n}", "problem": "p"} for n in range(4)]
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp).resolve()
+        self._submit(
+            instances=instances,
+            backend=FakeBackend(on_run=_simulate("42")),
+            run_id="batch",
+        )
+        self.assertTrue((self.root / "batch" / "batch.json").exists())
 
-            # --- "first process": submit, then throw the backend/store away ---
-            submit_dataset(
-                suite=_DemoSuite(),
-                instances=instances,
-                backend=FakeBackend(on_run=_simulate("42")),
-                store=LocalDirStore(root),
-                run_root=root,
-                run_id="batch",
-                provider="fake",
+        seen: list[str] = []
+        report = self._reconcile(
+            run_id="batch", on_result=lambda r: seen.append(r.instance_id)
+        )
+        self.assertEqual(report.summary(), {"total": 4, "ok": 4, "failed": 0})
+        self.assertEqual(len(seen), 4)
+        for result in report.results:
+            assert result.artifacts is not None
+            self.assertEqual(
+                _read_json(result.artifacts.run_dir / RESULT_KEY)["answer"], "42"
             )
-            # The manifest is on disk; nothing else carried over.
-            self.assertTrue((root / "batch" / "batch.json").exists())
-
-            # --- "fresh process": new backend + new store, recover from disk ---
-            seen: list[str] = []
-            report = reconcile_dataset(
-                suite=_DemoSuite(),
-                backend=FakeBackend(),  # no on_run, no memory of the submit
-                store=LocalDirStore(root),
-                run_root=root,
-                run_id="batch",
-                poll_interval_s=0,
-                on_result=lambda r: seen.append(r.instance_id),
-            )
-
-            self.assertEqual(report.summary(), {"total": 4, "ok": 4, "failed": 0})
-            self.assertEqual(len(seen), 4)
-            # result.json is the decoupling artifact: a fresh process can read
-            # each run's product back without re-running.
-            for r in report.results:
-                assert r.artifacts is not None  # reconcile completed every run
-                result = json.loads((r.artifacts.run_dir / RESULT_KEY).read_text())
-                self.assertEqual(result["answer"], "42")
 
     def test_reconcile_waits_on_pending_runs(self) -> None:
-        from simple_agent_lab.evals import reconcile_dataset, submit_dataset
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp).resolve()
-            submit_dataset(
-                suite=_DemoSuite(),
-                instances=[{"instance_id": "slow"}],
-                backend=FakeBackend(on_run=_simulate("ok")),
-                store=LocalDirStore(root),
-                run_root=root,
-                run_id="b",
-                provider="fake",
-            )
-            # poll() returns None twice before reporting done — exercises the loop.
-            report = reconcile_dataset(
-                suite=_DemoSuite(),
-                backend=FakeBackend(pending_polls=2),
-                store=LocalDirStore(root),
-                run_root=root,
-                run_id="b",
-                poll_interval_s=0,
-            )
+        self._submit(
+            instances=[{"instance_id": "slow"}],
+            backend=FakeBackend(on_run=_simulate("ok")),
+        )
+        report = self._reconcile(FakeBackend(pending_polls=2))
         self.assertEqual(report.summary(), {"total": 1, "ok": 1, "failed": 0})
 
     def test_submit_requires_detaching_backend(self) -> None:
-        from simple_agent_lab.evals import LocalProcessBackend, submit_dataset
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp).resolve()
-            with self.assertRaises(TypeError):
-                submit_dataset(
-                    suite=_DemoSuite(),
-                    instances=[{"instance_id": "x"}],
-                    backend=LocalProcessBackend(),  # run-only, cannot outlive host
-                    store=LocalDirStore(root),
-                    run_root=root,
-                    run_id="b",
-                )
+        with self.assertRaises(TypeError):
+            self._submit(backend=LocalProcessBackend())
 
     def test_mid_submit_crash_leaves_recoverable_manifest(self) -> None:
         """A crash partway through submit still records every started container."""
-        from simple_agent_lab.evals import reconcile_dataset, submit_dataset
         from simple_agent_lab.evals.batch import BATCH_KEY, _batch_store
 
         class _CrashAtThird(FakeBackend):
@@ -719,63 +704,26 @@ class SubmitReconcileTest(unittest.TestCase):
                 return super().submit(spec, store=store, binding=binding)
 
         instances = [{"instance_id": f"i-{n}"} for n in range(5)]
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp).resolve()
-            store = LocalDirStore(root)
-            with self.assertRaises(RuntimeError):
-                submit_dataset(
-                    suite=_DemoSuite(),
-                    instances=instances,
-                    backend=_CrashAtThird(),
-                    store=store,
-                    run_root=root,
-                    run_id="b",
-                    provider="fake",
-                )
-            # The 2 containers started before the crash are in the manifest.
-            manifest = json.loads(
-                _batch_store(store, root, "b").get(BATCH_KEY).decode("utf-8")
-            )
-            self.assertEqual(len(manifest), 2)
-
-            # A fresh process can reconcile the partial batch — no orphans.
-            report = reconcile_dataset(
-                suite=_DemoSuite(),
-                backend=FakeBackend(),
-                store=LocalDirStore(root),
-                run_root=root,
-                run_id="b",
-                poll_interval_s=0,
-            )
-            self.assertEqual(report.summary(), {"total": 2, "ok": 2, "failed": 0})
+        store = LocalDirStore(self.root)
+        with self.assertRaises(RuntimeError):
+            self._submit(instances=instances, backend=_CrashAtThird())
+        manifest = json.loads(
+            _batch_store(store, self.root, "b").get(BATCH_KEY).decode()
+        )
+        self.assertEqual(len(manifest), 2)
+        self.assertEqual(
+            self._reconcile().summary(), {"total": 2, "ok": 2, "failed": 0}
+        )
 
     def test_reconcile_uses_result_when_poll_never_reports_done(self) -> None:
         """poll() that never returns done still completes if result.json exists."""
-        from simple_agent_lab.evals import reconcile_dataset, submit_dataset
 
         class _NeverDone(FakeBackend):
             def poll(self, handle):  # type: ignore[no-untyped-def]
                 return None  # daemon never reports completion (e.g. already gone)
 
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp).resolve()
-            submit_dataset(
-                suite=_DemoSuite(),
-                instances=[{"instance_id": "x"}],
-                backend=FakeBackend(on_run=_simulate("ok")),  # writes result.json
-                store=LocalDirStore(root),
-                run_root=root,
-                run_id="b",
-                provider="fake",
-            )
-            report = reconcile_dataset(
-                suite=_DemoSuite(),
-                backend=_NeverDone(),
-                store=LocalDirStore(root),
-                run_root=root,
-                run_id="b",
-                poll_interval_s=0,
-            )
+        self._submit(backend=FakeBackend(on_run=_simulate("ok")))
+        report = self._reconcile(_NeverDone())
         self.assertEqual(report.summary(), {"total": 1, "ok": 1, "failed": 0})
 
     def test_reconcile_completes_off_result_without_instance_record(self) -> None:
@@ -785,35 +733,14 @@ class SubmitReconcileTest(unittest.TestCase):
         instance record; a missing input/instance.json does not fail a run whose
         result.json landed. The instance re-enters only at the score phase.
         """
-        from simple_agent_lab.evals import reconcile_dataset, submit_dataset
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp).resolve()
-            submit_dataset(
-                suite=_DemoSuite(),
-                instances=[{"instance_id": "x"}],
-                backend=FakeBackend(on_run=_simulate("ok")),
-                store=LocalDirStore(root),
-                run_root=root,
-                run_id="b",
-                provider="fake",
-            )
-            (root / "b" / "x" / "input" / "instance.json").unlink()
-            report = reconcile_dataset(
-                suite=_DemoSuite(),
-                backend=FakeBackend(),  # poll() -> done immediately
-                store=LocalDirStore(root),
-                run_root=root,
-                run_id="b",
-                poll_interval_s=0,
-            )
-            # The result is present, so the run is done regardless of the instance.
-            self.assertEqual(report.summary(), {"total": 1, "ok": 1, "failed": 0})
+        self._submit(backend=FakeBackend(on_run=_simulate("ok")))
+        (self.root / "b" / "x" / INSTANCE_KEY).unlink()
+        self.assertEqual(
+            self._reconcile().summary(), {"total": 1, "ok": 1, "failed": 0}
+        )
 
     def test_reconcile_floors_the_idle_wait(self) -> None:
         """poll_interval_s=0 must not busy-spin: the loop sleeps a real floor."""
-        from simple_agent_lab.evals import reconcile_dataset, submit_dataset
-
         slept: list[float] = []
 
         # Returns None a few times so the loop has to wait, then completes.
@@ -826,86 +753,29 @@ class SubmitReconcileTest(unittest.TestCase):
                 self.n += 1
                 return None if self.n < 3 else RunOutcome(status_code=0)
 
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp).resolve()
-            # No on_run → no result.json, so poll()==None falls through to the
-            # idle wait (instead of the result-on-disk short-circuit).
-            submit_dataset(
-                suite=_DemoSuite(),
-                instances=[{"instance_id": "x"}],
-                backend=FakeBackend(),
-                store=LocalDirStore(root),
-                run_root=root,
-                run_id="b",
-                provider="fake",
-            )
-            reconcile_dataset(
-                suite=_DemoSuite(),
-                backend=_SlowThenDone(),
-                store=LocalDirStore(root),
-                run_root=root,
-                run_id="b",
-                poll_interval_s=0,  # caller asks for 0 …
-                sleep_fn=slept.append,
-            )
-        # … but the loop floored every wait above 0 (no busy-spin).
-        self.assertTrue(slept)
-        self.assertTrue(all(s >= 0.5 for s in slept))
-
-    def test_submit_container_name_is_namespaced_by_run_root(self) -> None:
-        from simple_agent_lab.evals import submit_dataset
-
-        instance = {"instance_id": "astropy__astropy-13398"}
-        run_id = "003af6184cce-9119f5eb01dc"
-
-        with tempfile.TemporaryDirectory() as tmp:
-            left_root = Path(tmp) / "self_evolving" / "swebench_runs"
-            right_root = Path(tmp) / "hyperagents" / "swebench_runs"
-            left_backend = FakeBackend()
-            right_backend = FakeBackend()
-
-            submit_dataset(
-                suite=_DemoSuite(),
-                instances=[instance],
-                backend=left_backend,
-                store=LocalDirStore(left_root),
-                run_root=left_root,
-                run_id=run_id,
-                provider="fake",
-            )
-            submit_dataset(
-                suite=_DemoSuite(),
-                instances=[instance],
-                backend=right_backend,
-                store=LocalDirStore(right_root),
-                run_root=right_root,
-                run_id=run_id,
-                provider="fake",
-            )
-
-        left_name = left_backend.runs[0].run_name
-        right_name = right_backend.runs[0].run_name
-        self.assertNotEqual(left_name, right_name)
-        self.assertTrue(left_name.startswith("demo."))
-        self.assertTrue(left_name.endswith(f".{run_id}"))
+        self._submit()
+        self._reconcile(_SlowThenDone(), sleep_fn=slept.append)
+        self.assertTrue(slept and all(s >= 0.5 for s in slept))
 
 
-class ReviewFixesTest(unittest.TestCase):
+class ReviewFixesTest(_TempDirTest):
     """Docker-path guards (no real Docker): exit-code parsing, atomic put, names."""
 
     def test_exit_status_guards_null_and_nonint(self) -> None:
         from simple_agent_lab.evals.backends.docker_local import exit_status
 
-        self.assertEqual(exit_status({"ExitCode": 0}), 0)
-        self.assertEqual(exit_status({"ExitCode": 137}), 137)
-        self.assertEqual(exit_status({"ExitCode": None}), 1)  # null → failure
-        self.assertEqual(exit_status({}), 1)  # missing → failure
+        for state, expected in [
+            ({"ExitCode": 0}, 0),
+            ({"ExitCode": 137}, 137),
+            ({"ExitCode": None}, 1),
+            ({}, 1),
+        ]:
+            with self.subTest(state=state):
+                self.assertEqual(exit_status(state), expected)
 
     def test_host_http_put_is_atomic(self) -> None:
         """put writes via a temp file + replace (no torn read), like LocalDirStore."""
         import os as _os
-
-        from simple_agent_lab.evals import HostHttpStore
 
         seen_tmp: list[str] = []
         real_replace = _os.replace
@@ -914,15 +784,14 @@ class ReviewFixesTest(unittest.TestCase):
             seen_tmp.append(str(src))
             return real_replace(src, dst)
 
-        with tempfile.TemporaryDirectory() as tmp:
-            store = HostHttpStore(Path(tmp), container_host="127.0.0.1")
-            with mock.patch(
-                "simple_agent_lab.evals.stores.host_http.os.replace", spy_replace
-            ):
-                with store:
-                    bound = store.bind(Path(tmp) / "r" / "i")
-                    bound.put("out/result.json", b'{"ok": true}')
-                    self.assertEqual(bound.get("out/result.json"), b'{"ok": true}')
+        store = HostHttpStore(self.root, container_host="127.0.0.1")
+        with mock.patch(
+            "simple_agent_lab.evals.stores.host_http.os.replace", spy_replace
+        ):
+            with store:
+                bound = store.bind(self.root / "r" / "i")
+                bound.put("out/result.json", b'{"ok": true}')
+                self.assertEqual(bound.get("out/result.json"), b'{"ok": true}')
         self.assertTrue(seen_tmp and seen_tmp[0].endswith(".tmp"))
 
     def test_container_name_clamped_and_distinct(self) -> None:
@@ -935,38 +804,31 @@ class ReviewFixesTest(unittest.TestCase):
         self.assertLessEqual(len(long_a), 200)
         self.assertNotEqual(long_a, long_b)  # distinct overflowing names stay distinct
 
-    def test_container_name_is_namespaced_by_run_root(self) -> None:
+    def test_container_name_is_namespaced_for_both_run_modes(self) -> None:
         instance = {"instance_id": "astropy__astropy-13398"}
         run_id = "003af6184cce-9119f5eb01dc"
-
-        with tempfile.TemporaryDirectory() as tmp:
-            left_root = Path(tmp) / "self_evolving" / "swebench_runs"
-            right_root = Path(tmp) / "hyperagents" / "swebench_runs"
-            left_backend = FakeBackend()
-            right_backend = FakeBackend()
-
-            run_suite_instance(
-                suite=_DemoSuite(),
-                instance=instance,
-                backend=left_backend,
-                store=LocalDirStore(left_root),
-                run_root=left_root,
-                run_id=run_id,
-            )
-            run_suite_instance(
-                suite=_DemoSuite(),
-                instance=instance,
-                backend=right_backend,
-                store=LocalDirStore(right_root),
-                run_root=right_root,
-                run_id=run_id,
-            )
-
-        left_name = left_backend.runs[0].run_name
-        right_name = right_backend.runs[0].run_name
-        self.assertNotEqual(left_name, right_name)
-        self.assertTrue(left_name.startswith("demo."))
-        self.assertTrue(left_name.endswith(f".{run_id}"))
+        for mode in ("blocking", "detached"):
+            with self.subTest(mode=mode):
+                names = []
+                for owner in ("self_evolving", "hyperagents"):
+                    root = self.root / mode / owner / "swebench_runs"
+                    backend = FakeBackend()
+                    common = {
+                        "suite": _DemoSuite(),
+                        "backend": backend,
+                        "store": LocalDirStore(root),
+                        "run_root": root,
+                        "run_id": run_id,
+                    }
+                    if mode == "blocking":
+                        run_suite_instance(instance=instance, **common)
+                    else:
+                        submit_dataset(instances=[instance], **common)
+                    names.append(backend.runs[0].run_name)
+                self.assertNotEqual(*names)
+                self.assertTrue(
+                    names[0].startswith("demo.") and names[0].endswith(f".{run_id}")
+                )
 
     def test_docker_backends_import_without_docker_and_error_clearly(self) -> None:
         """The optional `docker` dep is import-guarded: the module loads without it,
@@ -986,23 +848,18 @@ class ReviewFixesTest(unittest.TestCase):
             UV_CONTAINER_PATH,
             with_local_mounts,
         )
-        from simple_agent_lab.evals.protocols import ContainerBinding
 
-        with tempfile.TemporaryDirectory() as tmp:
-            wheelhouse = Path(tmp) / "wheelhouse"
-            wheelhouse.mkdir()
-            uv = Path(tmp) / "uv"
-            uv.write_bytes(b"#!/bin/sh\n")
-            store_mount = {"/host/run": {"bind": "/agent/run", "mode": "rw"}}
-
-            bound = with_local_mounts(
-                ContainerBinding(
-                    mounts=dict(store_mount), env={"SAL_STORE": "localdir"}
-                ),
-                wheelhouse=wheelhouse,
-                wheelhouse_mount="/agent/wheelhouse",
-                uv_binary=uv,
-            )
+        wheelhouse = self.root / "wheelhouse"
+        wheelhouse.mkdir()
+        uv = self.root / "uv"
+        uv.write_bytes(b"#!/bin/sh\n")
+        store_mount = {"/host/run": {"bind": "/agent/run", "mode": "rw"}}
+        bound = with_local_mounts(
+            ContainerBinding(mounts=dict(store_mount), env={"SAL_STORE": "localdir"}),
+            wheelhouse=wheelhouse,
+            wheelhouse_mount="/agent/wheelhouse",
+            uv_binary=uv,
+        )
 
         # The store's mount and env are preserved alongside the new mounts.
         self.assertEqual(bound.mounts["/host/run"], store_mount["/host/run"])
@@ -1018,25 +875,27 @@ class ReviewFixesTest(unittest.TestCase):
 
     def test_memory_home_is_bind_mounted_read_write(self) -> None:
         from simple_agent_lab.evals.backends.docker_local import with_local_mounts
-        from simple_agent_lab.evals.protocols import ContainerBinding
 
-        with tempfile.TemporaryDirectory() as tmp:
-            memory_home = Path(tmp) / "memory"
-            bound = with_local_mounts(
-                ContainerBinding(env={"SAL_STORE": "localdir"}),
-                wheelhouse=None,
-                wheelhouse_mount="/agent/wheelhouse",
-                uv_binary=None,
-                memory_home=memory_home,
-            )
-
-            self.assertTrue(memory_home.exists())
-            self.assertEqual(
-                bound.mounts[str(memory_home.resolve())],
-                {"bind": DEFAULT_MEMORY_CONTAINER_HOME, "mode": "rw"},
-            )
-            self.assertEqual(bound.env["SAL_STORE"], "localdir")
-            self.assertEqual(bound.env[MEMORY_HOME_ENV], DEFAULT_MEMORY_CONTAINER_HOME)
+        memory_home = self.root / "memory"
+        bound = with_local_mounts(
+            ContainerBinding(env={"SAL_STORE": "localdir"}),
+            wheelhouse=None,
+            wheelhouse_mount="/agent/wheelhouse",
+            uv_binary=None,
+            memory_home=memory_home,
+        )
+        self.assertTrue(memory_home.exists())
+        self.assertEqual(
+            bound.mounts[str(memory_home.resolve())],
+            {"bind": DEFAULT_MEMORY_CONTAINER_HOME, "mode": "rw"},
+        )
+        self.assertEqual(
+            bound.env,
+            {
+                "SAL_STORE": "localdir",
+                MEMORY_HOME_ENV: DEFAULT_MEMORY_CONTAINER_HOME,
+            },
+        )
 
     def test_memory_home_from_env_reads_optional_mount_path(self) -> None:
         from simple_agent_lab.evals.in_container import memory_home_from_env
@@ -1050,7 +909,6 @@ class ReviewFixesTest(unittest.TestCase):
     def test_wheelhouse_without_mount_path_fails_clearly(self) -> None:
         """A wheelhouse with no in-container find-links path is a misconfiguration."""
         from simple_agent_lab.evals.backends.docker_local import with_local_mounts
-        from simple_agent_lab.evals.protocols import ContainerBinding
 
         with self.assertRaises(ValueError) as ctx:
             with_local_mounts(
@@ -1063,7 +921,6 @@ class ReviewFixesTest(unittest.TestCase):
 
     def test_no_offline_inputs_leaves_binding_untouched(self) -> None:
         from simple_agent_lab.evals.backends.docker_local import with_local_mounts
-        from simple_agent_lab.evals.protocols import ContainerBinding
 
         binding = ContainerBinding(
             mounts={"/host/run": {"bind": "/agent/run", "mode": "rw"}}
@@ -1079,22 +936,58 @@ class ReviewFixesTest(unittest.TestCase):
         )
 
     def test_local_docker_backend_sets_client_timeout(self) -> None:
-        from types import SimpleNamespace
-
         from simple_agent_lab.evals.backends import docker_local
         from simple_agent_lab.evals.backends.docker_local import LocalDockerBackend
 
         fake_client = object()
         fake_docker = SimpleNamespace(from_env=mock.Mock(return_value=fake_client))
-        with mock.patch.object(docker_local, "docker", fake_docker):
+        with (
+            mock.patch.object(docker_local, "docker", fake_docker),
+            mock.patch.object(docker_local, "ensure_docker_host_env") as detect_host,
+        ):
             client = LocalDockerBackend(docker_timeout_s=180.0)._client()
 
         self.assertIs(client, fake_client)
+        detect_host.assert_called_once_with()
         fake_docker.from_env.assert_called_once_with(timeout=180.0)
 
-    def test_remote_docker_backend_sets_client_timeout(self) -> None:
-        from types import SimpleNamespace
+    def test_docker_host_probe_finds_docker_desktop_socket(self) -> None:
+        from simple_agent_lab.evals.backends import docker_local
 
+        fake_stat = mock.Mock(st_mode=1)
+        home = Path("/tmp/sal-docker-home")
+        with (
+            mock.patch.dict("os.environ", {"HOME": str(home)}, clear=True),
+            mock.patch.object(Path, "stat", return_value=fake_stat),
+            mock.patch.object(docker_local.stat, "S_ISSOCK", return_value=True),
+        ):
+            docker_local.ensure_docker_host_env()
+            resolved = docker_local.os.environ.get("DOCKER_HOST")
+
+        self.assertEqual(resolved, f"unix://{home}/.docker/run/docker.sock")
+
+    def test_force_existing_removes_named_container_before_start(self) -> None:
+        from simple_agent_lab.evals.backends import docker_local
+        from simple_agent_lab.evals.backends.docker_local import LocalDockerBackend
+
+        existing = mock.Mock()
+        containers = SimpleNamespace(get=mock.Mock(return_value=existing))
+        client = SimpleNamespace(containers=containers)
+        backend = LocalDockerBackend(force_existing=True)
+        backend._client = mock.Mock(return_value=client)
+
+        with mock.patch.object(docker_local, "start_container") as start:
+            backend.submit(
+                _run_spec(),
+                store=mock.Mock(),
+                binding=ContainerBinding(),
+            )
+
+        containers.get.assert_called_once_with("run-1")
+        existing.remove.assert_called_once_with(force=True)
+        start.assert_called_once()
+
+    def test_remote_docker_backend_sets_client_timeout(self) -> None:
         from simple_agent_lab.evals.backends import remote_docker
 
         fake_client = SimpleNamespace()
@@ -1117,11 +1010,8 @@ class ReviewFixesTest(unittest.TestCase):
 
     def test_start_container_removes_created_container_on_timeout(self) -> None:
         """A Docker SDK timeout after create() must not leave a named container."""
-        from types import SimpleNamespace
-
         from simple_agent_lab.evals.backends import docker_local
         from simple_agent_lab.evals.backends.docker_local import start_container
-        from simple_agent_lab.evals.protocols import ContainerBinding
 
         class FakeImageNotFound(Exception):
             pass
@@ -1132,44 +1022,12 @@ class ReviewFixesTest(unittest.TestCase):
         class FakeStartTimeout(Exception):
             pass
 
-        class FakeImages:
-            def get(self, image: str) -> object:
-                return object()
-
-        class FakeContainer:
-            def __init__(self) -> None:
-                self.removed = False
-
-            def start(self) -> None:
-                raise FakeStartTimeout("start timed out")
-
-            def remove(self, *, force: bool) -> None:
-                self.removed = force
-
-        class FakeContainers:
-            def __init__(self) -> None:
-                self.created = FakeContainer()
-
-            def create(self, **kwargs: Any) -> FakeContainer:
-                return self.created
-
-        class FakeClient:
-            def __init__(self) -> None:
-                self.images = FakeImages()
-                self.containers = FakeContainers()
-
-        client = FakeClient()
-        spec = RunSpec(
-            suite_name="s",
-            container_module="m",
-            instance_id="i",
-            launch_spec=LaunchSpec(image="img", workdir="/w"),
-            max_turns=1,
-            provider="fake",
-            api_kind="openai-chat",
-            run_name="run-1",
+        container = mock.Mock()
+        container.start.side_effect = FakeStartTimeout("start timed out")
+        client = SimpleNamespace(
+            images=SimpleNamespace(get=mock.Mock(return_value=object())),
+            containers=SimpleNamespace(create=mock.Mock(return_value=container)),
         )
-
         fake_docker = SimpleNamespace(
             errors=SimpleNamespace(
                 ImageNotFound=FakeImageNotFound,
@@ -1180,21 +1038,18 @@ class ReviewFixesTest(unittest.TestCase):
             with self.assertRaises(FakeStartTimeout):
                 start_container(
                     client,
-                    spec,
+                    _run_spec(),
                     ContainerBinding(),
                     user="root",
                     pull="missing",
                     environment={},
                 )
-        self.assertTrue(client.containers.created.removed)
+        container.remove.assert_called_once_with(force=True)
 
     def test_local_docker_run_removes_container_when_wait_times_out(self) -> None:
         """A blocking run timeout after submit() must force-remove the container."""
-        from types import SimpleNamespace
-
         from simple_agent_lab.evals.backends import docker_local
         from simple_agent_lab.evals.backends.docker_local import LocalDockerBackend
-        from simple_agent_lab.evals.protocols import ContainerBinding
         from simple_agent_lab.evals.protocols import RunHandle
 
         class FakeNotFound(Exception):
@@ -1203,51 +1058,23 @@ class ReviewFixesTest(unittest.TestCase):
         class FakeWaitTimeout(Exception):
             pass
 
-        class FakeContainer:
-            def __init__(self) -> None:
-                self.removed = False
-
-            def wait(self) -> object:
-                raise FakeWaitTimeout("wait timed out")
-
-            def remove(self, *, force: bool) -> None:
-                self.removed = force
-
-        class FakeContainers:
-            def __init__(self, container: FakeContainer) -> None:
-                self.container = container
-
-            def get(self, name: str) -> FakeContainer:
-                return self.container
-
-        class FakeClient:
-            def __init__(self, container: FakeContainer) -> None:
-                self.containers = FakeContainers(container)
-
-        container = FakeContainer()
+        container = mock.Mock()
+        container.wait.side_effect = FakeWaitTimeout("wait timed out")
         backend = LocalDockerBackend()
         backend.submit = mock.Mock(
             return_value=RunHandle(backend_kind="local-docker", ref="run-1", run_dir="")
         )
-        backend._client = mock.Mock(return_value=FakeClient(container))
-        spec = RunSpec(
-            suite_name="s",
-            container_module="m",
-            instance_id="i",
-            launch_spec=LaunchSpec(image="img", workdir="/w"),
-            max_turns=1,
-            provider="fake",
-            api_kind="openai-chat",
-            run_name="run-1",
+        backend._client = mock.Mock(
+            return_value=SimpleNamespace(
+                containers=SimpleNamespace(get=mock.Mock(return_value=container))
+            )
         )
-
-        with tempfile.TemporaryDirectory() as tmp:
-            store = LocalDirStore(Path(tmp)).bind(Path(tmp) / "run")
-            fake_docker = SimpleNamespace(errors=SimpleNamespace(NotFound=FakeNotFound))
-            with mock.patch.object(docker_local, "docker", fake_docker):
-                with self.assertRaises(FakeWaitTimeout):
-                    backend.run(spec, store=store, binding=ContainerBinding())
-        self.assertTrue(container.removed)
+        store = LocalDirStore(self.root).bind(self.root / "run")
+        fake_docker = SimpleNamespace(errors=SimpleNamespace(NotFound=FakeNotFound))
+        with mock.patch.object(docker_local, "docker", fake_docker):
+            with self.assertRaises(FakeWaitTimeout):
+                backend.run(_run_spec(), store=store, binding=ContainerBinding())
+        container.remove.assert_called_once_with(force=True)
 
 
 class _FakeRemoteContainer:
@@ -1277,7 +1104,7 @@ class _FakeRemoteContainer:
         return [buffer.getvalue()], {}
 
 
-class RemoteDockerHostPullTest(unittest.TestCase):
+class RemoteDockerHostPullTest(_TempDirTest):
     """Host-pull copy logic without a daemon: push instance in, pull out/ back."""
 
     def test_push_inputs_then_pull_outputs(self) -> None:
@@ -1297,29 +1124,22 @@ class RemoteDockerHostPullTest(unittest.TestCase):
             unpack_members(tar)["agent/run/input/instance.json"], b'{"x":1}'
         )
 
-        with tempfile.TemporaryDirectory() as tmp:
-            host_root = Path(tmp) / "host"
-            container_fs = Path(tmp) / "worker"
-            container_fs.mkdir()
-            store = LocalDirStore(host_root).bind(host_root / "run" / "inst")
-            store.put(INSTANCE_KEY, b'{"instance_id":"inst"}')
+        host_root = self.root / "host"
+        container_fs = self.root / "worker"
+        container_fs.mkdir()
+        store = LocalDirStore(host_root).bind(host_root / "run" / "inst")
+        store.put(INSTANCE_KEY, b'{"instance_id":"inst"}')
 
-            container = _FakeRemoteContainer(container_fs)
-            # 1. host pushes the instance into the worker container
-            push_inputs(container, store)
-            staged = container_fs / RUN_MOUNT.lstrip("/") / INSTANCE_KEY
-            self.assertTrue(staged.exists())
+        container = _FakeRemoteContainer(container_fs)
+        push_inputs(container, store)
+        self.assertTrue((container_fs / RUN_MOUNT.lstrip("/") / INSTANCE_KEY).exists())
+        out = container_fs / RUN_MOUNT.lstrip("/") / "out"
+        out.mkdir(parents=True)
+        (out / "result.json").write_text('{"model_patch":"diff"}')
+        (out / "trajectory.jsonl").write_text('{"meta":{"in_progress":false}}\n')
 
-            # 2. worker writes its outputs locally (simulated)
-            out = container_fs / RUN_MOUNT.lstrip("/") / "out"
-            out.mkdir(parents=True)
-            (out / "result.json").write_text('{"model_patch":"diff"}')
-            (out / "trajectory.jsonl").write_text('{"meta":{"in_progress":false}}\n')
-
-            # 3. host pulls out/ back into its store (host-initiated, no reverse conn)
-            pulled = pull_outputs(container, store)
-            self.assertEqual(set(pulled), {RESULT_KEY, TRACE_KEY})
-            self.assertEqual(json.loads(store.get(RESULT_KEY))["model_patch"], "diff")
+        self.assertEqual(set(pull_outputs(container, store)), {RESULT_KEY, TRACE_KEY})
+        self.assertEqual(json.loads(store.get(RESULT_KEY))["model_patch"], "diff")
 
 
 class SwebenchSuiteDriverTest(unittest.TestCase):
@@ -1344,7 +1164,7 @@ class SwebenchSuiteDriverTest(unittest.TestCase):
         # which needs the swebench harness installed — not asserted here).
         self.assertEqual(launch_spec.cap_add, ())
         # Default per-container memory guardrail (docker --memory).
-        self.assertEqual(launch_spec.mem_limit, "8g")
+        self.assertEqual(launch_spec.mem_limit, "16g")
 
     def test_multilingual_suite_name_is_distinct(self) -> None:
         from evals.swebench.suite import SwebenchSuite
@@ -1370,20 +1190,12 @@ class CreateKwargsTest(unittest.TestCase):
     def test_shared_create_kwargs_carries_plan_fields(self) -> None:
         from simple_agent_lab.evals.backends.docker_local import _create_kwargs
 
-        spec = RunSpec(
-            suite_name="s",
-            container_module="m",
-            instance_id="i",
+        spec = _run_spec(
             launch_spec=LaunchSpec(
                 image="img", workdir="/w", cap_add=("SYS_PTRACE",), entrypoint=""
             ),
             max_turns=3,
-            provider="fake",
-            api_kind="openai-chat",
-            run_name="run-1",
         )
-        from simple_agent_lab.evals import ContainerBinding
-
         binding = ContainerBinding(
             mounts={"/host": {"bind": "/agent/run", "mode": "rw"}},
             env={"SAL_STORE": "localdir"},
@@ -1408,27 +1220,25 @@ class RequestExtraFromEnvTest(unittest.TestCase):
     """request_extra now carries only session headers; reasoning moved to the
     provider so adapters map it per-model (no API-kind branching here)."""
 
-    def test_no_headers_yields_empty(self) -> None:
+    def test_request_extra_contains_only_session_headers(self) -> None:
         from simple_agent_lab.evals.in_container import request_extra_from_env
 
-        self.assertEqual(request_extra_from_env(env={}), {})
-
-    def test_session_headers_only(self) -> None:
-        from simple_agent_lab.evals.in_container import request_extra_from_env
-
-        extra = request_extra_from_env(
-            env={"OPENAI_SESSION_ID": "s", "OPENAI_LOG_ID": "l"}
-        )
-        self.assertEqual(
-            extra,
-            {"extra_headers": {"extra": '{"session_id":"s"}', "X-TT-logid": "l"}},
-        )
-
-    def test_reasoning_no_longer_in_request_extra(self) -> None:
-        from simple_agent_lab.evals.in_container import request_extra_from_env
-
-        # Effort is now a provider field, not a request_extra key.
-        self.assertEqual(request_extra_from_env(env={"REASONING_EFFORT": "high"}), {})
+        cases = [
+            ({}, {}),
+            (
+                {"OPENAI_SESSION_ID": "s", "OPENAI_LOG_ID": "l"},
+                {
+                    "extra_headers": {
+                        "extra": '{"session_id":"s"}',
+                        "X-TT-logid": "l",
+                    }
+                },
+            ),
+            ({"REASONING_EFFORT": "high"}, {}),
+        ]
+        for env, expected in cases:
+            with self.subTest(env=env):
+                self.assertEqual(request_extra_from_env(env=env), expected)
 
 
 class ProviderReasoningFromEnvTest(unittest.TestCase):
@@ -1442,22 +1252,22 @@ class ProviderReasoningFromEnvTest(unittest.TestCase):
 
         return provider_from_env(kind="openai", env={**self._BASE, **extra})
 
-    def test_default_reasoning_from_neutral_env(self) -> None:
-        self.assertEqual(
-            self._provider(REASONING_EFFORT="high").default_reasoning, "high"
-        )
-
-    def test_legacy_openai_env_still_honored(self) -> None:
-        self.assertEqual(
-            self._provider(OPENAI_REASONING_EFFORT="low").default_reasoning, "low"
-        )
-
-    def test_neutral_env_wins_over_legacy(self) -> None:
-        prov = self._provider(REASONING_EFFORT="high", OPENAI_REASONING_EFFORT="low")
-        self.assertEqual(prov.default_reasoning, "high")
-
-    def test_unset_is_none(self) -> None:
-        self.assertIsNone(self._provider().default_reasoning)
+    def test_reasoning_effort_precedence_and_defaults(self) -> None:
+        cases = [
+            ({"REASONING_EFFORT": "high"}, "high"),
+            ({"OPENAI_REASONING_EFFORT": "low"}, "low"),
+            (
+                {
+                    "REASONING_EFFORT": "high",
+                    "OPENAI_REASONING_EFFORT": "low",
+                },
+                "high",
+            ),
+            ({}, None),
+        ]
+        for env, expected in cases:
+            with self.subTest(env=env):
+                self.assertEqual(self._provider(**env).default_reasoning, expected)
 
     def test_invalid_effort_raises(self) -> None:
         with self.assertRaises(SystemExit):
@@ -1475,171 +1285,70 @@ class ProviderReasoningFromEnvTest(unittest.TestCase):
             self.assertEqual(prov.default_reasoning, "medium")
 
 
-class RunInContainerMemoryWiringTest(unittest.TestCase):
+class RunInContainerMemoryWiringTest(_TempDirTest):
     """memory.finish runs at SESSION_END with the suite's artifact_builder."""
 
-    def test_memory_finish_persists_suite_artifact_via_session_end(self) -> None:
-        import types
-
+    def _run(self, module: types.ModuleType, memory_home: str):
         from simple_agent_lab.evals.in_container import run_in_container
-        from simple_agent_lab.evals.protocols import (
-            AgentSpec,
-            MEMORY_NAME_ENV,
-            MEMORY_RUN_ID_ENV,
-        )
-        from simple_agent_lab.llm import Provider
-        from simple_agent_lab.memory import FilesystemArtifact
 
-        observed: dict[str, Any] = {}
-        patch_text = "diff --git a/x b/x\n+stub change\n"
-
-        module = types.ModuleType("sal_test_stub_container_mem")
-
-        def build_task(instance: Mapping[str, Any], *, workdir: str) -> str:
-            del instance, workdir
-            return "do the stub task"
-
-        def agent_spec() -> AgentSpec:
-            return AgentSpec(name="stub_agent", flavor="bash")
-
-        def extract_result(
-            workspace: Any,
-            instance: Mapping[str, Any],
-            *,
-            context: Mapping[str, Any] | None = None,
-        ) -> dict[str, Any]:
-            del workspace, instance, context
-            return {"model_patch": patch_text}
-
-        def memory_artifacts(
-            workspace: Any,
-            instance: Mapping[str, Any],
-            *,
-            context: Mapping[str, Any] | None = None,
-        ) -> list[FilesystemArtifact]:
-            del context
-            observed["artifact_workspace"] = workspace
-            observed["artifact_instance_id"] = dict(instance).get("instance_id")
-            return [
-                FilesystemArtifact(
-                    name="model_patch.diff",
-                    content=patch_text,
-                    description="Final unified git diff (model_patch).",
-                )
-            ]
-
-        module.build_task = build_task  # type: ignore[attr-defined]
-        module.agent_spec = agent_spec  # type: ignore[attr-defined]
-        module.extract_result = extract_result  # type: ignore[attr-defined]
-        module.memory_artifacts = memory_artifacts  # type: ignore[attr-defined]
         sys.modules[module.__name__] = module
         self.addCleanup(lambda: sys.modules.pop(module.__name__, None))
-
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = Path(tmp)
-            mem_home = tmp_path / "memory"
-            workdir = tmp_path / "work"
-            workdir.mkdir()
-            store = LocalDirStore(tmp_path / "run")
-            env = {
-                MEMORY_HOME_ENV: str(mem_home),
-                MEMORY_NAME_ENV: "stub-namespace",
-                MEMORY_RUN_ID_ENV: "run-1",
-            }
-            with mock.patch.dict("os.environ", env, clear=False):
-                result, _state = run_in_container(
-                    instance={"instance_id": "stub-1"},
-                    container_module=module.__name__,
-                    provider=Provider(id="fake", api="fake", model="fake-model"),
-                    workdir=workdir,
-                    max_turns=2,
-                    store=store,
-                    trace_id="stub.stub-1",
-                    producer="suite:stub",
-                    suite_name="stub",
-                )
-
-            mem_run_dir = mem_home / "stub-namespace" / "runs" / "run-1"
-            patch_artifact = (mem_run_dir / "artifacts" / "model_patch.diff").read_text(
-                encoding="utf-8"
+        workdir = self.root / "work"
+        workdir.mkdir(exist_ok=True)
+        env = {
+            MEMORY_HOME_ENV: memory_home,
+            MEMORY_NAME_ENV: "stub-namespace",
+            MEMORY_RUN_ID_ENV: "run-1",
+        }
+        with mock.patch.dict("os.environ", env):
+            result, _state = run_in_container(
+                instance={"instance_id": "stub-1"},
+                container_module=module.__name__,
+                provider=Provider(id="fake", api="fake", model="fake-model"),
+                workdir=workdir,
+                max_turns=2,
+                store=LocalDirStore(self.root / "run"),
+                trace_id="stub.stub-1",
+                producer="suite:stub",
+                suite_name="stub",
             )
-            manifest = (mem_run_dir / "artifacts.md").read_text(encoding="utf-8")
-            index_exists = (mem_home / "stub-namespace" / "INDEX.md").exists()
+        return result, workdir
 
+    def test_memory_finish_persists_suite_artifact_via_session_end(self) -> None:
+        observed: dict[str, Any] = {}
+        patch_text = "diff --git a/x b/x\n+stub change\n"
+        module = _memory_container_module(
+            "sal_test_stub_container_mem",
+            patch_text=patch_text,
+            observed=observed,
+            artifact=FilesystemArtifact(
+                name="model_patch.diff",
+                content=patch_text,
+                description="Final unified git diff (model_patch).",
+            ),
+        )
+        mem_home = self.root / "memory"
+        result, workdir = self._run(module, str(mem_home))
+        mem_run_dir = mem_home / "stub-namespace" / "runs" / "run-1"
         self.assertEqual(result["model_patch"], patch_text)
         self.assertEqual(observed["artifact_workspace"], workdir)
         self.assertEqual(observed["artifact_instance_id"], "stub-1")
-        self.assertIn("+stub change", patch_artifact)
-        self.assertIn("model_patch.diff", manifest)
-        self.assertTrue(index_exists)
+        self.assertIn(
+            "+stub change",
+            (mem_run_dir / "artifacts" / "model_patch.diff").read_text(),
+        )
+        self.assertIn("model_patch.diff", (mem_run_dir / "artifacts.md").read_text())
+        self.assertTrue((mem_home / "stub-namespace" / "INDEX.md").exists())
 
     def test_no_memory_home_leaves_run_unchanged(self) -> None:
-        import types
-
-        from simple_agent_lab.evals.in_container import run_in_container
-        from simple_agent_lab.evals.protocols import AgentSpec
-        from simple_agent_lab.llm import Provider
-
         observed: dict[str, Any] = {}
-        module = types.ModuleType("sal_test_stub_container_nomem")
-
-        def build_task(instance: Mapping[str, Any], *, workdir: str) -> str:
-            del instance, workdir
-            return "do the stub task"
-
-        def agent_spec() -> AgentSpec:
-            return AgentSpec(name="stub_agent", flavor="bash")
-
-        def extract_result(
-            workspace: Any,
-            instance: Mapping[str, Any],
-            *,
-            context: Mapping[str, Any] | None = None,
-        ) -> dict[str, Any]:
-            del workspace, instance, context
-            return {"model_patch": ""}
-
-        def memory_artifacts(
-            workspace: Any,
-            instance: Mapping[str, Any],
-            *,
-            context: Mapping[str, Any] | None = None,
-        ) -> list[Any]:
-            del workspace, instance, context
-            observed["collector_ran"] = True
-            return []
-
-        module.build_task = build_task  # type: ignore[attr-defined]
-        module.agent_spec = agent_spec  # type: ignore[attr-defined]
-        module.extract_result = extract_result  # type: ignore[attr-defined]
-        module.memory_artifacts = memory_artifacts  # type: ignore[attr-defined]
-        sys.modules[module.__name__] = module
-        self.addCleanup(lambda: sys.modules.pop(module.__name__, None))
-
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = Path(tmp)
-            workdir = tmp_path / "work"
-            workdir.mkdir()
-            mem_home = tmp_path / "memory"
-            store = LocalDirStore(tmp_path / "run")
-            with mock.patch.dict("os.environ", {MEMORY_HOME_ENV: ""}, clear=False):
-                result, _state = run_in_container(
-                    instance={"instance_id": "stub-2"},
-                    container_module=module.__name__,
-                    provider=Provider(id="fake", api="fake", model="fake-model"),
-                    workdir=workdir,
-                    max_turns=2,
-                    store=store,
-                    trace_id="stub.stub-2",
-                    producer="suite:stub",
-                    suite_name="stub",
-                )
-
-            self.assertFalse(mem_home.exists())
-
+        module = _memory_container_module(
+            "sal_test_stub_container_nomem",
+            patch_text="",
+            observed=observed,
+            artifact=None,
+        )
+        result, _workdir = self._run(module, "")
+        self.assertFalse((self.root / "memory").exists())
         self.assertEqual(result["model_patch"], "")
         self.assertNotIn("collector_ran", observed)
-
-
-if __name__ == "__main__":
-    unittest.main()

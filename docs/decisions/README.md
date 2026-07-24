@@ -46,13 +46,20 @@ product direction, especially if future contributors may wonder why it was chose
 - [Consolidate Provider Construction and Env-Var Reading in llm.env](20260613-consolidate-provider-env.md)
 - [Model-Alias Registry (strong / fast) over provider_from_env](20260613-model-alias-registry.md) — env-alias scheme superseded by model-config-file; registry type stands
 - [JSON Model-Config File for the Model Registry](20260615-model-config-file.md) — replaces the env-alias scheme of model-alias-registry
+- [Goal Loop: Autonomous Continue-Until-Verifiably-Done Primitive](20260618-goal-loop.md)
+- [Dynamic Workflows Use Generated JavaScript Orchestration](20260620-dynamic-workflows-js-orchestration.md)
+- [JSON Run-Profile File for Launching an Agent + Bench](20260626-run-profile-file.md)
+- [Trajectory Schema v5 — Append-only Event Stream](20260628-trajectory-schema-v5.md)
+- [Use Harbor as the Eval Harness for Harbor Datasets](20260706-harbor-as-eval-harness.md)
+- [Bound Filesystem Memory Growth](20260714-bound-filesystem-memory-growth.md)
+- [Serialize Filesystem Memory Consolidation](20260714-serialize-filesystem-memory-consolidation.md)
 
 ## Proposed
 
 - [Generic Containerized Eval Framework](20260531-generic-containerized-eval-framework.md) — supersedes `keep-benchmark-suites-as-eval-adapters` for containerized suites
 - [Oracle Run Mode for Suite Self-Check](20260601-oracle-run-mode-for-suite-self-check.md) — builds on `generic-containerized-eval-framework`
 - [Scorer Seam and Per-Suite Scoring Topology](20260601-scorer-seam-and-scoring-topology.md) — amends `generic-containerized-eval-framework`, builds on `oracle-run-mode-for-suite-self-check`, amended by `collapse-scorer-seam-into-run-primitive`
-- [Dynamic Workflows Use Generated JavaScript Orchestration](20260620-dynamic-workflows-js-orchestration.md)
+- [Centralized Env-Config Registry](20260627-centralized-env-config.md)
 
 ## Withdrawn
 

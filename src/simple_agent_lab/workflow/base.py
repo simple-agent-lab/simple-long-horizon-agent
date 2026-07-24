@@ -16,6 +16,8 @@ the sub-agent to *see* something without it being phrased as the task.
 
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass, field
 from typing import Sequence
 
@@ -66,7 +68,7 @@ class WorkflowResult:
         return [step.state for step in self.steps]
 
 
-def final_output(state: State, agent_name: str) -> str:
+def final_output(state: State, agent_name: str, *, after_message_index: int = 0) -> str:
     """Extract `agent_name`'s answer text from a finished run.
 
     Prefers the terminal `final` message (the one the core loop stops on).
@@ -77,11 +79,15 @@ def final_output(state: State, agent_name: str) -> str:
     Uses `text_of` (full content), not `message_text` (a 120-char preview):
     a step's output is fed verbatim into the next agent's task, so it must
     not be truncated.
+
+    `after_message_index` narrows extraction to one resumed segment of a shared
+    `State`, avoiding stale final messages from earlier segments.
     """
-    for message in reversed(state.messages):
+    messages = state.messages[after_message_index:]
+    for message in reversed(messages):
         if message.sender == agent_name and message.kind == "final":
             return text_of(message.content)
-    for message in reversed(state.messages):
+    for message in reversed(messages):
         if isinstance(message, AssistantMessage) and message.sender == agent_name:
             text = text_of(message.content)
             if text:
@@ -89,11 +95,59 @@ def final_output(state: State, agent_name: str) -> str:
     return ""
 
 
+def state_output_tokens(state: State) -> int:
+    """Cumulative output tokens across all assistant messages on `state`.
+
+    Tolerates `usage is None` turns (older/fake messages) without crashing. The
+    one place this fold lives — the goal loop's budget accounting and the
+    workflow trace breakdowns both call it.
+    """
+    total = 0
+    for message in state.messages:
+        if isinstance(message, AssistantMessage) and message.usage is not None:
+            total += message.usage.output_tokens
+    return total
+
+
 def as_text(task: ContentInput) -> str:
     """Best-effort plain text for a task (string passes through unchanged)."""
     if isinstance(task, str):
         return task
     return text_of(normalize_content(task))
+
+
+def pick_index(text: str, n: int, *, default: int = 0) -> int:
+    """Resolve a judge/selector's free text to a 0-based choice in ``[0, n)``.
+
+    The selection seam for workflows that ask an agent to *pick the best of N
+    candidates* (e.g. a selector or value-guided pick). Candidates are presented
+    to the model 1-based ("Candidate 1..N"),
+    so this parses a 1-based answer and returns it 0-based. Mirrors the tolerant
+    parsing of `routing.select_route` / `goal_checks._parse_judge_json`: try a
+    JSON object (`{"best": k}`) first, then the first in-range integer, and fall
+    back to `default` when nothing usable is found — never raise on bad model
+    output.
+    """
+    if n <= 0:
+        raise ValueError("pick_index requires n >= 1")
+    try:
+        obj = json.loads(text.strip())
+    except (json.JSONDecodeError, ValueError):
+        obj = None
+    if isinstance(obj, dict):
+        for key in ("best", "choice", "winner", "index", "answer"):
+            if key in obj:
+                try:
+                    k = int(obj[key])
+                except (TypeError, ValueError):
+                    continue
+                if 1 <= k <= n:
+                    return k - 1
+    for token in re.findall(r"\d+", text):
+        k = int(token)
+        if 1 <= k <= n:
+            return k - 1
+    return default
 
 
 def run_agent(

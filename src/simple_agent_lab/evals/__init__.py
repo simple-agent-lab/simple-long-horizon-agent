@@ -33,12 +33,12 @@ from .protocols import (
     DEFAULT_MEMORY_CONTAINER_HOME,
     EVAL_KEY,
     INSTANCE_KEY,
-    MCP_KEY,
     MEMORY_HOME_ENV,
     MEMORY_NAME_ENV,
     MEMORY_RUN_ID_ENV,
     RESULT_KEY,
     TRACE_KEY,
+    TRACE_RAW_KEY,
     AgentSpec,
     ArtifactStore,
     ContainerBackend,
@@ -52,6 +52,13 @@ from .protocols import (
     Suite,
 )
 from .dataset import DatasetReport, InstanceResult, run_dataset
+from .profile import (
+    RunProfile,
+    apply_profile_env,
+    load_run_profile,
+    parse_with_profile,
+    profile_run_argv,
+)
 from .runner import run_suite_instance
 from .stores import HostHttpStore, LocalDirStore
 
@@ -66,12 +73,12 @@ __all__ = [
     "EVAL_KEY",
     "DEFAULT_MEMORY_CONTAINER_HOME",
     "INSTANCE_KEY",
-    "MCP_KEY",
     "MEMORY_HOME_ENV",
     "MEMORY_NAME_ENV",
     "MEMORY_RUN_ID_ENV",
     "RESULT_KEY",
     "TRACE_KEY",
+    "TRACE_RAW_KEY",
     "AgentSpec",
     "ArtifactStore",
     "ContainerBackend",
@@ -89,8 +96,13 @@ __all__ = [
     "RunArtifacts",
     "RunHandle",
     "RunOutcome",
+    "RunProfile",
     "RunSpec",
     "Suite",
+    "apply_profile_env",
+    "load_run_profile",
+    "parse_with_profile",
+    "profile_run_argv",
     "reconcile_dataset",
     "run_dataset",
     "run_suite_instance",

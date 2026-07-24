@@ -22,7 +22,7 @@ from .local_dir import LocalDirStore
 def container_store_from_env(env: dict[str, str] | None = None):
     """Build the container-side `ArtifactStore` the in-container runner uses."""
 
-    source = env if env is not None else os.environ
+    source = env if env is not None else os.environ  # env-ok: default to process env
     kind = source.get("SAL_STORE", "localdir")
     if kind == "localdir":
         return LocalDirStore(source.get("SAL_STORE_ROOT", "/agent/run"))

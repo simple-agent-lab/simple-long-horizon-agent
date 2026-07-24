@@ -26,6 +26,7 @@ classifiers = [
 ]
 dependencies = [
     "anthropic>=0.39.0",
+    "filelock>=3.13.0",
     "openai>=1.50.0",
 ]
 
@@ -34,6 +35,9 @@ swebench = [
     "datasets>=2.0.0",
     "docker>=7.0.0",
     "swebench>=3.0.0",
+    # The official SWE-bench Pro evaluator (scaleapi/SWE-bench_Pro-os) imports
+    # pandas; bundling it here keeps `--pro --run-official` a single command.
+    "pandas>=1.5.0",
 ]
 programbench = [
     # docker-py drives LocalDockerBackend; programbench is the official scorer
@@ -45,6 +49,9 @@ mcp = [
     # 1.10.0 is the first release with ResourceLink, AudioContent, and
     # CallToolResult.structuredContent, all of which the integration uses.
     "mcp>=1.10.0",
+]
+harbor = [
+    "harbor>=0.17.1; python_version >= '3.12'",
 ]
 
 [project.urls]

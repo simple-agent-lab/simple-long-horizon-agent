@@ -66,11 +66,6 @@ _TASK_RE = re.compile(r'"task"\s*:\s*"((?:[^"\\]|\\.){0,200})"')
 _INSTANCE_RE = re.compile(r'"instance_id"\s*:\s*"([^"]+)"')
 
 
-# ---------------------------------------------------------------------------
-# Shape detection
-# ---------------------------------------------------------------------------
-
-
 def detect_record_kind(record: object) -> str:
     """Classify one parsed record by its visible shape."""
     if not isinstance(record, dict):
@@ -149,10 +144,24 @@ def count_records(path: Path) -> int:
     Works for both single-line JSONL and pretty-printed records by counting
     lines whose first character is ``{`` (only top-level objects start at
     column 0 in an ``indent=2`` layout).
+
+    Fast path: a single-line record (one trajectory is one line that can be many
+    MB) has no newline in its head — return 1 WITHOUT reading the multi-MB body.
+    Trajectory/sub-trace files are GBs in aggregate; reading them all in full on
+    every 2.5s poll was the scan's dominant cost. Multi-line files (pretty
+    JSONL, predictions) carry a newline in the head and are small, so the full
+    line-count below is cheap for them.
     """
     try:
-        n = 0
         with path.open("rb") as f:
+            head = f.read(MAX_PEEK_BYTES)
+            if not head:
+                return 0
+            if b"\n" not in head:
+                # One record on one (possibly huge) line — don't read the rest.
+                return 1
+            n = 0
+            f.seek(0)
             for line in f:
                 if line[:1] == b"{":
                     n += 1
@@ -206,11 +215,6 @@ def _nth_json_span(text: str, n: int) -> tuple[int, int] | None:
     return None
 
 
-# ---------------------------------------------------------------------------
-# Scan
-# ---------------------------------------------------------------------------
-
-
 def _walk(root: Path):
     """rglob, but pruning IGNORED_DIRS so we don't peek into bulky asset dirs."""
     stack: list[Path] = [root]
@@ -228,16 +232,36 @@ def _walk(root: Path):
             continue
 
 
+# Classified-entry cache keyed by path → (mtime, size, entry). A trace file is
+# immutable once written (the only mutating file is a *running* eval's live
+# trajectory, whose mtime/size change and so miss the cache and get re-read), so
+# caching by (mtime, size) turns the every-2.5s poll from a full ~10 GB re-read
+# into a cheap stat() per file. Without this, each poll re-classified every file
+# — a 23 s scan that backed up behind itself and froze the UI.
+_SCAN_CACHE: dict[str, tuple[float, int, dict]] = {}
+
+
 def list_traces(scan_dir: Path, project_root: Path) -> list[dict]:
     if not scan_dir.exists() or not scan_dir.is_dir():
         return []
     results: list[dict] = []
+    seen_paths: set[str] = set()
     for path in _walk(scan_dir):
         if path.suffix.lower() not in SCANNED_EXTENSIONS:
             continue
         try:
             stat = path.stat()
         except OSError:
+            continue
+        path_key = str(path)
+        seen_paths.add(path_key)
+        cached = _SCAN_CACHE.get(path_key)
+        if (
+            cached is not None
+            and cached[0] == stat.st_mtime
+            and cached[1] == stat.st_size
+        ):
+            results.append(cached[2])
             continue
         first, fingerprint, peek_error = peek_first_record(path)
         if isinstance(first, dict):
@@ -272,30 +296,38 @@ def list_traces(scan_dir: Path, project_root: Path) -> list[dict]:
         run_id = _derive_run_id(path, scan_dir)
         # SWE-bench trajectories don't repeat instance_id inside the first
         # record, so fall back to the directory name when the peek missed it.
-        if not instance_id and run_id is not None:
+        # Only for the per-instance ``out/`` artifact — a sub-trace's parent is
+        # ``sub`` (its instance dir is two up), and we WANT it to keep a None
+        # instance_id so the sidebar labels it by filename (e.g. 00_worker.jsonl)
+        # rather than repeating the instance under its run group.
+        if not instance_id and run_id is not None and path.parent.name == "out":
             instance_id = path.parents[1].name
 
-        results.append(
-            {
-                "path": str(path),
-                "rel_path": str(rel),
-                "name": path.name,
-                "size": stat.st_size,
-                "mtime": stat.st_mtime,
-                "mtime_iso": datetime.fromtimestamp(
-                    stat.st_mtime, tz=timezone.utc
-                ).isoformat(timespec="seconds"),
-                "kind": kind,
-                "schema": schema,
-                "trace_id": trace_id,
-                "task": task,
-                "instance_id": instance_id,
-                "record_count": record_count,
-                "group": group_label,
-                "run_id": run_id,
-                "peek_error": peek_error,
-            }
-        )
+        entry = {
+            "path": str(path),
+            "rel_path": str(rel),
+            "name": path.name,
+            "size": stat.st_size,
+            "mtime": stat.st_mtime,
+            "mtime_iso": datetime.fromtimestamp(
+                stat.st_mtime, tz=timezone.utc
+            ).isoformat(timespec="seconds"),
+            "kind": kind,
+            "schema": schema,
+            "trace_id": trace_id,
+            "task": task,
+            "instance_id": instance_id,
+            "record_count": record_count,
+            "group": group_label,
+            "run_id": run_id,
+            "peek_error": peek_error,
+        }
+        _SCAN_CACHE[path_key] = (stat.st_mtime, stat.st_size, entry)
+        results.append(entry)
+    # Drop cache entries for files that have vanished since the last scan.
+    if len(_SCAN_CACHE) > len(seen_paths):
+        for stale in [k for k in _SCAN_CACHE if k not in seen_paths]:
+            del _SCAN_CACHE[stale]
     results.sort(key=lambda e: (-e["mtime"], e["rel_path"]))
     return results
 
@@ -323,10 +355,12 @@ def _derive_run_id(path: Path, scan_dir: Path) -> str | None:
     """Return the run_id for a per-run artifact, or None if the path doesn't fit.
 
     Trajectories live at ``<run_id>/<instance_id>/out/{trajectory,trace}.jsonl``;
-    the run's aggregate verdicts live at ``<run_id>/eval_results.jsonl``. Both
-    resolve to the same run_id (the run directory name) so the viewer can group
-    them together. Legacy suite-level ``*_eval_results.jsonl`` files don't match
-    and return None.
+    workflow sub-agent traces live one level deeper at
+    ``<run_id>/<instance_id>/out/sub/*.jsonl``; the run's aggregate verdicts live
+    at ``<run_id>/eval_results.jsonl``. All resolve to the same run_id (the run
+    directory name) so the viewer groups them together — in particular the
+    sub-traces nest under their run instead of a stray ``…/out/sub`` group.
+    Legacy suite-level ``*_eval_results.jsonl`` files don't match and return None.
     """
     parents = path.parents
     if path.name in _RUN_ARTIFACT_NAMES:
@@ -334,6 +368,11 @@ def _derive_run_id(path: Path, scan_dir: Path) -> str | None:
         if len(parents) < 3 or parents[0].name != "out":
             return None
         run_dir = parents[2]
+    elif parents and parents[0].name == "sub":
+        # Sub-agent trace: ``<run_id>/<instance_id>/out/sub/<name>.jsonl``.
+        if len(parents) < 4 or parents[1].name != "out":
+            return None
+        run_dir = parents[3]
     elif path.name == _RUN_EVAL_NAME:
         # Need ``<run_id>/`` directly above the file.
         if len(parents) < 1:
@@ -356,11 +395,6 @@ def _safe_head_text(path: Path) -> str:
             return f.read(MAX_PEEK_BYTES).decode("utf-8", errors="replace")
     except OSError:
         return ""
-
-
-# ---------------------------------------------------------------------------
-# Read a single record
-# ---------------------------------------------------------------------------
 
 
 def read_trace_record(path: Path, line_index: int = 0) -> dict | None:
@@ -427,16 +461,16 @@ def read_trace_record_bytes(path: Path, line_index: int = 0) -> bytes | None:
         text = path.read_text(encoding="utf-8")
     except OSError:
         return None
+    # A v5 trajectory is a header line + one line per event — the whole file is
+    # one trace, so return all of it. Only an explicit line_index > 0 (selecting
+    # one record in a rare multi-record file) slices to a single record.
+    if line_index == 0:
+        return text.encode("utf-8")
     span = _nth_json_span(text, line_index)
     if span is None:
         return None
     start, end = span
     return text[start:end].encode("utf-8")
-
-
-# ---------------------------------------------------------------------------
-# HTTP server
-# ---------------------------------------------------------------------------
 
 
 CONTENT_TYPES = {
@@ -469,7 +503,6 @@ class TraceViewerHandler(BaseHTTPRequestHandler):
             f"{format % args}\n"
         )
 
-    # ---- compression ---------------------------------------------------
     def _client_accepts_gzip(self) -> bool:
         accept = self.headers.get("Accept-Encoding") or ""
         # Token-list match without parsing q-values — good enough for browsers.
@@ -627,6 +660,29 @@ class TraceViewerHandler(BaseHTTPRequestHandler):
                 extra_headers=extra,
             )
             return
+
+        if path == "/api/raw":
+            # The sibling provider raw pool for a trajectory, so the viewer can
+            # auto-resolve `{raw_ref}` pointers (real request/response) without
+            # the user hand-loading `*.raw.jsonl`. Missing sibling (e.g. a
+            # fake/oracle run with no real calls) is not an error — empty pool.
+            query = parse_qs(url.query)
+            raw_path = unquote(query.get("path", [""])[0])
+            if not raw_path:
+                return self._send_json(400, {"error": "missing path"})
+            sidecar = Path(raw_path + ".raw.jsonl").resolve()
+            allowed = self.project_root.resolve()
+            try:
+                sidecar.relative_to(allowed)
+            except ValueError:
+                return self._send_json(403, {"error": "path outside project root"})
+            if not sidecar.exists() or not sidecar.is_file():
+                return self._send_json(200, {"pool": []})
+            try:
+                pool = read_all_records(sidecar)
+            except (OSError, ValueError, json.JSONDecodeError) as e:
+                return self._send_json(400, {"error": f"failed to read raw pool: {e}"})
+            return self._send_json(200, {"pool": pool})
 
         if path == "/api/records":
             query = parse_qs(url.query)

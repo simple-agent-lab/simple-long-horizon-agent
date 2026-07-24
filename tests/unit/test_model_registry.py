@@ -231,7 +231,3 @@ class ModelRegistryLoadTest(unittest.TestCase):
     def test_no_config_and_no_openai_env_raises(self) -> None:
         with self.assertRaises(SystemExit):
             ModelRegistry.load(env={})
-
-
-if __name__ == "__main__":
-    unittest.main()

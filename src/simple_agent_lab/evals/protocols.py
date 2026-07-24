@@ -33,6 +33,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
+from simple_agent_lab.agent_flavors import DEFAULT_AGENT_FLAVOR
+
 from ..messages import ContentInput
 
 # Fixed artifact keys the framework and the in-container runner agree on. Keys
@@ -42,9 +44,9 @@ INSTANCE_KEY = "input/instance.json"  # host puts (sanitized), container gets
 EVAL_KEY = (
     "input/eval.json"  # host puts (gold scoring inputs), container `evaluate` gets
 )
-MCP_KEY = "input/mcp.json"  # host puts optional MCP server config, container gets
 RESULT_KEY = "out/result.json"  # container puts (raw extract_result), host gets
 TRACE_KEY = "out/trajectory.jsonl"  # container re-puts on a cadence = live trace
+TRACE_RAW_KEY = "out/trajectory.jsonl.raw.jsonl"  # provider raw pool sidecar
 
 # Optional persistent-memory contract for containerized eval runs. The memory
 # package remains local-filesystem-only; container backends may bind-mount a host
@@ -78,6 +80,11 @@ class LaunchSpec:
       leaves it unset (Docker's default `bridge`). Common values: `"host"`,
       `"none"` (offline/sandboxed), `"bridge"`, `"container:<name|id>"`, or a
       custom network name. Not validated here — bad values fail at create time.
+    - `security_opt`: passed straight through to Docker (`--security-opt`); the
+      default `()` adds none. The common entry is `"seccomp=unconfined"`, needed
+      when the daemon's default seccomp profile predates a syscall the image's
+      libc uses — e.g. old Docker (≤18.09) blocks `clone3`, which glibc ≥2.34
+      uses for thread creation, so threads fail with "can't start new thread".
     """
 
     image: str
@@ -86,6 +93,7 @@ class LaunchSpec:
     entrypoint: str | None = None
     platform: str | None = None
     cap_add: tuple[str, ...] = ()
+    security_opt: tuple[str, ...] = ()
     network_mode: str | None = None
     # Resource limits — None means "no limit" (Docker default).
     nano_cpus: int | None = None  # 1 CPU = 1_000_000_000
@@ -134,15 +142,16 @@ class AgentSpec:
 
     A container module may expose ``agent_spec()`` returning this; otherwise the
     runner uses the defaults (a plain bash agent with no system prompt). A suite
-    that needs full control can instead expose ``build_agent(...)`` directly, so
-    the framework never enumerates every agent shape. Only the prompt/role/flavor
-    are suite-specific — the loop, retry, and trace push are generic.
+    that needs full control can instead expose ``build_agent(...)`` directly.
+    Shared flavor names live in ``simple_agent_lab.agent_flavors``; only the
+    selected prompt/role/flavor are suite-specific — the loop, retry, and trace
+    push are generic.
     """
 
     name: str = "agent"
     role: str = ""
     system_prompt: str = ""
-    flavor: str = "bash"  # "bash" | "bash_task" | "bash_skills"
+    flavor: str = DEFAULT_AGENT_FLAVOR
 
 
 @runtime_checkable
@@ -233,6 +242,7 @@ class ContainerTask(Protocol):
         instance: Mapping[str, Any],
         *,
         context: Mapping[str, Any] | None = None,
+        state: Any | None = None,
     ) -> Mapping[str, Any]:
         """Return the run's raw product (e.g. ``{"model_patch": diff}``).
 
@@ -241,6 +251,10 @@ class ContainerTask(Protocol):
         in-container runner only passes ``context`` when the signature declares
         it, but declaring it is what lets pre-run setup reach extraction; omit it
         and a `prepare` step's output is silently dropped.
+
+        Accept ``state`` (keyword) to inspect the completed runtime transcript
+        when the product depends on a model-visible submission event rather than
+        only on workspace files. The runner also passes this only when declared.
         """
         ...
 
@@ -264,6 +278,7 @@ class RunSpec:
     provider: str  # "openai" | "fake"
     api_kind: str
     provider_env: Mapping[str, str] = field(default_factory=dict)
+    runner_module: str = "simple_agent_lab.evals.in_container"
     install: bool = True
     package_extras: tuple[str, ...] = ()
     wheelhouse_mount: str | None = None
