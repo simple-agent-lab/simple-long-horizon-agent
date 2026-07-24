@@ -5,8 +5,7 @@ the workspace holds a compiled ``./executable`` plus its bundled docs, and the
 agent must write a brand-new codebase from scratch whose ``./compile.sh``
 rebuilds an executable with identical behavior — inferring that behavior only by
 running ``./executable`` and reading the docs. Two facts make it differ from
-SWE-bench and shape this module (see
-``programbench-reverse-engineering-adapter``):
+SWE-bench and shape this module:
 
 - The run's **product is the whole workspace**, not a ``git diff``. The container
   half can only hand bytes back through ``out/result.json``, so ``extract_result``
@@ -192,6 +191,7 @@ def _detect_network_isolation() -> bool:
             ["unshare", "--net", "true"],
             capture_output=True,
             timeout=15,
+            check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return False
@@ -697,6 +697,7 @@ def _git(workspace: Path, *args: str) -> None:
             cwd=str(workspace),
             capture_output=True,
             timeout=30,
+            check=False,
         )
     except (OSError, subprocess.SubprocessError):
         pass

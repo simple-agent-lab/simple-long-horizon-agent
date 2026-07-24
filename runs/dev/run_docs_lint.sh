@@ -2,6 +2,7 @@
 # Run the documentation routing and local-link lint.
 
 set -e
-source "$(dirname "$0")/../lib/_python.sh"
+cd "$(dirname "$0")/../.."
+source runs/lib/_python.sh
 
-"${PYTHON[@]}" scripts/lint_docs.py
+"${PYTHON[@]}" -m scripts.lint_docs

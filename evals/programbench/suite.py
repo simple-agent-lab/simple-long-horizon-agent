@@ -2,7 +2,7 @@
 
 This maps ProgramBench (facebookresearch/programbench) onto one `Suite` whose
 `launch_spec` carries the per-instance launch values as **data**. Two values
-encode the deal in `programbench-reverse-engineering-adapter`:
+encode the benchmark boundary:
 
 - `network_mode="host"` keeps the container online (so the in-container agent
   can reach the model API and bootstrap can install the wheel), while
@@ -20,20 +20,12 @@ in-environment ``evaluate`` hook, so ``eval_inputs`` returns ``None``).
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Mapping, Sequence
-from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "src"
-for _path in (ROOT, SRC):
-    if str(_path) not in sys.path:
-        sys.path.insert(0, str(_path))
+from simple_agent_lab.evals.protocols import LaunchSpec
 
-from simple_agent_lab.evals.protocols import LaunchSpec  # noqa: E402
-
-from . import harness  # noqa: E402
+from . import harness
 
 
 class ProgrambenchSuite:
@@ -94,7 +86,6 @@ class ProgrambenchSuite:
         # ProgramBench scores with the official evaluator on the
         # host (compile → restore ./executable → per-branch pytest), not in the
         # run environment, so no gold is staged and the container half exposes
-        # no `evaluate` hook (`programbench-reverse-engineering-adapter` /
-        # `collapse-scorer-seam-into-run-primitive`).
+        # no `evaluate` hook.
         del instance
         return None

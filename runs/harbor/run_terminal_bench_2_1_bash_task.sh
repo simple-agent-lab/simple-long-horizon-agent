@@ -4,11 +4,11 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 
-printf -v default_timestamp '%(%Y%m%d-%H%M%S)T' -1
+default_timestamp="$(date +%Y%m%d-%H%M%S)"
 run_timestamp="${RUN_TIMESTAMP:-$default_timestamp}"
-job_name="${HARBOR_JOB_NAME:-sal-harbor-tb21-bash-task-c10-xhigh-m3-t150-$run_timestamp}"
+job_name="${HARBOR_JOB_NAME:-sal-tb21-bash-task-$run_timestamp}"
 
-export OPENAI_REASONING_EFFORT=xhigh
+export REASONING_EFFORT="${REASONING_EFFORT:-xhigh}"
 export NO_PROXY="${NO_PROXY:+${NO_PROXY},}astral.sh,releases.astral.sh"
 export no_proxy="${no_proxy:+${no_proxy},}astral.sh,releases.astral.sh"
 
@@ -17,7 +17,7 @@ if [[ "${HARBOR_DRY_RUN:-0}" == "1" ]]; then
   extra_args+=(--dry-run)
 fi
 
-uv run python runs/run_bench.py harbor \
+uv run python -m runs.run_bench harbor \
   --dataset terminal-bench/terminal-bench-2-1 \
   --job-name "$job_name" \
   --n-concurrent 10 \

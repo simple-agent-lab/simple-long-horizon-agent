@@ -107,14 +107,6 @@ class Memory:
         )
 
 
-class NoMemory(Memory):
-    """No-op memory implementation."""
-
-    def bind(self, ctx: MemoryContext) -> "MemoryBinding":
-        del ctx
-        return MemoryBinding()
-
-
 @dataclass(frozen=True)
 class MemoryBinding:
     """Assembly material produced by binding one memory instance."""

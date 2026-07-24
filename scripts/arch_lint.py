@@ -6,15 +6,18 @@ invariants that the codebase already satisfies; this script keeps them true:
 1. Layering. Every internal module belongs to a zone with a rank. A module may
    only import modules in its own zone or a lower one. In particular the
    foundation (`messages`) imports nothing internal, and the runtime core never
-   depends on peripheral subsystems (agents, evals, mcp, trace, gateway).
+   depends on peripheral subsystems (agents, evals, mcp, trace).
 2. Provider isolation. Only provider adapters may import a provider SDK, so the
    runtime core stays provider-neutral.
 3. Optional-dependency confinement. Heavy optional dependencies stay inside the
    one subpackage that owns them, so `import simple_agent_lab` needs none of
    them.
+4. Import-path integrity. Repository code uses installed packages and module
+   entry points; it never mutates Python's import path or sets the import-path
+   environment variable.
 
 Usage:
-    python scripts/arch_lint.py
+    uv run python -m scripts.arch_lint
 """
 
 from __future__ import annotations
@@ -28,6 +31,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = "simple_agent_lab"
 PACKAGE_ROOT = ROOT / "src" / PACKAGE
+REPOSITORY_CODE_ROOTS = ("src", "evals", "runs", "scripts", "tests", "examples")
 
 # --- Rules ----------------------------------------------------------------
 #
@@ -48,8 +52,8 @@ MODULE_ZONES = {
     # foundation: shared flavor / agent-config name constants, a pure leaf with
     # no internal deps, imported by both peripheral agents and eval harnesses.
     "agent_flavors": FOUNDATION,
-    # foundation: the env-config registry (ADR centralized-env-config), a pure
-    # leaf with no internal deps so every layer can read config through it.
+    # foundation: the env-config registry, a pure leaf with no internal deps so
+    # every layer can read config through it.
     "config": FOUNDATION,
     # core runtime: orchestration, state, context, model boundary, tools
     "protocols": CORE,
@@ -69,7 +73,6 @@ MODULE_ZONES = {
     "trace": PERIPHERAL,
     "evals": PERIPHERAL,
     "mcp": PERIPHERAL,
-    "tui_gateway": PERIPHERAL,
     "skills": PERIPHERAL,
     "memory": PERIPHERAL,
     "workflow": PERIPHERAL,
@@ -266,10 +269,73 @@ def package_files() -> list[Path]:
     )
 
 
+def repository_code_files() -> list[Path]:
+    files: list[Path] = []
+    for name in REPOSITORY_CODE_ROOTS:
+        root = ROOT / name
+        if not root.exists():
+            continue
+        files.extend(
+            path
+            for path in root.rglob("*")
+            if path.suffix in {".py", ".sh"}
+            and "__pycache__" not in path.parts
+            and not path.is_relative_to(ROOT / "evals" / "out")
+        )
+    return sorted(files)
+
+
+def lint_import_path_mutation(path: Path) -> list[Violation]:
+    source = path.read_text(encoding="utf-8")
+    violations: list[Violation] = []
+
+    if path.suffix == ".py":
+        tree = ast.parse(source, filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            method = node.func
+            if not isinstance(method, ast.Attribute) or method.attr not in {
+                "append",
+                "extend",
+                "insert",
+            }:
+                continue
+            owner = method.value
+            if (
+                isinstance(owner, ast.Attribute)
+                and owner.attr == "path"
+                and isinstance(owner.value, ast.Name)
+                and owner.value.id == "sys"
+            ):
+                violations.append(
+                    Violation(
+                        path,
+                        node.lineno,
+                        "do not mutate the Python import path; run the file as "
+                        "an installed package or module",
+                    )
+                )
+
+    import_path_env = "PYTHON" + "PATH"
+    for line_number, line in enumerate(source.splitlines(), start=1):
+        if import_path_env in line:
+            violations.append(
+                Violation(
+                    path,
+                    line_number,
+                    "do not set the Python import-path environment variable",
+                )
+            )
+    return violations
+
+
 def main() -> int:
     violations: list[Violation] = []
     for path in package_files():
         violations.extend(lint_file(path))
+    for path in repository_code_files():
+        violations.extend(lint_import_path_mutation(path))
 
     if violations:
         print("Architecture lint failed:")

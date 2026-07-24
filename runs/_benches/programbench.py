@@ -13,33 +13,28 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "src"
-for path in (ROOT, SRC):
-    if str(path) not in sys.path:
-        sys.path.insert(0, str(path))
-
-from evals.programbench import harness  # noqa: E402
-from evals.programbench.suite import ProgrambenchSuite  # noqa: E402
-from evals.swebench.harness import ensure_linux_uv  # noqa: E402
-from runs.lib.container_batch import run_container_batch  # noqa: E402
-from runs.lib import docker_cli  # noqa: E402
-from simple_agent_lab.evals import (  # noqa: E402
+from evals.programbench import harness
+from evals.programbench.suite import ProgrambenchSuite
+from evals.swebench.harness import ensure_linux_uv
+from runs.lib.container_batch import run_container_batch
+from runs.lib import docker_cli
+from simple_agent_lab.evals import (
     LocalDirStore,
     run_suite_instance,
 )
-from simple_agent_lab.evals.suites.programbench import container  # noqa: E402
-from simple_agent_lab.evals.backends.docker_local import (  # noqa: E402
+from simple_agent_lab.evals.suites.programbench import container
+from simple_agent_lab.evals.backends.docker_local import (
     DEFAULT_DOCKER_TIMEOUT_S,
 )
-from simple_agent_lab.evals.runner import canonical_run_id, container_name  # noqa: E402
+from simple_agent_lab.evals.runner import canonical_run_id, container_name
 
+ROOT = Path(__file__).resolve().parents[2]
 NAME = "programbench"
 DESCRIPTION = (
     "ProgramBench reverse-engineering instance in a Docker container "
     "(single instance per run; per-command network isolation)."
 )
-SCORER = ("evals/programbench/evaluate_submissions.py",)
+SCORER = ("-m", "evals.programbench.evaluate_submissions")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -168,7 +163,7 @@ def run(args: argparse.Namespace) -> dict:
         print(result.logs, end="" if result.logs.endswith("\n") else "\n")
     print(f"==> status={result.status_code} run_dir={result.run_dir}")
     print(
-        "    score it: uv run python evals/programbench/evaluate_submissions.py "
+        "    score it: uv run python -m evals.programbench.evaluate_submissions "
         f"--run-root {run_root} --run-id {args.run_id}"
     )
     return docker_cli.result_record(NAME, result)
@@ -242,7 +237,7 @@ def run_batch(args: argparse.Namespace) -> dict:
     print(f"Outputs: {run_root / args.run_id}/")
     print(
         "Score with: uv run --extra programbench python "
-        "evals/programbench/evaluate_submissions.py "
+        "-m evals.programbench.evaluate_submissions "
         f"--run-id {args.run_id} --workers {args.parallel}"
     )
     if failed:

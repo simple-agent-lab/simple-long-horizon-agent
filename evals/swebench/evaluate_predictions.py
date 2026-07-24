@@ -24,21 +24,14 @@ import tempfile
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
-
-ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "src"
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from evals.swebench import harness  # noqa: E402
-from simple_agent_lab.trace import json_safe, read_jsonl, write_jsonl  # noqa: E402
-from simple_agent_lab.evals.backends.docker_local import (  # noqa: E402
+from evals.swebench import harness
+from simple_agent_lab.trace import json_safe, read_jsonl, write_jsonl
+from simple_agent_lab.evals.backends.docker_local import (
     ensure_docker_host_env,
 )
-from simple_agent_lab.evals.runner import canonical_run_id  # noqa: E402
+from simple_agent_lab.evals.runner import canonical_run_id
 
+ROOT = Path(__file__).resolve().parents[2]
 
 DEFAULT_DATASET = "princeton-nlp/SWE-bench_Verified"
 DEFAULT_MULTILINGUAL_DATASET = "SWE-bench/SWE-bench_Multilingual"
@@ -574,8 +567,8 @@ def parity_mismatches(
 ) -> list[dict[str, Any]]:
     """Compare official "separate" rows to "reuse" rows; list resolved disagreements.
 
-    The hard parity requirement (ADR scorer-seam-and-scoring-topology): the in-environment "reuse" verdict
-    must match the official harness. Empty list == parity holds for this sample.
+    The in-environment "reuse" verdict must match the official harness. Empty
+    list means parity holds for this sample.
     Keyed on ``metrics.instance_id`` (falls back to ``trace_id``).
     """
 
@@ -614,7 +607,7 @@ def eval_rows_from_official(
     The pure normalize step shared by the official CLI path (`--run-official`)
     and the in-environment "reuse" path (`reuse_eval_row`). Routing both through
     this one mapping is what makes their rows byte-identical and the reuse
-    verdict trustable against the official harness (parity gate; ADR collapse-scorer-seam-into-run-primitive).
+    verdict trustable against the official harness.
     """
 
     results = eval_results_for_predictions(
@@ -689,7 +682,7 @@ def reuse_eval_row(
     host-side — so this small helper does the last step here. It routes through
     the *same* `eval_result_from_official` mapping as ``--run-official``, so the
     rows are interchangeable and the parity gate (`parity_mismatches`) can
-    cross-check the reuse verdict against the official harness (ADR collapse-scorer-seam-into-run-primitive).
+    cross-check the reuse verdict against the official harness.
     """
 
     instance_id = str(instance.get("instance_id") or "")
@@ -980,9 +973,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--verify-parity",
         action="store_true",
         help=(
-            "Parity gate (ADR scorer-seam-and-scoring-topology): cross-check the official 'separate' rows "
-            "against a 'reuse' eval-result JSONL (--reuse-results) and exit "
-            "non-zero on any resolved disagreement."
+            "Cross-check the official 'separate' rows against a 'reuse' "
+            "eval-result JSONL (--reuse-results) and exit non-zero on any "
+            "resolved disagreement."
         ),
     )
     parser.add_argument(

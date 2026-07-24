@@ -1,4 +1,4 @@
-"""Tests for the env-config registry (ADR centralized-env-config)."""
+"""Tests for the environment-configuration registry."""
 
 from __future__ import annotations
 

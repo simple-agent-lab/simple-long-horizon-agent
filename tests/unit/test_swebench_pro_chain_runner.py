@@ -149,7 +149,7 @@ class ProChainRunnerTest(unittest.TestCase):
                 )
 
             predictions.assert_called_once_with(
-                run_root,
+                run_root.resolve(),
                 run_id="run-1",
                 model_name="model",
                 dataset_name="dataset",
@@ -188,9 +188,10 @@ class ProChainRunnerTest(unittest.TestCase):
 
         command = run.call_args.args[0]
         self.assertEqual(
-            command[1:4],
+            command[1:5],
             [
-                str(pro_chain_runner.ROOT / "evals/swebench/evaluate_predictions.py"),
+                "-m",
+                "evals.swebench.evaluate_predictions",
                 "--pro",
                 "--run-official",
             ],

@@ -1,4 +1,4 @@
-"""SWE-bench container half (ADR generic-containerized-eval-framework): the two functions a suite supplies.
+"""SWE-bench container half: the functions a suite supplies.
 
 The generic in-container runner (`simple_agent_lab.evals.in_container`) owns the
 agent loop, retry, and trace push. This module supplies only what is
@@ -13,8 +13,8 @@ SWE-bench-specific and runs *inside* the image:
 - `apply_oracle(workspace, instance)` — optional: apply the gold patch instead
   of running a model, for the framework's deterministic oracle self-check.
 - `evaluate(workspace, instance, *, context)` — optional: in-environment scoring
-  (ADR collapse-scorer-seam-into-run-primitive). Runs the host-staged official
-  eval script in the run environment and captures its log into ``result.json``;
+  that runs the host-staged official eval script in the run environment and
+  captures its log into ``result.json``;
   the host turns that into a verdict via `evaluate_predictions.reuse_eval_row`
   (the official grader needs the gold test spec, which lives host-side).
 - `memory_artifacts(workspace, instance, *, context)` — optional: the raw
@@ -297,6 +297,7 @@ def apply_oracle(workspace: Path, instance: Mapping[str, Any]) -> None:
         capture_output=True,
         encoding="utf-8",
         errors="replace",
+        check=False,
     )
     if result.returncode != 0:
         raise RuntimeError(
@@ -372,7 +373,7 @@ def evaluate(
     *,
     context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Score in the run environment: run the *official* eval script (ADR collapse-scorer-seam-into-run-primitive).
+    """Score in the run environment with the official eval script.
 
     The host staged the official eval script (generated from ``make_test_spec``)
     under EVAL_KEY; the generic runner threads it in as ``context["eval"]`` and
@@ -400,6 +401,7 @@ def evaluate(
             capture_output=True,
             encoding="utf-8",
             errors="replace",
+            check=False,
         )
     finally:
         script_path.unlink(missing_ok=True)

@@ -4,20 +4,16 @@ Human-facing entry point to the doc tree. Future agents should start at
 [`agent-native/README.md`](agent-native/README.md) instead — it routes
 based on the task.
 
-## Two doc roots
+## Documentation
 
 - [`agent-native/`](agent-native/README.md) — agent-native context tree:
   project intent, code style, harness workflow, development commands,
   operating rules, and unresolved owner questions.
-- [`decisions/`](decisions/README.md) — accepted architecture decision
-  records (ADRs). New hard-to-reverse choices land here.
 
 ## Supporting
 
-- [`human/`](human/README.md) — plain-language, self-contained explainers for
-  people. Includes `integrating-a-bench.html`: a visual guide to the standard
-  way to integrate a new benchmark (the two halves, the five steps, the pitfalls)
-  — open it in a browser.
+- [`agent-native/integrating-a-docker-eval-suite.md`](agent-native/integrating-a-docker-eval-suite.md)
+  — the maintained step-by-step guide for adding a containerized benchmark.
 - [`glossary.md`](glossary.md) — shared vocabulary. The repo-root
   [`CONTEXT.md`](../CONTEXT.md) holds resolved terminology boundaries
   (message protocol, provider adapter, content blocks).

@@ -4,17 +4,17 @@
 Built so a thin dashboard can drive everything by shelling out and reading
 JSON. Subcommands:
 
-    uv run python runs/run_bench.py list [--json]
-    uv run python runs/run_bench.py setup [bench ...] [--oracle] [--json]
-    uv run python runs/run_bench.py <bench> [bench args ...] [--json]
-    uv run python runs/run_bench.py batch <bench> [batch args ...] [--json]
-    uv run python runs/run_bench.py score <bench> [scorer args ...] [--json]
-    uv run python runs/run_bench.py oracle <bench> [bench args ...] [--json]
-    uv run python runs/run_bench.py all --manifest M.json [--parallel N]
+    uv run python -m runs.run_bench list [--json]
+    uv run python -m runs.run_bench setup [bench ...] [--oracle] [--json]
+    uv run python -m runs.run_bench <bench> [bench args ...] [--json]
+    uv run python -m runs.run_bench batch <bench> [batch args ...] [--json]
+    uv run python -m runs.run_bench score <bench> [scorer args ...] [--json]
+    uv run python -m runs.run_bench oracle <bench> [bench args ...] [--json]
+    uv run python -m runs.run_bench all --manifest M.json [--parallel N]
 
 `<bench>` is one of the registered names (see `list`). Per-bench flags are
 exactly the bench's own (including `--profile`); run
-`uv run python runs/run_bench.py <bench> -h` to see them. With `--json` a
+`uv run python -m runs.run_bench <bench> -h` to see them. With `--json` a
 single run prints one machine-readable result object to stdout (human logs go
 to stderr), so the dashboard gets a clean contract.
 
@@ -52,18 +52,15 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Any
 
+from evals.onemillion import harness as _omb_harness
+from runs._benches import harbor as _harbor
+from runs._benches import onemillion as _onemillion
+from runs._benches import programbench as _programbench
+from runs._benches import swebench as _swebench
+from simple_agent_lab.evals import parse_with_profile
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
-for _p in (str(ROOT), str(ROOT / "src"), str(HERE)):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
-from _benches import onemillion as _onemillion  # noqa: E402
-from _benches import harbor as _harbor  # noqa: E402
-from _benches import programbench as _programbench  # noqa: E402
-from _benches import swebench as _swebench  # noqa: E402
-from evals.onemillion import harness as _omb_harness  # noqa: E402
-from simple_agent_lab.evals import parse_with_profile  # noqa: E402
 
 
 class Bench:
@@ -173,7 +170,7 @@ def cmd_score(name: str, rest: list[str], json_mode: bool) -> int:
             print(detail)
         return 0
     cmd = [sys.executable, *scorer, *rest]
-    proc = subprocess.run(cmd, cwd=str(ROOT))
+    proc = subprocess.run(cmd, cwd=str(ROOT), check=False)
     if json_mode:
         _emit_json(
             {
@@ -273,7 +270,8 @@ def _oracle_smoke(bench: Bench) -> dict:
     case_id = str(instances[0]["instance_id"])
     cmd = [
         sys.executable,
-        str(HERE / "run_bench.py"),
+        "-m",
+        "runs.run_bench",
         bench.name,
         "--json",
         case_id,
@@ -283,7 +281,9 @@ def _oracle_smoke(bench: Bench) -> dict:
         "--dataset",
         str(bench.dataset_dir),
     ]
-    proc = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True)
+    proc = subprocess.run(
+        cmd, cwd=str(ROOT), capture_output=True, text=True, check=False
+    )
     outcome = _parse_last_json(proc.stdout)
     code = outcome.get("status_code", proc.returncode) if outcome else proc.returncode
     return {
@@ -389,8 +389,8 @@ def cmd_setup(names: list[str], oracle: bool, json_mode: bool) -> int:
 
 
 def _parse_last_json(text: str) -> dict | None:
-    for line in reversed(text.strip().splitlines()):
-        line = line.strip()
+    for raw_line in reversed(text.strip().splitlines()):
+        line = raw_line.strip()
         if line.startswith("{"):
             try:
                 return json.loads(line)
@@ -406,8 +406,10 @@ def _run_manifest_entry(entry: dict) -> dict:
     argv = list(entry.get("args", []))
     if entry.get("profile"):
         argv = ["--profile", str(entry["profile"]), *argv]
-    cmd = [sys.executable, str(HERE / "run_bench.py"), bench, "--json", *argv]
-    proc = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True)
+    cmd = [sys.executable, "-m", "runs.run_bench", bench, "--json", *argv]
+    proc = subprocess.run(
+        cmd, cwd=str(ROOT), capture_output=True, text=True, check=False
+    )
     sys.stderr.write(proc.stderr)
     outcome = _parse_last_json(proc.stdout)
     if outcome is None:

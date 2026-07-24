@@ -4,8 +4,8 @@
 Run from the repo root (or anywhere; paths resolve to the trace-viewer
 folder by default):
 
-    python3 studio/trace-viewer/serve.py
-    python3 studio/trace-viewer/serve.py --dir evals/out --port 8765
+    uv run python studio/trace-viewer/serve.py
+    uv run python studio/trace-viewer/serve.py --dir evals/out --port 8765
 
 The HTTP server is stdlib only (no dependencies). Endpoints:
 

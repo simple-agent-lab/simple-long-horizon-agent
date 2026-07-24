@@ -65,7 +65,7 @@ class AgentStartEvent(_BaseEvent):
     )
     # The agent that started and its (constant, per-agent) system prompt. The
     # prompt is the one request field not otherwise in the event stream, so it
-    # rides here for readers to build the `agents` registry (schema v5 ADR).
+    # rides here for readers to build the schema-v5 `agents` registry.
     # Both default-empty so legacy `AgentStartEvent()` construction still works.
     agent: AgentName = ""
     system_prompt: str = ""

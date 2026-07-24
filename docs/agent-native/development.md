@@ -31,11 +31,10 @@ The checks below must pass before a change ships. They're cheap; run them often.
 | --- | --- | --- |
 | Format | `uv run ruff format --check .` | Python code in the repo |
 | Lint | `uv run ruff check .` | Python code in the repo |
-| Docs lint | `uv run python scripts/lint_docs.py` | Local Markdown links and backticked path references |
-| ADR index | `uv run python docs/decisions/build_index.py --check` | Generated decision-record index |
-| Config reference | `uv run python scripts/build_config_reference.py --check` | Generated environment-variable reference |
-| Architecture lint | `uv run python scripts/arch_lint.py` | Package and dependency boundaries |
-| Environment lint | `uv run python scripts/env_lint.py` | Environment-variable registry boundaries |
+| Docs lint | `uv run python -m scripts.lint_docs` | Local Markdown links and backticked path references |
+| Config reference | `uv run python -m scripts.build_config_reference --check` | Generated environment-variable reference |
+| Architecture lint | `uv run python -m scripts.arch_lint` | Package, dependency, and import-path boundaries |
+| Environment lint | `uv run python -m scripts.env_lint` | Environment-variable registry boundaries |
 | Type check | `uv run ty check src` | Every module under `src/` |
 | Unit tests | `uv run python -m unittest discover -s tests/unit` | Every unit test under `tests/unit/` |
 
@@ -61,8 +60,8 @@ The script:
    type-checked/tested MCP extra are present.
 3. Runs `uv run ruff format --check .`.
 4. Runs `uv run ruff check .`.
-5. Runs `uv run python scripts/lint_docs.py`.
-6. Checks the generated ADR index and configuration reference.
+5. Runs `uv run python -m scripts.lint_docs`.
+6. Checks the generated configuration reference.
 7. Runs the architecture and environment-variable linters.
 8. Runs `uv run ty check src`.
 9. Runs `uv run python -m unittest discover -s tests/unit`.
@@ -84,7 +83,7 @@ Five job groups run in parallel:
   supported interpreters, plus the deterministic bash-agent demo smoke.
 - **`ty / src`** — the type check, on Python 3.13 only. ty's diagnostics
   don't depend on the runtime Python version, so a single job is enough.
-- **`docs lint`** — local Markdown references plus generated ADR/config indexes,
+- **`docs lint`** — local Markdown references plus the generated config index,
   on Python 3.13 only.
 - **`architecture lint`** — package boundaries and environment-variable
   ownership, on Python 3.13 only.

@@ -94,7 +94,7 @@ scripts/                # command-line entrypoints
 runs/                   # reproducible experiment shell scripts
 tests/                  # focused behavioral tests
 evals/                  # optional behavior checks (e.g. SWE-bench adapter)
-docs/                   # design notes and decisions
+docs/                   # project guidance and runbooks
 ```
 
 For now, `src/simple_agent_lab/core.py` is the canonical balanced runtime,

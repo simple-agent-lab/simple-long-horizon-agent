@@ -23,15 +23,14 @@ printf '\n=== ruff check . ===\n'
 uv run ruff check .
 
 printf '\n=== docs lint ===\n'
-uv run python scripts/lint_docs.py
+uv run python -m scripts.lint_docs
 
 printf '\n=== generated docs ===\n'
-uv run python docs/decisions/build_index.py --check
-uv run python scripts/build_config_reference.py --check
+uv run python -m scripts.build_config_reference --check
 
 printf '\n=== architecture and environment lint ===\n'
-uv run python scripts/arch_lint.py
-uv run python scripts/env_lint.py
+uv run python -m scripts.arch_lint
+uv run python -m scripts.env_lint
 
 printf '\n=== ty check src ===\n'
 uv run ty check src

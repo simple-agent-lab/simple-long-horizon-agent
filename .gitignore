@@ -29,7 +29,7 @@ runs/bench-manifest*.json
 .ruff_cache/
 .python-version
 
-# Local eval artifacts — keep README.md files for directory structure docs
+# Local eval artifacts — keep README files for directory structure docs
 evals/out/*
 !evals/out/README.md
 !evals/out/swebench/
@@ -53,7 +53,6 @@ evals/out/harbor/*
 logs/
 .tmp/
 
-
 # Local reference-architecture research notes — kept off the public repo.
 # Drop your own `<system-name>.md` notes under docs/reference-architectures/;
 # the dir's contents are gitignored except for README.md and template.md.
@@ -62,7 +61,7 @@ docs/reference-architectures/*
 !docs/reference-architectures/template.md
 
 # Superpowers process artifacts (implementation plans, brainstorms) — local
-# scratch only. The durable commitment lands in an ADR under docs/decisions/.
+# scratch only. Durable guidance belongs in the narrowest agent-native topic doc.
 docs/superpowers/
 
 # Vendored OneMillion-Bench checkout — a separate upstream project kept locally
@@ -78,10 +77,6 @@ datasets/
 
 # Local-only testing notes for the OneMillion-Bench suite (kept off the repo).
 evals/onemillion/TESTING.md
-
-# uv
-# (commit uv.lock; ignore the local cache only)
-
 
 # Node
 node_modules/

@@ -15,37 +15,32 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "src"
-for path in (ROOT, SRC):
-    if str(path) not in sys.path:
-        sys.path.insert(0, str(path))
-
-from evals.swebench import harness  # noqa: E402
-from evals.swebench.suite import SwebenchSuite  # noqa: E402
-from runs.lib.container_batch import run_container_batch  # noqa: E402
-from runs.lib import docker_cli  # noqa: E402
-from simple_agent_lab.agent_flavors import (  # noqa: E402
+from evals.swebench import harness
+from evals.swebench.suite import SwebenchSuite
+from runs.lib.container_batch import run_container_batch
+from runs.lib import docker_cli
+from simple_agent_lab.agent_flavors import (
     AGENT_FLAVOR_ENV,
     WORKFLOW_AGENT_FLAVORS,
 )
-import simple_agent_lab.config as config  # noqa: E402
-from simple_agent_lab.evals import (  # noqa: E402
+import simple_agent_lab.config as config
+from simple_agent_lab.evals import (
     LocalDirStore,
     run_suite_instance,
 )
-from simple_agent_lab.evals.runner import (  # noqa: E402
+from simple_agent_lab.evals.runner import (
     canonical_run_id,
     clear_run_outputs,
     container_name,
     prepare_run_directory,
 )
-from simple_agent_lab.evals.suites.swebench.patch import instance_language  # noqa: E402
-from simple_agent_lab.trace import write_jsonl  # noqa: E402
+from simple_agent_lab.evals.suites.swebench.patch import instance_language
+from simple_agent_lab.trace import write_jsonl
 
+ROOT = Path(__file__).resolve().parents[2]
 NAME = "swebench"
 DESCRIPTION = "SWE-bench instance in a Docker container (single instance per run)."
-SCORER = ("evals/swebench/evaluate_predictions.py",)
+SCORER = ("-m", "evals.swebench.evaluate_predictions")
 DEFAULT_SWEBENCH_DOCKER_TIMEOUT_S = 1800.0
 
 

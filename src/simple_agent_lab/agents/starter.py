@@ -576,8 +576,8 @@ def mcp_session(
 
 
 # --------------------------------------------------------------------------
-# Back-compat: callers that drive a plain `Agent` themselves (evals, the TUI
-# gateway) keep these factories. Resource-free kinds need no session.
+# Back-compat: callers that drive a plain `Agent` themselves, such as evals,
+# keep these factories. Resource-free kinds need no session.
 # --------------------------------------------------------------------------
 
 

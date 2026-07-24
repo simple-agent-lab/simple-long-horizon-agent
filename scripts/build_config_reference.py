@@ -1,14 +1,14 @@
 """Regenerate the registry-backed config table in the configuration reference.
 
 The env knobs that have moved into the central registry
-(`simple_agent_lab.config.REGISTRY`, see ADR centralized-env-config) are the
-source of truth for their name / default / docs. This script renders them into
-the marked block of `docs/agent-native/configuration.md`, grouped by the
-`domain.subsystem` hierarchy, so the catalog cannot drift from the code.
+(`simple_agent_lab.config.REGISTRY`) are the source of truth for their name /
+default / docs. This script renders them into the marked block of
+`docs/agent-native/configuration.md`, grouped by the `domain.subsystem`
+hierarchy, so the catalog cannot drift from the code.
 
 Usage:
-    uv run python scripts/build_config_reference.py           # rewrite the block
-    uv run python scripts/build_config_reference.py --check   # fail if stale
+    uv run python -m scripts.build_config_reference           # rewrite the block
+    uv run python -m scripts.build_config_reference --check   # fail if stale
 
 Knobs not yet migrated (provider, model aliases, pricing, memory, ...) stay in
 the hand-written sections of the same file until they move into the registry.
@@ -75,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
         if current != updated:
             print(
                 f"{DOC_PATH.name} config-registry block is stale.\n"
-                "Run: uv run python scripts/build_config_reference.py",
+                "Run: uv run python -m scripts.build_config_reference",
                 file=sys.stderr,
             )
             return 1

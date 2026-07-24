@@ -1,79 +1,57 @@
 # Eval Output
 
 This directory holds local artifacts produced by eval runs. Contents are
-gitignored except for README files that document the expected structure.
+gitignored except for the README files that document the expected structure.
 
 ## Directory Layout
 
 ```text
 evals/out/
-├── README.md                          ← this file
-├── swebench/                          ← SWE-bench suite outputs
-│   ├── README.md                      ← per-suite structure docs
-│   ├── instance_<id>.jsonl            ← fetched instance records
-│   ├── wheelhouse/                    ← pre-built wheels for container installs
-│   │   └── cp311-manylinux/
-│   │       └── *.whl
-│   └── <run-id>/
-│       └── <instance-id>/
-│           ├── input/
-│           │   └── instance.json      ← sanitized instance fed to the agent
-│           └── out/
-│               ├── trajectory.jsonl   ← three-layer trace (events, spans, model_turns)
-│               └── prediction.jsonl   ← SWE-bench prediction with model_patch
-├── swebench_multilingual/             ← SWE-bench Multilingual suite outputs
+├── README.md
+├── harbor/
+│   ├── README.md
+│   └── jobs/
+├── onemillion/
+│   ├── README.md
+│   └── <run-id>/<instance-id>/{input,out}/
+├── programbench/
+│   ├── README.md
+│   ├── wheelhouse/
+│   └── <run-id>/<instance-id>/{input,out}/
+├── swebench/
 │   ├── README.md
 │   ├── instance_<id>.jsonl
 │   ├── wheelhouse/
-│   │   └── cp311-manylinux/*.whl
-│   └── <run-id>/
-│       └── <instance-id>/
-│           ├── input/
-│           │   └── instance.json
-│           └── out/
-│               ├── trajectory.jsonl
-│               └── prediction.jsonl
-└── swebench_pro/                      ← SWE-bench Pro suite outputs
+│   └── <run-id>/<instance-id>/{input,out}/
+├── swebench_multilingual/
+│   ├── README.md
+│   ├── instance_<id>.jsonl
+│   ├── wheelhouse/
+│   └── <run-id>/<instance-id>/{input,out}/
+└── swebench_pro/
     ├── README.md
     ├── instance_<id>.jsonl
     ├── wheelhouse/
-    │   └── cp311-manylinux/*.whl
-    └── <run-id>/
-        └── <instance-id>/
-            ├── input/
-            │   └── instance.json
-            └── out/
-                ├── trajectory.jsonl
-                └── prediction.jsonl
+    └── <run-id>/<instance-id>/{input,out}/
 ```
 
-Each benchmark run family gets its own subdirectory under `evals/out/`. Some
-families share an adapter, such as SWE-bench Verified, Multilingual, and Pro
-through `evals/swebench/`.
+Each benchmark run family gets its own subdirectory. SWE-bench Verified,
+Multilingual, and Pro share the host adapter under `evals/swebench/`, but keep
+separate output roots.
 
 ## Reproducing the Structure
 
-```bash
-# 1. Fetch an instance
-bash runs/swebench/setup_swebench_docker.sh sympy__sympy-23824
+Run commands create artifact directories beneath these documented roots:
 
-# 2. Run the agent
+```bash
+uv run python -m runs.run_bench list
 bash runs/swebench/run_swebench.sh sympy__sympy-23824
 ```
 
-Outputs land under `swebench/<run-id>/<instance-id>/out/`.
-SWE-bench Multilingual and Pro outputs use the same layout under
-`swebench_multilingual/<run-id>/<instance-id>/out/` and
-`swebench_pro/<run-id>/<instance-id>/out/`.
-
 ## Adding a New Benchmark
 
-When adding a new benchmark suite (e.g. `aider_bench`, `humanevalfix`):
-
 1. Create `evals/<suite>/` with adapter code and a README.
-2. Create `evals/out/<suite>/README.md` documenting the output layout.
-3. Add a gitignore exception in `.gitignore` so the README survives.
-4. Add a `runs/run_<suite>.sh` convenience script.
-5. If setup requires external resources (git clones, docker images, datasets),
-   put that in `runs/setup_<suite>.sh` and document prerequisites in
-   `evals/<suite>/README.md`.
+2. Create `evals/out/<suite>/README.md` documenting its output layout.
+3. Add a `.gitignore` exception so that README survives.
+4. Add `runs/_benches/<suite>.py` and register it in `runs/run_bench.py`.
+5. Add a setup shell only when external images or datasets require one.

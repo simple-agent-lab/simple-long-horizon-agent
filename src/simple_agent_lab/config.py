@@ -6,7 +6,6 @@ One resolver (`EnvVar.get`) applies one precedence rule — an explicit override
 beats the environment, which beats the declared default — so callers stop
 re-deriving `os.environ.get(...) + coerce + default` in a dozen places, and a
 profile or CLI flag becomes just an override layer fed to the same resolver.
-See ADR centralized-env-config.
 
 `group` is a dotted ``domain.subsystem`` label (the config hierarchy); the
 top-level domains are ``agent``, ``eval``, ``provider``, ``trace``,
@@ -95,7 +94,7 @@ class EnvVar:
 # --------------------------------------------------------------------------- #
 # agent.workflow — knobs for the loop / PDR workflow arms, read in the agent
 # build layer. Generic to any suite that runs these arms; renamed from the
-# misleading ``SWE_*`` prefix (see ADR centralized-env-config).
+# misleading ``SWE_*`` prefix.
 # --------------------------------------------------------------------------- #
 WORKER_MAX_TURNS = EnvVar(
     "SAL_WORKFLOW_WORKER_MAX_TURNS",

@@ -6,17 +6,17 @@ Each run is named `pro-<timestamp>` or a custom label.
 
 ```text
 evals/out/swebench_pro/
-├── README.md                       <- this file
-├── instance_<id>.jsonl             <- fetched instance records
-├── wheelhouse/                     <- pre-built wheels for container installs
+├── README.md
+├── instance_<id>.jsonl
+├── wheelhouse/
 │   └── cp311-manylinux/*.whl
 └── <run-id>/
-    └── <instance-id>/              (e.g. instance_navidrome__navidrome-...)
+    └── <instance-id>/
         ├── input/
-        │   └── instance.json       sanitized instance fed to the agent
+        │   └── instance.json
         └── out/
-            ├── trajectory.jsonl    three-layer trace (schema v3)
-            └── prediction.jsonl    {instance_id, model_name_or_path, model_patch}
+            ├── trajectory.jsonl    three-layer trace (schema v5)
+            └── prediction.jsonl    model_patch prediction
 ```
 
 ## Generating a Run
@@ -25,9 +25,3 @@ evals/out/swebench_pro/
 bash runs/swebench/run_swebench.sh --variant pro
 bash runs/swebench/run_swebench.sh --variant pro --all --parallel 4
 ```
-
-## File Sizes
-
-- `trajectory.jsonl`: 50 KB - 5 MB per instance (contains raw LLM I/O)
-- `prediction.jsonl`: < 10 KB per instance
-- `instance.json`: < 50 KB per instance

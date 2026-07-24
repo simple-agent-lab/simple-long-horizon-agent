@@ -1,4 +1,4 @@
-"""Generic in-container runner (ADR generic-containerized-eval-framework).
+"""Generic in-container runner.
 
 This module is what runs *inside* the eval container, invoked as
 ``python -m simple_agent_lab.evals.in_container`` (it ships in the wheel, so
@@ -78,8 +78,8 @@ TRACE_FLUSH_INTERVAL_S = 2.0
 
 # The OpenAI-compatible env contract (`OPENAI_MODEL`/`OPENAI_AUTH_TOKEN`/...),
 # the `.env` loader, and the provider builder now live in `simple_agent_lab.llm.env`
-# — the single source of truth (see ADR consolidate-provider-env). `API_KIND_*`
-# are re-imported above only because the argparse parser below references them.
+# — the single source of truth. `API_KIND_*` are re-imported above only because
+# the argparse parser below references them.
 
 
 def memory_home_from_env(env: Mapping[str, str] | None = None) -> Path | None:

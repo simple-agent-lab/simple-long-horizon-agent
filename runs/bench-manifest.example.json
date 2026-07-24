@@ -1,5 +1,5 @@
 {
-  "_comment": "One-click multi-bench launch for `run_bench.py all`. Copy to runs/bench-manifest.json (gitignored), edit the ids/datasets/profiles, then: uv run python runs/run_bench.py all --manifest runs/bench-manifest.json. Each entry is {bench, args:[...]} where `args` is exactly that bench's own CLI (positional id + flags); optional `profile` is sugar for prepending --profile. `parallel` (or --parallel N) runs entries concurrently as isolated subprocesses. The combined result is one JSON object on stdout.",
+  "_comment": "One-click multi-bench launch for `runs.run_bench all`. Copy to runs/bench-manifest.json (gitignored), edit the ids/datasets/profiles, then: uv run python -m runs.run_bench all --manifest runs/bench-manifest.json. Each entry is {bench, args:[...]} where `args` is exactly that bench's own CLI (positional id + flags); optional `profile` is sugar for prepending --profile. `parallel` (or --parallel N) runs entries concurrently as isolated subprocesses. The combined result is one JSON object on stdout.",
   "parallel": 1,
   "runs": [
     {

@@ -5,14 +5,11 @@ This is the single loading map for future agents. Read this file after
 
 Sources:
 
-- Current code snapshot: the working tree at the first-parent commits below.
-- Recent first-parent history: `c9c979b`, `882db33`, `4904e9c`, `c52d57d`.
+- Current code snapshot: the checked-out working tree.
 - Primary anchors: `README.md`, `CONTEXT.md`, `docs/agent-native/`,
-  `docs/decisions/`, `runs/README.md`, `tests/README.md`,
-  `evals/README.md`, `src/simple_agent_lab/`, and
-  `evals/swebench/README.md`.
-- Owner interview: not yet completed. Open prompts live in
-  `docs/agent-native/owner-questions.md`.
+  `runs/README.md`, `tests/README.md`, `evals/README.md`,
+  `src/simple_agent_lab/`, and `evals/swebench/README.md`.
+- Unresolved owner questions live in `docs/agent-native/owner-questions.md`.
 
 ## Documentation Roots
 
@@ -22,8 +19,6 @@ Sources:
 - `docs/agent-native/`: living agent context, loading map, project intent, code
   style, harness workflow, development commands, source-of-truth routing,
   owner questions, stop conditions, and validation map.
-- `docs/decisions/`: accepted ADRs. This repo uses `docs/decisions/` instead
-  of a parallel ADR tree.
 - `docs/reference-architectures/`: local workspace for reference-architecture
   research notes. The directory's contents are gitignored except for the
   README and template; the convention is shared, but individual notes stay
@@ -49,7 +44,7 @@ The current source-of-truth layers are:
   before each model request (visibility shaping lives behind `ContextPolicy`).
   Summaries cite the transcript indices they folded; the `recall` tool
   retrieves originals and `make_compact_control` adds agent-controlled
-  compaction. See ADR recoverable-compression-and-agent-compaction.
+  compaction.
 - `src/simple_agent_lab/tools/`: shared tool/result values plus concrete tool
   implementations such as bash and the sub-agent `task` tool.
 - `src/simple_agent_lab/agents/`: the general agent starter — one
@@ -59,15 +54,14 @@ The current source-of-truth layers are:
   factories (`make_agent`, `make_bash_agent`, `make_skill_agent`) cover
   resource-free capabilities; `AgentSession`/`mcp_session` are only for MCP's
   live connection. Skills ride on the core `Agent.init_state` hook
-  (`pluggable-state-init-hook`),
-  not a session.
+  rather than a session.
 - `src/simple_agent_lab/llm/`: provider-agnostic model access layer. Building a
   `Provider` from environment variables (env-var names, `.env` loading,
   `provider_from_env`, `FAKE_PROVIDER`, adapter key resolution) is owned by
-  `llm/env.py` — the single source of truth (ADR consolidate-provider-env).
+  `llm/env.py` — the single source of truth.
 - `src/simple_agent_lab/mcp/`: optional Model Context Protocol integration —
   connect to MCP servers and wrap their tools (including multimodal results)
-  as `AgentTool`s, behind the `mcp` extra. See ADR mcp-as-tool-source.
+  as `AgentTool`s, behind the `mcp` extra.
 - `src/simple_agent_lab/memory/`: optional memory boundary. Filesystem memory
   binds through core lifecycle hooks, injects model-visible recall context at
   session start, and persists Markdown evidence plus distilled handbooks after
@@ -78,8 +72,8 @@ The current source-of-truth layers are:
   `render.py` (console `print_trace`), `openai_export.py` (OpenAI Chat
   fine-tuning JSONL export), and `live.py` (the incremental live-trace
   session/writer edge).
-- `evals/swebench/`, `evals/programbench/`: optional benchmark adapters, outside
-  the core runtime (SWE-bench bug-fixing; ProgramBench reverse-engineering).
+- `evals/`: optional benchmark adapters outside the core runtime, including
+  SWE-bench, ProgramBench, OneMillion-Bench, and Harbor.
 
 ## Core Mental Model
 
@@ -93,24 +87,24 @@ The canonical runtime direction is:
 Agent + Message + State + build_context_view() + run()
 ```
 
-Do not treat historical architecture options as live runtime copies. Use them
-as rationale and teaching context, then verify current behavior against `src/`
-and accepted ADRs.
+Verify current behavior against current code, docs, and tests.
 
 ## Global Stop Conditions
 
 Stop and collect more evidence before changing behavior when:
 
 - A change would add a framework-style abstraction to the core runtime. Read
-  ADR use-tiny-message-runtime and ADR promote-balanced-runtime-to-src-core first.
+  `docs/agent-native/project-intent.md`, `src/simple_agent_lab/core.py`, and
+  `tests/unit/test_core.py` first.
 - A change modifies `Message`, `LLMMessage`, role names, tool-call or
-  tool-result blocks, or provider-boundary conversion. Read ADR use-role-specific-message-protocol,
-  ADR unify-message-protocol-on-content-blocks, ADR tool-result-as-content-block, `src/simple_agent_lab/messages.py`, and
+  tool-result blocks, or provider-boundary conversion. Read `CONTEXT.md`,
+  `src/simple_agent_lab/messages.py`, and
   `src/simple_agent_lab/llm/README.md`.
 - A change alters context trimming, token estimates, or tool-call/tool-result
-  grouping. Read ADR make-context-view-an-explicit-projection and `tests/unit/test_core.py`.
-- A change mixes raw trajectories, eval scores, or training labels. Read ADR
-  0008 and ADR keep-benchmark-suites-as-eval-adapters.
+  grouping. Read `src/simple_agent_lab/context_view.py` and
+  `tests/unit/test_core.py`.
+- A change mixes raw trajectories, eval scores, or training labels. Read
+  `src/simple_agent_lab/trace/`, `evals/README.md`, and their tests.
 - A change requires a live model provider or external benchmark dependency.
   Preserve deterministic local smoke paths unless the owner explicitly accepts
   the extra setup cost.
@@ -118,7 +112,8 @@ Stop and collect more evidence before changing behavior when:
   opt-in and outside required CI unless the owner changes that policy.
 - A new external reference architecture starts to drive implementation. Add or
   update a local note under `docs/reference-architectures/` (gitignored
-  workspace) and capture the durable commitment in an ADR before changing code.
+  workspace), then update the relevant topic doc and validation before
+  changing code.
 
 ## Loading Map
 
@@ -127,32 +122,32 @@ Stop and collect more evidence before changing behavior when:
 | Current status or repo tour | `README.md`, then this loading map | Public map plus task-specific routing. |
 | Product direction, audience, or teaching taste | `docs/agent-native/project-intent.md` | Mission, audience, design principles, and current phase. |
 | Day-to-day implementation | `docs/agent-native/development.md`, `docs/agent-native/code-style.md`, `runs/README.md` | Commands, quality gate, and style constraints. |
-| Harness workflow or docs-first process | `docs/agent-native/harness-engineering.md`, ADR adopt-harness-engineering-workflow, ADR make-testing-and-feedback-first-priority | Feedback signal and repository-as-harness rules. |
-| Core runtime shape | ADR use-tiny-message-runtime, ADR make-balanced-runtime-the-lead-core-candidate, ADR promote-balanced-runtime-to-src-core, `src/simple_agent_lab/core.py` | Canonical runtime boundary and stateful run-loop rationale. |
-| Message protocol or provider conversion | `CONTEXT.md`, ADR use-role-specific-message-protocol, ADR unify-message-protocol-on-content-blocks, ADR tool-result-as-content-block, `src/simple_agent_lab/messages.py`, `src/simple_agent_lab/llm/README.md` | Runtime-vs-model message boundary and vocabulary. |
+| Harness workflow or docs-first process | `docs/agent-native/harness-engineering.md`, `docs/agent-native/operating-rules.md` | Feedback signal and repository-as-harness rules. |
+| Core runtime shape | `src/simple_agent_lab/core.py`, `tests/unit/test_core.py` | Canonical runtime boundary and stateful run-loop behavior. |
+| Message protocol or provider conversion | `CONTEXT.md`, `src/simple_agent_lab/messages.py`, `src/simple_agent_lab/llm/README.md` | Runtime-vs-model message boundary and vocabulary. |
 | Any environment variable (full catalog) | `docs/agent-native/configuration.md` | Single discoverability table of every env var grouped by owning layer, plus the rule for where to declare a new one. Start here when you can't find a config knob. |
-| Launching a run from one file (`--profile`) | ADR run-profile-file, `docs/agent-native/configuration.md`, `src/simple_agent_lab/evals/profile.py`, `runs/profiles/*.example.json` (one per benchmark), `tests/unit/test_run_profile.py` | JSON run-profile bundles the two launch surfaces (`env` fill-gaps + `run` CLI defaults); a thin bundle, not a second schema. |
+| Launching a run from one file (`--profile`) | `docs/agent-native/configuration.md`, `src/simple_agent_lab/evals/profile.py`, `runs/profiles/*.example.json` (one per benchmark), `tests/unit/test_run_profile.py` | JSON run-profile bundles the two launch surfaces (`env` fill-gaps + `run` CLI defaults); a thin bundle, not a second schema. |
 | One entry point over every bench (dashboard) | `docs/agent-native/configuration.md`, `runs/run_bench.py`, `runs/bench-manifest.example.json`, `tests/unit/test_run_bench.py` | `run_bench.py list/setup/<bench>/batch/all` — JSON-friendly dispatcher; `batch` provides per-bench selection and bounded concurrency, `setup` probes the environment (+ oracle smoke), and `all` runs a manifest of isolated commands. |
-| Provider config / env vars (`OPENAI_*`, `.env`, `Provider`) | ADR consolidate-provider-env, `src/simple_agent_lab/llm/env.py`, `tests/unit/test_evals_framework.py`, `tests/unit/test_onemillion_container.py` | Single source of truth for env-var names, `load_dotenv`, `provider_from_env`, `FAKE_PROVIDER`, and adapter key resolution. Build providers from env here; don't re-declare the names. |
-| Named model aliases (`strong` / `fast`) | ADR model-alias-registry, `src/simple_agent_lab/llm/registry.py`, `tests/unit/test_model_registry.py`, `scripts/run_model_registry_demo.py` | `ModelRegistry.from_env` maps aliases to providers via `<ALIAS>_*` env (fallback `OPENAI_*`); ask for models by role name. Opt-in; single-model setups collapse onto `OPENAI_*`. |
-| Context visibility or budgeting | ADR make-context-view-an-explicit-projection, `src/simple_agent_lab/context_view.py`, `tests/unit/test_core.py`, `tests/unit/test_token_usage.py` | Projection behavior and token-estimate constraints. |
-| Context compression (strategies, recall, `compact`, metrics) | ADR recoverable-compression-and-agent-compaction, `src/simple_agent_lab/compression/`, `src/simple_agent_lab/tools/recall.py`, `tests/unit/test_compression_control.py`, `tests/unit/test_compression_effectiveness.py`, `tests/unit/test_core.py` | Summaries cite folded transcript indices; `recall` retrieves originals; `make_compact_control` pairs a `compact` tool with the strategy applying it at the next turn start. Each fold names its strategy on `ContextCompressionEvent.strategy` (a `TieredStrategy` stage rides through); `summarize_compression(events)` measures effectiveness and attributes folds per strategy. |
+| Provider config / env vars (`OPENAI_*`, `.env`, `Provider`) | `src/simple_agent_lab/llm/env.py`, `tests/unit/test_evals_framework.py`, `tests/unit/test_onemillion_container.py` | Single source of truth for env-var names, `load_dotenv`, `provider_from_env`, `FAKE_PROVIDER`, and adapter key resolution. Build providers from env here; don't re-declare the names. |
+| Named model aliases (`strong` / `fast`) | `src/simple_agent_lab/llm/registry.py`, `tests/unit/test_model_registry.py`, `scripts/run_model_registry_demo.py` | `ModelRegistry.from_env` maps aliases to providers via `<ALIAS>_*` env (fallback `OPENAI_*`); ask for models by role name. Opt-in; single-model setups collapse onto `OPENAI_*`. |
+| Context visibility or budgeting | `src/simple_agent_lab/context_view.py`, `tests/unit/test_core.py`, `tests/unit/test_token_usage.py` | Projection behavior and token-estimate constraints. |
+| Context compression (strategies, recall, `compact`, metrics) | `src/simple_agent_lab/compression/`, `src/simple_agent_lab/tools/recall.py`, `tests/unit/test_compression_control.py`, `tests/unit/test_compression_effectiveness.py`, `tests/unit/test_core.py` | Summaries cite folded transcript indices; `recall` retrieves originals; `make_compact_control` pairs a `compact` tool with the strategy applying it at the next turn start. Each fold names its strategy on `ContextCompressionEvent.strategy` (a `TieredStrategy` stage rides through); `summarize_compression(events)` measures effectiveness and attributes folds per strategy. |
 | Tool execution or bash demo | `src/simple_agent_lab/tools/`, `src/simple_agent_lab/agents/starter.py` (`agent_session` / `make_bash_agent`), `tests/unit/test_bash_agent.py`, `tests/unit/test_agent_starter.py` | Tool result semantics and deterministic demo checks. |
 | Multi-agent delegation (`task` tool) | `src/simple_agent_lab/tools/task.py`, `src/simple_agent_lab/agents/starter.py` (`agent_session(general_purpose=True)` parent + general-purpose worker), `tests/unit/test_bash_task_agent.py`, `src/simple_agent_lab/core.py` docstring | Sub-agent delegation shape: a parent picks one worker via `subagent_type` and gets its final message back as the tool result. |
-| MCP tools (incl. multimodal) | ADR mcp-as-tool-source, `src/simple_agent_lab/mcp/README.md`, `tests/unit/test_mcp.py`, `scripts/run_mcp_agent_demo.py` | MCP servers wrapped as `AgentTool`s at the tool boundary; image results map straight to `ImageBlock`. Optional `mcp` extra. |
-| Agent skills (discover/advertise/load `SKILL.md`) | ADR add-agent-skills, ADR pluggable-state-init-hook, `src/simple_agent_lab/skills/`, `src/simple_agent_lab/agents/starter.py` (`make_skill_agent`), `src/simple_agent_lab/tools/read.py`, `tests/unit/test_skills.py`, `tests/unit/test_read_tool.py` | Read-based skills: a prompt menu plus model-driven `read`/`bash`; on by default with `/no-skills`. Installed via the core `Agent.init_state` hook so a bare `agent.run` is skills-aware (`make_skill_agent`). Benchmark `bash_skills` flavor folds the menu into the system prompt. |
-| Filesystem memory / distillation | `docs/agent-native/memory.md`, ADRs serialize-filesystem-memory-consolidation and bound-filesystem-memory-growth, `src/simple_agent_lab/memory/`, `src/simple_agent_lab/hooks.py`, `src/simple_agent_lab/evals/in_container.py`, `tests/unit/test_memory.py` | Memory stays outside core: recall and finish are lifecycle hooks; filesystem consolidation is one root-scoped read-distill-commit critical section with bounded retained evidence; evals opt in through `SAL_MEMORY_*` env and optional suite `memory_artifacts`. |
-| Trace printing or OpenAI Chat JSONL export | ADR extra-channel-and-two-layer-trace, ADR three-layer-trace-event-span-training, `src/simple_agent_lab/trace/render.py`, `src/simple_agent_lab/trace/openai_export.py`, `tests/unit/test_openai_training.py` | Trace rendering and provider-shaped transcript export. |
-| Trajectories, spans, or training data | ADR collect-training-trajectories-across-design-versions, ADR keep-benchmark-suites-as-eval-adapters, ADR three-layer-trace-event-span-training, `src/simple_agent_lab/trace/` (`spans.py`, `training.py`, `run_trace.py`), `evals/README.md`, `evals/swebench/README.md` | Three-layer trace: Event → Span → Training. |
+| MCP tools (incl. multimodal) | `src/simple_agent_lab/mcp/README.md`, `tests/unit/test_mcp.py`, `scripts/run_mcp_agent_demo.py` | MCP servers wrapped as `AgentTool`s at the tool boundary; image results map straight to `ImageBlock`. Optional `mcp` extra. |
+| Agent skills (discover/advertise/load `SKILL.md`) | `src/simple_agent_lab/skills/`, `src/simple_agent_lab/agents/starter.py` (`make_skill_agent`), `src/simple_agent_lab/tools/read.py`, `tests/unit/test_skills.py`, `tests/unit/test_read_tool.py` | Read-based skills: a prompt menu plus model-driven `read`/`bash`; on by default with `/no-skills`. Installed via the core `Agent.init_state` hook so a bare `agent.run` is skills-aware (`make_skill_agent`). Benchmark `bash_skills` flavor folds the menu into the system prompt. |
+| Filesystem memory / distillation | `docs/agent-native/memory.md`, `src/simple_agent_lab/memory/`, `src/simple_agent_lab/hooks.py`, `src/simple_agent_lab/evals/in_container.py`, `tests/unit/test_memory.py` | Memory stays outside core: recall and finish are lifecycle hooks; filesystem consolidation is one root-scoped read-distill-commit critical section with bounded retained evidence; evals opt in through `SAL_MEMORY_*` env and optional suite `memory_artifacts`. |
+| Trace printing or OpenAI Chat JSONL export | `src/simple_agent_lab/trace/render.py`, `src/simple_agent_lab/trace/openai_export.py`, `tests/unit/test_openai_training.py` | Trace rendering and provider-shaped transcript export. |
+| Trajectories, spans, or training data | `src/simple_agent_lab/trace/` (`spans.py`, `training.py`, `run_trace.py`), `evals/README.md`, `evals/swebench/README.md` | Three-layer trace: Event → Span → Training. |
 | Docker incremental trace / host viewer | `docs/agent-native/docker-live-trace.md`, `src/simple_agent_lab/trace/live.py` (`LiveTraceSession`), `scripts/run_live_trace_demo.py` | Bind-mount contract and reusable live export API. |
-| Containerized eval framework / suites | ADR generic-containerized-eval-framework, `evals/README.md`, `src/simple_agent_lab/evals/` | Suite x ContainerBackend x ArtifactStore seams; `run_suite_instance` / `run_dataset` entry points. |
+| Containerized eval framework / suites | `evals/README.md`, `src/simple_agent_lab/evals/`, `tests/unit/test_evals_framework.py` | Suite x ContainerBackend x ArtifactStore seams; `run_suite_instance` / `run_dataset` entry points. |
 | SWE-bench Pro repo-chain experiments | `docs/agent-native/swebench-pro-repo-chain-experiment.md`, `evals/swebench/pro_chain_runner.py`, `runs/swebench/run_swebench_pro_repo_chains.py`, `runs/swebench/run_swebench_pro_memory_chains.py`, `src/simple_agent_lab/evals/chain.py` | The two host runners share CLI/auth-lane/concurrency/prediction plumbing but keep repo-state and filesystem-memory instance loops separate. No-compression repo chains stay under the context window with model-authored handoff. |
-| Scoring: how a suite scores / parity | ADR collapse-scorer-seam-into-run-primitive (amends ADR scorer-seam-and-scoring-topology), `src/simple_agent_lab/evals/in_container.py` (`evaluate` hook), `evals/swebench/evaluate_predictions.py` (`reuse_eval_row`, parity) | No scorer seam: in-env scoring is the `evaluate` hook (gated on `eval_inputs`); scoring elsewhere is a follow-up run; official harness is a standalone CLI; `result.json` decoupling; official-parity gate. |
-| Integrating a new Docker eval suite (step-by-step) | `docs/agent-native/integrating-a-docker-eval-suite.md`, ADR generic-containerized-eval-framework, ADR collapse-scorer-seam-into-run-primitive, `evals/swebench/suite.py`, `src/simple_agent_lab/evals/suites/swebench/container.py` | Two halves + registration; the developer/agent how-to with a checklist. |
-| ProgramBench (reverse-engineering) suite | ADR `programbench-reverse-engineering-adapter`, `evals/programbench/README.md`, `evals/programbench/suite.py`, `src/simple_agent_lab/evals/suites/programbench/container.py`, `tests/unit/test_programbench_suite.py` | Peer of SWE-bench with two twists: workspace-as-product (base64 tar in `result.json`) and per-command network isolation (`unshare --net` via the bash `exec_prefix`); scored by the official ProgramBench evaluator. |
-| Harbor eval integration | ADR `harbor-as-eval-harness`, `evals/harbor/README.md`, `runs/_benches/harbor.py`, `src/simple_agent_lab/evals/harbor/`, `tests/unit/test_harbor_bench.py`, `tests/unit/test_harbor_runner.py`, `tests/unit/test_harbor_agent.py` | One bench entry over Harbor datasets. Harbor owns dataset/task/environment/verifier/result aggregation; SAL supplies a Harbor installed agent whose runner and tools execute inside the Harbor task container. |
-| Multi-machine eval deployment / workers / k8s | `docs/agent-native/multi-machine-deployment.md`, ADR generic-containerized-eval-framework | Worker setup, image distribution, online/offline, store-by-topology; runtime injection. |
-| External architecture borrowing | `docs/reference-architectures/README.md` (local notes workspace, gitignored) plus your own reference note | Capture rationale locally; record durable commitments in an ADR. |
+| Scoring: how a suite scores / parity | `src/simple_agent_lab/evals/in_container.py` (`evaluate` hook), `evals/swebench/evaluate_predictions.py` (`reuse_eval_row`, parity) | In-environment scoring is the `evaluate` hook (gated on `eval_inputs`); scoring elsewhere is a follow-up run; the official harness stays a standalone CLI. |
+| Integrating a new Docker eval suite (step-by-step) | `docs/agent-native/integrating-a-docker-eval-suite.md`, `evals/swebench/suite.py`, `src/simple_agent_lab/evals/suites/swebench/container.py` | Two halves + registration; the developer/agent how-to with a checklist. |
+| ProgramBench (reverse-engineering) suite | `evals/programbench/README.md`, `evals/programbench/suite.py`, `src/simple_agent_lab/evals/suites/programbench/container.py`, `tests/unit/test_programbench_suite.py` | Peer of SWE-bench with workspace-as-product and per-command network isolation; scored by the official ProgramBench evaluator. |
+| Harbor eval integration | `evals/harbor/README.md`, `runs/_benches/harbor.py`, `src/simple_agent_lab/evals/harbor/`, `tests/unit/test_harbor_bench.py`, `tests/unit/test_harbor_runner.py`, `tests/unit/test_harbor_agent.py` | One bench entry over Harbor datasets. Harbor owns dataset/task/environment/verifier/result aggregation; SAL supplies the installed agent. |
+| Multi-machine eval deployment / workers / k8s | `docs/agent-native/multi-machine-deployment.md`, `evals/README.md` | Worker setup, image distribution, online/offline, store-by-topology; runtime injection. |
+| External architecture borrowing | `docs/reference-architectures/README.md` (local notes workspace, gitignored) plus your own reference note | Capture research locally; update the relevant topic doc and validation when a pattern is adopted. |
 | Agent-native doc maintenance | This loading map, `docs/agent-native/operating-rules.md` | Canonical routing and stop conditions. |
 
 ## Maintenance Workflow
@@ -162,13 +157,6 @@ Stop and collect more evidence before changing behavior when:
 3. Update this loading map if doc roles, freshness, loading triggers, or
    first-read choices change.
 4. Move unresolved owner or external-system facts to `owner-questions.md`.
-5. Create or update an ADR under `docs/decisions/` only for hard-to-reverse
-   decisions with real tradeoffs.
-
-## ADR Index
-
-Use `docs/decisions/README.md` as the canonical ADR index. The loading map
-above names only the ADRs most relevant to each task trigger.
 
 ## Open Questions
 

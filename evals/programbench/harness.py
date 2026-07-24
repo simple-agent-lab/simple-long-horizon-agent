@@ -20,34 +20,25 @@ from __future__ import annotations
 
 import importlib
 import shutil
-import sys
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "src"
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
 # Reuse the generic (benchmark-agnostic) dotenv + wheelhouse helpers.
-from evals.swebench.harness import (  # noqa: E402
+from evals.swebench.harness import (
     load_dotenv,
     prepare_wheelhouse,
     prepare_wheelhouse_for_run,
     resolve_api_kind,
 )
-import simple_agent_lab.config as config  # noqa: E402
-from simple_agent_lab.agent_flavors import (  # noqa: E402
+import simple_agent_lab.config as config
+from simple_agent_lab.agent_flavors import (
     AGENT_FLAVOR_ENV,
     DEFAULT_AGENT_FLAVOR,
 )
 
-# Provider / reasoning env-var names are owned by `simple_agent_lab.llm.env`
-# (single source of truth, see ADR consolidate-provider-env). This host-side
-# harness only forwards them into the container.
-from simple_agent_lab.llm.env import (  # noqa: E402
+# Provider / reasoning env-var names are owned by `simple_agent_lab.llm.env`.
+# This host-side harness only forwards them into the container.
+from simple_agent_lab.llm.env import (
     API_KIND_ENV,
     OPENAI_API_KIND_CHOICES,
     OPENAI_AUTH_ENV,
@@ -59,6 +50,8 @@ from simple_agent_lab.llm.env import (  # noqa: E402
     REASONING_EFFORT_ENV,
     container_provider_env,
 )
+
+ROOT = Path(__file__).resolve().parents[2]
 
 __all__ = [
     "API_KIND_CHOICES",
@@ -87,8 +80,7 @@ __all__ = [
 ]
 
 # ProgramBench's cleanroom image (no build artifacts) is what the agent runs in;
-# the official scorer rebuilds in the ``task`` image. See
-# `programbench-reverse-engineering-adapter`.
+# the official scorer rebuilds in the ``task`` image.
 DEFAULT_IMAGE_TAG = "task_cleanroom"
 DEFAULT_SCORE_IMAGE_TAG = "task"
 DEFAULT_WORKDIR = "/workspace"

@@ -4,11 +4,11 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 
-printf -v default_timestamp '%(%Y%m%d-%H%M%S)T' -1
+default_timestamp="$(date +%Y%m%d-%H%M%S)"
 export RUN_TIMESTAMP="${RUN_TIMESTAMP:-$default_timestamp}"
 
-bash_job_name="${BASH_JOB_NAME:-sal-harbor-tb21-bash-c10-xhigh-m3-t150-$RUN_TIMESTAMP}"
-bash_task_job_name="${BASH_TASK_JOB_NAME:-sal-harbor-tb21-bash-task-c10-xhigh-m3-t150-$RUN_TIMESTAMP}"
+bash_job_name="${BASH_JOB_NAME:-sal-tb21-bash-$RUN_TIMESTAMP}"
+bash_task_job_name="${BASH_TASK_JOB_NAME:-sal-tb21-bash-task-$RUN_TIMESTAMP}"
 
 echo "Starting bash experiment: $bash_job_name"
 HARBOR_JOB_NAME="$bash_job_name" \

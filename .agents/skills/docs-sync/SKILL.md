@@ -28,9 +28,9 @@ doc sync should preserve the source of truth for future humans and agents.
    more than the repo can verify.
 5. Produce a short Docs Sync Report with evidence and proposed edits before
    changing files, unless the user already asked you to apply the fixes.
-6. If editing, make small section-level changes. Update ADRs only for accepted
-   architecture decisions, reference notes only for external architecture
-   sources, and task specs only when future handoff needs them.
+6. If editing, make small section-level changes. Keep durable architectural
+   guidance in the relevant topic doc, reference notes only for external
+   architecture sources, and task specs only when future handoff needs them.
 7. Run the narrowest useful check and report it. If no command applies, use an
    explicit review checklist.
 
@@ -40,7 +40,7 @@ Start with targeted searches:
 
 ```bash
 git status --short --branch
-rg -n "bash runs/|python3|uv run|PYTHONPATH|Current Status|ADR|TODO|TBD" README.md CONTEXT.md docs runs tests evals
+rg -n "bash runs/|python3|uv run|PYTHONPATH|Current Status|TODO|TBD" README.md CONTEXT.md docs runs tests evals
 rg -n "Message|State|Agent|Tool|context_view|run_agent|trajectory|evaluation|training" src docs tests evals runs
 ```
 
@@ -49,7 +49,7 @@ Common checks:
 ```bash
 bash runs/dev/run_ci.sh
 uv run python -m unittest discover -s tests/unit
-uv run python scripts/lint_docs.py
+uv run python -m scripts.lint_docs
 bash runs/demos/run_bash_agent_demo.sh
 ```
 

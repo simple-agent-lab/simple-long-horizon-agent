@@ -1,6 +1,6 @@
 """Worked bench-suite demo on the *current* framework — a real model, real task.
 
-It shows the two scoring paths a suite can take (ADR collapse-scorer-seam-into-run-primitive):
+It shows the two scoring paths a suite can take:
 
     run  --put-->  ArtifactStore  --get-->  { in-env verdict (result.json)
                                               judge run      (agent-as-judge) }

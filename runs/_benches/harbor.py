@@ -12,29 +12,23 @@ import argparse
 import os
 import re
 import subprocess
-import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "src"
-for path in (ROOT, SRC):
-    if str(path) not in sys.path:
-        sys.path.insert(0, str(path))
-
-from simple_agent_lab.agent_flavors import SIMPLE_AGENT_FLAVORS  # noqa: E402
-from simple_agent_lab.evals.harbor import (  # noqa: E402
+from simple_agent_lab.agent_flavors import SIMPLE_AGENT_FLAVORS
+from simple_agent_lab.evals.harbor import (
     AGENT_IMPORT_PATH,
     DEFAULT_API_KIND,
     DEFAULT_MAX_TURNS,
 )
-from simple_agent_lab.evals.harbor.results import (  # noqa: E402
+from simple_agent_lab.evals.harbor.results import (
     find_latest_job_dir,
     summarize_result_file,
 )
-from simple_agent_lab.llm.env import load_dotenv  # noqa: E402
+from simple_agent_lab.llm.env import load_dotenv
 
+ROOT = Path(__file__).resolve().parents[2]
 NAME = "harbor"
 DESCRIPTION = (
     "Harbor datasets through Harbor's container/verifier harness with SAL as "
@@ -338,7 +332,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
     jobs_dir.mkdir(parents=True, exist_ok=True)
     try:
-        proc = subprocess.run(cmd, cwd=str(ROOT))
+        proc = subprocess.run(cmd, cwd=str(ROOT), check=False)
         status_code = proc.returncode
     except FileNotFoundError as exc:
         return {

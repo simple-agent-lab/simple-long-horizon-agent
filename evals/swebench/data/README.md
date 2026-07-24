@@ -72,7 +72,7 @@ Build the ordinary chain analysis (minimum chain size 4) and its runner
 manifest:
 
 ```bash
-uv run python scripts/swebench/analyze_swebench_pro_chains.py \
+uv run python -m scripts.swebench.analyze_swebench_pro_chains \
   --min-chain-size 4 \
   --output-path datasets/swebench_pro/cache/swe_bench_pro_issue_chains_standard.json \
   --nodes-output-path evals/swebench/data/swe_bench_pro_chain_experiment_nodes.jsonl
@@ -82,7 +82,7 @@ Build the deep manifest by applying its hot-file cutoff while grouping
 (`ignore_file_freq=4`, `min_chain_size=3`):
 
 ```bash
-uv run python scripts/swebench/analyze_swebench_pro_chains.py \
+uv run python -m scripts.swebench.analyze_swebench_pro_chains \
   --ignore-file-freq 4 \
   --min-chain-size 3 \
   --compact-chain-ids \

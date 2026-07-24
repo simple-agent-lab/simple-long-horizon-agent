@@ -1,4 +1,4 @@
-"""Unit-smoke for the generic eval framework (ADR generic-containerized-eval-framework).
+"""Unit smoke for the generic eval framework.
 
 No Docker. Covers the two seams — `ContainerBackend` (`FakeBackend` for
 orchestration, `LocalProcessBackend` for a real in-process agent run) and
@@ -415,7 +415,7 @@ class LocalProcessBackendTest(_TempDirTest):
 class InEnvScoringTest(_TempDirTest):
     """In-environment scoring: the container-half `evaluate` hook writes the
     verdict into result.json during the run, gated on staged `eval_inputs`
-    (ADR collapse-scorer-seam-into-run-primitive). No separate scoring driver."""
+    without a separate scoring driver."""
 
     @staticmethod
     def _reuse_module() -> str:
@@ -729,9 +729,9 @@ class SubmitReconcileTest(_TempDirTest):
     def test_reconcile_completes_off_result_without_instance_record(self) -> None:
         """Reconcile keys completion on result.json — decoupled from the instance.
 
-        The run/score split (ADR scorer-seam-and-scoring-topology) means reconcile no longer needs the
-        instance record; a missing input/instance.json does not fail a run whose
-        result.json landed. The instance re-enters only at the score phase.
+        Reconcile no longer needs the instance record; a missing
+        input/instance.json does not fail a run whose result.json landed. The
+        instance re-enters only at the score phase.
         """
         self._submit(backend=FakeBackend(on_run=_simulate("ok")))
         (self.root / "b" / "x" / INSTANCE_KEY).unlink()
@@ -1088,7 +1088,11 @@ class _FakeRemoteContainer:
         from io import BytesIO
 
         with tarfile.open(fileobj=BytesIO(tar_bytes), mode="r") as tar:
-            tar.extractall(self.root / dest.lstrip("/"))
+            target = self.root / dest.lstrip("/")
+            if sys.version_info >= (3, 12):
+                tar.extractall(target, filter="data")
+            else:
+                tar.extractall(target)
         return True
 
     def get_archive(self, path: str):

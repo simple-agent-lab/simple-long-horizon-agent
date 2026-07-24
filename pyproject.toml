@@ -1,7 +1,7 @@
 [project]
 name = "simple-agent-lab"
 version = "0.1.0"
-description = "Tiny message-first agent runtime for learning, comparing, and building small agent systems."
+description = "A simple yet effective AI agent for long-horizon tasks, learning, and experimentation."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
@@ -9,7 +9,7 @@ license-files = ["LICENSE"]
 authors = [
     { name = "yesiyu.andy", email = "andyyesiyu@gmail.com" },
 ]
-keywords = ["agent", "llm", "runtime", "education", "research", "tool-use"]
+keywords = ["agent", "llm", "long-horizon", "education", "research", "tool-use"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",

@@ -7,52 +7,40 @@ Local artifacts from ProgramBench runs. Run ids default to
 
 ```text
 evals/out/programbench/
-├── README.md                       ← this file
-├── wheelhouse/                     ← pre-built wheels for container installs
+├── README.md
+├── wheelhouse/
 │   └── cp311-manylinux/*.whl
 ├── <run-id>/
-│   └── <instance-id>/              (e.g. abishekvashok__cmatrix.5c082c6)
+│   └── <instance-id>/
 │       ├── input/
-│       │   └── instance.json       sanitized instance (no repo/commit/gold)
+│       │   └── instance.json
 │       └── out/
-│           ├── trajectory.jsonl    three-layer trace (schema v3)
-│           └── result.json         {instance_id, submission_tar_b64, network_isolated, ...}
-└── <run-id>_eval/                  ← built by evaluate_submissions.py
+│           ├── trajectory.jsonl    three-layer trace (schema v5)
+│           └── result.json         submission_tar_b64 and run metadata
+└── <run-id>_eval/
     ├── <instance-id>/
-    │   ├── submission.tar.gz       decoded from result.json's submission_tar_b64
-    │   └── <instance-id>.eval.json official ProgramBench eval result
-    └── scores.json                 machine-readable manifest
+    │   ├── submission.tar.gz
+    │   └── <instance-id>.eval.json
+    └── scores.json
 ```
 
-Unlike SWE-bench (whose product is a `model_patch` diff), the ProgramBench
-product is the **whole workspace**: the container half tars + gzips it and
-returns it base64-encoded as `submission_tar_b64` in `result.json` (a container
-half can only return bytes through that file). `evaluate_submissions.py` decodes
-it back into the `<id>/submission.tar.gz` layout the official scorer expects.
+The ProgramBench product is the whole workspace. The container half stores it
+as a base64-encoded tarball in `result.json`; the official scorer reconstructs
+the submission archive.
 
 ## Generating a Run
 
 ```bash
-# One instance
 bash runs/programbench/run_programbench.sh abishekvashok__cmatrix.5c082c6
-
-# Whole task set, 4 at a time
 bash runs/programbench/run_programbench.sh --all --parallel 4
 ```
 
 ## Scoring
 
 ```bash
-uv run python evals/programbench/evaluate_submissions.py \
+uv run --extra programbench python -m evals.programbench.evaluate_submissions \
   --run-id <run-id> --workers 4
 ```
 
-This rebuilds each `submission.tar.gz` under `<run-id>_eval/` and runs the
-official ProgramBench evaluator (needs Docker + the `programbench` package +
-access to the HF test blobs).
-
-## File Sizes
-
-- `trajectory.jsonl`: 50 KB – 5 MB per instance (raw LLM I/O).
-- `result.json`: a few KB to a few MB (holds the gzipped workspace, base64).
-- `instance.json`: < 5 KB per instance.
+The official evaluator requires Docker, the `programbench` package, and access
+to its test data.

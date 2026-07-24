@@ -1,5 +1,5 @@
 {
-  "_comment": "Loop arm on SWE-bench Pro: a judge-gated outer loop wraps a bash+read solver, re-entering until the model's declared verify command actually passes. Copy to swebench-loop.json and run: uv run python runs/run_bench.py swebench <instance-id> --profile runs/profiles/swebench-loop.json. Provider creds stay in .env (do NOT put OPENAI_AUTH_TOKEN in a committed profile).",
+  "_comment": "Loop arm on SWE-bench Pro: a judge-gated outer loop wraps a bash+read solver, re-entering until the model's declared verify command actually passes. Copy to swebench-loop.json and run: uv run python -m runs.run_bench swebench <instance-id> --profile runs/profiles/swebench-loop.json. Provider creds stay in .env (do NOT put OPENAI_AUTH_TOKEN in a committed profile).",
   "env": {
     "_comment": "Catalogued env knobs forwarded into the swebench container (see docs/agent-native/configuration.md). Applied fill-the-gaps: a real export still wins. The agent selector + loop budget live in `run` below, not here: swebench reads them from --agent-flavor / --loop-max-turns.",
     "REASONING_EFFORT": "high"

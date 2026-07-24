@@ -1,7 +1,7 @@
 """Lint local documentation links and path references.
 
 Usage:
-    python scripts/lint_docs.py
+    uv run python -m scripts.lint_docs
 """
 
 from __future__ import annotations

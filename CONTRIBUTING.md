@@ -15,9 +15,6 @@ Read these in order:
 3. [`docs/agent-native/development.md`](docs/agent-native/development.md) — day-to-day
    commands and the quality gate.
 
-If you are introducing an architectural commitment, add a decision record
-under [`docs/decisions/`](docs/decisions/) following the existing template.
-
 ## Local quality gate
 
 Before opening a pull request, the same checks that GitHub Actions runs
@@ -40,11 +37,8 @@ tooling behind optional extras.
 ## Pull requests
 
 - Keep changes small and focused. One commit per logical change is preferred.
-- Update the relevant README, ADR, or `docs/agent-native/` note in the same PR
+- Update the relevant README or `docs/agent-native/` note in the same PR
   when behavior or contracts change.
-- If your change touches an area covered by an ADR, link the ADR in the PR
-  description and call out whether it confirms, extends, or supersedes the
-  decision.
 - Use the PR template in [`.github/pull_request_template.md`](.github/pull_request_template.md).
 
 ## Reporting bugs and proposing features

@@ -1,4 +1,4 @@
-"""SWE-bench as a `Suite` (ADR generic-containerized-eval-framework) — the reference driver case.
+"""SWE-bench as a `Suite` — the reference driver case.
 
 This is the *host half*: it maps SWE-bench Verified, SWE-bench Multilingual, and
 SWE-bench Pro onto one `Suite` whose `launch_spec` carries the per-suite
@@ -11,7 +11,7 @@ The *container half* (``build_task`` / ``prepare`` / ``extract_result``) ships
 in the wheel at ``simple_agent_lab.evals.suites.swebench.container`` and is
 driven by the generic in-container runner — so the container needs no copied
 files. This suite is the reference for the "one Suite + two functions"
-integration shape (ADR generic-containerized-eval-framework).
+integration shape.
 """
 
 from __future__ import annotations
@@ -60,8 +60,8 @@ class SwebenchSuite:
         # sandboxes, and old daemons (≤18.09) block clone3 under their default
         # profile, which glibc ≥2.34 needs for threads. Override via --security-opt.
         self.security_opt = tuple(security_opt)
-        # Where scoring runs (ADR collapse-scorer-seam-into-run-primitive). Default: score separately with the
-        # official harness (`evaluate_predictions.py`) — re-scorable, parity by
+        # By default, score separately with the official harness
+        # (`evaluate_predictions.py`) — re-scorable, parity by
         # definition. Set `in_env_scoring=True` to also stage the official eval
         # script as `eval_inputs`, which turns on the container-half ``evaluate``
         # hook so the run scores itself in place (grade host-side with

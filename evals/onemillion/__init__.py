@@ -1,4 +1,4 @@
-"""OneMillion-Bench eval suite — host half (ADR 0017).
+"""OneMillion-Bench eval suite — host half.
 
 `OneMillionSuite` (in ``suite.py``) maps a OneMillion-Bench rubric-graded Q&A
 case onto the generic `Suite` framework; ``harness.py`` holds the shared

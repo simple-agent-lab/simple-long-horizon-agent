@@ -1,4 +1,4 @@
-"""OneMillion-Bench as a `Suite` (ADR 0017).
+"""OneMillion-Bench as a `Suite`.
 
 This is the *host half*: it maps a OneMillion-Bench case onto one `Suite` whose
 launch shape rides along as ``launch_spec`` data, drops the rubrics before the

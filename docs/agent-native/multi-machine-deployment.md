@@ -1,13 +1,17 @@
 # Multi-Machine Eval Deployment
 
-How to run the containerized eval framework (ADR generic-containerized-eval-framework) across several machines.
-This is an operations runbook; the architecture and the seams it relies on are
-in [ADR generic-containerized-eval-framework](../decisions/20260531-generic-containerized-eval-framework.md).
+How to run the containerized eval framework across several machines. This is
+an operations runbook for the backend and artifact-store seams described in
+[`evals/README.md`](../../evals/README.md).
 
 Read when: scaling an eval run beyond one machine, standing up workers, or
 choosing a store/backend for a given network. Skip for single-machine local
 development (use `LocalProcessBackend` / `LocalDockerBackend` — see
 [`evals/README.md`](../../evals/README.md)).
+
+The package currently ships one `RemoteDockerBackend` per Docker daemon.
+`WorkerPoolBackend` and `K8sBackend` below are explicit extension sketches, not
+runnable APIs in this repository.
 
 ## Mental model: workers run nothing of ours
 
@@ -121,16 +125,16 @@ Offline moves the "agent wheel reachable" requirement from "container egress" to
 "a wheelhouse on each worker" — i.e. the wheelhouse is distributed to the four
 machines just like the images.
 
-## Step 4 — point the host at the workers
+## Step 4 — fan out across workers (extension sketch)
 
-The host lists the workers and fans the dataset out over them. The pool backend
-that combines several `RemoteDockerBackend`s into one `ContainerBackend` is
-described in ADR generic-containerized-eval-framework; conceptually:
+The host lists the workers and fans the dataset out over them. A pool backend
+can combine several `RemoteDockerBackend`s behind one `ContainerBackend`;
+conceptually:
 
 ```python
 from simple_agent_lab.evals import run_dataset, LocalDirStore
 # WorkerPoolBackend: a ContainerBackend that dispatches to a list of workers,
-# capacity-limited per worker (a blocking slot queue). See ADR generic-containerized-eval-framework.
+# capacity-limited per worker with a blocking slot queue.
 
 backend = WorkerPoolBackend(
     [
@@ -179,10 +183,7 @@ Three properties fall out of the existing design, for free:
 k8s is compatible without touching `run_dataset` / the suites / the stores: it is
 **one more `ContainerBackend`** (`K8sBackend.run(spec, store, binding)` submits a
 Job built from `spec`, waits, returns a `RunOutcome`). What k8s changes is which
-*store* and image policy you pair it with, not the architecture — see ADR generic-containerized-eval-framework's
-"Future direction: Kubernetes" for the details (artifacts move via a future
-object store / in-cluster HTTP store rather than host-pull, because directly tar-ing a specific
-container is a docker-ism; a registry becomes mandatory; and a submit/poll
-lifecycle fits better than a blocking wait). None of this requires changing the
-seams today — only continuing to keep Docker types out of the `ContainerBackend`
-protocol.
+*store* and image policy you pair it with. Artifacts would move through an
+object store or in-cluster HTTP store rather than Docker-specific host pulls; a
+registry becomes mandatory, and a submit/poll lifecycle fits better than a
+blocking wait. None of this requires changing the existing seams.

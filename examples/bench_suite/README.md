@@ -1,12 +1,12 @@
 # Example bench suite
 
-A worked, end-to-end example of integrating a benchmark on the eval framework
-(ADR generic-containerized-eval-framework): a small but **real** "fix the bug" suite — the candidate agent edits
-`app.py` so it prints `42` — scored two ways: **in the run environment** (the
+A worked, end-to-end example of integrating a benchmark on the eval framework:
+a small but **real** "fix the bug" suite — the candidate agent edits `app.py`
+so it prints `42` — scored two ways: **in the run environment** (the
 suite's `evaluate` hook *runs* the fixed program and writes the verdict into
 `result.json`) and via **agent-as-judge** (a second agent re-runs the program and
 judges). The "pipeline" between runs is plain Python over the shared
-`ArtifactStore` — no pipeline engine, no separate scoring driver (ADR collapse-scorer-seam-into-run-primitive).
+`ArtifactStore` — no pipeline engine and no separate scoring driver.
 
 ```bash
 export OPENAI_MODEL=gpt-4o-mini
@@ -38,8 +38,8 @@ OpenAI-compatible model — the task needs a model to locate and fix the bug.
 
 ## What it demonstrates
 
-- **Scoring in the run environment (ADR collapse-scorer-seam-into-run-primitive)** — the gold output rides on the
-  instance as `expected`; `task_input` hides it from the agent; `eval_inputs`
+- **Scoring in the run environment** — the gold output rides on the instance as
+  `expected`; `task_input` hides it from the agent; `eval_inputs`
   stages it (gold the agent never sees); the container-half `evaluate` hook *runs
   the fixed program* and writes the verdict beside the product in `result.json`.
   No separate scoring phase, and it reuses the run's fault tolerance.

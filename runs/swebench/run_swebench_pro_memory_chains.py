@@ -26,13 +26,13 @@ Key differences from the repo-chain runner:
 
 Example smoke (no Docker cost past a couple of instances):
 
-    uv run --extra swebench python runs/swebench/run_swebench_pro_memory_chains.py \
+    uv run --extra swebench python -m runs.swebench.run_swebench_pro_memory_chains \
       --chains-json evals/swebench/data/swe_bench_pro_chain_experiment_nodes_deep.jsonl \
       --max-chains 1 --limit 2 --max-turns 5
 
 Formal run shape:
 
-    uv run --extra swebench python runs/swebench/run_swebench_pro_memory_chains.py \
+    uv run --extra swebench python -m runs.swebench.run_swebench_pro_memory_chains \
       --all \
       --chains-json evals/swebench/data/swe_bench_pro_chain_experiment_nodes_deep.jsonl \
       --parallel 23 \
@@ -49,20 +49,13 @@ from __future__ import annotations
 
 import argparse
 import os
-import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "src"
-for path in (ROOT, SRC):
-    if str(path) not in sys.path:
-        sys.path.insert(0, str(path))
-
-from evals.swebench import harness  # noqa: E402
-from evals.swebench import pro_chain_runner as chain_runner  # noqa: E402
-from evals.swebench.pro_memory_chain import (  # noqa: E402
+from evals.swebench import harness
+from evals.swebench import pro_chain_runner as chain_runner
+from evals.swebench.pro_memory_chain import (
     MEMORY_CHAIN_AGENT_FLAVORS,
     MemoryChain,
     ProMemoryChainConfig,
@@ -72,33 +65,33 @@ from evals.swebench.pro_memory_chain import (  # noqa: E402
     plan_manifest,
     plan_memory_chains,
 )
-from evals.swebench.suite import SwebenchSuite  # noqa: E402
-from simple_agent_lab.agent_flavors import AGENT_FLAVOR_ENV  # noqa: E402
-from simple_agent_lab.evals import LocalDirStore, LocalDockerBackend  # noqa: E402
-from simple_agent_lab.evals.protocols import (  # noqa: E402
+from evals.swebench.suite import SwebenchSuite
+from simple_agent_lab.agent_flavors import AGENT_FLAVOR_ENV
+from simple_agent_lab.evals import LocalDirStore, LocalDockerBackend
+from simple_agent_lab.evals.protocols import (
     DEFAULT_MEMORY_CONTAINER_HOME,
     MEMORY_NAME_ENV,
     MEMORY_RUN_ID_ENV,
     RESULT_KEY,
 )
-from simple_agent_lab.evals.runner import (  # noqa: E402
+from simple_agent_lab.evals.runner import (
     canonical_run_id,
     container_name,
     prepare_run_directory,
     run_suite_instance,
     safe_path_part,
 )
-from simple_agent_lab.llm.env import (  # noqa: E402
+from simple_agent_lab.llm.env import (
     OPENAI_MODEL_ENV,
     OPENAI_REASONING_EFFORT_ENV,
     REASONING_EFFORT_ENV,
 )
-from simple_agent_lab.memory import (  # noqa: E402
+from simple_agent_lab.memory import (
     FilesystemMemory,
     FilesystemMemoryLimits,
 )
-from simple_agent_lab.memory.filesystem import safe_memory_name  # noqa: E402
-from simple_agent_lab.trace import write_jsonl_atomic  # noqa: E402
+from simple_agent_lab.memory.filesystem import safe_memory_name
+from simple_agent_lab.trace import write_jsonl_atomic
 
 
 def build_parser() -> argparse.ArgumentParser:

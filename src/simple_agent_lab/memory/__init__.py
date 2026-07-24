@@ -9,7 +9,6 @@ from .base import (
     Memory,
     MemoryBinding,
     MemoryContext,
-    NoMemory,
     memory_context_message,
 )
 from .filesystem import (
@@ -34,7 +33,6 @@ __all__ = [
     "Memory",
     "MemoryBinding",
     "MemoryContext",
-    "NoMemory",
     "make_filesystem_distiller",
     "memory_context_message",
 ]

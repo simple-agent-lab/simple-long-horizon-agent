@@ -175,8 +175,7 @@ class LLMResponse:
     truth of what crossed the model boundary. The trace writer keeps it
     out of the main trajectory file by externalizing it (deduped) to the
     sibling `*.raw.jsonl` pool rather than embedding the growing history
-    inline, which would pin O(N²) size across a long session. See ADR
-    trajectory-schema-v5.
+    inline, which would pin O(N²) size across a long session.
     """
 
     content: MessageContent = ()

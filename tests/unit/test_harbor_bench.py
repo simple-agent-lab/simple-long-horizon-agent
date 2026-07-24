@@ -3,24 +3,25 @@
 from __future__ import annotations
 
 import os
-import sys
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
-from tests.unit._support import load_module
-
-ROOT = Path(__file__).resolve().parents[2]
+from runs._benches import harbor
 
 
 def _load_harbor_bench():
-    for path in (ROOT, ROOT / "src", ROOT / "runs"):
-        if str(path) not in sys.path:
-            sys.path.insert(0, str(path))
-    return load_module(ROOT / "runs/_benches/harbor.py", "sal_harbor_bench")
+    return harbor
 
 
 class HarborBenchTest(unittest.TestCase):
+    def setUp(self) -> None:
+        environment = patch.dict(os.environ, {}, clear=True)
+        dotenv = patch.object(harbor, "load_dotenv")
+        environment.start()
+        dotenv.start()
+        self.addCleanup(dotenv.stop)
+        self.addCleanup(environment.stop)
+
     def test_dry_run_builds_harbor_run_command(self) -> None:
         harbor = _load_harbor_bench()
         parser = harbor._build_parser()

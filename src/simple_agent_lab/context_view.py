@@ -42,7 +42,7 @@ from .protocols import Event
 # exact; this is a deliberate middle value below the old 4 guess. One global
 # ratio is enough because the estimate only covers the small tail since the last
 # provider usage report, and the runtime's safety buffer absorbs the residual
-# (see ADR context-size-accounting).
+# estimation error.
 CHARS_PER_TOKEN = 3.5
 IMAGE_CHAR_ESTIMATE = 7373
 

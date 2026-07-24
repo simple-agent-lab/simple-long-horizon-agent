@@ -1,4 +1,4 @@
-"""Tests for the JSON run-profile loader (ADR run-profile-file)."""
+"""Tests for the JSON run-profile loader."""
 
 from __future__ import annotations
 

@@ -1,133 +1,150 @@
-# Simple Agent Lab
+<h1 align="center">Simple Agent Lab</h1>
 
-Simple Agent Lab is a docs-first project for learning, comparing, and building small agent systems.
+<p align="center">
+  <strong>Simple by design. Effective over long horizons.</strong>
+</p>
 
-The project is aimed at college students, small company teams, and agent learners who want something simple, hackable, and understandable before adopting heavier frameworks.
+<p align="center">
+  A simple yet effective AI agent for learning, experimentation, and real work
+  that takes more than one model turn.
+</p>
 
-## Setup
+<p align="center">
+  <strong>English</strong> · <a href="README.zh-CN.md">简体中文</a>
+</p>
 
-This project supports Python 3.10 and newer.
+<p align="center">
+  <a href="https://github.com/simple-agent-lab/simple-agent-lab/actions/workflows/ci.yml">
+    <img alt="CI" src="https://github.com/simple-agent-lab/simple-agent-lab/actions/workflows/ci.yml/badge.svg">
+  </a>
+  <a href="https://www.python.org/">
+    <img alt="Python 3.10+" src="https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&amp;logoColor=white">
+  </a>
+  <a href="LICENSE">
+    <img alt="Apache-2.0 License" src="https://img.shields.io/badge/License-Apache--2.0-blue.svg">
+  </a>
+</p>
 
-It uses [uv](https://docs.astral.sh/uv/) to manage the Python
-environment. The base package installs the supported model-provider SDKs; the
-heavier benchmark tooling stays behind optional extras.
+<p align="center">
+  <a href="#overview">Overview</a> ·
+  <a href="#results">Results</a> ·
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#documentation">Documentation</a>
+</p>
+
+## Overview
+
+Simple Agent Lab is small enough to understand and change, while capable
+enough to take on real tasks with language models and tools. It gives you a
+practical agent to learn from, experiment with, and adapt—without requiring a
+large framework first.
+
+Long-horizon work cannot be completed in a single response. It requires
+sustained progress across many steps: planning, acting, checking results, and
+iterating until the goal is complete. Simple Agent Lab is designed for that
+shape of work while keeping the project clear and approachable.
+
+## Highlights
+
+- **Simple by design** — a compact project with a short setup path and concepts
+  you can understand by inspection.
+- **Effective in practice** — built to use tools, interact with real
+  environments, and complete meaningful tasks.
+- **Long-horizon ready** — designed for sustained progress, repeated tool use,
+  verification, and iteration.
+- **Easy to adapt** — a practical base for classes, research ideas, benchmarks,
+  and focused team workflows.
+- **Built to be evaluated** — runnable examples and benchmark integrations make
+  behavior and results inspectable.
+
+## Results
+
+We focus on long-horizon evaluations across software engineering, terminal
+work, and autonomous model post-training. Reproducible results will be
+published here with the exact model, agent setup, and cost.
+
+| Benchmark | Model | **Score ↑** | Baseline | **Δ vs. Baseline ↑** | Cost / Task |
+| --- | --- | ---: | ---: | ---: | ---: |
+| [SWE-bench Pro](evals/swebench/README.md)<br>Resolved (%) | — | **—** | — | **—** | — |
+| [Terminal-Bench](evals/harbor/README.md)<br>2.1 official score | — | **—** | — | **—** | — |
+| [PostTrainBench](https://posttrainbench.com/)<br>Weighted average | — | **—** | — | **—** | — |
+
+**Δ vs. Baseline** is the score improvement over a baseline using the same
+model and task budget. It separates the value of the agent from the capability
+of the underlying model.
+
+An em dash means “not published yet,” not zero.
+
+## Quick Start
+
+Simple Agent Lab supports Python 3.10 and newer and uses
+[uv](https://docs.astral.sh/uv/) for its environment.
 
 ```bash
-# install uv (one of):
-curl -LsSf https://astral.sh/uv/install.sh | sh
-brew install uv
+git clone https://github.com/simple-agent-lab/simple-agent-lab.git
+cd simple-agent-lab
 
-# from the repo root:
-bash runs/dev/run_ci.sh  # syncs dependencies, then runs the local gate
-```
-
-Plain `python3` works too when it is Python 3.10 or newer and dependencies are
-installed. `uv run` is the recommended path so the same command keeps working
-when optional extras are added. The repo smoke scripts prefer `uv run python`
-when `uv` is installed and fall back to `python3`; they also set `PYTHONPATH=src`
-for the current src-layout:
-
-```bash
+uv sync
 bash runs/demos/run_bash_agent_demo.sh
 ```
 
-The local gate mirrors the formatting, lint, generated-doc, architecture,
-type, test, and demo checks that run on every push and pull request via
-[GitHub Actions](.github/workflows/ci.yml).
+The default demo is deterministic and does not require an API key. It shows the
+agent receiving a task, using a tool, and returning a result.
 
-Optional benchmark suites have their own setup notes under
-[evals](evals/README.md) so the root setup stays focused on normal
-development.
+To try the same agent with a real model:
 
-## Current Status
+```bash
+export OPENAI_MODEL="your-model"
+export OPENAI_AUTH_TOKEN="your-token"
+# Optional for an OpenAI-compatible endpoint:
+export OPENAI_BASE_URL="https://your-provider.example/v1"
 
-The canonical runtime lives in `src/simple_agent_lab/core.py`. Earlier
-side-by-side architectural sketches under `examples/design_versions/` have
-been folded into the package and removed.
-
-The shared message protocol is deliberately small and role-specific:
-
-```text
-Message =
-  UserMessage
-  | RuntimeMessage
-  | AssistantMessage
-
-ContentBlock =
-  TextBlock
-  | ImageBlock
-  | ThinkingBlock
-  | ToolCallBlock
-  | ToolResultBlock
+uv run python -m scripts.run_bash_agent_demo \
+  --provider openai \
+  --task "Inspect this repository and explain what it is for."
 ```
 
-Runtime `Message` values keep `sender`, `target`, `kind`, `channel`, and rare
-sidecar `data`. The LLM bridge projects them into routing-free `LLMMessage`
-values that preserve ordered content blocks for text, images, thinking, tool
-calls, and tool results.
+See [.env.example](.env.example) for the supported provider settings.
 
-The architecture decision history lives in
-[docs/decisions](docs/decisions/README.md); keep detailed rationale there
-instead of expanding the public README.
+## Use Cases
 
-## Project Goals
+- Learn how an agent behaves by running and modifying a complete example.
+- Build focused agents for coding, research, teaching, or internal workflows.
+- Explore tasks that require many steps, tool calls, checks, and revisions.
+- Compare prompts, models, tools, and agent strategies under repeatable tasks.
+- Evaluate agent behavior on small experiments or established benchmarks.
 
-- Make agent architecture easy to read and modify.
-- Keep the first implementation small enough to explain in one sitting.
-- Prefer explicit data flow over hidden framework behavior.
-- Support experiments, classroom use, and small internal team prototypes.
-- Build shared context that both humans and coding agents can follow.
+## Project Principles
 
-## Development Process
+- Keep the agent easy to understand.
+- Prefer useful behavior over impressive abstraction.
+- Make long-running work observable and verifiable.
+- Make experiments reproducible.
+- Add complexity only when it earns its place.
 
-Development follows the
-[harness engineering workflow](docs/agent-native/harness-engineering.md): keep the
-repo itself as the source of truth, make changes small and verifiable, and
-improve docs, examples, scripts, or tests when an agent workflow is ambiguous.
-Concrete day-to-day commands and the quality gate (ruff format, ty, and
-unittest, run by `runs/dev/run_ci.sh` locally and `.github/workflows/ci.yml`
-remotely) are spelled out in
-[docs/agent-native/development.md](docs/agent-native/development.md).
+## Documentation
 
-Training-data and eval architecture notes also live under
-[docs/decisions](docs/decisions/README.md). The original design-version
-pipeline has been retired alongside `examples/design_versions/`. The current
-eval architecture is the generic containerized framework in
-`src/simple_agent_lab/evals/` ([ADR generic-containerized-eval-framework](docs/decisions/20260531-generic-containerized-eval-framework.md)):
-a suite is one host-side `Suite` plus a container half of two functions, run
-through `run_suite_instance` over swappable `ContainerBackend` (in-process /
-local Docker / remote) and `ArtifactStore` (local dir / host HTTP / S3) seams.
-Ordered multi-instance evals reuse the engine-level `evals.chain` module;
-suites keep benchmark-specific chain hooks in their container half.
+- [Runnable demos and experiments](runs/README.md)
+- [Evaluation suites and benchmarks](evals/README.md)
+- [Project documentation](docs/README.md)
+- [Contributing guide](CONTRIBUTING.md)
 
-## Non-Goals
+## Project Status
 
-- This is not intended to be a production agent platform at the start.
-- This is not a wrapper around every available model or tool provider.
-- This is not trying to hide the agent loop behind a large abstraction layer.
-- This is not a benchmark project yet.
-
-## Repository Map
-
-- [AGENTS.md](AGENTS.md): collaboration rules for coding agents and contributors.
-- [docs/agent-native](docs/agent-native/README.md): the single future-agent loading map, plus project intent, code style, development workflow, source-of-truth routing, and unresolved owner questions.
-- [docs/decisions](docs/decisions/README.md): architecture decision records.
-- [docs/glossary.md](docs/glossary.md): shared vocabulary.
-- [src/simple_agent_lab](src/simple_agent_lab/core.py): the installable package - `core.py` (canonical tiny run loop), `context_view.py` (model-visible context projection), `compression/` (context-compression strategies run before each model request), `messages.py` (shared message protocol), `tools/` (shared tool values plus concrete tools like bash and the sub-agent `task` tool), `trace/` (the three-layer trace: span/training transforms over the event log, record schema, JSONL IO, console rendering, OpenAI Chat JSONL export, and the live-trace edge), `llm/` (shared LLM access layer and message bridge), `mcp/` (optional Model Context Protocol integration: wrap an MCP server's tools — including multimodal results — as `AgentTool`s, behind the `mcp` extra), `memory/` (optional filesystem-backed memory via ordinary lifecycle hooks), `agents/` (the general agent starter: one `AgentSession` runner plus `Toolset`s and a single composable `agent_session()` front door — turn on bash/read/general-purpose/skills/MCP as needed), and `evals/` (the generic containerized eval framework - two seams `ContainerBackend` x `ArtifactStore`, the `run_suite_instance` entry point, and in-wheel suite container halves under `src/simple_agent_lab/evals/suites/`; see [ADR generic-containerized-eval-framework](docs/decisions/20260531-generic-containerized-eval-framework.md)).
-- [evals](evals/README.md): suite adapters (host halves) and the "add a suite" guide; the framework itself ships in the package above.
-- [examples/bench_suite](examples/bench_suite/README.md): agent-as-judge worked example - candidate + judge runs composed over the shared artifact store, runnable with no Docker.
-- [tests](tests/README.md): future test strategy.
-- [runs](runs/README.md): small reproducible commands for examples and future experiments.
+Simple Agent Lab is early-stage and actively evolving. It is designed for
+learning, research, and small-team experimentation rather than production-scale
+infrastructure.
 
 ## Contributing
 
-Contributions are welcome. Start with [AGENTS.md](AGENTS.md) for the
-collaboration contract and [docs/agent-native/development.md](docs/agent-native/development.md)
-for the local quality gate. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
-short version.
+Contributions that make the agent simpler, more effective, or easier to learn
+from are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) and run the local
+quality gate before opening a pull request:
+
+```bash
+bash runs/dev/run_ci.sh
+```
 
 ## License
 
-Licensed under the [Apache License, Version 2.0](LICENSE). By contributing
-to this project you agree that your contributions will be licensed under the
-same terms (see [CONTRIBUTING.md](CONTRIBUTING.md) for details).
+Licensed under the [Apache License, Version 2.0](LICENSE).
