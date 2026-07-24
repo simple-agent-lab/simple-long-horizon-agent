@@ -8,7 +8,7 @@ for the core runtime to consume.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from simple_agent_lab.hooks import HookContext, HookDecision, HookMap, HookPoint
@@ -132,15 +132,10 @@ def memory_context_message(text: str, *, target: str) -> Message:
 def _context_with_state(ctx: MemoryContext, state: State | None) -> MemoryContext:
     if state is None:
         return ctx
-    return MemoryContext(
-        agent=ctx.agent,
+    return replace(
+        ctx,
         task=_task_text(state.task),
-        session_id=ctx.session_id,
-        run_id=ctx.run_id,
-        memory_name=ctx.memory_name,
-        step_index=ctx.step_index,
         state=state,
-        data=ctx.data,
     )
 
 

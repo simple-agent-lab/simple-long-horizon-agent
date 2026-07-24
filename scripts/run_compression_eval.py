@@ -19,16 +19,9 @@ Two things to read off the output:
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Callable
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from simple_agent_lab import (  # noqa: E402
+from simple_agent_lab import (
     Agent,
     ContextPolicy,
     Message,
@@ -39,9 +32,9 @@ from simple_agent_lab import (  # noqa: E402
     assistant_message,
     run,
 )
-from simple_agent_lab.compression import summarize_compression  # noqa: E402
-from simple_agent_lab.messages import TextBlock, ToolCallBlock  # noqa: E402
-from simple_agent_lab.tools import AgentTool, ToolResult, text_result  # noqa: E402
+from simple_agent_lab.compression import summarize_compression
+from simple_agent_lab.messages import TextBlock, ToolCallBlock
+from simple_agent_lab.tools import AgentTool, ToolResult, text_result
 
 THRESHOLD = 4000
 PolicyFactory = Callable[[], ContextPolicy]

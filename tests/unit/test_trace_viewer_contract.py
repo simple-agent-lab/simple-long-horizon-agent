@@ -51,7 +51,3 @@ class TraceViewerContractTest(unittest.TestCase):
             f"expected >= {MIN_NODE_TESTS} viewer contract tests but only {ran} ran "
             f"— did `node --test` discover studio/trace-viewer/test/?\n{out}",
         )
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -293,14 +293,12 @@ class FilesystemMemory(Memory):
         assert ctx.state is not None
         self._prune_all()
 
+        run_id = _run_id(ctx)
+        memory_dir: Path | None = None
         if ctx.memory_name:
             memory_dir = self.memory_dir(ctx)
-            if not _admit_namespaces_locked(
-                self.root, (memory_dir,), limits=self.limits
-            ):
-                raise RuntimeError("filesystem memory namespace limit reached")
-            self.ensure_layout(memory_dir)
-            if _run_is_complete(memory_dir / "runs" / _run_id(ctx)):
+            self._prepare_memory_dir_locked(memory_dir)
+            if _run_is_complete(memory_dir / "runs" / run_id):
                 return
 
         messages = ctx.state.messages
@@ -318,10 +316,9 @@ class FilesystemMemory(Memory):
             self.artifact_builder(ctx),
             limits=self.limits,
         )
-        run_id = _run_id(ctx)
         run_path = f"runs/{run_id}"
 
-        distillation = None
+        distillation = FilesystemDistillation()
         distillation_error: Exception | None = None
         if self.distiller is not None:
             try:
@@ -347,15 +344,12 @@ class FilesystemMemory(Memory):
             except Exception as exc:
                 distillation_error = exc
 
-        if distillation is not None and not distillation.retain_run:
+        if not distillation.retain_run:
             return
 
-        target_ctx = self._target_context(ctx, distillation)
-        memory_dir = self.memory_dir(target_ctx)
-        if not _admit_namespaces_locked(self.root, (memory_dir,), limits=self.limits):
-            raise RuntimeError("filesystem memory namespace limit reached")
-        self.ensure_layout(memory_dir)
-
+        if memory_dir is None:
+            memory_dir = self._routed_memory_dir_locked(distillation)
+            self._prepare_memory_dir_locked(memory_dir)
         run_dir = memory_dir / "runs" / run_id
         if _run_is_complete(run_dir):
             return
@@ -375,19 +369,13 @@ class FilesystemMemory(Memory):
                 memory_error_text("Distillation failed", distillation_error),
             )
 
-        summary = (
-            sanitize_summary(distillation.summary_md)
-            if distillation is not None
-            else ""
-        )
+        summary = sanitize_summary(distillation.summary_md)
         if not summary:
             summary = fallback_summary(task, artifacts, distillation_error)
         _write_text_atomic(run_dir / "summary.md", summary.rstrip() + "\n")
 
         row = complete_index_row(
-            distillation.index_row
-            if distillation is not None
-            else FilesystemIndexRow(),
+            distillation.index_row,
             task,
             artifacts,
         )
@@ -397,15 +385,14 @@ class FilesystemMemory(Memory):
             row=row,
             summary_path=f"{run_path}/summary.md",
         )
-        if distillation is not None:
-            _apply_handbook_rewrite(
-                memory_dir / MEMORY_HANDBOOK_FILENAME,
-                distillation.memory_md,
-                run_dir=run_dir,
-            )
+        _apply_handbook_rewrite(
+            memory_dir / MEMORY_HANDBOOK_FILENAME,
+            distillation.memory_md,
+            run_dir=run_dir,
+        )
         update_memory_summary(
             memory_dir,
-            distillation.memory_summary_md if distillation is not None else "",
+            distillation.memory_summary_md,
         )
         _write_text_atomic(run_dir / ".complete", "ok\n")
         prune_memory_runs(
@@ -414,18 +401,17 @@ class FilesystemMemory(Memory):
             protected_run_id=run_id,
         )
 
-    def _target_context(
-        self,
-        ctx: MemoryContext,
-        distillation: FilesystemDistillation | None,
-    ) -> MemoryContext:
-        if ctx.memory_name:
-            return replace(ctx, memory_name=safe_memory_name(ctx.memory_name))
-        proposed = (
-            distillation.memory_name.strip()
-            if distillation is not None and distillation.memory_name.strip()
-            else "default"
-        )
+    def _prepare_memory_dir_locked(self, memory_dir: Path) -> None:
+        """Admit and initialize one namespace while the caller holds the root lock."""
+
+        if not _admit_namespaces_locked(self.root, (memory_dir,), limits=self.limits):
+            raise RuntimeError("filesystem memory namespace limit reached")
+        self.ensure_layout(memory_dir)
+
+    def _routed_memory_dir_locked(self, distillation: FilesystemDistillation) -> Path:
+        """Choose a namespace after the locked distillation read/model call."""
+
+        proposed = distillation.memory_name.strip() or "default"
         name = safe_memory_name(proposed)
         available = set(self.available_memories())
         if (
@@ -433,7 +419,7 @@ class FilesystemMemory(Memory):
             and len(available) >= self.limits.max_namespaces_per_root
         ):
             name = "default"
-        return replace(ctx, memory_name=name)
+        return self.root / name
 
     def _distillation_context_files(
         self,
@@ -442,7 +428,6 @@ class FilesystemMemory(Memory):
         if not ctx.memory_name:
             return self._available_memory_context_files()
         memory_dir = self.memory_dir(ctx)
-        self.ensure_layout(memory_dir)
         return (
             _read_limited(memory_dir / MEMORY_SUMMARY_FILENAME, limit=12_000),
             _read_limited(memory_dir / "INDEX.md", limit=40_000),
@@ -464,36 +449,23 @@ class FilesystemMemory(Memory):
         summaries = ["# Available Memory Summaries", ""]
         indexes = ["# Available Memory Indexes", ""]
         handbooks = ["# Available Memory Handbooks", ""]
+        sections = (
+            (summaries, MEMORY_SUMMARY_FILENAME, 2_000),
+            (indexes, "INDEX.md", 4_000),
+            (handbooks, MEMORY_HANDBOOK_FILENAME, 4_000),
+        )
         for name in names:
             memory_dir = self.root / name
             self.ensure_layout(memory_dir)
-            summaries.extend(
-                [
-                    f"## {name}/{MEMORY_SUMMARY_FILENAME}",
-                    "",
-                    _read_limited(memory_dir / MEMORY_SUMMARY_FILENAME, limit=2_000),
-                    "",
-                ]
-            )
-            indexes.extend(
-                [
-                    f"## {name}/INDEX.md",
-                    "",
-                    _read_limited(memory_dir / "INDEX.md", limit=4_000),
-                    "",
-                ]
-            )
-            handbooks.extend(
-                [
-                    f"## {name}/{MEMORY_HANDBOOK_FILENAME}",
-                    "",
-                    _read_limited(
-                        memory_dir / MEMORY_HANDBOOK_FILENAME,
-                        limit=4_000,
-                    ),
-                    "",
-                ]
-            )
+            for lines, filename, limit in sections:
+                lines.extend(
+                    [
+                        f"## {name}/{filename}",
+                        "",
+                        _read_limited(memory_dir / filename, limit=limit),
+                        "",
+                    ]
+                )
         return (
             "\n".join(summaries).rstrip() + "\n",
             "\n".join(indexes).rstrip() + "\n",
@@ -798,9 +770,7 @@ def artifact_manifest(artifacts: tuple[FilesystemArtifact, ...]) -> str:
 
     lines = ["# Artifacts", ""]
     if not artifacts:
-        lines.append("No artifacts were recorded.")
-        lines.append("")
-        return "\n".join(lines)
+        return "# Artifacts\n\nNo artifacts were recorded.\n"
     for artifact in artifacts:
         lines.extend(
             [
@@ -888,13 +858,11 @@ def upsert_index_row(
     )
     lines = text.splitlines()
     target_suffix = f"| {_escape_cell(summary_path)} |"
-    replaced = False
     for index, line in enumerate(lines):
         if line.rstrip().endswith(target_suffix):
             lines[index] = rendered
-            replaced = True
             break
-    if not replaced:
+    else:
         insert_at = next(
             (
                 index
@@ -1171,25 +1139,17 @@ def _coerce_distillation(
     if isinstance(value, FilesystemDistillation):
         return value
     row_raw = value.get("index_row", {})
-    row = (
-        row_raw
-        if isinstance(row_raw, FilesystemIndexRow)
-        else FilesystemIndexRow(
-            summary=str(row_raw.get("summary", ""))
-            if isinstance(row_raw, dict)
-            else "",
-            scope=str(row_raw.get("scope", "")) if isinstance(row_raw, dict) else "",
-            signals=str(row_raw.get("signals", row_raw.get("tests_errors", "")))
-            if isinstance(row_raw, dict)
-            else "",
-            keywords=str(row_raw.get("keywords", ""))
-            if isinstance(row_raw, dict)
-            else "",
-            artifacts=str(row_raw.get("artifacts", row_raw.get("files_symbols", "")))
-            if isinstance(row_raw, dict)
-            else "",
+    if isinstance(row_raw, FilesystemIndexRow):
+        row = row_raw
+    else:
+        row_data = row_raw if isinstance(row_raw, Mapping) else {}
+        row = FilesystemIndexRow(
+            summary=str(row_data.get("summary", "")),
+            scope=str(row_data.get("scope", "")),
+            signals=str(row_data.get("signals", row_data.get("tests_errors", ""))),
+            keywords=str(row_data.get("keywords", "")),
+            artifacts=str(row_data.get("artifacts", row_data.get("files_symbols", ""))),
         )
-    )
     return FilesystemDistillation(
         memory_name=str(value.get("memory_name", "")),
         memory_summary_md=str(value.get("memory_summary_md", "")),
@@ -1370,26 +1330,23 @@ def _write_if_missing(path: Path, text: str) -> None:
 
 def _write_text_atomic(path: Path, text: str) -> None:
     _ensure_directory(path.parent)
-    with tempfile.NamedTemporaryFile(
-        "w",
-        encoding="utf-8",
-        newline="",
-        dir=path.parent,
-        delete=False,
-    ) as handle:
-        tmp = Path(handle.name)
-        try:
+    tmp: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            newline="",
+            dir=path.parent,
+            delete=False,
+        ) as handle:
+            tmp = Path(handle.name)
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
-        except BaseException:
-            tmp.unlink(missing_ok=True)
-            raise
-    try:
         os.replace(tmp, path)
-    except BaseException:
-        tmp.unlink(missing_ok=True)
-        raise
+    finally:
+        if tmp is not None:
+            tmp.unlink(missing_ok=True)
     # NamedTemporaryFile creates the file 0600; memory is meant to persist and be
     # inspected across runs (and across a container/host bind mount where the
     # writer is root), so normalize to a normal readable mode honoring umask.

@@ -34,14 +34,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from simple_agent_lab.messages import AssistantMessage, TextBlock, ToolCallBlock  # noqa: E402
-from simple_agent_lab.core import Agent  # noqa: E402
-from simple_agent_lab.workflow import (  # noqa: E402
+from simple_agent_lab.messages import AssistantMessage, TextBlock, ToolCallBlock
+from simple_agent_lab.core import Agent
+from simple_agent_lab.workflow import (
     GoalBudgets,
     run_goal_loop,
     command_verifier_check,

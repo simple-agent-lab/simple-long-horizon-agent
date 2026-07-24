@@ -85,7 +85,3 @@ class SplitRawFromRecordTest(unittest.TestCase):
         slim, pool = split_raw_from_record(record)
         self.assertEqual(pool, [])
         self.assertEqual(slim, record)
-
-
-if __name__ == "__main__":
-    unittest.main()

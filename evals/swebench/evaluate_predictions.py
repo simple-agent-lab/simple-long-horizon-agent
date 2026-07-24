@@ -17,9 +17,7 @@ from pathlib import Path
 import argparse
 import importlib.util
 import json
-import os
 import shutil
-import stat
 import subprocess
 import sys
 import tempfile
@@ -34,7 +32,11 @@ if str(ROOT) not in sys.path:
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from evals.swebench import harness  # noqa: E402
 from simple_agent_lab.trace import json_safe, read_jsonl, write_jsonl  # noqa: E402
+from simple_agent_lab.evals.backends.docker_local import (  # noqa: E402
+    ensure_docker_host_env,
+)
 from simple_agent_lab.evals.runner import canonical_run_id  # noqa: E402
 
 
@@ -43,21 +45,14 @@ DEFAULT_MULTILINGUAL_DATASET = "SWE-bench/SWE-bench_Multilingual"
 DEFAULT_SPLIT = "test"
 DEFAULT_RUN_ID = "simple-agent-lab-swebench"
 DEFAULT_PREDICTIONS = ROOT / "evals/out/swebench_predictions.jsonl"
-DEFAULT_EVAL_RESULTS = ROOT / "evals/out/swebench_eval_results.jsonl"
 DEFAULT_OFFICIAL_OUTPUT_DIR = ROOT / "evals/out/swebench_official"
 DEFAULT_MULTILINGUAL_PREDICTIONS = (
     ROOT / "evals/out/swebench_multilingual/swebench_multilingual_predictions.jsonl"
-)
-DEFAULT_MULTILINGUAL_EVAL_RESULTS = (
-    ROOT / "evals/out/swebench_multilingual/swebench_multilingual_eval_results.jsonl"
 )
 DEFAULT_MULTILINGUAL_OFFICIAL_OUTPUT_DIR = (
     ROOT / "evals/out/swebench_multilingual_official"
 )
 DEFAULT_PRO_PREDICTIONS = ROOT / "evals/out/swebench_pro/swebench_pro_predictions.jsonl"
-DEFAULT_PRO_EVAL_RESULTS = (
-    ROOT / "evals/out/swebench_pro/swebench_pro_eval_results.jsonl"
-)
 DEFAULT_PRO_OFFICIAL_OUTPUT_DIR = ROOT / "evals/out/swebench_pro_official"
 _PRO_REPO_DIR = ROOT / "evals/out/swebench_pro/official_harness"
 _PRO_REPO_URL = "https://github.com/scaleapi/SWE-bench_Pro-os.git"
@@ -87,48 +82,7 @@ def eval_result_record(result: EvalResult) -> dict[str, Any]:
 
 
 def load_predictions(path: str | Path) -> list[dict[str, Any]]:
-    prediction_path = Path(path)
-    first = _first_non_whitespace(prediction_path)
-    if not first:
-        return []
-    if first in "[{":
-        try:
-            with prediction_path.open(encoding="utf-8") as f:
-                parsed = json.load(f)
-        except json.JSONDecodeError:
-            pass
-        else:
-            if isinstance(parsed, list):
-                return [dict(record) for record in parsed]
-            if isinstance(parsed, dict):
-                if "predictions" in parsed and isinstance(parsed["predictions"], list):
-                    return [dict(record) for record in parsed["predictions"]]
-                return [dict(parsed)]
-    return [dict(record) for record in read_jsonl(prediction_path)]
-
-
-def ensure_docker_host_env() -> None:
-    """Probe known Docker socket locations when DOCKER_HOST is unset.
-
-    The Python `docker` SDK that ships with SWE-bench falls back to
-    `/var/run/docker.sock`, which doesn't exist on Docker Desktop (macOS) or
-    Colima setups. Mirror the launcher script so `--run-official` works in
-    headless / CI sessions without an explicit export.
-    """
-    if os.environ.get("DOCKER_HOST"):
-        return
-    home = Path(os.environ.get("HOME") or "~").expanduser()
-    candidates = (
-        home / ".docker/run/docker.sock",
-        home / ".colima/default/docker.sock",
-    )
-    for sock in candidates:
-        try:
-            if stat.S_ISSOCK(sock.stat().st_mode):
-                os.environ["DOCKER_HOST"] = f"unix://{sock}"
-                return
-        except FileNotFoundError:
-            continue
+    return harness.load_records(path, collection_key="predictions")
 
 
 def run_official_harness(args: argparse.Namespace) -> None:
@@ -189,7 +143,7 @@ _PRO_DOCKER_TIMEOUT_S = 600
 
 
 def _ensure_pro_repo(target_dir: Path) -> None:
-    """Clone SWE-bench_Pro-os and install the local evaluator safeguards."""
+    """Clone SWE-bench_Pro-os when the evaluator is not already available."""
     eval_script = target_dir / "swe_bench_pro_eval.py"
     if eval_script.exists():
         return
@@ -204,7 +158,6 @@ def _ensure_pro_repo(target_dir: Path) -> None:
             f"Clone succeeded but {eval_script} not found — "
             "the upstream repo layout may have changed."
         )
-    _patch_pro_evaluator(eval_script)
 
 
 def _patch_pro_evaluator(eval_script: Path) -> None:
@@ -342,7 +295,7 @@ def run_official_pro_harness(args: argparse.Namespace) -> None:
     patches_path.write_text(json.dumps(patches, ensure_ascii=False), encoding="utf-8")
 
     # Convert instances to JSONL format expected by official script.
-    instances_data = _load_instance_records(instances_path)
+    instances_data = harness.load_instance_records(instances_path)
     if instance_ids:
         instances_data = [
             i for i in instances_data if i.get("instance_id") in instance_ids
@@ -420,8 +373,6 @@ def merge_pro_apply_statuses(
 ) -> None:
     """Attach strict Pro patch-application status and force failures unresolved."""
 
-    if not official_dir.exists():
-        return
     for status_path in official_dir.glob(
         "instance_*/workspace/patch_apply_status.json"
     ):
@@ -741,8 +692,6 @@ def reuse_eval_row(
     cross-check the reuse verdict against the official harness (ADR collapse-scorer-seam-into-run-primitive).
     """
 
-    from evals.swebench import harness
-
     instance_id = str(instance.get("instance_id") or "")
     prediction = harness.prediction_record(
         instance_id,
@@ -798,8 +747,6 @@ def _grade_reuse_log(
     env_image_tag: str,
 ) -> dict[str, Any]:
     """Grade the captured official eval log host-side with the official grader."""
-
-    from evals.swebench import harness
 
     try:
         from swebench.harness.grading import get_eval_report
@@ -858,8 +805,6 @@ def predictions_from_run_dirs(
     launched set. With ``run_id`` only that run is collected; without it, every
     run under ``run_root``.
     """
-
-    from evals.swebench import harness
 
     root = Path(run_root)
     search = (root / canonical_run_id(run_id)).glob("*") if run_id else root.glob("*/*")
@@ -1186,31 +1131,6 @@ def _is_pro_eval_results_map(data: Any) -> bool:
     )
 
 
-def _load_instance_records(path: Path) -> list[dict[str, Any]]:
-    first = _first_non_whitespace(path)
-    if not first:
-        return []
-    if first in "[{":
-        try:
-            with path.open(encoding="utf-8") as f:
-                parsed = json.load(f)
-        except json.JSONDecodeError:
-            if first == "[":
-                raise SystemExit(f"Expected valid JSON list in {path}")
-        else:
-            return _records_from_json(parsed, path)
-    return [dict(record) for record in read_jsonl(path)]
-
-
-def _first_non_whitespace(path: Path) -> str:
-    with path.open(encoding="utf-8") as f:
-        while chunk := f.read(4096):
-            stripped = chunk.lstrip()
-            if stripped:
-                return stripped[0]
-    return ""
-
-
 def _load_expected_instance_ids(path: Path) -> tuple[str, ...]:
     instance_ids: list[str] = []
     seen: set[str] = set()
@@ -1227,19 +1147,6 @@ def _load_expected_instance_ids(path: Path) -> tuple[str, ...]:
     if not instance_ids:
         raise SystemExit(f"Expected ids file is empty: {path}")
     return tuple(instance_ids)
-
-
-def _records_from_json(parsed: Any, path: Path) -> list[dict[str, Any]]:
-    if isinstance(parsed, list):
-        return [dict(item) for item in parsed]
-    if isinstance(parsed, dict):
-        if "instances" in parsed:
-            instances = parsed["instances"]
-            if not isinstance(instances, list):
-                raise SystemExit(f"Expected instances to be a JSON list in {path}")
-            return [dict(item) for item in instances]
-        return [dict(parsed)]
-    raise SystemExit(f"Expected JSON object, JSON list, or JSONL records in {path}")
 
 
 if __name__ == "__main__":

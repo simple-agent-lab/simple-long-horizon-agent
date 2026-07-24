@@ -17,6 +17,7 @@ the run's `ArtifactStore`, so this backend never copies files itself.
 from __future__ import annotations
 
 import os
+import stat
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
@@ -64,6 +65,26 @@ def _require_docker() -> Any:
             "pip install 'simple-agent-lab[swebench]'"
         )
     return docker
+
+
+def ensure_docker_host_env() -> None:
+    """Use a known Docker Desktop or Colima socket when none is configured."""
+
+    if os.environ.get("DOCKER_HOST"):  # env-ok: honor the standard Docker client env
+        return
+    # env-ok: locate standard Docker Desktop and Colima sockets under the host home
+    home = Path(os.environ.get("HOME") or "~").expanduser()
+    for socket_path in (
+        home / ".docker/run/docker.sock",
+        home / ".colima/default/docker.sock",
+    ):
+        try:
+            if stat.S_ISSOCK(socket_path.stat().st_mode):
+                # env-ok: hand discovered socket to the standard Docker client
+                os.environ["DOCKER_HOST"] = f"unix://{socket_path}"
+                return
+        except FileNotFoundError:
+            continue
 
 
 def _ensure_image(client: Any, image: str, platform: str | None, pull: str) -> None:
@@ -232,6 +253,8 @@ class LocalDockerBackend:
     pull only when absent), ``"always"``, or ``"never"``. docker-py's ``create``
     does not auto-pull (unlike ``run``), so without this a missing image would
     raise ``ImageNotFound`` on first use.
+    `force_existing`: remove a container with the deterministic run name before
+    creating the new one, matching launcher ``--force`` behavior.
 
     `wheelhouse`: host directory of wheels for an offline install. When set it is
     bind-mounted read-only at the run's ``wheelhouse_mount`` so the container's
@@ -252,6 +275,7 @@ class LocalDockerBackend:
         *,
         user: str = "root",
         keep_container: bool = False,
+        force_existing: bool = False,
         pull: str = "missing",
         wheelhouse: str | Path | None = None,
         uv_binary: str | Path | None = None,
@@ -263,6 +287,7 @@ class LocalDockerBackend:
     ) -> None:
         self.user = user
         self.keep_container = keep_container
+        self.force_existing = force_existing
         self.pull = pull
         self.wheelhouse = wheelhouse
         self.uv_binary = uv_binary
@@ -273,6 +298,7 @@ class LocalDockerBackend:
         self.memory_lock_dir = memory_lock_dir
 
     def _client(self) -> Any:
+        ensure_docker_host_env()
         return _require_docker().from_env(timeout=self.docker_timeout_s)
 
     def submit(
@@ -286,6 +312,11 @@ class LocalDockerBackend:
 
         del store  # the container reaches the store via `binding` (mounts/env)
         client = self._client()
+        if self.force_existing:
+            try:
+                client.containers.get(spec.run_name).remove(force=True)
+            except docker.errors.NotFound:
+                pass
         binding = with_local_mounts(
             binding,
             wheelhouse=self.wheelhouse,

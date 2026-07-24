@@ -106,7 +106,3 @@ class ContextUsageTest(unittest.TestCase):
             fallback_per_message_sum,
             "test must distinguish usage-baseline accounting from per-message sum",
         )
-
-
-if __name__ == "__main__":
-    unittest.main()

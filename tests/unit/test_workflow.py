@@ -198,7 +198,3 @@ class ParallelTest(unittest.TestCase):
         workers = [make_fake_agent("w0", lambda task: "x")]
         with self.assertRaises(ValueError):
             run_parallel(workers, "t", tasks=["a", "b"])
-
-
-if __name__ == "__main__":
-    unittest.main()

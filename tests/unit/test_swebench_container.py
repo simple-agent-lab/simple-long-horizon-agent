@@ -21,10 +21,12 @@ Also covers `run_pdr`'s worker-sequence form (the seam the arms rely on).
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from simple_agent_lab import Agent, Message, assistant_message
 from simple_agent_lab.agent_flavors import (
@@ -60,8 +62,8 @@ def _git(args: list[str], cwd: Path, **kw) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _init_repo() -> Path:
-    workdir = Path(tempfile.mkdtemp(prefix="sal-wc-test-"))
+def _init_repo(workdir: Path) -> Path:
+    workdir.mkdir(parents=True)
     _git(["init", "-q"], workdir)
     _git(["config", "user.email", "t@t.invalid"], workdir)
     _git(["config", "user.name", "Test"], workdir)
@@ -76,16 +78,15 @@ def _init_repo() -> Path:
 # --------------------------------------------------------------------------- #
 class FlavorSelectionTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.workdir = _init_repo()
-
-    def tearDown(self) -> None:
-        subprocess.run(["rm", "-rf", str(self.workdir)], check=False)
+        tmp = tempfile.TemporaryDirectory(prefix="sal-wc-test-")
+        self.addCleanup(tmp.cleanup)
+        self.workdir = _init_repo(Path(tmp.name) / "repo")
 
     def test_simple_flavor_build_agent_returns_none(self) -> None:
         # Simple flavors are built by the generic agent_spec path; build_agent
         # declines them by returning None.
         for flavor in SIMPLE_AGENT_FLAVORS:
-            with _envs({AGENT_FLAVOR_ENV: flavor}):
+            with mock.patch.dict(os.environ, {AGENT_FLAVOR_ENV: flavor}):
                 self.assertIsNone(
                     wc.build_agent(provider=FAKE_PROVIDER, cwd=self.workdir),
                     flavor,
@@ -93,12 +94,12 @@ class FlavorSelectionTest(unittest.TestCase):
 
     def test_arm_flavor_build_agent_returns_facade(self) -> None:
         for flavor in WORKFLOW_AGENT_FLAVORS:
-            with _envs({AGENT_FLAVOR_ENV: flavor}):
+            with mock.patch.dict(os.environ, {AGENT_FLAVOR_ENV: flavor}):
                 agent = wc.build_agent(provider=FAKE_PROVIDER, cwd=self.workdir)
                 self.assertIsInstance(agent, Agent)
 
     def test_agent_spec_rejects_unknown_flavor(self) -> None:
-        with _envs({AGENT_FLAVOR_ENV: "nonsense"}):
+        with mock.patch.dict(os.environ, {AGENT_FLAVOR_ENV: "nonsense"}):
             with self.assertRaises(SystemExit):
                 wc.agent_spec()
 
@@ -112,7 +113,7 @@ class FlavorSelectionTest(unittest.TestCase):
         self.assertEqual(tuple(wc.ALL_FLAVORS), tuple(AGENT_FLAVORS))
 
     def test_agent_spec_keeps_capability_prompt_out_of_suite(self) -> None:
-        with _envs({AGENT_FLAVOR_ENV: "bash_task_read"}):
+        with mock.patch.dict(os.environ, {AGENT_FLAVOR_ENV: "bash_task_read"}):
             self.assertNotIn(
                 BASH_TASK_ADDENDUM,
                 wc.agent_spec().system_prompt,
@@ -159,7 +160,7 @@ class FlavorSelectionTest(unittest.TestCase):
             model="fake-model",
             context_window=200_000,
         )
-        with _envs({config.COMPRESSION_THRESHOLD.name: "12345"}):
+        with mock.patch.dict(os.environ, {config.COMPRESSION_THRESHOLD.name: "12345"}):
             agent = build_flavor_agent(
                 flavor="bash_task_read",
                 provider=provider,
@@ -174,22 +175,22 @@ class FlavorSelectionTest(unittest.TestCase):
         self.assertEqual(strategy.threshold_tokens, 12_345)
 
     def test_default_compression_uses_litellm_window_book(self) -> None:
-        import tempfile
-
-        path = Path(tempfile.mkdtemp(prefix="sal-window-book-")) / "windows.json"
-        path.write_text(
-            json.dumps(
-                {
-                    "my-model": {
-                        "litellm_provider": "test",
-                        "max_input_tokens": 300_000,
+        with tempfile.TemporaryDirectory(prefix="sal-window-book-") as tmp:
+            path = Path(tmp) / "windows.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "my-model": {
+                            "litellm_provider": "test",
+                            "max_input_tokens": 300_000,
+                        }
                     }
-                }
-            ),
-            encoding="utf-8",
-        )
-        try:
-            with _envs({"SIMPLE_AGENT_LAB_CONTEXT_WINDOW_BOOK": str(path)}):
+                ),
+                encoding="utf-8",
+            )
+            with mock.patch.dict(
+                os.environ, {"SIMPLE_AGENT_LAB_CONTEXT_WINDOW_BOOK": str(path)}
+            ):
                 agent = build_flavor_agent(
                     flavor="bash_task_read",
                     provider=Provider(id="fake", api="fake", model="my-model"),
@@ -197,8 +198,6 @@ class FlavorSelectionTest(unittest.TestCase):
                     name="x",
                     system_prompt="BASE",
                 )
-        finally:
-            subprocess.run(["rm", "-rf", str(path.parent)], check=False)
 
         self.assertIsNotNone(agent.context_policy)
         strategy = agent.context_policy.strategy
@@ -223,13 +222,15 @@ class FlavorSelectionTest(unittest.TestCase):
 # --------------------------------------------------------------------------- #
 class WorktreePlumbingTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.workdir = _init_repo()
+        tmp = tempfile.TemporaryDirectory(prefix="sal-wc-wt-")
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        self.workdir = _init_repo(root / "repo")
         self.baseline = af._baseline_commit(self.workdir)
-        self.root = Path(tempfile.mkdtemp(prefix="sal-wc-wt-"))
+        self.root = root / "worktrees"
 
     def tearDown(self) -> None:
         af._remove_worktrees(self.workdir, [], self.root)
-        subprocess.run(["rm", "-rf", str(self.workdir)], check=False)
 
     def test_worktrees_isolate_edits_from_workspace_and_each_other(self) -> None:
         wt0 = af._add_worktree(self.workdir, self.baseline, self.root, 0)
@@ -263,10 +264,9 @@ class WorktreePlumbingTest(unittest.TestCase):
 # --------------------------------------------------------------------------- #
 class ArmRunnerTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.workdir = _init_repo()
-
-    def tearDown(self) -> None:
-        subprocess.run(["rm", "-rf", str(self.workdir)], check=False)
+        tmp = tempfile.TemporaryDirectory(prefix="sal-wc-arm-")
+        self.addCleanup(tmp.cleanup)
+        self.workdir = _init_repo(Path(tmp.name) / "repo")
 
     def _no_leftover_worktrees(self) -> None:
         out = _git(["worktree", "list"], self.workdir).stdout
@@ -274,12 +274,13 @@ class ArmRunnerTest(unittest.TestCase):
         self.assertEqual(out.strip().count("\n"), 0, out)
 
     def test_pdr_finalizer_writes_workspace(self) -> None:
-        with _envs(
+        with mock.patch.dict(
+            os.environ,
             {
                 config.PDR_ROUNDS.name: "1",
                 config.PDR_WIDTH.name: "2",
                 config.WORKER_MAX_TURNS.name: "3",
-            }
+            },
         ):
             run = make_workflow_runner_for_flavor(
                 "pdr",
@@ -298,8 +299,9 @@ class ArmRunnerTest(unittest.TestCase):
         self._no_leftover_worktrees()
 
     def test_loop_arm_runs_and_edits_workspace(self) -> None:
-        with _envs(
-            {config.LOOP_MAX_TURNS.name: "1", config.WORKER_MAX_TURNS.name: "2"}
+        with mock.patch.dict(
+            os.environ,
+            {config.LOOP_MAX_TURNS.name: "1", config.WORKER_MAX_TURNS.name: "2"},
         ):
             run = make_workflow_runner_for_flavor(
                 "loop",
@@ -362,12 +364,12 @@ class SubAgentTraceTest(unittest.TestCase):
     """The facade must persist each sub-agent's full trace (inputs + outputs)."""
 
     def setUp(self) -> None:
-        self.workdir = _init_repo()
-        self.store = Path(tempfile.mkdtemp(prefix="sal-store-"))
-
-    def tearDown(self) -> None:
-        for d in (self.workdir, self.store):
-            subprocess.run(["rm", "-rf", str(d)], check=False)
+        tmp = tempfile.TemporaryDirectory(prefix="sal-store-")
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        self.workdir = _init_repo(root / "repo")
+        self.store = root / "store"
+        self.store.mkdir()
 
     def _sub_traces(self) -> list[dict]:
         # Each sub-trace file is a v5 stream (a header line + one line per event);
@@ -386,13 +388,14 @@ class SubAgentTraceTest(unittest.TestCase):
         return out
 
     def test_loop_arm_writes_one_sub_trace_with_io(self) -> None:
-        with _envs(
+        with mock.patch.dict(
+            os.environ,
             {
                 AGENT_FLAVOR_ENV: "loop",
                 "SAL_STORE_ROOT": str(self.store),
                 config.LOOP_MAX_TURNS.name: "1",
                 config.WORKER_MAX_TURNS.name: "2",
-            }
+            },
         ):
             agent = wc.build_agent(
                 provider=FAKE_PROVIDER,
@@ -420,14 +423,15 @@ class SubAgentTraceTest(unittest.TestCase):
         self.assertIn("bash", blob)
 
     def test_pdr_writes_a_trace_per_attempt(self) -> None:
-        with _envs(
+        with mock.patch.dict(
+            os.environ,
             {
                 AGENT_FLAVOR_ENV: "pdr",
                 "SAL_STORE_ROOT": str(self.store),
                 config.PDR_WIDTH.name: "2",
                 config.PDR_ROUNDS.name: "1",
                 config.WORKER_MAX_TURNS.name: "3",
-            }
+            },
         ):
             agent = wc.build_agent(
                 provider=FAKE_PROVIDER,
@@ -447,12 +451,12 @@ class ComposeTraceStateTest(unittest.TestCase):
     """The workflow facade's default final trace is a lightweight tree."""
 
     def setUp(self) -> None:
-        self.workdir = _init_repo()
-        self.store = Path(tempfile.mkdtemp(prefix="sal-store-"))
-
-    def tearDown(self) -> None:
-        for d in (self.workdir, self.store):
-            subprocess.run(["rm", "-rf", str(d)], check=False)
+        tmp = tempfile.TemporaryDirectory(prefix="sal-store-")
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        self.workdir = _init_repo(root / "repo")
+        self.store = root / "store"
+        self.store.mkdir()
 
     def test_plain_agent_traces_original_state(self) -> None:
         agent = _fake_agent("plain", "ok")
@@ -514,13 +518,14 @@ class ComposeTraceStateTest(unittest.TestCase):
     def test_workflow_agent_trace_state_uses_subagent_overview(self) -> None:
         from simple_agent_lab.trace import run_trace_from_state
 
-        with _envs(
+        with mock.patch.dict(
+            os.environ,
             {
                 AGENT_FLAVOR_ENV: "loop",
                 "SAL_STORE_ROOT": str(self.store),
                 config.LOOP_MAX_TURNS.name: "1",
                 config.WORKER_MAX_TURNS.name: "2",
-            }
+            },
         ):
             agent = wc.build_agent(
                 provider=FAKE_PROVIDER,
@@ -537,32 +542,3 @@ class ComposeTraceStateTest(unittest.TestCase):
         )
         tool_spans = [s for s in trace.spans() if s.kind == "tool_call"]
         self.assertTrue(tool_spans)
-
-
-class _envs:
-    """Context manager that sets env vars and restores them on exit."""
-
-    def __init__(self, values: dict[str, str]) -> None:
-        self.values = values
-        self._prev: dict[str, str | None] = {}
-
-    def __enter__(self) -> "_envs":
-        import os
-
-        for key, value in self.values.items():
-            self._prev[key] = os.environ.get(key)
-            os.environ[key] = value
-        return self
-
-    def __exit__(self, *exc: object) -> None:
-        import os
-
-        for key, prev in self._prev.items():
-            if prev is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = prev
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-import importlib.util
 import io
 import json
 import sys
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
+
+from tests.unit._support import load_module
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -19,13 +21,7 @@ def _load_run_bench():
     for p in (str(ROOT), str(ROOT / "src"), str(ROOT / "runs")):
         if p not in sys.path:
             sys.path.insert(0, p)
-    path = ROOT / "runs/run_bench.py"
-    spec = importlib.util.spec_from_file_location("sal_run_bench", path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+    return load_module(ROOT / "runs/run_bench.py", "sal_run_bench")
 
 
 run_bench = _load_run_bench()
@@ -105,6 +101,18 @@ class RunBenchCliTest(unittest.TestCase):
     def test_unknown_command_returns_error_code(self) -> None:
         self.assertEqual(run_bench.main(["nope"]), 2)
 
+    def test_batch_dispatches_to_bench_batch_api(self) -> None:
+        module = run_bench.BENCHES["swebench"].module
+        with mock.patch.object(
+            module,
+            "run_batch",
+            return_value={"bench": "swebench", "status_code": 0},
+        ) as runner:
+            code = run_bench.main(["batch", "swebench", "--variant", "pro"])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(runner.call_args.args[0].variant, "pro")
+
 
 class RunBenchHelpersTest(unittest.TestCase):
     def test_parse_last_json_picks_trailing_object(self) -> None:
@@ -171,7 +179,3 @@ class RunBenchScoreOracleTest(unittest.TestCase):
                 continue
             with self.subTest(bench=name):
                 self.assertTrue((ROOT / scorer[0]).exists(), scorer)
-
-
-if __name__ == "__main__":
-    unittest.main()

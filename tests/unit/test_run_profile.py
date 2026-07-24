@@ -15,6 +15,7 @@ from simple_agent_lab.evals.profile import (
     parse_with_profile,
     profile_run_argv,
 )
+from tests.unit._support import load_module
 
 
 def _write(directory: Path, payload: dict) -> Path:
@@ -139,12 +140,7 @@ EXAMPLE_TO_SCRIPT = {
 
 def _parser_long_options(script: Path) -> set[str]:
     """Load a run script by path and return its `--long-option` names."""
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location(script.stem, script)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    module = load_module(script, script.stem)
     options: set[str] = set()
     for action in module._build_parser()._actions:
         options.update(s[2:] for s in action.option_strings if s.startswith("--"))
@@ -174,7 +170,3 @@ class ExampleProfilesTest(unittest.TestCase):
                     [],
                     f"{name} run keys not accepted by {script}: {unknown}",
                 )
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -91,7 +91,3 @@ class OneMillionHarnessTest(unittest.TestCase):
 
     def test_container_environment_empty_for_fake_provider(self) -> None:
         self.assertEqual(harness.container_environment("fake"), {})
-
-
-if __name__ == "__main__":
-    unittest.main()

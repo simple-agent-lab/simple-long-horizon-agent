@@ -34,6 +34,7 @@ from .protocols import (
     INSTANCE_KEY,
     TRACE_KEY,
     ArtifactStore,
+    ContainerBinding,
     ContainerBackend,
     RunArtifacts,
     RunSpec,
@@ -50,9 +51,17 @@ class RunPaths:
     root: Path
     input_dir: Path
     output_dir: Path
-    instance_json: Path
     trajectory_jsonl: Path
-    prediction_jsonl: Path
+
+
+@dataclass(frozen=True)
+class PreparedRun:
+    """Inputs shared by blocking and detached backend entry points."""
+
+    paths: RunPaths
+    store: ArtifactStore
+    binding: ContainerBinding
+    spec: RunSpec
 
 
 def safe_path_part(value: str) -> str:
@@ -97,9 +106,7 @@ def prepare_run_directory(*, run_root: Path, run_id: str, instance_id: str) -> R
         root=root,
         input_dir=input_dir,
         output_dir=output_dir,
-        instance_json=input_dir / "instance.json",
         trajectory_jsonl=output_dir / TRACE_KEY.split("/")[-1],
-        prediction_jsonl=output_dir / "prediction.jsonl",
     )
 
 
@@ -184,6 +191,67 @@ def build_command(spec: RunSpec) -> tuple[str, ...]:
     return tuple(spec.launch_spec.shell) + (script,)
 
 
+def _prepare_run(
+    *,
+    suite: Suite,
+    instance: Mapping[str, Any],
+    store: ArtifactStore,
+    run_root: Path,
+    run_id: str,
+    provider: str,
+    api_kind: str,
+    max_turns: int,
+    wall_time_seconds: float | None,
+    provider_env: Mapping[str, str] | None,
+    runner_module: str,
+    install: bool,
+    package_extras: tuple[str, ...],
+    wheelhouse_mount: str | None,
+    name: str | None,
+) -> PreparedRun:
+    instance_id = str(instance["instance_id"])
+    paths = prepare_run_directory(
+        run_root=run_root, run_id=run_id, instance_id=instance_id
+    )
+    clear_run_outputs(paths)
+    launch_spec = suite.launch_spec(instance)
+    bound = store.bind(paths.root)
+    # Only the trusted oracle run receives the unredacted reference solution.
+    record = dict(instance) if provider == "oracle" else suite.task_input(instance)
+    bound.put(
+        INSTANCE_KEY,
+        (json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8"),
+    )
+    _stage_eval_inputs(suite, instance, bound)
+    return PreparedRun(
+        paths=paths,
+        store=bound,
+        binding=bound.container_binding(),
+        spec=RunSpec(
+            suite_name=suite.name,
+            container_module=suite.container_module,
+            instance_id=instance_id,
+            launch_spec=launch_spec,
+            max_turns=max_turns,
+            provider=provider,
+            api_kind=api_kind,
+            provider_env=dict(provider_env or {}),
+            runner_module=runner_module,
+            install=install,
+            package_extras=package_extras,
+            wheelhouse_mount=wheelhouse_mount,
+            run_name=name
+            or container_name(
+                suite.name,
+                instance_id,
+                run_id,
+                namespace=_run_root_namespace(run_root),
+            ),
+            wall_time_seconds=wall_time_seconds,
+        ),
+    )
+
+
 def run_suite_instance(
     *,
     suite: Suite,
@@ -215,54 +283,30 @@ def run_suite_instance(
     (the official harness reading ``out/result.json``).
     """
 
-    instance_id = str(instance["instance_id"])
-    paths = prepare_run_directory(
-        run_root=run_root, run_id=run_id, instance_id=instance_id
-    )
-    clear_run_outputs(paths)
-    launch_spec = suite.launch_spec(instance)
-
-    # The agent must never see gold/private fields, so they are stripped here.
-    # Oracle mode is the trusted exception: it *applies* the reference solution,
-    # so it needs the unredacted record (e.g. the gold patch) in the store.
-    record = dict(instance) if provider == "oracle" else suite.task_input(instance)
-    bound = store.bind(paths.root)
-    bound.put(
-        INSTANCE_KEY,
-        (json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8"),
-    )
-    _stage_eval_inputs(suite, instance, bound)
-    binding = bound.container_binding()
-
-    spec = RunSpec(
-        suite_name=suite.name,
-        container_module=suite.container_module,
-        instance_id=instance_id,
-        launch_spec=launch_spec,
+    prepared = _prepare_run(
+        suite=suite,
+        instance=instance,
+        store=store,
+        run_root=run_root,
+        run_id=run_id,
         max_turns=max_turns,
         provider=provider,
         api_kind=api_kind,
-        provider_env=dict(provider_env or {}),
+        provider_env=provider_env,
         runner_module=runner_module,
         install=install,
         package_extras=package_extras,
         wheelhouse_mount=wheelhouse_mount,
-        run_name=name
-        or container_name(
-            suite.name,
-            instance_id,
-            run_id,
-            namespace=_run_root_namespace(run_root),
-        ),
+        name=name,
         wall_time_seconds=wall_time_seconds,
     )
-    outcome = backend.run(spec, store=bound, binding=binding)
-    bound.collect_outputs()
+    outcome = backend.run(prepared.spec, store=prepared.store, binding=prepared.binding)
+    prepared.store.collect_outputs()
 
     return RunArtifacts(
-        instance_id=instance_id,
-        run_dir=paths.root,
-        trajectory_path=paths.trajectory_jsonl,
+        instance_id=prepared.spec.instance_id,
+        run_dir=prepared.paths.root,
+        trajectory_path=prepared.paths.trajectory_jsonl,
         status_code=outcome.status_code,
         logs=outcome.logs,
     )

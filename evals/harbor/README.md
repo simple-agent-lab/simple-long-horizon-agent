@@ -118,7 +118,7 @@ SAL-specific runner controls are passed as Harbor agent kwargs:
 
 ```text
 --agent-flavor bash|bash_task|bash_task_read|bash_skills
---max-turns 75
+--max-turns 150
 --provider openai|fake
 --api-kind openai-responses|openai-chat|anthropic-messages  # default: openai-responses
 --agent-kwarg install_timeout_sec=3000
@@ -151,3 +151,26 @@ simple-agent-lab.txt
 
 Harbor's `result.json` remains the score source of truth. The SAL summary and
 trajectory are debugging artifacts for understanding the agent loop.
+
+## Terminal-Bench 2.1 Batch Runs
+
+The checked-in Terminal-Bench 2.1 launchers use the model configured in the
+root `.env`, force `OPENAI_REASONING_EFFORT=xhigh`, run 10 trials concurrently,
+set the general and agent-setup timeout multipliers to 3, and give each SAL
+agent 150 turns. They also forward `SAL_BASH_MAX_TIMEOUT_SECONDS=300`, matching
+the Bash tool's 300-second default maximum command timeout:
+
+```bash
+bash runs/harbor/run_terminal_bench_2_1_bash.sh
+bash runs/harbor/run_terminal_bench_2_1_bash_task.sh
+```
+
+Use the sequential launcher when the `bash_task` experiment must not start
+until the `bash` Harbor process has exited successfully:
+
+```bash
+bash runs/harbor/run_terminal_bench_2_1_sequential.sh
+```
+
+Set `HARBOR_DRY_RUN=1` to inspect both generated Harbor commands without
+starting task containers or model calls.

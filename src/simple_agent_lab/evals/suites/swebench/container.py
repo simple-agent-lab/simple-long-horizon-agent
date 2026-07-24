@@ -69,7 +69,6 @@ from simple_agent_lab.agents.flavors import (
 from simple_agent_lab.compression import SummarizeStrategy
 from simple_agent_lab.context_view import ContextPolicy
 from simple_agent_lab.core import Agent
-from simple_agent_lab.evals.chain import start_chain_state
 from simple_agent_lab.evals.protocols import AgentSpec
 from simple_agent_lab.llm import Provider
 from simple_agent_lab.llm_agent import make_llm_agent
@@ -119,61 +118,6 @@ def agent_spec() -> AgentSpec:
     )
 
 
-def chain_agent_spec(*, config: Mapping[str, Any]) -> AgentSpec:
-    """SWE-bench agent config for the generic eval-chain runner."""
-
-    _enable_swebench_runtime_defaults()
-    return AgentSpec(
-        name=AGENT_NAME,
-        role=AGENT_ROLE,
-        system_prompt=AGENT_SYSTEM_PROMPT,
-        flavor=_chain_agent_flavor(config),
-    )
-
-
-def chain_start_state(*, config: Mapping[str, Any], agent_name: str):
-    """Create the SWE-bench-specific seed state for one repo chain."""
-
-    display_name = _chain_display_name(config)
-    task = (
-        f"Repo chain for {display_name}. Solve instances for "
-        "this repository in commit-time order. Carry useful context across "
-        "tasks, but each instance's patch must address only the current problem."
-    )
-    return start_chain_state(
-        task,
-        agent_name=agent_name,
-        metadata={
-            "repo": str(config.get("repo") or ""),
-            "chain_id": str(config.get("chain_id") or ""),
-            "part_index": int(config.get("part_index", 1) or 1),
-            "part_count": int(config.get("part_count", 1) or 1),
-        },
-    )
-
-
-def chain_state_metadata(
-    *, instance: Mapping[str, Any], config: Mapping[str, Any]
-) -> dict[str, Any]:
-    """SWE-bench metadata stored beside the generic chain state."""
-
-    return {
-        "repo": str(config.get("repo") or instance.get("repo") or ""),
-        "chain_id": str(config.get("chain_id") or ""),
-    }
-
-
-def chain_task_details(
-    *, instance: Mapping[str, Any], config: Mapping[str, Any]
-) -> dict[str, Any]:
-    """Attach SWE-bench identity while the generic runner adds chain identity."""
-
-    del config
-    return {
-        "swebench": {"instance_id": str(instance.get("instance_id") or "")},
-    }
-
-
 def chain_context_policy(
     *,
     provider: Provider,
@@ -205,39 +149,6 @@ def chain_context_policy(
             ),
         )
     )
-
-
-def chain_result_metadata(
-    *,
-    instance: Mapping[str, Any],
-    config: Mapping[str, Any],
-    context: Mapping[str, Any],
-) -> dict[str, Any]:
-    """SWE-bench fields folded into the generic chain result."""
-
-    chain_id = str(config.get("chain_id") or "")
-    return {
-        "repo": str(config.get("repo") or instance.get("repo") or ""),
-        "chain_id": chain_id,
-        "chain_part_index": int(config.get("part_index", 1) or 1),
-        "chain_part_count": int(config.get("part_count", 1) or 1),
-        "baseline_commit": str(context.get("baseline_commit") or ""),
-    }
-
-
-def chain_trace_metadata(
-    *,
-    instance: Mapping[str, Any],
-    config: Mapping[str, Any],
-    result: Mapping[str, Any],
-) -> dict[str, Any]:
-    """SWE-bench fields added to chain trajectory metadata."""
-
-    del instance
-    return {
-        "repo": str(result.get("repo") or config.get("repo") or ""),
-        "chain_id": str(result.get("chain_id") or config.get("chain_id") or ""),
-    }
 
 
 def build_task(instance: Mapping[str, Any], *, workdir: str) -> str:
@@ -421,12 +332,7 @@ def extract_result(
     state), so this only has to produce the prediction patch.
     """
 
-    context = context or {}
-    collected = _collected_patch(Path(workspace), instance, context)
-    return {
-        "model_patch": collected,
-        "model_patch_source": "collected_git_diff",
-    }
+    return {"model_patch": _collected_patch(Path(workspace), instance, context or {})}
 
 
 def memory_artifacts(
@@ -504,14 +410,10 @@ def evaluate(
     }
 
 
-def _repo_language() -> str:
-    return config.REPO_LANGUAGE.get()
-
-
 def _prepare_workflow_workspace(workdir: Path) -> None:
     """Suite-specific cleanup before workflow worktrees fork from the workspace."""
 
-    update_info_exclude(workdir, language=_repo_language())
+    update_info_exclude(workdir, language=config.REPO_LANGUAGE.get())
 
 
 def build_agent(
@@ -585,21 +487,5 @@ def _runtime_config(config: Mapping[str, Any]) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
 
 
-def _chain_agent_flavor(config: Mapping[str, Any]) -> str:
-    return str(_runtime_config(config).get("agent_flavor") or flavor_from_env())
-
-
 def _chain_compression_strategy(config: Mapping[str, Any]) -> str:
     return str(_runtime_config(config).get("compression_strategy") or "summarize")
-
-
-def _chain_display_name(config: Mapping[str, Any]) -> str:
-    display = str(config.get("chain_display_name") or "")
-    if display:
-        return display
-    repo = str(config.get("repo") or config.get("chain_id") or "unknown")
-    part_index = int(config.get("part_index", 1) or 1)
-    part_count = int(config.get("part_count", 1) or 1)
-    if part_count <= 1:
-        return repo
-    return f"{repo} part {part_index}/{part_count}"

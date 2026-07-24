@@ -9,7 +9,7 @@ import tarfile
 from pathlib import Path
 from typing import Any
 
-from . import AGENT_IMPORT_PATH, DEFAULT_API_KIND
+from . import AGENT_IMPORT_PATH, DEFAULT_API_KIND, DEFAULT_MAX_TURNS
 from .runner import DEFAULT_SUMMARY_PATH, DEFAULT_TRACE_PATH
 
 BaseInstalledAgent: Any = object
@@ -142,7 +142,7 @@ fi
 if ldd --version 2>&1 | grep -qi musl || [ -f /etc/alpine-release ]; then
   apk add --no-cache python3 py3-pip py3-virtualenv curl ca-certificates bash
 elif command -v apt-get >/dev/null 2>&1; then
-  apt-get update && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates
+  apt-get update && apt-get install -y --no-install-recommends python3 python3-venv curl ca-certificates
 elif command -v yum >/dev/null 2>&1; then
   yum install -y python3 python3-pip curl ca-certificates
 elif command -v dnf >/dev/null 2>&1; then
@@ -202,7 +202,7 @@ command -v uv >/dev/null 2>&1 || {{
 }}
 
 uv python install {quoted_python_version}
-uv venv {quoted_venv} --python {quoted_python_version} --clear
+uv venv {quoted_venv} --python {quoted_python_version} --clear --seed
 {quoted_venv}/bin/python -m pip --version
 """.strip()
 
@@ -357,7 +357,7 @@ else:
 
         def __init__(
             self,
-            max_turns: int | str = 75,
+            max_turns: int | str = DEFAULT_MAX_TURNS,
             agent_flavor: str = "bash_task_read",
             provider: str = "openai",
             api_kind: str = DEFAULT_API_KIND,

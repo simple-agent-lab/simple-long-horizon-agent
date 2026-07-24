@@ -87,7 +87,3 @@ class McpConfigFileTest(unittest.TestCase):
     def test_requires_servers_list(self) -> None:
         with self.assertRaisesRegex(ValueError, "servers"):
             mcp_server_configs_from_json("{}", source="inline")
-
-
-if __name__ == "__main__":
-    unittest.main()

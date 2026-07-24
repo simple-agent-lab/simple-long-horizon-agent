@@ -120,7 +120,7 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         ) from exc
 
     client = Anthropic(
-        api_key=_api_key(req),
+        api_key=resolve_api_key(req.provider, placeholder=None),
         base_url=req.provider.base_url,
     )
 
@@ -205,12 +205,6 @@ def stream(req: LLMRequest) -> Iterator[StreamEvent]:
         sdk_response=sdk_response,
         request_kwargs=kwargs,
     )
-
-
-def _api_key(req: LLMRequest) -> str | None:
-    # The Anthropic SDK accepts a None key for keyless endpoints (placeholder is
-    # None, unlike the OpenAI adapters). Shared resolver lives in `llm.env`.
-    return resolve_api_key(req.provider, placeholder=None)
 
 
 def _to_anthropic_messages(req: LLMRequest) -> tuple[str | None, list[dict[str, Any]]]:

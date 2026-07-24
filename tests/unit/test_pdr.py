@@ -132,7 +132,3 @@ class PdrTest(unittest.TestCase):
             run_pdr(worker, distiller, "q", rounds=0)
         with self.assertRaises(ValueError):
             run_pdr(worker, distiller, "q", width=0)
-
-
-if __name__ == "__main__":
-    unittest.main()

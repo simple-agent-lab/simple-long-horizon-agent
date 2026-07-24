@@ -301,7 +301,3 @@ class MetricsShapeTest(unittest.TestCase):
         self.assertEqual(
             metrics.peak_active_tokens, metrics.final_active_tokens
         )  # monotonic, never shrinks
-
-
-if __name__ == "__main__":
-    unittest.main()

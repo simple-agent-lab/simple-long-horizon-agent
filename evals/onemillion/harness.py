@@ -15,7 +15,6 @@ container half; this module only prepares inputs and environment.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Any
 
@@ -29,12 +28,15 @@ from simple_agent_lab.llm.env import (
     JUDGE_BASE_URL_ENV,
     JUDGE_MODEL_ENV,
     OPENAI_AUTH_ENV,
+    OPENAI_API_KIND_CHOICES,
     OPENAI_BASE_URL_ENV,
     OPENAI_LOG_ID_ENV,
     OPENAI_MODEL_ENV,
     OPENAI_REASONING_EFFORT_ENV,
     OPENAI_SESSION_ID_ENV,
     REASONING_EFFORT_ENV,
+    container_provider_env,
+    resolve_openai_api_kind,
 )
 
 # Re-exported so the run entry (`runs/_benches/onemillion.py`) keeps calling
@@ -55,7 +57,7 @@ SUITE_NAME = "onemillion"
 # contract; the judge uses the parallel JUDGE_* set (falling back to OPENAI_*).
 # Both name sets and the loader come from `simple_agent_lab.llm.env` (imported
 # above); only the suite-local passthrough groupings live here.
-API_KIND_CHOICES = ("openai-chat", "openai-responses")
+API_KIND_CHOICES = OPENAI_API_KIND_CHOICES
 
 OPENAI_PASSTHROUGH_ENVS = (
     OPENAI_MODEL_ENV,
@@ -196,32 +198,9 @@ def eval_payload(instance: dict[str, Any]) -> dict[str, Any] | None:
 def container_environment(provider: str) -> dict[str, str]:
     """Generator + judge env passed to the run (fake/oracle need none)."""
 
-    env: dict[str, str] = {}
-    if provider != "openai":
-        return env
-    for name in (*OPENAI_PASSTHROUGH_ENVS, *JUDGE_PASSTHROUGH_ENVS):
-        value = os.environ.get(name)
-        if value:
-            env[name] = value
-    for name in ("NO_PROXY", "no_proxy"):
-        value = os.environ.get(name)
-        if value:
-            env[name] = value
-    missing = [name for name in (OPENAI_MODEL_ENV, OPENAI_AUTH_ENV) if name not in env]
-    if missing:
-        raise SystemExit(
-            "Missing required env vars for --provider openai: " + ", ".join(missing)
-        )
-    return env
+    return container_provider_env(
+        provider, (*OPENAI_PASSTHROUGH_ENVS, *JUDGE_PASSTHROUGH_ENVS)
+    )
 
 
-def resolve_api_kind(value: str | None) -> str:
-    """Return the requested generator adapter API kind, defaulting via API_KIND."""
-
-    api_kind = (value or os.environ.get(API_KIND_ENV) or "openai-chat").strip()
-    if api_kind not in API_KIND_CHOICES:
-        raise SystemExit(
-            f"Unsupported API_KIND {api_kind!r}; expected one of: "
-            + ", ".join(API_KIND_CHOICES)
-        )
-    return api_kind
+resolve_api_kind = resolve_openai_api_kind

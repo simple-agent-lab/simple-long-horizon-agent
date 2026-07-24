@@ -19,7 +19,6 @@ plumbing, not SWE-bench-specific — to avoid duplicating ~100 lines.
 from __future__ import annotations
 
 import importlib
-import os
 import shutil
 import sys
 from pathlib import Path
@@ -50,6 +49,7 @@ from simple_agent_lab.agent_flavors import (  # noqa: E402
 # harness only forwards them into the container.
 from simple_agent_lab.llm.env import (  # noqa: E402
     API_KIND_ENV,
+    OPENAI_API_KIND_CHOICES,
     OPENAI_AUTH_ENV,
     OPENAI_BASE_URL_ENV,
     OPENAI_LOG_ID_ENV,
@@ -57,6 +57,7 @@ from simple_agent_lab.llm.env import (  # noqa: E402
     OPENAI_REASONING_EFFORT_ENV,
     OPENAI_SESSION_ID_ENV,
     REASONING_EFFORT_ENV,
+    container_provider_env,
 )
 
 __all__ = [
@@ -96,9 +97,7 @@ DEFAULT_WHEELHOUSE = ROOT / "evals/out/programbench/wheelhouse/cp311-manylinux"
 DEFAULT_WHEELHOUSE_MOUNT = "/agent/wheelhouse"
 DEFAULT_UV_BINARY = shutil.which("uv") or ""
 
-# This suite intentionally accepts only the OpenAI-protocol adapters (not the
-# broader set in `llm.env.API_KIND_CHOICES`), so it is declared locally.
-API_KIND_CHOICES = ("openai-chat", "openai-responses")
+API_KIND_CHOICES = OPENAI_API_KIND_CHOICES
 OPENAI_PASSTHROUGH_ENVS = (
     OPENAI_MODEL_ENV,
     OPENAI_AUTH_ENV,
@@ -214,20 +213,4 @@ def sanitized_instance(instance: dict[str, Any]) -> dict[str, Any]:
 def container_environment(provider: str) -> dict[str, str]:
     """Collect the provider env vars passed into the container (openai only)."""
 
-    env: dict[str, str] = {}
-    if provider != "openai":
-        return env
-    for name in OPENAI_PASSTHROUGH_ENVS:
-        value = os.environ.get(name)
-        if value:
-            env[name] = value
-    for name in ("NO_PROXY", "no_proxy"):
-        value = os.environ.get(name)
-        if value:
-            env[name] = value
-    missing = [name for name in (OPENAI_MODEL_ENV, OPENAI_AUTH_ENV) if name not in env]
-    if missing:
-        raise SystemExit(
-            "Missing required env vars for --provider openai: " + ", ".join(missing)
-        )
-    return env
+    return container_provider_env(provider, OPENAI_PASSTHROUGH_ENVS)
