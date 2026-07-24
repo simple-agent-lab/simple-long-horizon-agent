@@ -4,7 +4,12 @@ This file is the primary working contract for AI agents and human contributors i
 
 ## Mission
 
-Simple Agent Lab should make agent systems easier to understand, modify, and teach. Every future implementation choice should preserve that mission.
+Simple Agent Lab is the companion repository for *Building Reliable
+Long-Horizon Agents: A Survey*. It should turn the paper's definitions,
+metrics, benchmark view, and model--harness--environment--evaluation stack into
+inspectable and reproducible research artifacts. The implementation should
+remain easy to understand, modify, and teach so that reliability claims can be
+traced to visible system choices.
 
 ## Working Principles
 
@@ -17,6 +22,8 @@ Simple Agent Lab should make agent systems easier to understand, modify, and tea
 - Document important architectural choices in `docs/decisions/`.
 - Capture reference-architecture research notes locally under `docs/reference-architectures/` before borrowing a pattern; the directory's contents are gitignored except for the README and template, so notes stay on your disk and only the durable commitment lands in an ADR.
 - Keep examples small and runnable once code exists.
+- Keep paper-to-code claims explicit. Distinguish what the repository
+  implements now, what is planned, and what currently exists only in the paper.
 
 ## Environment and Commands
 
@@ -60,6 +67,11 @@ Maintenance principles:
 
 ## Goals
 
+- A clear paper-to-code map for reliable long-horizon agent research.
+- An inspectable reference harness for controlled model, context, memory,
+  verification, recovery, and orchestration interventions.
+- Reproducible trajectories, benchmark artifacts, and evaluation protocols for
+  studying reliable horizon under increasing task pressure.
 - A minimal agent loop that can be understood by inspection.
 - Clear separation between model calls, tools, memory or state, and orchestration.
 - Easy customization for students, workshops, and small team experiments.
@@ -71,6 +83,9 @@ Maintenance principles:
 - Do not add provider-specific complexity unless it teaches a concrete idea.
 - Do not optimize for production scale before the educational path is clear.
 - Do not hide core behavior behind magic configuration.
+- Do not claim a reliable-boundary shift, full paper reproduction, or empirical
+  validation without matched protocols, repeated runs, uncertainty, and
+  executable evidence.
 
 ## Editing Expectations
 

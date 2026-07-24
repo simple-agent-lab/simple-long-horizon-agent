@@ -6,6 +6,7 @@ This is the single loading map for future agents. Read this file after
 Sources:
 
 - Current code snapshot: the working tree at the first-parent commits below.
+- Research north star: *Building Reliable Long-Horizon Agents: A Survey*.
 - Recent first-parent history: `c9c979b`, `882db33`, `4904e9c`, `c52d57d`.
 - Primary anchors: `README.md`, `CONTEXT.md`, `docs/agent-native/`,
   `docs/decisions/`, `runs/README.md`, `tests/README.md`,
@@ -31,8 +32,17 @@ Sources:
 
 ## Repo Map
 
-Simple Agent Lab is a small Python package for teaching and experimenting with
-agent runtimes. The canonical package lives under `src/simple_agent_lab/`.
+Simple Agent Lab is the companion research repository for *Building Reliable
+Long-Horizon Agents: A Survey*. The canonical Python package under
+`src/simple_agent_lab/` is its inspectable reference harness; `evals/` and
+`runs/` provide the executable environment, trace, artifact, and benchmark
+edges needed for controlled reliability studies. The small teaching core is a
+means to make model--harness attribution possible, not the public positioning
+by itself.
+
+Treat the root `README.md` as the public paper and artifact map. It must
+distinguish available infrastructure from planned six-axis annotations,
+reliability-surface analysis, and paper-scale repeated evaluations.
 
 For normal work, this checkout is self-contained. Future agents should treat
 the repo root as the only required workspace unless a task explicitly names an
