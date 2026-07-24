@@ -113,6 +113,24 @@ class RunBenchCliTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(runner.call_args.args[0].variant, "pro")
 
+    def test_onemillion_accepts_dynamic_workflow_options(self) -> None:
+        parser = run_bench.BENCHES["onemillion"].module._build_parser()
+        args = parser.parse_args(
+            [
+                "case_1",
+                "--agent-flavor",
+                "dynamic",
+                "--max-turns",
+                "3",
+                "--workflow-max-concurrency",
+                "4",
+            ]
+        )
+
+        self.assertEqual(args.agent_flavor, "dynamic")
+        self.assertEqual(args.max_turns, 3)
+        self.assertEqual(args.workflow_max_concurrency, 4)
+
 
 class RunBenchHelpersTest(unittest.TestCase):
     def test_parse_last_json_picks_trailing_object(self) -> None:

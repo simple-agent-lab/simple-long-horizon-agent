@@ -43,7 +43,10 @@ for path in (ROOT, SRC):
 
 import simple_agent_lab.config as config  # noqa: E402
 from evals.onemillion import harness  # noqa: E402
-from evals.onemillion.suite import OneMillionSuite  # noqa: E402
+from evals.onemillion.suite import (  # noqa: E402
+    OneMillionDynamicWorkflowSuite,
+    OneMillionSuite,
+)
 from simple_agent_lab.agent_flavors import AGENT_FLAVOR_ENV  # noqa: E402
 from simple_agent_lab.evals import (  # noqa: E402
     LocalDirStore,
@@ -82,12 +85,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--agent-flavor",
-        choices=list(OMB_FLAVORS),
+        choices=[*OMB_FLAVORS, "dynamic"],
         default="single",
         help=(
             "Generation strategy (default: single). A workflow flavor "
             "(reflection|planner_executor|parallel|chain|routing|pdr) answers via "
-            "a multi-agent simple_agent_lab.workflow orchestration."
+            "simple_agent_lab.workflow; dynamic runs an agent-authored JavaScript "
+            "workflow."
         ),
     )
     parser.add_argument(
@@ -108,6 +112,14 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Per-request timeout (s) for each sub-agent (default: 600).",
     )
+    parser.add_argument(
+        "--workflow-script",
+        default="",
+        help="Optional workflow.js path for --agent-flavor dynamic.",
+    )
+    parser.add_argument("--workflow-max-concurrency", type=int, default=16)
+    parser.add_argument("--workflow-max-agents", type=int, default=1000)
+    parser.add_argument("--workflow-timeout", type=float, default=1800.0)
     parser.add_argument(
         "--dataset",
         default=str(harness.DEFAULT_DATASET_DIR),
@@ -153,10 +165,30 @@ def run(args: argparse.Namespace) -> dict:
         flavor_env[config.OMB_PARALLEL_WORKERS.name] = str(args.parallel_workers)
     if args.timeout is not None:
         flavor_env[config.OMB_TIMEOUT.name] = str(args.timeout)
+    if args.agent_flavor == "dynamic":
+        flavor_env.update(
+            {
+                config.WORKER_MAX_TURNS.name: str(args.max_turns),
+                config.OMB_DYNAMIC_MAX_CONCURRENCY.name: str(
+                    args.workflow_max_concurrency
+                ),
+                config.OMB_DYNAMIC_MAX_AGENTS.name: str(args.workflow_max_agents),
+                config.OMB_DYNAMIC_TIMEOUT.name: str(args.workflow_timeout),
+            }
+        )
+        if args.workflow_script:
+            flavor_env[config.OMB_DYNAMIC_WORKFLOW_SOURCE.name] = Path(
+                args.workflow_script
+            ).read_text(encoding="utf-8")
     os.environ.update(flavor_env)
     provider_env.update(flavor_env)
 
-    suite = OneMillionSuite(in_env_scoring=not args.no_scoring)
+    suite_cls = (
+        OneMillionDynamicWorkflowSuite
+        if args.agent_flavor == "dynamic"
+        else OneMillionSuite
+    )
+    suite = suite_cls(in_env_scoring=not args.no_scoring)
     backend = LocalProcessBackend()
     store = LocalDirStore(Path(args.run_root))
     run_root = Path(args.run_root)
@@ -169,7 +201,7 @@ def run(args: argparse.Namespace) -> dict:
         run_id=args.run_id,
         provider=args.provider,
         api_kind=api_kind,
-        max_turns=args.max_turns,
+        max_turns=1 if args.agent_flavor == "dynamic" else args.max_turns,
         provider_env=provider_env,
     )
 

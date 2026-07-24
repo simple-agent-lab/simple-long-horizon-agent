@@ -47,6 +47,7 @@ product direction, especially if future contributors may wonder why it was chose
 - [Model-Alias Registry (strong / fast) over provider_from_env](20260613-model-alias-registry.md) — env-alias scheme superseded by model-config-file; registry type stands
 - [JSON Model-Config File for the Model Registry](20260615-model-config-file.md) — replaces the env-alias scheme of model-alias-registry
 - [Goal Loop: Autonomous Continue-Until-Verifiably-Done Primitive](20260618-goal-loop.md)
+- [Dynamic Workflows Use Generated JavaScript Orchestration](20260620-dynamic-workflows-js-orchestration.md)
 - [JSON Run-Profile File for Launching an Agent + Bench](20260626-run-profile-file.md)
 - [Trajectory Schema v5 — Append-only Event Stream](20260628-trajectory-schema-v5.md)
 - [Use Harbor as the Eval Harness for Harbor Datasets](20260706-harbor-as-eval-harness.md)

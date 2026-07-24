@@ -140,6 +140,24 @@ the same flat layout: optional `instance_<id>.jsonl` setup inputs,
 outputs. The Python batch entry loads rows with the `datasets` package from
 `uv sync --extra swebench` (which reuses the HuggingFace cache).
 
+Dynamic JavaScript workflows use the same entry and flavor axis. `--max-turns`
+is the per-subagent cap; the outer facade remains one turn. A supplied workflow
+is read on the host and passed inline to the eval environment:
+
+```bash
+uv run python runs/run_bench.py swebench sympy__sympy-23824 \
+  --agent-flavor dynamic --max-turns 24 \
+  --workflow-script experiments/workflow.js
+
+uv run python runs/run_bench.py onemillion case_2860 \
+  --dataset datasets/OneMillion-Bench/healthcare_and_medicine \
+  --agent-flavor dynamic --max-turns 3
+```
+
+Use `--workflow-max-concurrency`, `--workflow-max-agents`, and
+`--workflow-timeout` to bound the generated workflow. SWE-bench additionally
+accepts `--dynamic-worker-flavor bash|bash_task|bash_skills`.
+
 This wrapper runs or normalizes official SWE-bench / SWE-bench Pro evaluation
 results for an existing predictions file:
 

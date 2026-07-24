@@ -210,6 +210,39 @@ REPO_LANGUAGE = EnvVar(
     "eval.swebench",
     "Repo language hint for the SWE-bench container.",
 )
+SWEBENCH_DYNAMIC_WORKFLOW_SCRIPT = EnvVar(
+    "SWEBENCH_DYNAMIC_WORKFLOW_SCRIPT",
+    "",
+    "eval.swebench",
+    "Container-local path to an optional dynamic workflow JavaScript file.",
+)
+SWEBENCH_DYNAMIC_WORKFLOW_SOURCE = EnvVar(
+    "SWEBENCH_DYNAMIC_WORKFLOW_SOURCE",
+    "",
+    "eval.swebench",
+    "Inline dynamic workflow JavaScript; takes precedence over the script path.",
+)
+SWEBENCH_DYNAMIC_MAX_CONCURRENCY = EnvVar(
+    "SWEBENCH_DYNAMIC_MAX_CONCURRENCY",
+    1,
+    "eval.swebench",
+    "Maximum concurrent subagents in a dynamic workflow.",
+    as_int(minimum=1),
+)
+SWEBENCH_DYNAMIC_MAX_AGENTS = EnvVar(
+    "SWEBENCH_DYNAMIC_MAX_AGENTS",
+    12,
+    "eval.swebench",
+    "Maximum subagent calls in a dynamic workflow.",
+    as_int(minimum=1),
+)
+SWEBENCH_DYNAMIC_TIMEOUT = EnvVar(
+    "SWEBENCH_DYNAMIC_TIMEOUT",
+    1800.0,
+    "eval.swebench",
+    "Whole dynamic workflow timeout in seconds.",
+    as_float(minimum=1.0),
+)
 
 # --------------------------------------------------------------------------- #
 # eval.onemillion — OneMillion workflow-flavor tuning knobs. (The workflow is
@@ -236,6 +269,39 @@ OMB_TIMEOUT = EnvVar(
     600.0,
     "eval.onemillion",
     "Per-request timeout for every sub-agent (seconds).",
+    as_float(minimum=1.0),
+)
+OMB_DYNAMIC_WORKFLOW_SCRIPT = EnvVar(
+    "OMB_DYNAMIC_WORKFLOW_SCRIPT",
+    "",
+    "eval.onemillion",
+    "Local path to an optional dynamic workflow JavaScript file.",
+)
+OMB_DYNAMIC_WORKFLOW_SOURCE = EnvVar(
+    "OMB_DYNAMIC_WORKFLOW_SOURCE",
+    "",
+    "eval.onemillion",
+    "Inline dynamic workflow JavaScript; takes precedence over the script path.",
+)
+OMB_DYNAMIC_MAX_CONCURRENCY = EnvVar(
+    "OMB_DYNAMIC_MAX_CONCURRENCY",
+    16,
+    "eval.onemillion",
+    "Maximum concurrent subagents in a dynamic workflow.",
+    as_int(minimum=1),
+)
+OMB_DYNAMIC_MAX_AGENTS = EnvVar(
+    "OMB_DYNAMIC_MAX_AGENTS",
+    1000,
+    "eval.onemillion",
+    "Maximum subagent calls in a dynamic workflow.",
+    as_int(minimum=1),
+)
+OMB_DYNAMIC_TIMEOUT = EnvVar(
+    "OMB_DYNAMIC_TIMEOUT",
+    1800.0,
+    "eval.onemillion",
+    "Whole dynamic workflow timeout in seconds.",
     as_float(minimum=1.0),
 )
 
@@ -266,10 +332,20 @@ REGISTRY: tuple[EnvVar, ...] = (
     BASH_MAX_OUTPUT_CHARS,
     BASH_SUBMISSION_MARKER,
     REPO_LANGUAGE,
+    SWEBENCH_DYNAMIC_WORKFLOW_SCRIPT,
+    SWEBENCH_DYNAMIC_WORKFLOW_SOURCE,
+    SWEBENCH_DYNAMIC_MAX_CONCURRENCY,
+    SWEBENCH_DYNAMIC_MAX_AGENTS,
+    SWEBENCH_DYNAMIC_TIMEOUT,
     OMB_REFLECTION_ROUNDS,
     OMB_PARALLEL_WORKERS,
     OMB_PDR_ROUNDS,
     OMB_PDR_WIDTH,
     OMB_TIMEOUT,
+    OMB_DYNAMIC_WORKFLOW_SCRIPT,
+    OMB_DYNAMIC_WORKFLOW_SOURCE,
+    OMB_DYNAMIC_MAX_CONCURRENCY,
+    OMB_DYNAMIC_MAX_AGENTS,
+    OMB_DYNAMIC_TIMEOUT,
     LIVE_TRACE_PATH,
 )

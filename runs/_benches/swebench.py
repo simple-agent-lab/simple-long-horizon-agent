@@ -22,7 +22,10 @@ for path in (ROOT, SRC):
         sys.path.insert(0, str(path))
 
 from evals.swebench import harness  # noqa: E402
-from evals.swebench.suite import SwebenchSuite  # noqa: E402
+from evals.swebench.suite import (  # noqa: E402
+    SwebenchDynamicWorkflowSuite,
+    SwebenchSuite,
+)
 from runs.lib.container_batch import run_container_batch  # noqa: E402
 from runs.lib import docker_cli  # noqa: E402
 from simple_agent_lab.agent_flavors import (  # noqa: E402
@@ -47,6 +50,7 @@ NAME = "swebench"
 DESCRIPTION = "SWE-bench instance in a Docker container (single instance per run)."
 SCORER = ("evals/swebench/evaluate_predictions.py",)
 DEFAULT_SWEBENCH_DOCKER_TIMEOUT_S = 1800.0
+DYNAMIC_WORKER_FLAVORS = ("bash", "bash_task", "bash_skills")
 
 
 Variant = namedtuple(
@@ -94,10 +98,24 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--agent-flavor",
-        choices=harness.AGENT_FLAVOR_CHOICES,
+        choices=(*harness.AGENT_FLAVOR_CHOICES, "dynamic"),
         default=harness.DEFAULT_AGENT_FLAVOR,
         help="Agent flavor; workflow arms treat --max-turns as a worker budget.",
     )
+    parser.add_argument(
+        "--dynamic-worker-flavor",
+        choices=DYNAMIC_WORKER_FLAVORS,
+        default="bash_task",
+        help="Bash-capable subagent flavor used by --agent-flavor dynamic.",
+    )
+    parser.add_argument(
+        "--workflow-script",
+        default="",
+        help="Optional workflow.js path for --agent-flavor dynamic.",
+    )
+    parser.add_argument("--workflow-max-concurrency", type=int, default=1)
+    parser.add_argument("--workflow-max-agents", type=int, default=12)
+    parser.add_argument("--workflow-timeout", type=float, default=1800.0)
     parser.add_argument("--pdr-rounds", type=int)
     parser.add_argument("--pdr-width", type=int)
     parser.add_argument("--loop-max-turns", type=int)
@@ -181,7 +199,11 @@ def _provider_environment(args: argparse.Namespace) -> dict[str, str]:
         harness.load_dotenv(args.dotenv)
     provider_env = harness._container_environment(args.provider)
     provider_env[harness.API_KIND_ENV] = harness.resolve_api_kind(args.api_kind)
-    provider_env[AGENT_FLAVOR_ENV] = args.agent_flavor
+    provider_env[AGENT_FLAVOR_ENV] = (
+        args.dynamic_worker_flavor
+        if args.agent_flavor == "dynamic"
+        else args.agent_flavor
+    )
     return provider_env
 
 
@@ -192,25 +214,48 @@ def _instance_run_kwargs(
 ) -> dict[str, Any]:
     """Resolve workflow budgets without mutating the process environment."""
 
-    is_arm = args.agent_flavor in WORKFLOW_AGENT_FLAVORS
+    is_dynamic = args.agent_flavor == "dynamic"
+    is_arm = args.agent_flavor in WORKFLOW_AGENT_FLAVORS or is_dynamic
     outer_max_turns = args.max_turns
     env = dict(provider_env)
     if is_arm:
         env[config.WORKER_MAX_TURNS.name] = str(args.max_turns)
         env[config.REPO_LANGUAGE.name] = instance_language(dict(instance))
-        for value, env_name in (
-            (args.pdr_rounds, config.PDR_ROUNDS.name),
-            (args.pdr_width, config.PDR_WIDTH.name),
-            (args.loop_max_turns, config.LOOP_MAX_TURNS.name),
-        ):
-            if value is not None:
-                env[env_name] = str(value)
+        if is_dynamic:
+            env.update(
+                {
+                    config.SWEBENCH_DYNAMIC_MAX_CONCURRENCY.name: str(
+                        args.workflow_max_concurrency
+                    ),
+                    config.SWEBENCH_DYNAMIC_MAX_AGENTS.name: str(
+                        args.workflow_max_agents
+                    ),
+                    config.SWEBENCH_DYNAMIC_TIMEOUT.name: str(args.workflow_timeout),
+                }
+            )
+            if args.workflow_script:
+                env[config.SWEBENCH_DYNAMIC_WORKFLOW_SOURCE.name] = Path(
+                    args.workflow_script
+                ).read_text(encoding="utf-8")
+        else:
+            for value, env_name in (
+                (args.pdr_rounds, config.PDR_ROUNDS.name),
+                (args.pdr_width, config.PDR_WIDTH.name),
+                (args.loop_max_turns, config.LOOP_MAX_TURNS.name),
+            ):
+                if value is not None:
+                    env[env_name] = str(value)
         outer_max_turns = 1
     return {"provider_env": env, "max_turns": outer_max_turns}
 
 
 def _suite(args: argparse.Namespace) -> SwebenchSuite:
-    return SwebenchSuite(
+    suite_cls = (
+        SwebenchDynamicWorkflowSuite
+        if args.agent_flavor == "dynamic"
+        else SwebenchSuite
+    )
+    return suite_cls(
         dataset_name=args.dataset_name,
         namespace=args.namespace,
         platform=args.platform,
@@ -227,7 +272,9 @@ def run(args: argparse.Namespace) -> dict:
     instance = harness.load_instance(instance_json, args.instance_id)
     provider_env = _provider_environment(args)
     instance_kwargs = _instance_run_kwargs(args, instance, provider_env)
-    is_arm = args.agent_flavor in WORKFLOW_AGENT_FLAVORS
+    is_arm = (
+        args.agent_flavor in WORKFLOW_AGENT_FLAVORS or args.agent_flavor == "dynamic"
+    )
 
     run_root, wheelhouse = _resolve_paths(args, instance)
     clear_run_outputs(

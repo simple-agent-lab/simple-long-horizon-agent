@@ -82,6 +82,55 @@ class RunsScriptsTest(unittest.TestCase):
 
         load_dotenv.assert_called_once_with(str(ROOT / ".env"))
 
+    def test_swebench_dynamic_flavor_uses_worker_budget_and_inline_script(
+        self,
+    ) -> None:
+        module = _load_run_swebench_suite_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            script = Path(tmp) / "workflow.js"
+            script.write_text("return 'ok';\n", encoding="utf-8")
+            args = module._build_parser().parse_args(
+                [
+                    "example__repo-1",
+                    "--agent-flavor",
+                    "dynamic",
+                    "--dynamic-worker-flavor",
+                    "bash",
+                    "--max-turns",
+                    "7",
+                    "--workflow-script",
+                    str(script),
+                    "--workflow-max-concurrency",
+                    "2",
+                    "--workflow-max-agents",
+                    "9",
+                    "--workflow-timeout",
+                    "30",
+                ]
+            )
+            with mock.patch.object(
+                module.harness,
+                "_container_environment",
+                return_value={},
+            ):
+                provider_env = module._provider_environment(args)
+            kwargs = module._instance_run_kwargs(
+                args,
+                {"instance_id": "example__repo-1", "repo_language": "python"},
+                provider_env,
+            )
+
+        self.assertEqual(provider_env[module.AGENT_FLAVOR_ENV], "bash")
+        self.assertEqual(kwargs["max_turns"], 1)
+        env = kwargs["provider_env"]
+        self.assertEqual(env[module.config.WORKER_MAX_TURNS.name], "7")
+        self.assertEqual(
+            env[module.config.SWEBENCH_DYNAMIC_WORKFLOW_SOURCE.name],
+            "return 'ok';\n",
+        )
+        self.assertEqual(env[module.config.SWEBENCH_DYNAMIC_MAX_CONCURRENCY.name], "2")
+        self.assertIsInstance(module._suite(args), module.SwebenchDynamicWorkflowSuite)
+
     def test_swebench_variants_cover_all_three_splits(self) -> None:
         """The one runner parametrizes all three splits via --variant."""
         variants = _load_run_swebench_suite_module().VARIANTS

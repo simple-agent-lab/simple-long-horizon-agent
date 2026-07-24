@@ -160,12 +160,22 @@ hierarchy. Knobs not yet migrated stay in the hand-written sections that follow.
 | `OMB_PDR_ROUNDS` | `2` | PDR rounds. |
 | `OMB_PDR_WIDTH` | `3` | PDR width. |
 | `OMB_TIMEOUT` | `600.0` | Per-request timeout for every sub-agent (seconds). |
+| `OMB_DYNAMIC_WORKFLOW_SCRIPT` | `` | Local path to an optional dynamic workflow JavaScript file. |
+| `OMB_DYNAMIC_WORKFLOW_SOURCE` | `` | Inline dynamic workflow JavaScript; takes precedence over the script path. |
+| `OMB_DYNAMIC_MAX_CONCURRENCY` | `16` | Maximum concurrent subagents in a dynamic workflow. |
+| `OMB_DYNAMIC_MAX_AGENTS` | `1000` | Maximum subagent calls in a dynamic workflow. |
+| `OMB_DYNAMIC_TIMEOUT` | `1800.0` | Whole dynamic workflow timeout in seconds. |
 
 ### `eval.swebench`
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `SWE_REPO_LANGUAGE` | `python` | Repo language hint for the SWE-bench container. |
+| `SWEBENCH_DYNAMIC_WORKFLOW_SCRIPT` | `` | Container-local path to an optional dynamic workflow JavaScript file. |
+| `SWEBENCH_DYNAMIC_WORKFLOW_SOURCE` | `` | Inline dynamic workflow JavaScript; takes precedence over the script path. |
+| `SWEBENCH_DYNAMIC_MAX_CONCURRENCY` | `1` | Maximum concurrent subagents in a dynamic workflow. |
+| `SWEBENCH_DYNAMIC_MAX_AGENTS` | `12` | Maximum subagent calls in a dynamic workflow. |
+| `SWEBENCH_DYNAMIC_TIMEOUT` | `1800.0` | Whole dynamic workflow timeout in seconds. |
 
 ### `trace`
 

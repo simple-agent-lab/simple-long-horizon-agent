@@ -157,3 +157,11 @@ class SwebenchSuite:
             "fail_to_pass": record.get("FAIL_TO_PASS") or record.get("fail_to_pass"),
             "pass_to_pass": record.get("PASS_TO_PASS") or record.get("pass_to_pass"),
         }
+
+
+class SwebenchDynamicWorkflowSuite(SwebenchSuite):
+    """`SwebenchSuite` whose agent runs an agent-written JavaScript workflow."""
+
+    container_module = (
+        "simple_agent_lab.evals.suites.swebench.dynamic_workflow_container"
+    )
