@@ -28,21 +28,17 @@ from typing import Any
 
 from .dataset import DatasetReport, InstanceResult
 from .protocols import (
-    INSTANCE_KEY,
     RESULT_KEY,
     TRACE_KEY,
     ArtifactStore,
     RunArtifacts,
     RunHandle,
     RunOutcome,
-    RunSpec,
     Suite,
 )
 from .runner import (
-    _run_root_namespace,
-    _stage_eval_inputs,
-    container_name,
-    prepare_run_directory,
+    GENERIC_RUNNER_MODULE,
+    _prepare_run,
 )
 
 # Batch manifest lives at the batch root (run_root/<run_id>), above per-instance
@@ -91,8 +87,11 @@ def submit_dataset(
     provider: str = "openai",
     api_kind: str = "openai-chat",
     max_turns: int = 75,
+    wall_time_seconds: float | None = None,
     provider_env: Mapping[str, str] | None = None,
+    runner_module: str = GENERIC_RUNNER_MODULE,
     install: bool = True,
+    package_extras: tuple[str, ...] = (),
     wheelhouse_mount: str | None = None,
 ) -> list[RunHandle]:
     """Start every instance's run (without waiting) and persist a batch manifest.
@@ -115,52 +114,34 @@ def submit_dataset(
     handles: list[RunHandle] = []
     manifest: list[dict[str, Any]] = []
     for instance in instances:
-        instance_id = str(instance["instance_id"])
-        launch_spec = suite.launch_spec(instance)
-        paths = prepare_run_directory(
-            run_root=run_root, run_id=run_id, instance_id=instance_id
-        )
-        bound = store.bind(paths.root)
-        bound.put(
-            INSTANCE_KEY,
-            (
-                json.dumps(
-                    suite.task_input(instance),
-                    ensure_ascii=False,
-                    sort_keys=True,
-                )
-                + "\n"
-            ).encode("utf-8"),
-        )
-        _stage_eval_inputs(suite, instance, bound)
-        binding = bound.container_binding()
-        spec = RunSpec(
-            suite_name=suite.name,
-            container_module=suite.container_module,
-            instance_id=instance_id,
-            launch_spec=launch_spec,
+        prepared = _prepare_run(
+            suite=suite,
+            instance=instance,
+            store=store,
+            run_root=run_root,
+            run_id=run_id,
             max_turns=max_turns,
             provider=provider,
             api_kind=api_kind,
-            provider_env=dict(provider_env or {}),
+            provider_env=provider_env,
+            runner_module=runner_module,
             install=install,
+            package_extras=package_extras,
             wheelhouse_mount=wheelhouse_mount,
-            run_name=container_name(
-                suite.name,
-                instance_id,
-                run_id,
-                namespace=_run_root_namespace(run_root),
-            ),
+            name=None,
+            wall_time_seconds=wall_time_seconds,
         )
-        handle = backend.submit(spec, store=bound, binding=binding)
+        handle = backend.submit(
+            prepared.spec, store=prepared.store, binding=prepared.binding
+        )
         # Pin the run_dir so reconcile can locate the result without re-deriving.
         handle = RunHandle(
             backend_kind=handle.backend_kind,
             ref=handle.ref,
-            run_dir=str(paths.root),
+            run_dir=str(prepared.paths.root),
             extra={
                 **dict(handle.extra),
-                "instance_id": instance_id,
+                "instance_id": prepared.spec.instance_id,
             },
         )
         handles.append(handle)

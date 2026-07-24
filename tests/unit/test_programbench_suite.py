@@ -25,6 +25,7 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -32,6 +33,9 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
+from simple_agent_lab.agent_flavors import AGENT_FLAVOR_ENV
+from simple_agent_lab.compression import SummarizeStrategy
+from simple_agent_lab.core import Agent
 from simple_agent_lab.evals import (
     RESULT_KEY,
     LocalDirStore,
@@ -40,9 +44,14 @@ from simple_agent_lab.evals import (
     run_suite_instance,
 )
 from simple_agent_lab.evals.suites.programbench import container
+from simple_agent_lab.hooks import HookContext, HookPoint
 from simple_agent_lab.llm import Provider
+from simple_agent_lab.messages import ToolCallBlock
+from simple_agent_lab.protocols import ModelResponseEvent
+from simple_agent_lab.state import State
 
 from evals.programbench import harness
+from evals.programbench.evaluate_submissions import default_eval_dir
 from evals.programbench.suite import ProgrambenchSuite
 
 PROGRAMBENCH_CONTAINER = "simple_agent_lab.evals.suites.programbench.container"
@@ -89,6 +98,9 @@ class ProgrambenchSuiteDriverTest(unittest.TestCase):
         # what powers the per-command `unshare --net` isolation in the container.
         self.assertEqual(spec.network_mode, "host")
         self.assertEqual(spec.cap_add, ("SYS_ADMIN",))
+        self.assertEqual(spec.nano_cpus, 20_000_000_000)
+        self.assertEqual(spec.mem_limit, "60g")
+        self.assertEqual(spec.memswap_limit, "60g")
 
     def test_task_input_drops_gold_and_identity_fields(self) -> None:
         view = ProgrambenchSuite().task_input(_instance())
@@ -180,7 +192,88 @@ class ProgrambenchSuiteDriverTest(unittest.TestCase):
             self.assertFalse((escaped / "bin").exists())
 
 
+class ProgrambenchEvaluationScriptTest(unittest.TestCase):
+    def test_default_eval_dir_isolates_single_instance_reruns(self) -> None:
+        run_root = Path("evals/out/programbench")
+
+        self.assertEqual(
+            default_eval_dir(run_root, "run-1", None),
+            run_root / "run-1_eval",
+        )
+        self.assertEqual(
+            default_eval_dir(run_root, "run-1", ["canop__broot.d6c798e"]),
+            run_root / "run-1_eval_canop__broot.d6c798e",
+        )
+
+
 class ProgrambenchContainerHalfTest(unittest.TestCase):
+    def test_system_prompt_rejects_known_limitations_as_completion(self) -> None:
+        prompt = container.AGENT_SYSTEM_PROMPT.lower()
+        self.assertIn("known limitations", prompt)
+        self.assertIn("not an acceptable benchmark completion signal", prompt)
+        self.assertIn("keep improving", prompt)
+        self.assertIn("submit", prompt)
+
+    def test_submit_tool_terminates_the_run(self) -> None:
+        tool = container.make_submit_tool()
+        self.assertEqual(tool.name, container.SUBMIT_TOOL_NAME)
+
+        missing = tool.execute("call-1", {}, lambda: False, None)
+        self.assertTrue(missing.is_error)
+        self.assertFalse(missing.terminate)
+
+        result = tool.execute(
+            "call-2",
+            {"summary": "built and checked"},
+            lambda: False,
+            None,
+        )
+        self.assertFalse(result.is_error)
+        self.assertTrue(result.terminate)
+
+    def test_runtime_reminder_hook_emits_low_step_warning(self) -> None:
+        hooks = container._runtime_reminder_hooks(
+            {"runtime": {"max_turns": 5, "wall_time_seconds": None}}
+        )
+        hook = hooks[HookPoint.POST_TOOL_USE][0]
+        state = State(task="task")
+        state.record_event(
+            ModelResponseEvent(
+                agent="programbench_agent",
+                output_kind="step",
+                target="programbench_agent",
+                tool_call_count=1,
+            )
+        )
+
+        decision = hook(
+            HookContext(
+                point=HookPoint.POST_TOOL_USE,
+                agent="programbench_agent",
+                state=state,
+                tool_call=ToolCallBlock("call-1", "bash", {}),
+            )
+        )
+
+        self.assertIsNotNone(decision)
+        assert decision is not None
+        text = decision.emit_messages[0].content[0].text
+        self.assertIn("steps away", text)
+        self.assertIn("AGENT_REPORT.md", text)
+
+    def test_build_agent_installs_runtime_reminder_hook(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(
+                container, "_detect_network_isolation", return_value=True
+            ):
+                agent = container.build_agent(
+                    provider=FAKE_PROVIDER,
+                    cwd=Path(tmp),
+                    context={"runtime": {"max_turns": 5}},
+                )
+
+        self.assertIn(HookPoint.POST_TOOL_USE, agent.hooks)
+
     def test_build_task_states_the_rules(self) -> None:
         task = container.build_task(_instance(), workdir="/workspace")
         self.assertIsInstance(task, str)
@@ -188,14 +281,19 @@ class ProgrambenchContainerHalfTest(unittest.TestCase):
         self.assertIn("compile.sh", low)
         self.assertIn("/workspace", task)
         self.assertIn("reverse-engineer", low)
-        # The task tells the agent its commands have no network.
-        self.assertIn("no network", low.replace("-", " "))
+        # The task tells the agent its commands have no internet.
+        self.assertIn("access to the internet", low.replace("-", " "))
+        # Known gaps should drive more work, not become an early final answer.
+        self.assertIn("limitation", low)
+        self.assertIn("do not summarize it", low)
+        self.assertIn("implement", low)
+        self.assertIn("submit", low)
 
     def test_build_task_reports_real_container_system_info(self) -> None:
         # build_task runs in-container, so it states the true OS/arch via
         # os.uname() — more accurate than mini-swe-agent's host-rendered {{system}}.
         task = container.build_task(_instance(), workdir="/workspace")
-        self.assertIn("System:", task)
+        self.assertIn("<system_information>", task)
         self.assertIn(os.uname().sysname, task)
 
     def test_build_task_mentions_tmux_only_when_available(self) -> None:
@@ -232,6 +330,14 @@ class ProgrambenchContainerHalfTest(unittest.TestCase):
             # The identity is repo-local, written into .git/config — never global.
             local_config = (ws / ".git" / "config").read_text(encoding="utf-8")
             self.assertIn("simple-agent-lab", local_config)
+            head = subprocess.run(
+                ["git", "rev-parse", "--verify", "HEAD"],
+                cwd=ws,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(head.returncode, 0)
 
 
 class NetworkIsolationWiringTest(unittest.TestCase):
@@ -253,6 +359,43 @@ class NetworkIsolationWiringTest(unittest.TestCase):
             result = container.extract_result(Path(tmp), _instance())
         self.assertTrue(result["network_isolated"])
 
+    def test_build_agent_uses_unified_simple_flavors_and_default_compression(
+        self,
+    ) -> None:
+        provider = Provider(
+            id="fake",
+            api="fake",
+            model="fake-model",
+            context_window=200_000,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                mock.patch.dict(os.environ, {AGENT_FLAVOR_ENV: "bash_task_read"}),
+                mock.patch.object(
+                    container, "_detect_network_isolation", return_value=True
+                ),
+            ):
+                agent = container.build_agent(provider=provider, cwd=Path(tmp))
+
+        self.assertIsInstance(agent, Agent)
+        self.assertIn(container.SUBMIT_TOOL_NAME, {tool.name for tool in agent.tools})
+        self.assertIsNotNone(agent.context_policy)
+        strategy = agent.context_policy.strategy
+        assert isinstance(strategy, SummarizeStrategy)
+        self.assertEqual(strategy.threshold_tokens, 160_000)
+
+    def test_build_agent_uses_unified_workflow_flavors(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                mock.patch.dict(os.environ, {AGENT_FLAVOR_ENV: "loop"}),
+                mock.patch.object(
+                    container, "_detect_network_isolation", return_value=True
+                ),
+            ):
+                agent = container.build_agent(provider=FAKE_PROVIDER, cwd=Path(tmp))
+
+        self.assertIsInstance(agent, Agent)
+
     def test_build_agent_falls_back_when_isolation_opted_out(self) -> None:
         # Explicit opt-out (REQUIRE_ISOLATION_ENV false-y, set by
         # --no-network-isolation): a missing `unshare --net` degrades to
@@ -268,6 +411,30 @@ class NetworkIsolationWiringTest(unittest.TestCase):
             self.assertFalse(container._network_isolation_active)
             result = container.extract_result(Path(tmp), _instance())
         self.assertFalse(result["network_isolated"])
+
+    def test_container_environment_passes_agent_flavor(self) -> None:
+        env = {
+            "OPENAI_MODEL": "m",
+            "OPENAI_AUTH_TOKEN": "tok",
+            AGENT_FLAVOR_ENV: "loop",
+        }
+        with mock.patch.dict(os.environ, env, clear=True):
+            passed = harness.container_environment("openai")
+        self.assertEqual(passed[AGENT_FLAVOR_ENV], "loop")
+
+    def test_container_environment_passes_compression_knobs(self) -> None:
+        env = {
+            "OPENAI_MODEL": "m",
+            "OPENAI_AUTH_TOKEN": "tok",
+            "SAL_AGENT_COMPRESSION_WINDOW_RATIO": "0.02",
+            "SAL_AGENT_COMPRESSION_THRESHOLD_TOKENS": "20000",
+            "SAL_AGENT_COMPRESSION_KEEP_RECENT": "2",
+        }
+        with mock.patch.dict(os.environ, env, clear=True):
+            passed = harness.container_environment("openai")
+        self.assertEqual(passed["SAL_AGENT_COMPRESSION_WINDOW_RATIO"], "0.02")
+        self.assertEqual(passed["SAL_AGENT_COMPRESSION_THRESHOLD_TOKENS"], "20000")
+        self.assertEqual(passed["SAL_AGENT_COMPRESSION_KEEP_RECENT"], "2")
 
     def test_build_agent_fails_closed_by_default(self) -> None:
         # No opt-out (variable unset): a missing `unshare --net` aborts the run
@@ -386,7 +553,3 @@ class ProgrambenchEndToEndTest(unittest.TestCase):
             )
             self.assertNotIn("repository", agent_view)
             self.assertNotIn("commit", agent_view)
-
-
-if __name__ == "__main__":
-    unittest.main()

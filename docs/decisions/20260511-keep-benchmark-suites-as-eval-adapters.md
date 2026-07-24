@@ -50,7 +50,7 @@ For SWE-bench, the first adapter lives under `evals/swebench/`:
   output into `EvalResult` records.
 - The SWE-bench adapter unit tests (run via `run_ci.sh`) verify the adapter's
   unit-smoke path without Docker.
-- `runs/run_swebench_gold_smoke.sh` verifies the external SWE-bench harness when
+- `runs/swebench/run_swebench_gold_smoke.sh` verifies the external SWE-bench harness when
   the optional dependency and Docker are available.
 
 The core runtime should not know about SWE-bench datasets, Docker, gold patches,

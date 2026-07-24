@@ -13,6 +13,7 @@ from simple_agent_lab import (
     EventKind,
     Message,
     ModelRequestEvent,
+    ModelResponseEvent,
     State,
     TextBlock,
     TokenUsage,
@@ -22,12 +23,14 @@ from simple_agent_lab import (
     make_message,
     message_text,
     run,
+    spans_from_events,
     tool_result_message,
 )
 from simple_agent_lab.compression import (
     _active_context_tokens,
     maybe_compress_context,
 )
+from simple_agent_lab.llm import Provider
 from simple_agent_lab.tools import (
     AbortFlag,
     AgentTool,
@@ -38,6 +41,101 @@ from simple_agent_lab.tools import (
     tool_result_text,
 )
 
+REAL_PROVIDER = Provider(id="test", api="openai-chat", model="test-model")
+
+
+def _reply(
+    text: str = "done",
+    *,
+    sender: str = "writer",
+    kind: str = "final",
+):
+    def generate(visible: list[Message]) -> Message:
+        del visible
+        return assistant_message(text, sender=sender, target="user", kind=kind)
+
+    return generate
+
+
+def _drain(events: Any) -> None:
+    for _ in events:
+        pass
+
+
+def _run(agent: Agent, state: State, **kwargs: Any) -> None:
+    _drain(run(agent, state, **kwargs))
+
+
+def _event(state: State, event_type: type, *, agent: str | None = None) -> Any:
+    return next(
+        event
+        for event in state.events
+        if isinstance(event, event_type)
+        and (agent is None or getattr(event, "agent", None) == agent)
+    )
+
+
+def _latest_message(state: State, kind: str) -> Message:
+    return next(message for message in reversed(state.messages) if message.kind == kind)
+
+
+def _execute(tool: AgentTool, **args: Any) -> ToolResult:
+    return tool.execute("call_1", args, lambda: False, None)
+
+
+def _tool_state(
+    task: str,
+    result: str,
+    *,
+    usage: TokenUsage | None = None,
+) -> State:
+    state = State(task)
+    state.send("task", "user", "writer", task)
+    state.record(
+        assistant_message(
+            [TextBlock("call"), ToolCallBlock("c0", "read", {})],
+            sender="writer",
+            target="user",
+            kind="step",
+        )
+    )
+    state.record(
+        tool_result_message(
+            result,
+            tool_call_id="c0",
+            tool_name="read",
+            target="writer",
+        )
+    )
+    if usage:
+        state.record(
+            assistant_message(
+                "answer",
+                sender="writer",
+                target="user",
+                kind="step",
+                usage=usage,
+            )
+        )
+    return state
+
+
+def _rewrite_strategy(
+    replacement: Message,
+    indices: tuple[int, ...] = (2,),
+):
+    def strategy(
+        active: list[tuple[int, Message]], agent_name: str
+    ) -> CompressionDecision:
+        del active, agent_name
+        return CompressionDecision(
+            compress_indices=indices,
+            replacement=replacement,
+            rewrite=True,
+        )
+
+    return strategy
+
 
 def _idle_writer(visible: list[Message]) -> Message:
     """A step fn that compression tests never actually invoke."""
@@ -47,54 +145,53 @@ def _idle_writer(visible: list[Message]) -> Message:
 
 class CoreTest(unittest.TestCase):
     def test_records_request_and_response_events(self) -> None:
-        def writer(visible: list[Message]) -> Message:
-            del visible
-            return assistant_message(
-                "done",
-                sender="writer",
-                target="user",
-                kind="final",
-            )
-
         state = State("write one sentence")
         state.send("task", "user", "writer", state.task)
-        for _ in run(
-            Agent("writer", writer, role="Write one sentence."),
+        _run(
+            Agent(
+                "writer",
+                _reply(),
+                role="Write one sentence.",
+                llm_provider=REAL_PROVIDER,
+            ),
             state,
-        ):
-            pass
+        )
 
         self.assertIs(state.events[0].kind, EventKind.MESSAGE)
         self.assertIs(state.events[-1].kind, EventKind.AGENT_END)
-        final = next(
-            message for message in reversed(state.messages) if message.kind == "final"
-        )
-        self.assertEqual(message_text(final), "done")
-        self.assertIn("model_request", [event.kind for event in state.events])
-        self.assertIn("model_response", [event.kind for event in state.events])
-        self.assertEqual(state.events[-1].kind, "agent_end")
+        kinds = [event.kind for event in state.events]
+        self.assertEqual(message_text(_latest_message(state, "final")), "done")
+        self.assertIn("model_request", kinds)
+        self.assertIn("model_response", kinds)
+        self.assertEqual(_event(state, ModelRequestEvent).api, "openai-chat")
+        self.assertEqual(_event(state, ModelResponseEvent).api, "openai-chat")
+
+    def test_model_events_use_provider_api_tag(self) -> None:
+        cases = [
+            ("programmatic", None, ""),
+            ("fake", Provider(id="fake", api="fake", model="fake-model"), "fake"),
+        ]
+        for label, provider, expected_api in cases:
+            with self.subTest(label):
+                state = State("task")
+                state.send("task", "user", "writer", state.task)
+                _run(Agent("writer", _reply(), llm_provider=provider), state)
+                self.assertEqual(_event(state, ModelRequestEvent).api, expected_api)
+                self.assertEqual(_event(state, ModelResponseEvent).api, expected_api)
 
     def test_run_accepts_a_multimodal_content_list_task(self) -> None:
         """`Agent.run` takes `str` or content blocks; a text+image task is
         recorded as one user message carrying both blocks."""
         from simple_agent_lab.messages import ImageBlock
 
-        def writer(visible: list[Message]) -> Message:
-            del visible
-            return assistant_message(
-                "done", sender="writer", target="user", kind="final"
-            )
-
         task = [
             TextBlock("Describe this screenshot:"),
             ImageBlock(data="QUJD", mime_type="image/png"),
         ]
-        agent = Agent("writer", writer, role="Describe.")
+        agent = Agent("writer", _reply(), role="Describe.")
         state, events = agent.run(task, max_turns=2)
-        for _ in events:
-            pass
+        _drain(events)
 
-        # The initial task message preserves both content blocks (text + image).
         blocks = state.messages[0].content
         self.assertEqual(len(blocks), 2)
         self.assertIsInstance(blocks[0], TextBlock)
@@ -142,7 +239,7 @@ class CoreTest(unittest.TestCase):
             execute=echo_tool,
             execution_mode="sequential",
         )
-        for _ in run(
+        _run(
             Agent(
                 "coordinator",
                 coordinator,
@@ -151,27 +248,13 @@ class CoreTest(unittest.TestCase):
             ),
             state,
             max_turns=2,
-        ):
-            pass
+        )
 
         self.assertEqual(
-            message_text(
-                next(
-                    message
-                    for message in reversed(state.messages)
-                    if message.kind == "tool_result"
-                )
-            ),
-            "child ok",
+            message_text(_latest_message(state, "tool_result")), "child ok"
         )
         self.assertEqual(
-            message_text(
-                next(
-                    message
-                    for message in reversed(state.messages)
-                    if message.kind == "final"
-                )
-            ),
+            message_text(_latest_message(state, "final")),
             "final: child ok",
         )
         self.assertTrue(
@@ -182,29 +265,14 @@ class CoreTest(unittest.TestCase):
         )
 
     def test_agent_run_drives_loop_and_exposes_state(self) -> None:
-        def writer(visible: list[Message]) -> Message:
-            del visible
-            return assistant_message(
-                "done", sender="writer", target="user", kind="final"
-            )
-
-        agent = Agent("writer", writer)
+        agent = Agent("writer", _reply())
         state, events = agent.run("write something")
-        for _ in events:
-            pass
+        _drain(events)
 
-        final = next(message for message in state.messages if message.kind == "final")
-        self.assertEqual(message_text(final), "done")
+        self.assertEqual(message_text(_latest_message(state, "final")), "done")
 
     def test_resume_continues_session_and_trace_with_a_rebuilt_agent(self) -> None:
-        # A follow-up can swap the agent (e.g. a different reasoning effort)
-        # while reusing the same `state`: the new agent sees the prior turn,
-        # and the trajectory keeps accumulating on one `state.events`.
         from simple_agent_lab import AgentStartEvent
-
-        def first(visible: list[Message]) -> Message:
-            del visible
-            return assistant_message("one", sender="w", target="user", kind="final")
 
         seen: dict[str, Any] = {}
 
@@ -212,50 +280,32 @@ class CoreTest(unittest.TestCase):
             seen["texts"] = [message_text(m) for m in visible]
             return assistant_message("two", sender="w", target="user", kind="final")
 
-        agent_a = Agent("w", first)
+        agent_a = Agent("w", _reply("one", sender="w"))
         state, events = agent_a.run("first task")
-        for _ in events:
-            pass
+        _drain(events)
 
-        # Rebuild with the SAME name; resume the SAME state.
         agent_b = Agent("w", second)
         returned_state, events2 = agent_b.resume(state, "follow up")
-        for _ in events2:
-            pass
+        _drain(events2)
 
-        # Same state object handed back.
         self.assertIs(returned_state, state)
-        # Session continuity: the rebuilt agent saw the prior answer + the
-        # follow-up message it must now act on.
         self.assertIn("one", seen["texts"])
         self.assertIn("follow up", seen["texts"])
-        # Trace continuity: both turns live on one trajectory.
         starts = [e for e in state.events if isinstance(e, AgentStartEvent)]
         self.assertEqual(len(starts), 2)
         finals = [m for m in state.messages if m.kind == "final"]
         self.assertEqual([message_text(m) for m in finals], ["one", "two"])
 
     def test_init_state_hook_builds_the_initial_state(self) -> None:
-        # An `init_state` callable lets a higher layer (e.g. skills) record
-        # extra context messages before the task without touching `run`.
-        # Default `run` records only the task message; an initializer can
-        # prepend its own.
-        def writer(visible: list[Message]) -> Message:
-            del visible
-            return assistant_message(
-                "done", sender="stateful", target="user", kind="final"
-            )
-
         def init_state(agent: Agent, task: Any) -> State:
             state = State(task=task)
             state.send("context", "primer", agent.name, "PRELUDE")
             state.send("task", "user", agent.name, task)
             return state
 
-        agent = Agent("stateful", writer, init_state=init_state)
+        agent = Agent("stateful", _reply(sender="stateful"), init_state=init_state)
         state, events = agent.run("real task")
-        for _ in events:
-            pass
+        _drain(events)
 
         self.assertTrue(any(m.sender == "primer" for m in state.messages))
         self.assertEqual(
@@ -264,38 +314,22 @@ class CoreTest(unittest.TestCase):
         )
 
     def test_default_init_state_records_only_the_task(self) -> None:
-        # With no initializer, `run` keeps its original behavior: one task
-        # message.
-        def writer(visible: list[Message]) -> Message:
-            del visible
-            return assistant_message("ok", sender="plain", target="user", kind="final")
-
-        agent = Agent("plain", writer)
+        agent = Agent("plain", _reply("ok", sender="plain"))
         state, events = agent.run("just the task")
-        for _ in events:
-            pass
+        _drain(events)
 
         non_final = [m for m in state.messages if m.kind != "final"]
         self.assertEqual(len(non_final), 1)
         self.assertEqual(message_text(non_final[0]), "just the task")
 
     def test_max_turns_exhausted_reports_truncation_in_agent_end(self) -> None:
-        # If the agent never emits `final`, the run was truncated by the
-        # turn budget. The trace must say so — otherwise downstream analysis
-        # cannot tell "agent decided to stop" from "ran out of turns".
-        def chatty(visible: list[Message]) -> Message:
-            del visible
-            return assistant_message(
-                "still thinking",
-                sender="chatty",
-                target="user",
-                kind="step",
-            )
-
         state = State("ramble")
         state.send("task", "user", "chatty", state.task)
-        for _ in run(Agent("chatty", chatty), state, max_turns=2):
-            pass
+        _run(
+            Agent("chatty", _reply("still thinking", sender="chatty", kind="step")),
+            state,
+            max_turns=2,
+        )
 
         end = next(
             event
@@ -337,12 +371,7 @@ class CoreTest(unittest.TestCase):
         self.assertIn("echoer: Echo back the task.", tool.description)
         self.assertIn("shouter: Shout the task.", tool.description)
 
-        result = tool.execute(
-            "call_1",
-            {"subagent_type": "shouter", "task": "hi"},
-            lambda: False,
-            None,
-        )
+        result = _execute(tool, subagent_type="shouter", task="hi")
         self.assertFalse(result.is_error)
         self.assertEqual(
             "\n".join(b.text for b in result.content if hasattr(b, "text")),
@@ -369,15 +398,11 @@ class CoreTest(unittest.TestCase):
             default_context="Repository: Simple Agent Lab.",
         )
 
-        result = tool.execute(
-            "call_1",
-            {
-                "subagent_type": "reader",
-                "task": "Write the summary.",
-                "context": "Caller: include the feedback signal.",
-            },
-            lambda: False,
-            None,
+        result = _execute(
+            tool,
+            subagent_type="reader",
+            task="Write the summary.",
+            context="Caller: include the feedback signal.",
         )
 
         self.assertFalse(result.is_error)
@@ -393,27 +418,14 @@ class CoreTest(unittest.TestCase):
         )
 
     def test_task_tool_reports_unknown_subagent_as_tool_error(self) -> None:
-        def noop(visible: list[Message]) -> Message:
-            del visible
-            return assistant_message("ok", sender="only", target="user", kind="final")
-
-        tool = task_tool([Agent("only", noop)])
-        result = tool.execute(
-            "call_1",
-            {"subagent_type": "missing", "task": "hi"},
-            lambda: False,
-            None,
-        )
+        tool = task_tool([Agent("only", _reply("ok", sender="only"))])
+        result = _execute(tool, subagent_type="missing", task="hi")
         self.assertTrue(result.is_error)
         text = "\n".join(b.text for b in result.content if hasattr(b, "text"))
         self.assertIn("Unknown subagent_type", text)
         self.assertIn("'only'", text)
 
     def test_public_api_surface_is_a_known_set(self) -> None:
-        # Pin the public `__all__` to a known set so adding or dropping a
-        # symbol is an explicit, reviewable diff rather than silent drift.
-        # Catches both regressions (re-exposing removed APIs like StepFn /
-        # NextFn / until_final / make_llm_step) and accidental new exports.
         expected = {
             "AbortFlag",
             "Agent",
@@ -429,6 +441,8 @@ class CoreTest(unittest.TestCase):
             "ContextCompressionEvent",
             "ContextPolicy",
             "ContextView",
+            "ContextWindowBook",
+            "CostBreakdown",
             "Event",
             "EventKind",
             "HookContext",
@@ -441,10 +455,14 @@ class CoreTest(unittest.TestCase):
             "MessageEvent",
             "MessageKind",
             "MessageSidecar",
+            "ModelCost",
+            "ModelPrice",
             "ModelRequestEvent",
             "ModelResponseEvent",
             "ModelTurn",
+            "PriceBook",
             "Role",
+            "RunCost",
             "RunTrace",
             "SkillMetadata",
             "SkillRoot",
@@ -472,6 +490,8 @@ class CoreTest(unittest.TestCase):
             "append_openai_training_record",
             "assistant_message",
             "build_context_view",
+            "default_context_window_book",
+            "default_price_book",
             "discover_skills",
             "effective_token_budget",
             "estimate_context_tokens",
@@ -502,13 +522,11 @@ class CoreTest(unittest.TestCase):
             "tool_result_text",
             "tool_results_message",
             "tool_results_of",
+            "usage_cost",
             "user_message",
         }
         self.assertEqual(set(simple_agent_lab.__all__), expected)
-        # `__all__` should also have no duplicates.
-        self.assertEqual(
-            len(simple_agent_lab.__all__), len(set(simple_agent_lab.__all__))
-        )
+        self.assertEqual(len(simple_agent_lab.__all__), len(expected))
 
     def test_context_view_uses_single_agent_transcript(self) -> None:
         state = State("route test")
@@ -518,9 +536,6 @@ class CoreTest(unittest.TestCase):
         state.send("summary", "runtime", "writer", "old summary")
         state.send("message", "planner", "writer", "debug note")
 
-        # Routing fields (sender/target) never filter the view; only
-        # `model_invisible_kinds` does. Skipping "summary" hides exactly
-        # that one message.
         policy = ContextPolicy(model_invisible_kinds=("summary",))
         view = build_context_view(
             "writer", state.active_context_messages(), policy=policy
@@ -534,31 +549,16 @@ class CoreTest(unittest.TestCase):
         self.assertEqual(view.stats.visible_messages, 4)
 
     def test_run_records_context_view_summary(self) -> None:
-        def writer(visible: list[Message]) -> Message:
-            del visible
-            return assistant_message(
-                "done",
-                sender="writer",
-                target="user",
-                kind="final",
-            )
-
         state = State("project context view")
         state.send("task", "user", "writer", state.task)
         state.send("message", "user", "writer", "first note")
         state.send("message", "user", "writer", "second note")
-        for _ in run(
-            Agent("writer", writer, role="Write."),
+        _run(
+            Agent("writer", _reply(), role="Write.", llm_provider=REAL_PROVIDER),
             state,
-        ):
-            pass
-
-        request = next(
-            event
-            for event in reversed(state.events)
-            if isinstance(event, ModelRequestEvent)
         )
-        context = request.context_view
+
+        context = _event(state, ModelRequestEvent).context_view
         self.assertEqual(context["agent"], "writer")
         self.assertGreater(context["estimated_tokens"], 0)
         self.assertEqual(context["visible_messages"], context["total_messages"])
@@ -584,6 +584,9 @@ class CoreTest(unittest.TestCase):
                 sender="compressor",
                 target="runtime",
                 kind="final",
+                usage=TokenUsage(input_tokens=123, output_tokens=7),
+                model="compressor-model",
+                sidecar={"raw": {"request": {"model": "compressor-model"}}},
             )
 
         state = State("compress context")
@@ -592,35 +595,73 @@ class CoreTest(unittest.TestCase):
         state.send("message", "user", "writer", "recent note")
         compression_policy = ContextPolicy(
             strategy=simple_agent_lab.SummarizeStrategy(
-                compressor=Agent("compressor", compressor),
+                compressor=Agent(
+                    "compressor",
+                    compressor,
+                    llm_provider=REAL_PROVIDER,
+                ),
                 threshold_tokens=1,
                 keep_recent=1,
             ),
         )
 
-        for _ in run(
+        _run(
             Agent(
                 "writer",
                 writer,
                 role="Write.",
                 context_policy=compression_policy,
+                llm_provider=REAL_PROVIDER,
             ),
             state,
-        ):
-            pass
+        )
 
         summaries = [message for message in state.messages if message.kind == "summary"]
         self.assertEqual(len(summaries), 1)
-        summary_text = message_text(summaries[0])
-        self.assertTrue(summary_text.startswith("compressed old context"))
-        # Every summary cites the transcript indices it folded so a recall
-        # tool can fetch the originals back.
-        self.assertIn("[Compressed from transcript messages 1.", summary_text)
-        compression = next(
-            event
-            for event in state.events
-            if isinstance(event, ContextCompressionEvent)
+        self.assertEqual(summaries[0].role, "user")
+        summary_text = simple_agent_lab.text_of(summaries[0].content)
+        self.assertTrue(summary_text.startswith("[This session continues"))
+        self.assertIn("compressed old context", summary_text)
+        self.assertEqual(
+            summaries[0].sidecar["compression"]["model"],
+            "compressor-model",
         )
+        self.assertEqual(
+            summaries[0].sidecar["compression"]["usage"]["input_tokens"],
+            123,
+        )
+        self.assertEqual(
+            summaries[0].sidecar["raw"]["request"]["model"],
+            "compressor-model",
+        )
+        compressor_request = _event(state, ModelRequestEvent, agent="compressor")
+        self.assertEqual(
+            compressor_request.context_view["agent"],
+            "compressor",
+        )
+        compressor_response = _event(state, ModelResponseEvent, agent="compressor")
+        self.assertEqual(compressor_response.model, "compressor-model")
+        self.assertEqual(compressor_response.usage.input_tokens, 123)
+        self.assertGreater(
+            compressor_response.elapsed,
+            compressor_request.elapsed,
+        )
+        writer_request = _event(state, ModelRequestEvent, agent="writer")
+        summary_payloads = [
+            payload
+            for payload in writer_request.llm_payload
+            if "compressed old context" in simple_agent_lab.text_of(payload.content)
+        ]
+        self.assertEqual(len(summary_payloads), 1)
+        self.assertEqual(summary_payloads[0].role, "user")
+        compression = _event(state, ContextCompressionEvent)
+        self.assertLess(compression.start_elapsed, compression.elapsed)
+        compression_span = next(
+            span
+            for span in spans_from_events("trace", state.events)
+            if span.kind == "compression"
+        )
+        self.assertLess(compression_span.start, compression_span.end)
         self.assertEqual(compression.compressed_message_indices, [1])
         self.assertEqual(
             state.snapshot.active_context_indices,
@@ -630,7 +671,7 @@ class CoreTest(unittest.TestCase):
         writer_texts = captured["writer_visible_texts"]
         self.assertEqual(len(writer_texts), 3)
         self.assertEqual(writer_texts[0], "compress context")
-        self.assertTrue(writer_texts[1].startswith("compressed old context"))
+        self.assertTrue(writer_texts[1].startswith("[This session continues"))
         self.assertEqual(writer_texts[2], "recent note")
         next_view = build_context_view("writer", state.active_context_messages())
         self.assertNotIn(
@@ -643,10 +684,49 @@ class CoreTest(unittest.TestCase):
             state.snapshot.active_context_indices,
         )
 
+    def test_compression_span_falls_back_to_prior_compressor_call(self) -> None:
+        events = [
+            ModelRequestEvent(
+                index=0,
+                elapsed=1.0,
+                agent="context_compressor",
+                visible_count=1,
+                llm_message_count=1,
+                context_view={},
+                tools=[],
+                llm_payload=[],
+            ),
+            ModelResponseEvent(
+                index=1,
+                elapsed=4.0,
+                agent="context_compressor",
+                output_kind="final",
+                target="runtime",
+                tool_call_count=0,
+                model="compressor-model",
+            ),
+            ContextCompressionEvent(
+                index=2,
+                elapsed=4.1,
+                agent="writer",
+                summary_message_index=3,
+                compressed_message_indices=[1, 2],
+                active_context_indices=[0, 3],
+                before_tokens=4000,
+                after_tokens=2000,
+                strategy="summarize",
+            ),
+        ]
+
+        compression_span = next(
+            span
+            for span in spans_from_events("trace", events)
+            if span.kind == "compression"
+        )
+        self.assertEqual(compression_span.start, 1.0)
+        self.assertEqual(compression_span.end, 4.1)
+
     def test_tiered_strategy_returns_first_applicable_decision(self) -> None:
-        # TieredStrategy restores tiering as a single strategy: stages are
-        # tried in order, the first to return a decision wins, and later stages
-        # are not consulted. Nones fall through; all-None yields None.
         calls: list[str] = []
 
         def make_stage(name: str, decision: CompressionDecision | None):
@@ -659,17 +739,15 @@ class CoreTest(unittest.TestCase):
 
         decision = CompressionDecision(
             compress_indices=(0,),
-            replacement=make_message("system", "x", kind="summary"),
+            replacement=make_message("user", "x", kind="summary"),
         )
 
-        # First declines, second fires -> second's decision; both consulted.
         tiered = simple_agent_lab.TieredStrategy(
             (make_stage("a", None), make_stage("b", decision))
         )
         self.assertIs(tiered([], "w"), decision)
         self.assertEqual(calls, ["a", "b"])
 
-        # First fires -> later stage never consulted.
         calls.clear()
         first_wins = simple_agent_lab.TieredStrategy(
             (make_stage("a", decision), make_stage("b", None))
@@ -677,22 +755,11 @@ class CoreTest(unittest.TestCase):
         self.assertIs(first_wins([], "w"), decision)
         self.assertEqual(calls, ["a"])
 
-        # Every stage declines -> None.
         self.assertIsNone(
             simple_agent_lab.TieredStrategy((make_stage("a", None),))([], "w")
         )
 
     def test_tool_compact_folds_old_tool_exchanges(self) -> None:
-        # ToolCompactStrategy is the rule-based, no-LLM option: when the context
-        # exceeds `threshold_tokens`, every tool exchange except the most
-        # recent `keep_recent_exchanges` is replaced by one short marker
-        # listing the tool name and a result preview.
-        def writer(visible: list[Message]) -> Message:
-            del visible
-            return assistant_message(
-                "done", sender="writer", target="user", kind="final"
-            )
-
         state = State("tool compact")
         state.send("task", "user", "writer", state.task)
         for index, payload in enumerate(
@@ -724,29 +791,21 @@ class CoreTest(unittest.TestCase):
                 keep_recent_exchanges=1,
             ),
         )
-        for _ in run(
-            Agent("writer", writer, context_policy=policy),
+        _run(
+            Agent("writer", _reply(), context_policy=policy),
             state,
             max_turns=1,
-        ):
-            pass
-
-        compression = next(
-            event
-            for event in state.events
-            if isinstance(event, ContextCompressionEvent)
         )
-        # Compacted the first two exchanges (assistant + tool_result each = 4 msgs).
+
+        compression = _event(state, ContextCompressionEvent)
         self.assertEqual(len(compression.compressed_message_indices), 4)
         replacement = state.messages[compression.summary_message_index]
         self.assertEqual(replacement.kind, "summary")
+        self.assertEqual(replacement.role, "user")
         replacement_text = message_text(replacement)
         self.assertIn("Compacted 2 older tool exchange(s)", replacement_text)
         self.assertIn("alpha result", replacement_text)
         self.assertIn("beta result", replacement_text)
-        # The most recent exchange stays verbatim — its messages survive
-        # in active and the summary sits between the old block and the
-        # kept tail.
         self.assertNotIn("gamma result", replacement_text)
         post_summary_indices = compression.active_context_indices[
             compression.active_context_indices.index(compression.summary_message_index)
@@ -758,16 +817,6 @@ class CoreTest(unittest.TestCase):
         self.assertTrue(any("gamma result" in text for text in recent_texts))
 
     def test_after_tokens_ignores_stale_pre_compression_usage_baseline(self) -> None:
-        # A kept recent assistant carries `usage.context_tokens` from when the
-        # window was full. After compression drops the older messages, that
-        # baseline references content that is gone, so `after_tokens` must NOT
-        # trust it — otherwise the event reports compression as a no-op.
-        def writer(visible: list[Message]) -> Message:
-            del visible
-            return assistant_message(
-                "done", sender="writer", target="user", kind="final"
-            )
-
         def compressor(visible: list[Message]) -> Message:
             del visible
             return assistant_message(
@@ -777,8 +826,6 @@ class CoreTest(unittest.TestCase):
         state = State("task")
         state.send("task", "user", "writer", state.task)
         state.send("message", "user", "writer", "old context " + ("x" * 400))
-        # Recent assistant kept by keep_recent; its context_tokens reflects the
-        # full pre-compression window (6120), dwarfing the real text size.
         state.record(
             assistant_message(
                 "recent answer",
@@ -797,252 +844,106 @@ class CoreTest(unittest.TestCase):
                 keep_recent=2,
             ),
         )
-        for _ in run(
-            Agent("writer", writer, context_policy=policy), state, max_turns=1
-        ):
-            pass
+        _run(Agent("writer", _reply(), context_policy=policy), state, max_turns=1)
 
-        compression = next(
-            event
-            for event in state.events
-            if isinstance(event, ContextCompressionEvent)
-        )
-        # The stale baseline would have reported ~6120+; the true post-compression
-        # context (summary + short kept messages, the kept assistant at its exact
-        # 120 output_tokens) is small. Guard well below the stale value.
+        compression = _event(state, ContextCompressionEvent)
         self.assertLess(compression.after_tokens, 1000)
         self.assertLess(compression.after_tokens, compression.before_tokens)
 
     def test_rewrite_substitutes_message_in_place(self) -> None:
-        # A `rewrite=True` decision swaps one message for a shorter,
-        # structure-preserving replacement: the tool_result shrinks but stays a
-        # first-class turn, its tool_call partner stays paired, and the original
-        # remains in the append-only transcript (just no longer active).
-        state = State("rewrite")
-        state.send("task", "user", "writer", state.task)  # 0
-        state.record(
-            assistant_message(
-                [TextBlock("call"), ToolCallBlock("c0", "read", {})],
-                sender="writer",
-                target="user",
-                kind="step",
-            )
-        )  # 1
-        state.record(
-            tool_result_message(
-                "HUGE " + "x" * 500,
-                tool_call_id="c0",
-                tool_name="read",
-                target="writer",
-            )
-        )  # 2
-
-        def shrink(
-            active: list[tuple[int, Message]], agent_name: str
-        ) -> CompressionDecision | None:
-            for index, message in active:
-                if message.kind == "tool_result":
-                    return CompressionDecision(
-                        compress_indices=(index,),
-                        replacement=tool_result_message(
-                            "shrunk",
-                            tool_call_id="c0",
-                            tool_name="read",
-                            target=agent_name,
-                        ),
-                        rewrite=True,
-                    )
-            return None
-
+        state = _tool_state("rewrite", "HUGE " + "x" * 500)
         events = maybe_compress_context(
-            Agent("writer", _idle_writer), state, ContextPolicy(strategy=shrink)
+            Agent("writer", _idle_writer),
+            state,
+            ContextPolicy(
+                strategy=_rewrite_strategy(
+                    tool_result_message(
+                        "shrunk",
+                        tool_call_id="c0",
+                        tool_name="read",
+                        target="writer",
+                    )
+                )
+            ),
         )
 
-        # A rewrite records the same ContextCompressionEvent as a fold: the
-        # single rewritten index folds into its in-place replacement.
         rewrite = next(e for e in events if isinstance(e, ContextCompressionEvent))
         self.assertEqual(rewrite.compressed_message_indices, [2])
         self.assertEqual(rewrite.summary_message_index, 3)
         self.assertLess(rewrite.after_tokens, rewrite.before_tokens)
-        # Active view: task, assistant(tool_call), shrunk result — pair intact.
         self.assertEqual(state.snapshot.active_context_indices, [0, 1, 3])
         self.assertEqual(
             [message_text(m) for m in state.active_context_messages()],
             ["rewrite", "call", "shrunk"],
         )
-        # The original long result is still in the transcript, just not active.
         self.assertIn("HUGE", message_text(state.messages[2]))
-        # The replacement is a plain tool_result — no runtime marker on it; the
-        # compaction boundary is inferred from its (out-of-order) index instead.
         self.assertEqual(state.messages[3].sidecar, {})
         self.assertEqual(message_text(state.messages[3]), "shrunk")
 
     def test_rewrite_invalidates_stale_usage_baseline(self) -> None:
-        # After a rewrite shrinks a tool_result, a kept assistant still carries
-        # a `context_tokens` that counted the old, larger content. The marker on
-        # the replacement must invalidate that baseline so sizing reflects the
-        # shrink immediately — otherwise a rewrite meant to dodge compression
-        # would look like a no-op.
-        state = State("stale")
-        state.send("task", "user", "writer", state.task)  # 0
-        state.record(
-            assistant_message(
-                [TextBlock("call"), ToolCallBlock("c0", "read", {})],
-                sender="writer",
-                target="user",
-                kind="step",
-            )
-        )  # 1
-        state.record(
-            tool_result_message(
-                "HUGE " + "x" * 800,
-                tool_call_id="c0",
-                tool_name="read",
-                target="writer",
-            )
-        )  # 2
-        # Kept assistant whose context_tokens (6120) counted the HUGE result.
-        state.record(
-            assistant_message(
-                "answer",
-                sender="writer",
-                target="user",
-                kind="step",
-                usage=TokenUsage(input_tokens=6000, output_tokens=120),
-            )
-        )  # 3
-
-        def shrink(
-            active: list[tuple[int, Message]], agent_name: str
-        ) -> CompressionDecision | None:
-            for index, message in active:
-                if message.kind == "tool_result":
-                    return CompressionDecision(
-                        compress_indices=(index,),
-                        replacement=tool_result_message(
-                            "short",
-                            tool_call_id="c0",
-                            tool_name="read",
-                            target=agent_name,
-                        ),
-                        rewrite=True,
-                    )
-            return None
-
-        maybe_compress_context(
-            Agent("writer", _idle_writer), state, ContextPolicy(strategy=shrink)
+        state = _tool_state(
+            "stale",
+            "HUGE " + "x" * 800,
+            usage=TokenUsage(input_tokens=6000, output_tokens=120),
         )
-
-        # The stale baseline would report ~6120; the true post-rewrite size is
-        # tiny (the kept assistant at its exact 120 output_tokens + short texts).
-        size = _active_context_tokens(state.active_context_items())
-        self.assertLess(size, 1000)
+        maybe_compress_context(
+            Agent("writer", _idle_writer),
+            state,
+            ContextPolicy(
+                strategy=_rewrite_strategy(
+                    tool_result_message(
+                        "short",
+                        tool_call_id="c0",
+                        tool_name="read",
+                        target="writer",
+                    )
+                )
+            ),
+        )
+        self.assertLess(_active_context_tokens(state.active_context_items()), 1000)
 
     def test_rewrite_rejects_structure_changing_replacement(self) -> None:
-        # A rewrite may shrink content but must preserve the message's shape:
-        # same role and the same tool_call_id linkage. Otherwise the swap would
-        # orphan a tool_call or its result, which providers reject.
-        def make_state() -> State:
-            state = State("reject")
-            state.send("task", "user", "writer", state.task)  # 0
-            state.record(
-                assistant_message(
-                    [TextBlock("call"), ToolCallBlock("c0", "read", {})],
-                    sender="writer",
-                    target="user",
-                    kind="step",
-                )
-            )  # 1
-            state.record(
-                tool_result_message(
-                    "big", tool_call_id="c0", tool_name="read", target="writer"
-                )
-            )  # 2
-            return state
-
-        def decide(replacement: Message) -> object:
-            def strategy(
-                active: list[tuple[int, Message]], agent_name: str
-            ) -> CompressionDecision:
-                del active, agent_name
-                return CompressionDecision(
-                    compress_indices=(2,), replacement=replacement, rewrite=True
-                )
-
-            return strategy
-
-        # Different tool_call_id -> would orphan the c0 pair.
-        with self.assertRaises(ValueError):
-            maybe_compress_context(
-                Agent("writer", _idle_writer),
-                make_state(),
-                ContextPolicy(
-                    strategy=decide(
-                        tool_result_message(
-                            "x",
-                            tool_call_id="OTHER",
-                            tool_name="read",
-                            target="writer",
-                        )
-                    ),
-                ),
-            )
-
-        # Different role -> tool_result would become an assistant turn.
-        with self.assertRaises(ValueError):
-            maybe_compress_context(
-                Agent("writer", _idle_writer),
-                make_state(),
-                ContextPolicy(
-                    strategy=decide(
-                        assistant_message(
-                            "x", sender="writer", target="user", kind="step"
-                        )
-                    ),
-                ),
-            )
-
-    def test_rewrite_requires_a_single_target(self) -> None:
-        state = State("multi")
-        state.send("task", "user", "writer", state.task)  # 0
-        state.record(
-            assistant_message(
-                [TextBlock("call"), ToolCallBlock("c0", "read", {})],
+        replacements = {
+            "tool call id": tool_result_message(
+                "x",
+                tool_call_id="OTHER",
+                tool_name="read",
+                target="writer",
+            ),
+            "role": assistant_message(
+                "x",
                 sender="writer",
                 target="user",
                 kind="step",
-            )
-        )  # 1
-        state.record(
-            tool_result_message(
-                "big", tool_call_id="c0", tool_name="read", target="writer"
-            )
-        )  # 2
+            ),
+        }
+        for label, replacement in replacements.items():
+            with self.subTest(label), self.assertRaises(ValueError):
+                maybe_compress_context(
+                    Agent("writer", _idle_writer),
+                    _tool_state("reject", "big"),
+                    ContextPolicy(strategy=_rewrite_strategy(replacement)),
+                )
 
-        def strategy(
-            active: list[tuple[int, Message]], agent_name: str
-        ) -> CompressionDecision:
-            del active
-            return CompressionDecision(
-                compress_indices=(1, 2),
-                replacement=tool_result_message(
-                    "x", tool_call_id="c0", tool_name="read", target=agent_name
-                ),
-                rewrite=True,
-            )
-
+    def test_rewrite_requires_a_single_target(self) -> None:
         with self.assertRaises(ValueError):
             maybe_compress_context(
                 Agent("writer", _idle_writer),
-                state,
-                ContextPolicy(strategy=strategy),
+                _tool_state("multi", "big"),
+                ContextPolicy(
+                    strategy=_rewrite_strategy(
+                        tool_result_message(
+                            "x",
+                            tool_call_id="c0",
+                            tool_name="read",
+                            target="writer",
+                        ),
+                        (1, 2),
+                    )
+                ),
             )
 
     def test_framework_auto_fixes_split_tool_pair(self) -> None:
-        # If a strategy puts only one side of a tool_call/tool_result pair
-        # in `compress_indices`, the framework un-compresses that side so
-        # the model never sees an orphan. This frees strategy authors
-        # from re-implementing tool-pair bookkeeping in every strategy.
         state = State("tool pair fixup")
         state.send("task", "user", "writer", state.task)
         call_msg = assistant_message(
@@ -1055,13 +956,14 @@ class CoreTest(unittest.TestCase):
             kind="step",
         )
         state.record(call_msg)
-        result_msg = tool_result_message(
-            "ok",
-            tool_call_id="call_x",
-            tool_name="echo",
-            target="writer",
+        state.record(
+            tool_result_message(
+                "ok",
+                tool_call_id="call_x",
+                tool_name="echo",
+                target="writer",
+            )
         )
-        state.record(result_msg)
 
         call_index = state.messages.index(call_msg)
         captured: dict[str, Any] = {}
@@ -1092,15 +994,9 @@ class CoreTest(unittest.TestCase):
         for _ in run(Agent("writer", writer, context_policy=policy), state):
             pass
 
-        # No compression event recorded: the only compress index was
-        # orphan-fixed away, leaving compress_set empty.
         compressions = [
             event
             for event in state.events
             if isinstance(event, ContextCompressionEvent)
         ]
         self.assertEqual(compressions, [])
-
-
-if __name__ == "__main__":
-    unittest.main()

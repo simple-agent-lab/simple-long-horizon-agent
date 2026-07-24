@@ -18,7 +18,7 @@ from simple_agent_lab.state import State
 from simple_agent_lab.tools import AgentTool
 from simple_agent_lab.tools.bash import make_bash_tool
 from simple_agent_lab.tools.read import make_read_tool
-from simple_agent_lab.trace import run_trace_from_state, trace_record
+from simple_agent_lab.trace import run_trace_from_state, write_event_stream
 from simple_agent_lab.workflow.base import final_output
 
 
@@ -263,10 +263,7 @@ class SimpleAgentCallRunner:
             producer="dynamic_workflow",
             meta={"call_id": call_id, "phase": phase, "agent": agent_name},
         )
-        trace_path.write_text(
-            json.dumps(trace_record(trace), ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
+        write_event_stream(trace_path, trace)
         return trace_path
 
 

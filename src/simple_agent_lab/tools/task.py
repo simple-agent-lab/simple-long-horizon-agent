@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 from simple_agent_lab.messages import Message, message_text, runtime_message, text_of
+from simple_agent_lab.protocols import TurnEndEvent
 
 from . import AbortFlag, AgentTool, ToolResult, ToolUpdateFn, text_result
 
@@ -25,12 +26,21 @@ def task_tool(
     name: str = "task",
     description: str | None = None,
     max_turns: int = 10,
+    soft_turn_limit: int | None = None,
     default_context: str | None = None,
 ) -> AgentTool:
-    """Bundle several sub-agents into a single dispatch tool."""
+    """Bundle several sub-agents into a single dispatch tool.
+
+    When ``soft_turn_limit`` is set below ``max_turns``, the sub-agent receives
+    one model-visible reminder after that many completed turns. The reminder
+    does not add a model turn: it is appended between turns, and the existing
+    ``max_turns`` value remains the hard stop.
+    """
     agent_list = list(agents)
     if not agent_list:
         raise ValueError("task_tool requires at least one sub-agent")
+    if soft_turn_limit is not None and soft_turn_limit < 1:
+        raise ValueError("soft_turn_limit must be at least 1 or None")
 
     by_name: dict[str, Agent] = {}
     for agent in agent_list:
@@ -93,9 +103,27 @@ def task_tool(
         # and in the trace -- no hidden in-flight injection.
         for context_message in context_messages:
             state.record(context_message)
-        for _ in events:
+        completed_turns = 0
+        for event in events:
             if abort_flag():
                 break
+            if isinstance(event, TurnEndEvent):
+                completed_turns += 1
+                should_remind = (
+                    soft_turn_limit is not None
+                    and completed_turns == soft_turn_limit
+                    and completed_turns < max_turns
+                    and not event.terminated
+                    and not any(message.kind == "final" for message in state.messages)
+                )
+                if should_remind:
+                    state.record(
+                        _turn_limit_reminder(
+                            tool_name=name,
+                            target=agent.name,
+                            turns_remaining=max_turns - completed_turns,
+                        )
+                    )
         final = next(
             (
                 message
@@ -172,3 +200,17 @@ def _context_messages(
             )
         )
     return messages
+
+
+def _turn_limit_reminder(
+    *, tool_name: str, target: str, turns_remaining: int
+) -> Message:
+    return runtime_message(
+        f"You have {turns_remaining} turns remaining before this delegated "
+        "task reaches its hard limit. Stop broad exploration, focus on "
+        "completing the requested work, run only essential checks, and return "
+        "a concise final summary before the limit.",
+        sender=tool_name,
+        target=target,
+        kind="context",
+    )

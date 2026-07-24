@@ -25,13 +25,17 @@ but stays behind the optional `mcp` extra. The gate therefore syncs
 
 ## The quality gate
 
-Five checks must pass before a change ships. They're cheap; run them often.
+The checks below must pass before a change ships. They're cheap; run them often.
 
 | Check | Command | Scope |
 | --- | --- | --- |
 | Format | `uv run ruff format --check .` | Python code in the repo |
 | Lint | `uv run ruff check .` | Python code in the repo |
 | Docs lint | `uv run python scripts/lint_docs.py` | Local Markdown links and backticked path references |
+| ADR index | `uv run python docs/decisions/build_index.py --check` | Generated decision-record index |
+| Config reference | `uv run python scripts/build_config_reference.py --check` | Generated environment-variable reference |
+| Architecture lint | `uv run python scripts/arch_lint.py` | Package and dependency boundaries |
+| Environment lint | `uv run python scripts/env_lint.py` | Environment-variable registry boundaries |
 | Type check | `uv run ty check src` | Every module under `src/` |
 | Unit tests | `uv run python -m unittest discover -s tests/unit` | Every unit test under `tests/unit/` |
 
@@ -43,11 +47,11 @@ type-checker limitations, and only with a one-line comment explaining why.
 
 ## Local CI
 
-`runs/run_ci.sh` is the canonical local pre-push gate. It mirrors the remote
+`runs/dev/run_ci.sh` is the canonical local pre-push gate. It mirrors the remote
 workflow exactly:
 
 ```bash
-bash runs/run_ci.sh
+bash runs/dev/run_ci.sh
 ```
 
 The script:
@@ -58,10 +62,12 @@ The script:
 3. Runs `uv run ruff format --check .`.
 4. Runs `uv run ruff check .`.
 5. Runs `uv run python scripts/lint_docs.py`.
-6. Runs `uv run ty check src`.
-7. Runs `uv run python -m unittest discover -s tests/unit`.
-8. Runs `bash runs/run_bash_agent_demo.sh` so the public teaching demo stays runnable.
-9. Prints `All CI checks passed.` only if every step exited `0`.
+6. Checks the generated ADR index and configuration reference.
+7. Runs the architecture and environment-variable linters.
+8. Runs `uv run ty check src`.
+9. Runs `uv run python -m unittest discover -s tests/unit`.
+10. Runs `bash runs/demos/run_bash_agent_demo.sh` so the public teaching demo stays runnable.
+11. Prints `All CI checks passed.` only if every step exited `0`.
 
 If you want the same checks individually (e.g. while iterating on one of
 them), run the commands from the table above directly. `run_ci.sh` is the
@@ -72,20 +78,22 @@ them), run the commands from the table above directly. `run_ci.sh` is the
 GitHub Actions runs the same gate on every push to `main` and every pull
 request. The workflow is at [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml).
 
-Three job groups run in parallel:
+Five job groups run in parallel:
 
 - **`tests / py3.10`** through **`tests / py3.13`** — the unittest suite on
   supported interpreters, plus the deterministic bash-agent demo smoke.
 - **`ty / src`** — the type check, on Python 3.13 only. ty's diagnostics
   don't depend on the runtime Python version, so a single job is enough.
-- **`docs lint`** — local Markdown link and backticked path-reference checks,
+- **`docs lint`** — local Markdown references plus generated ADR/config indexes,
   on Python 3.13 only.
+- **`architecture lint`** — package boundaries and environment-variable
+  ownership, on Python 3.13 only.
 - **`ruff format / check`** — the formatter check (`ruff format --check .`)
   plus the linter (`ruff check .`), on Python 3.13 only. Run
   `uv run ruff format .` (and `uv run ruff check --fix .`) locally when this
   fails.
 
-A pull request is mergeable only when all three jobs pass. There is no
+A pull request is mergeable only when all five jobs pass. There is no
 auto-merge or required-reviewer config in this repo yet; the gate is
 advisory but expected.
 
@@ -94,7 +102,7 @@ advisory but expected.
 When extending the gate (e.g. a linter, a smoke test, a doc check):
 
 1. Make it runnable via `uv run` so it picks up the dev environment.
-2. Add it to `runs/run_ci.sh` first, exactly as you'd want it to run in CI.
+2. Add it to `runs/dev/run_ci.sh` first, exactly as you'd want it to run in CI.
 3. Add a matching step to `.github/workflows/ci.yml`. Keep the local script
    and the workflow in lockstep — divergence is the surest way for "passes
    locally, fails in CI" surprises to creep in.

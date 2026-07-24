@@ -61,7 +61,7 @@ from ..tools import (
     coerce_int,
     text_result,
 )
-from .strategies import DEFAULT_PRESERVE_KINDS, source_note
+from .strategies import DEFAULT_PRESERVE_KINDS, continuation_preamble
 
 COMPACT_TOOL_NAME = "compact"
 
@@ -95,8 +95,8 @@ class AgentCompactStrategy:
       is a no-op, and once the model moves on the request stops being the max,
       so a stale summary can never fold messages it was not written to describe.
 
-    The replacement is the agent's own summary text plus a `source_note` citing
-    the folded transcript indices, so a `recall` tool can fetch the originals.
+    The replacement is a `continuation_preamble` (framing the fold as a handoff
+    from an earlier session) plus the agent's own summary text.
     """
 
     keep_recent: int = 2
@@ -125,8 +125,8 @@ class AgentCompactStrategy:
         return CompressionDecision(
             compress_indices=compress_indices,
             replacement=make_message(
-                "system",
-                request.summary + "\n\n" + source_note(compress_indices),
+                "user",
+                continuation_preamble() + "\n\n" + request.summary,
                 sender="runtime",
                 target=agent_name,
                 kind="summary",
@@ -200,10 +200,12 @@ def make_compact_control(
             "has grown long and earlier messages are no longer needed verbatim "
             "— e.g. after finishing a sub-task. Write `summary` as the "
             "replacement for those older messages: keep every fact, decision, "
-            "constraint, and open question you still need, because everything "
-            "not in the summary leaves your view. The replacement cites the "
-            "transcript indices it folded, so a `recall` tool (when available) "
-            "can retrieve the originals."
+            "constraint, open question, and next step you still need, plus exact "
+            "identifiers (paths, symbols, commands, errors, test names, values) "
+            "kept VERBATIM and any approach you already tried that failed (with "
+            "why). Everything not in the summary leaves your view. The "
+            "replacement cites the transcript indices it folded, so a `recall` "
+            "tool (when available) can retrieve the originals."
         ),
         parameters={
             "type": "object",

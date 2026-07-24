@@ -110,6 +110,23 @@ def collect_submissions(
     return collected, missing
 
 
+def _safe_eval_dir_part(value: str) -> str:
+    return "".join(c if c.isalnum() or c in "._-" else "_" for c in value)
+
+
+def default_eval_dir(
+    run_root: Path, run_id: str, instance_ids: list[str] | None
+) -> Path:
+    """Choose a default eval dir that does not mix single-instance reruns."""
+
+    if not instance_ids:
+        return run_root / f"{run_id}_eval"
+    suffix = "__".join(_safe_eval_dir_part(instance_id) for instance_id in instance_ids)
+    if len(suffix) > 120:
+        suffix = f"{len(instance_ids)}_instances"
+    return run_root / f"{run_id}_eval_{suffix}"
+
+
 # --------------------------------------------------------------------------- #
 # 2. Evaluate + 3. summarize: official harness + optional CLI summary
 # --------------------------------------------------------------------------- #
@@ -218,7 +235,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "--eval-dir",
         default=None,
         help="Where to rebuild submissions + write eval.json "
-        "(default: <run_root>/<run_id>_eval).",
+        "(default: <run_root>/<run_id>_eval, or a per-instance suffix for "
+        "--instance-ids).",
     )
     parser.add_argument("--instance-ids", nargs="*", default=None)
     parser.add_argument(
@@ -274,7 +292,9 @@ def main(argv: list[str] | None = None) -> None:
         harness.load_dotenv(args.dotenv)
     run_root = Path(args.run_root)
     eval_dir = (
-        Path(args.eval_dir) if args.eval_dir else run_root / f"{args.run_id}_eval"
+        Path(args.eval_dir)
+        if args.eval_dir
+        else default_eval_dir(run_root, args.run_id, args.instance_ids)
     )
 
     collected, missing = collect_submissions(

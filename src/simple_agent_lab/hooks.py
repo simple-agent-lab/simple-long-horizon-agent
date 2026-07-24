@@ -40,6 +40,7 @@ class HookPoint(str, Enum):
     SESSION_START = "session_start"
     SESSION_END = "session_end"
     PRE_TOOL_USE = "pre_tool_use"
+    POST_TOOL_USE = "post_tool_use"
 
     def __str__(self) -> str:
         return self.value
@@ -59,7 +60,7 @@ class HookContext:
     point: HookPoint
     agent: AgentName
     state: State
-    # PRE_TOOL_USE only. The tool name is `tool_call.name`.
+    # PRE_TOOL_USE / POST_TOOL_USE only. The tool name is `tool_call.name`.
     tool_call: ToolCallBlock | None = None
 
 
@@ -70,11 +71,12 @@ class HookDecision:
     Hooks are **append-only**: they never edit an existing message or tool
     call, they only add. So the vocabulary is just two additive moves:
 
-    - block: a non-empty `block_reason`. The tool does not run; the reason is
-      *added* as an (error) tool result so the model can self-correct, exactly
-      like a tool that raised. (Blocking always carries a reason — that's why
-      it *is* the reason, not a separate flag.) This is the transparent way to
-      "redirect" a call: the model retries, every step on the record.
+    - block: a non-empty `block_reason`. At PRE_TOOL_USE, the tool does not run;
+      the reason is *added* as an (error) tool result so the model can
+      self-correct, exactly like a tool that raised. (Blocking always carries a
+      reason — that's why it *is* the reason, not a separate flag.) This is the
+      transparent way to "redirect" a call: the model retries, every step on the
+      record. Other hook points ignore `block_reason`.
     - emit: `emit_messages` are *added* to the transcript. The runtime records
       them as `MessageEvent`s, so the append rides the loop's normal yield
       discipline and replays cleanly (see `fire_hooks`). Only honored at points
@@ -118,8 +120,9 @@ def fire_hooks(
     between the yielded stream and `state.events`) and replays cleanly.
 
     Emission is skipped at `PRE_TOOL_USE`: a message inserted between a
-    tool_call and its result would orphan the pair on the wire. Emit belongs at
-    session / turn boundaries, not mid-dispatch.
+    tool_call and its result would orphan the pair on the wire. `POST_TOOL_USE`
+    fires only after the tool-result bundle has been appended, so emitted
+    reminder/context messages are safe and visible on the next model turn.
     """
     point_hooks = hooks.get(ctx.point, ())
     if not point_hooks:

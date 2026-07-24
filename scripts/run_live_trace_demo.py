@@ -26,24 +26,18 @@ from __future__ import annotations
 
 import argparse
 import random
-import sys
 import time
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from simple_agent_lab.messages import (  # noqa: E402
+from simple_agent_lab.messages import (
     AssistantMessage,
     TextBlock,
     ToolCallBlock,
     ToolResultBlock,
     make_message,
 )
-from simple_agent_lab.protocols import (  # noqa: E402
+from simple_agent_lab.protocols import (
     AgentEndEvent,
     AgentStartEvent,
     ModelRequestEvent,
@@ -53,23 +47,17 @@ from simple_agent_lab.protocols import (  # noqa: E402
     TurnEndEvent,
     TurnStartEvent,
 )
-from simple_agent_lab.state import State  # noqa: E402
-from simple_agent_lab.trace import (  # noqa: E402
+from simple_agent_lab.state import State
+from simple_agent_lab.trace import (
     LiveTraceSession,
     TraceMeta,
     default_stderr_flush_error,
     write_canonical_trace,
 )
 
+ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUT = ROOT / "evals" / "out" / "_live_demo" / "trajectory.jsonl"
 
-THINK_SAMPLES = [
-    "Inspecting the repo layout before touching files.",
-    "Sub-agent will grep for callers while I read the suspect module.",
-    "The off-by-one explains the failing test — patching now.",
-    "Re-running the focused test to confirm the fix sticks.",
-    "Tightening the diff and writing a concise final summary.",
-]
 TEXT_SAMPLES = [
     "Looking at the repo layout.",
     "Reading the suspect file and dispatching a search sub-agent in parallel.",

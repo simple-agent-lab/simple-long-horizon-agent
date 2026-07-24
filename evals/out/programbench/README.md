@@ -34,10 +34,10 @@ it back into the `<id>/submission.tar.gz` layout the official scorer expects.
 
 ```bash
 # One instance
-bash runs/run_programbench_suite.sh abishekvashok__cmatrix.5c082c6
+bash runs/programbench/run_programbench.sh abishekvashok__cmatrix.5c082c6
 
 # Whole task set, 4 at a time
-bash runs/run_programbench.sh --all --parallel 4
+bash runs/programbench/run_programbench.sh --all --parallel 4
 ```
 
 ## Scoring

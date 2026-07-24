@@ -1,6 +1,6 @@
 ---
 title: "Dynamic Workflows Use Generated JavaScript Orchestration"
-status: Proposed
+status: Accepted
 date: 2026-06-20
 slug: dynamic-workflows-js-orchestration
 ---
@@ -44,6 +44,12 @@ agent runtime:
 - Bench integration happens through suite-specific facade agents, so the
   generic eval runner still drives one normal `Agent` and `core.py` stays
   unchanged.
+- Suite launchers expose the mode through the existing
+  `--agent-flavor dynamic` axis. `--max-turns` caps every workflow-requested
+  worker budget while the facade itself remains a one-turn outer agent.
+- Suite-owned workspaces can disable workflow-created git worktrees, and a
+  process prefix lets a suite place the Node runtime behind the same isolation
+  boundary as its subagents.
 
 ## Consequences
 
@@ -56,12 +62,16 @@ runtime small, but it means workflow-specific concepts such as phases, call
 reuse, and concurrency caps live in `dynamic_workflows`, not in `State` or
 `core.run`.
 
-The first bench target is OneMillion-Bench through `LocalProcessBackend` because
-it provides a deterministic no-Docker smoke path with the fake provider. Coding
-bench suites reuse the same bridge with bash-capable subagents. SWE-bench may
-use optional worktree isolation; ProgramBench disables worktrees, preserves its
-network isolation for both the Node orchestration process and every subagent,
-and writes workflow-owned artifacts outside the scored workspace.
+The first integrations are OneMillion-Bench through `LocalProcessBackend`,
+which provides a deterministic no-Docker smoke path with the fake provider,
+SWE-bench, and ProgramBench with bash-capable subagents. All three keep
+workspace lifecycle in the suite and therefore disable workflow-created
+worktrees. ProgramBench additionally places both Node orchestration and every
+worker command in sealed user/network namespaces, and writes workflow artifacts
+outside the scored workspace.
+
+Workflow deadlines stop the Node process and abandon stuck calls on daemon
+workers, so a timed-out subagent cannot keep the Python interpreter alive.
 
 The JavaScript `vm` context shapes the workflow API for normal scripts, while
 process isolation limits the blast radius if generated code reaches Node globals.

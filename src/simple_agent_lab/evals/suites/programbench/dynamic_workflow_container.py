@@ -15,6 +15,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+import simple_agent_lab.config as config
 from simple_agent_lab.core import Agent
 from simple_agent_lab.dynamic_workflows import (
     AgentCallOptions,
@@ -39,15 +40,21 @@ from .container import (  # noqa: F401  (suite surface re-exports)
 )
 from .container import extract_result as _base_extract_result
 
-PROGRAMBENCH_DYNAMIC_WORKFLOW_SCRIPT_ENV = "PROGRAMBENCH_DYNAMIC_WORKFLOW_SCRIPT"
-PROGRAMBENCH_DYNAMIC_WORKFLOW_SOURCE_ENV = "PROGRAMBENCH_DYNAMIC_WORKFLOW_SOURCE"
-PROGRAMBENCH_DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV = (
-    "PROGRAMBENCH_DYNAMIC_MAX_CONCURRENCY"
+PROGRAMBENCH_DYNAMIC_WORKFLOW_SCRIPT_ENV = (
+    config.PROGRAMBENCH_DYNAMIC_WORKFLOW_SCRIPT.name
 )
-PROGRAMBENCH_DYNAMIC_WORKFLOW_MAX_AGENTS_ENV = "PROGRAMBENCH_DYNAMIC_MAX_AGENTS"
-PROGRAMBENCH_DYNAMIC_WORKFLOW_MAX_TURNS_ENV = "PROGRAMBENCH_DYNAMIC_MAX_TURNS"
-PROGRAMBENCH_DYNAMIC_WORKFLOW_TIMEOUT_ENV = "PROGRAMBENCH_DYNAMIC_TIMEOUT"
-PROGRAMBENCH_DYNAMIC_WORKFLOW_NODE_ENV = "PROGRAMBENCH_DYNAMIC_NODE_BINARY"
+PROGRAMBENCH_DYNAMIC_WORKFLOW_SOURCE_ENV = (
+    config.PROGRAMBENCH_DYNAMIC_WORKFLOW_SOURCE.name
+)
+PROGRAMBENCH_DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV = (
+    config.PROGRAMBENCH_DYNAMIC_MAX_CONCURRENCY.name
+)
+PROGRAMBENCH_DYNAMIC_WORKFLOW_MAX_AGENTS_ENV = (
+    config.PROGRAMBENCH_DYNAMIC_MAX_AGENTS.name
+)
+PROGRAMBENCH_DYNAMIC_WORKFLOW_MAX_TURNS_ENV = config.WORKER_MAX_TURNS.name
+PROGRAMBENCH_DYNAMIC_WORKFLOW_TIMEOUT_ENV = config.PROGRAMBENCH_DYNAMIC_TIMEOUT.name
+PROGRAMBENCH_DYNAMIC_WORKFLOW_NODE_ENV = config.PROGRAMBENCH_DYNAMIC_NODE_BINARY.name
 PROGRAMBENCH_DYNAMIC_WORKFLOW_ARTIFACT_DIR = "dynamic_workflow"
 
 DEFAULT_DYNAMIC_WORKFLOW_SCRIPT = r"""
@@ -114,7 +121,7 @@ def build_agent(
 
     def generate(visible: list[Message]) -> Message:
         task = _task_text(visible)
-        timeout_seconds = _env_float(PROGRAMBENCH_DYNAMIC_WORKFLOW_TIMEOUT_ENV, 21600.0)
+        timeout_seconds = config.PROGRAMBENCH_DYNAMIC_TIMEOUT.get()
         deadline = time.monotonic() + timeout_seconds
         script = _load_or_generate_script(
             provider=provider,
@@ -128,21 +135,17 @@ def build_agent(
             request_extra=request_extra,
             build_agent=build_subagent,
             allow_worktrees=False,
-            max_turns_cap=_env_int(PROGRAMBENCH_DYNAMIC_WORKFLOW_MAX_TURNS_ENV, 1000),
+            max_turns_cap=config.WORKER_MAX_TURNS.get(),
         )
         runtime = DynamicWorkflowRuntime(
             runner=runner,
             options=WorkflowRuntimeOptions(
                 # All workers share the scored workspace. Serialize by default
                 # so generated workflows cannot race file writes.
-                max_concurrency=_env_int(
-                    PROGRAMBENCH_DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV, 1
-                ),
-                max_agents=_env_int(PROGRAMBENCH_DYNAMIC_WORKFLOW_MAX_AGENTS_ENV, 12),
+                max_concurrency=config.PROGRAMBENCH_DYNAMIC_MAX_CONCURRENCY.get(),
+                max_agents=config.PROGRAMBENCH_DYNAMIC_MAX_AGENTS.get(),
                 timeout_seconds=_remaining_seconds(deadline),
-                node_binary=(
-                    os.environ.get(PROGRAMBENCH_DYNAMIC_WORKFLOW_NODE_ENV) or "node"
-                ),
+                node_binary=config.PROGRAMBENCH_DYNAMIC_NODE_BINARY.get(),
                 # workflow.js is model-generated and Node's v24 permission
                 # model does not restrict networking. Put the orchestration
                 # process in the same sealed namespace as worker commands.
@@ -180,7 +183,7 @@ def extract_result(
 
 
 def _subagent_system_prompt(options: AgentCallOptions) -> str:
-    parts = [AGENT_SYSTEM_PROMPT]
+    parts: list[str] = [AGENT_SYSTEM_PROMPT]
     parts.append(
         "All workers operate on the one scored workspace. Do not create, switch, "
         "or edit a git worktree elsewhere; make every submission change here."
@@ -199,10 +202,10 @@ def _load_or_generate_script(
     request_extra: Mapping[str, Any] | None,
     timeout_seconds: float,
 ) -> str:
-    source = os.environ.get(PROGRAMBENCH_DYNAMIC_WORKFLOW_SOURCE_ENV, "").strip()
+    source = config.PROGRAMBENCH_DYNAMIC_WORKFLOW_SOURCE.get()
     if source:
         return source + "\n"
-    script_path = os.environ.get(PROGRAMBENCH_DYNAMIC_WORKFLOW_SCRIPT_ENV, "").strip()
+    script_path = config.PROGRAMBENCH_DYNAMIC_WORKFLOW_SCRIPT.get()
     if script_path:
         return Path(script_path).read_text(encoding="utf-8")
     generated = generate_workflow_script(
@@ -242,6 +245,7 @@ def _task_text(visible: list[Message]) -> str:
 def _artifact_dir(workspace: Path) -> Path:
     """Keep orchestration internals outside the scored/git-tracked workspace."""
 
+    # env-ok: suite store mount is infrastructure owned by the eval store.
     store_root = (os.environ.get("SAL_STORE_ROOT") or "").strip()
     if store_root:
         return Path(store_root) / "out" / PROGRAMBENCH_DYNAMIC_WORKFLOW_ARTIFACT_DIR
@@ -257,23 +261,3 @@ def _remaining_seconds(deadline: float) -> float:
     if remaining <= 0:
         raise TimeoutError("ProgramBench dynamic workflow timed out")
     return remaining
-
-
-def _env_int(name: str, default: int, *, minimum: int = 1) -> int:
-    raw = (os.environ.get(name) or "").strip()
-    if not raw:
-        return default
-    try:
-        return max(minimum, int(raw))
-    except ValueError:
-        return default
-
-
-def _env_float(name: str, default: float, *, minimum: float = 1.0) -> float:
-    raw = (os.environ.get(name) or "").strip()
-    if not raw:
-        return default
-    try:
-        return max(minimum, float(raw))
-    except ValueError:
-        return default

@@ -567,6 +567,7 @@ def _node_permission_flag(node_binary: str) -> str:
 def _node_env() -> dict[str, str]:
     env: dict[str, str] = {}
     for name in ("PATH", "SystemRoot", "WINDIR", "PATHEXT"):
+        # env-ok: copy only executable-discovery variables into the scrubbed child.
         value = os.environ.get(name)
         if value:
             env[name] = value

@@ -24,10 +24,10 @@ evals/out/swebench/
 
 ```bash
 # Quick smoke run on a single instance
-bash runs/run_swebench_suite.sh sympy__sympy-23824
+bash runs/swebench/run_swebench.sh sympy__sympy-23824
 
 # Full SWE-bench Verified split
-bash runs/run_swebench_verified.sh --all --parallel 4
+bash runs/swebench/run_swebench.sh --all --parallel 4
 ```
 
 ## Evaluating Predictions

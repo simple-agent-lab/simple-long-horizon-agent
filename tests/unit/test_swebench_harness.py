@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -26,20 +27,27 @@ from evals.swebench.harness import (
     container_entrypoint_override,
     docker_image_for_instance,
     docker_run_command,
+    ensure_linux_uv,
     is_swebench_multilingual,
     is_swebench_pro,
     is_swebench_pro_instance,
     load_instance,
-    load_mcp_config_payload,
     prediction_record,
     prepare_project_wheel,
     prepare_wheelhouse,
     prepare_wheelhouse_for_run,
     resolve_api_kind,
-    resolve_mcp_config_path,
     resolve_workdir,
     sanitized_instance,
 )
+
+
+def _record_command_with_fake_wheel(calls: list[list[str]], command: list[str]) -> None:
+    calls.append(command)
+    if command[:3] == ["uv", "build", "--wheel"]:
+        out_dir = Path(command[-1])
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "simple_agent_lab-0.1.0-py3-none-any.whl").write_bytes(b"wheel")
 
 
 class SwebenchHarnessTest(unittest.TestCase):
@@ -66,6 +74,30 @@ class SwebenchHarnessTest(unittest.TestCase):
             DEFAULT_PRO_WHEELHOUSE,
             Path("evals/out/swebench_pro/wheelhouse/cp311-manylinux").resolve(),
         )
+
+    def test_linux_uv_is_downloaded_once_and_reused(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "cache"
+
+            def download(_url: str, destination: Path) -> None:
+                source = Path(tmp) / "uv"
+                source.write_bytes(b"uv")
+                with tarfile.open(destination, "w:gz") as bundle:
+                    bundle.add(source, arcname="uv-test-target/uv")
+
+            binary = ensure_linux_uv(
+                target="uv-test-target", root=root, downloader=download
+            )
+            self.assertEqual(binary.read_bytes(), b"uv")
+            self.assertTrue(binary.stat().st_mode & 0o100)
+
+            with mock.patch(
+                "evals.swebench.harness._download_file",
+                side_effect=AssertionError("cache should be reused"),
+            ):
+                self.assertEqual(
+                    ensure_linux_uv(target="uv-test-target", root=root), binary
+                )
 
     def test_sanitized_instance_drops_gold_fields(self) -> None:
         instance = {
@@ -288,43 +320,6 @@ class SwebenchHarnessTest(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "Unsupported API_KIND"):
             resolve_api_kind("unknown-api")
 
-    def test_resolve_mcp_config_path_prefers_cli_then_env(self) -> None:
-        with mock.patch.dict("os.environ", {}, clear=True):
-            self.assertIsNone(resolve_mcp_config_path(None))
-            self.assertEqual(resolve_mcp_config_path("cli.json"), "cli.json")
-
-        with mock.patch.dict("os.environ", {"MCP_CONFIG": "env.json"}, clear=True):
-            self.assertEqual(resolve_mcp_config_path(None), "env.json")
-            self.assertEqual(resolve_mcp_config_path("cli.json"), "cli.json")
-
-    def test_load_mcp_config_payload_validates_and_returns_json_object(self) -> None:
-        payload = {
-            "servers": [
-                {
-                    "name": "workspace",
-                    "transport": "stdio",
-                    "command": "python",
-                    "args": ["-m", "server"],
-                    "cwd": "/testbed",
-                }
-            ]
-        }
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "mcp.json"
-            path.write_text(json.dumps(payload), encoding="utf-8")
-
-            loaded = load_mcp_config_payload(path)
-
-        self.assertEqual(loaded, payload)
-
-    def test_load_mcp_config_payload_rejects_invalid_config(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "mcp.json"
-            path.write_text('{"servers": [{"name": "bad"}]}', encoding="utf-8")
-
-            with self.assertRaisesRegex(SystemExit, "MCP config"):
-                load_mcp_config_payload(path)
-
     def test_load_instance_accepts_instances_wrapper(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "instances.json"
@@ -351,7 +346,7 @@ class SwebenchHarnessTest(unittest.TestCase):
         calls: list[list[str]] = []
 
         def runner(command: list[str]) -> None:
-            calls.append(command)
+            _record_command_with_fake_wheel(calls, command)
 
         with tempfile.TemporaryDirectory() as tmp:
             prepare_wheelhouse(Path(tmp), runner=runner)
@@ -374,7 +369,7 @@ class SwebenchHarnessTest(unittest.TestCase):
         calls: list[list[str]] = []
 
         def runner(command: list[str]) -> None:
-            calls.append(command)
+            _record_command_with_fake_wheel(calls, command)
 
         with tempfile.TemporaryDirectory() as tmp:
             prepare_wheelhouse(Path(tmp), runner=runner, extras=("mcp",))
@@ -389,6 +384,50 @@ class SwebenchHarnessTest(unittest.TestCase):
         ]
         self.assertEqual(download_platforms, ["manylinux2014_x86_64"])
 
+    def test_prepare_wheelhouse_provisions_offline_linux_cpython_311(self) -> None:
+        calls: list[list[str]] = []
+
+        def runner(command: list[str]) -> None:
+            _record_command_with_fake_wheel(calls, command)
+
+        # Even on a macOS host (the common dev setup), the provisioned interpreter
+        # targets the FIXED container platform (Linux x86_64 glibc), so the
+        # wheelhouse carries the Python the Linux containers actually run.
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch("evals.swebench.harness.shutil.which", return_value="/fake/uv"),
+            mock.patch("evals.swebench.harness.sys.platform", "darwin"),
+        ):
+            prepare_wheelhouse(Path(tmp), runner=runner)
+            uv_python = str(Path(tmp) / "uv-python")
+        self.assertEqual(
+            calls[-1],
+            [
+                "/fake/uv",
+                "python",
+                "install",
+                "--install-dir",
+                uv_python,
+                "cpython-3.11-linux-x86_64-gnu",
+                "cpython-3.11-linux-x86_64-musl",
+            ],
+        )
+
+    def test_prepare_wheelhouse_skips_python_provision_without_uv(self) -> None:
+        calls: list[list[str]] = []
+
+        def runner(command: list[str]) -> None:
+            _record_command_with_fake_wheel(calls, command)
+
+        # No uv on PATH: nothing to provision with (the bootstrap then falls back
+        # to the container's own download path).
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch("evals.swebench.harness.shutil.which", return_value=None),
+        ):
+            prepare_wheelhouse(Path(tmp), runner=runner)
+        self.assertFalse(any("install" in c and "python" in c for c in calls))
+
     def test_locked_requirements_pin_core_runtime_and_exclude_extra(self) -> None:
         uv = shutil.which("uv")
         if uv is None:
@@ -401,7 +440,9 @@ class SwebenchHarnessTest(unittest.TestCase):
         # Core runtime is pinned to exact versions (reproducible wheelhouse).
         self.assertRegex(text, r"(?m)^anthropic==")
         self.assertRegex(text, r"(?m)^openai==")
-        self.assertNotIn(">=", text)
+        for line in text.splitlines():
+            requirement = line.split(";", 1)[0].strip()
+            self.assertRegex(requirement, r"^[A-Za-z0-9_.-]+==[^<>=!~ ]+$")
         # Host-only dependencies (swebench extra + dev tools) stay out.
         self.assertNotRegex(text, r"(?m)^(datasets|docker|swebench|pytest|ruff)[=<>]")
 
@@ -409,12 +450,15 @@ class SwebenchHarnessTest(unittest.TestCase):
         calls: list[list[str]] = []
 
         def runner(command: list[str]) -> None:
-            calls.append(command)
+            _record_command_with_fake_wheel(calls, command)
 
         with tempfile.TemporaryDirectory() as tmp:
             prepare_project_wheel(Path(tmp), runner=runner)
+            wheel_names = sorted(path.name for path in Path(tmp).glob("*.whl"))
 
-        self.assertEqual(calls, [["uv", "build", "--wheel", "--out-dir", tmp]])
+        self.assertEqual(calls[0][:4], ["uv", "build", "--wheel", "--out-dir"])
+        self.assertNotEqual(calls[0][-1], tmp)
+        self.assertEqual(wheel_names, ["simple_agent_lab-0.1.0-py3-none-any.whl"])
 
     def test_prepare_wheelhouse_for_run_refreshes_project_wheel_by_default(
         self,
@@ -445,7 +489,3 @@ class SwebenchHarnessTest(unittest.TestCase):
 
         project_wheel.assert_not_called()
         full_wheelhouse.assert_called_once_with(wheelhouse)
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -27,13 +27,7 @@ import base64
 import sys
 from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from simple_agent_lab import (  # noqa: E402
+from simple_agent_lab import (
     Agent,
     ImageBlock,
     State,
@@ -45,9 +39,10 @@ from simple_agent_lab import (  # noqa: E402
     text_of,
     tool_results_of,
 )
-from simple_agent_lab.mcp import MCPServerConfig, connect_mcp  # noqa: E402
+from simple_agent_lab.mcp import MCPServerConfig, connect_mcp
 
 
+ROOT = Path(__file__).resolve().parents[1]
 SERVER_SCRIPT = ROOT / "scripts" / "mcp_demo_server.py"
 
 

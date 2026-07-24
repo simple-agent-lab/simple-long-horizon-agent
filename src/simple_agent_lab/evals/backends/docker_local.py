@@ -16,6 +16,8 @@ the run's `ArtifactStore`, so this backend never copies files itself.
 
 from __future__ import annotations
 
+import os
+import stat
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
@@ -65,6 +67,26 @@ def _require_docker() -> Any:
     return docker
 
 
+def ensure_docker_host_env() -> None:
+    """Use a known Docker Desktop or Colima socket when none is configured."""
+
+    if os.environ.get("DOCKER_HOST"):  # env-ok: honor the standard Docker client env
+        return
+    # env-ok: locate standard Docker Desktop and Colima sockets under the host home
+    home = Path(os.environ.get("HOME") or "~").expanduser()
+    for socket_path in (
+        home / ".docker/run/docker.sock",
+        home / ".colima/default/docker.sock",
+    ):
+        try:
+            if stat.S_ISSOCK(socket_path.stat().st_mode):
+                # env-ok: hand discovered socket to the standard Docker client
+                os.environ["DOCKER_HOST"] = f"unix://{socket_path}"
+                return
+        except FileNotFoundError:
+            continue
+
+
 def _ensure_image(client: Any, image: str, platform: str | None, pull: str) -> None:
     """Apply the pull policy before create() (which never auto-pulls)."""
 
@@ -75,7 +97,14 @@ def _ensure_image(client: Any, image: str, platform: str | None, pull: str) -> N
         client.images.get(image)
     except docker.errors.ImageNotFound:
         if pull == "never":
-            raise
+            # Pulling is opt-in so a run never silently downloads multi-GB images
+            # (a full split would be hundreds of GB). Tell the user how to opt in.
+            raise RuntimeError(
+                f"Docker image not present locally: {image}\n"
+                "Image pulling is opt-in to avoid large unexpected downloads. "
+                "Re-run with --pull missing to download it (or --pull always to "
+                "force a refresh)."
+            ) from None
         client.images.pull(image, platform=platform)
 
 
@@ -142,6 +171,8 @@ def with_local_mounts(
     uv_binary: str | Path | None,
     memory_home: str | Path | None = None,
     memory_mount: str = DEFAULT_MEMORY_CONTAINER_HOME,
+    memory_env_home: str | None = None,
+    memory_lock_dir: str | Path | None = None,
 ) -> ContainerBinding:
     """Add local-only bind mounts for offline installs and persistent memory.
 
@@ -155,9 +186,15 @@ def with_local_mounts(
     writes back to them.
 
     `memory_home`, when set, is a host directory bind-mounted read-write at
-    ``memory_mount``. The backend also sets ``SAL_MEMORY_HOME`` so in-container
-    agent assembly can pass that path to `FilesystemMemory(root=...)` without
-    teaching memory about Docker.
+    ``memory_mount``. The backend also sets ``SAL_MEMORY_HOME`` to
+    ``memory_env_home`` (or the mount itself by default) so a caller may expose
+    one isolated namespace at a child mount while keeping the memory root/name
+    contract used in-container. The host always creates a private shared lock
+    directory/file first. When only a child namespace is mounted, the backend
+    bind-mounts ``memory_lock_dir`` (or the child path's parent lock directory)
+    into that otherwise-isolated container view. Mounting the directory (not
+    one lock file) keeps every writer coordinated even when ``filelock`` unlinks
+    and recreates its lock path.
     """
 
     extra: dict[str, dict[str, str]] = {}
@@ -181,12 +218,29 @@ def with_local_mounts(
         if not memory_mount:
             raise ValueError("LocalDockerBackend(memory_home=...) needs memory_mount")
         memory_path = Path(memory_home).expanduser()
-        memory_path.mkdir(parents=True, exist_ok=True)
+        memory_path.mkdir(parents=True, exist_ok=True, mode=0o700)
         extra[str(memory_path.resolve())] = {
             "bind": memory_mount,
             "mode": "rw",
         }
-        env[MEMORY_HOME_ENV] = memory_mount
+        container_root = (memory_env_home or memory_mount).rstrip("/")
+        env[MEMORY_HOME_ENV] = container_root
+        root_view_isolated = container_root != memory_mount.rstrip("/")
+        separate_lock_mount = bool(memory_lock_dir) or root_view_isolated
+        if memory_lock_dir:
+            lock_path = Path(memory_lock_dir).expanduser()
+        elif separate_lock_mount:
+            lock_path = memory_path.parent / ".memory-lock"
+        else:
+            lock_path = memory_path / ".memory-lock"
+        lock_path.mkdir(parents=True, exist_ok=True, mode=0o700)
+        descriptor = os.open(lock_path / "memory.lock", os.O_WRONLY | os.O_CREAT, 0o600)
+        os.close(descriptor)
+        if separate_lock_mount:
+            extra[str(lock_path.resolve())] = {
+                "bind": f"{container_root}/.memory-lock",
+                "mode": "rw",
+            }
     if not extra and env == binding.env:
         return binding
     return replace(binding, mounts={**binding.mounts, **extra}, env=env)
@@ -199,6 +253,8 @@ class LocalDockerBackend:
     pull only when absent), ``"always"``, or ``"never"``. docker-py's ``create``
     does not auto-pull (unlike ``run``), so without this a missing image would
     raise ``ImageNotFound`` on first use.
+    `force_existing`: remove a container with the deterministic run name before
+    creating the new one, matching launcher ``--force`` behavior.
 
     `wheelhouse`: host directory of wheels for an offline install. When set it is
     bind-mounted read-only at the run's ``wheelhouse_mount`` so the container's
@@ -207,7 +263,11 @@ class LocalDockerBackend:
     ``/tmp/uv``, for images whose own Python predates the wheels' 3.11 target.
     `memory_home`: optional host directory mounted read-write at
     ``memory_mount`` and exported as ``SAL_MEMORY_HOME`` for container-side
-    memory construction.
+    memory construction. ``memory_env_home`` may point at the parent of that
+    mount when only one namespaced child should be visible in the container.
+    ``memory_lock_dir`` can explicitly select the shared root lock alongside
+    such a child mount; otherwise the backend derives it from the child parent,
+    without exposing sibling namespace contents.
     """
 
     def __init__(
@@ -215,23 +275,30 @@ class LocalDockerBackend:
         *,
         user: str = "root",
         keep_container: bool = False,
+        force_existing: bool = False,
         pull: str = "missing",
         wheelhouse: str | Path | None = None,
         uv_binary: str | Path | None = None,
         docker_timeout_s: float = DEFAULT_DOCKER_TIMEOUT_S,
         memory_home: str | Path | None = None,
         memory_mount: str = DEFAULT_MEMORY_CONTAINER_HOME,
+        memory_env_home: str | None = None,
+        memory_lock_dir: str | Path | None = None,
     ) -> None:
         self.user = user
         self.keep_container = keep_container
+        self.force_existing = force_existing
         self.pull = pull
         self.wheelhouse = wheelhouse
         self.uv_binary = uv_binary
         self.docker_timeout_s = docker_timeout_s
         self.memory_home = memory_home
         self.memory_mount = memory_mount
+        self.memory_env_home = memory_env_home
+        self.memory_lock_dir = memory_lock_dir
 
     def _client(self) -> Any:
+        ensure_docker_host_env()
         return _require_docker().from_env(timeout=self.docker_timeout_s)
 
     def submit(
@@ -245,6 +312,11 @@ class LocalDockerBackend:
 
         del store  # the container reaches the store via `binding` (mounts/env)
         client = self._client()
+        if self.force_existing:
+            try:
+                client.containers.get(spec.run_name).remove(force=True)
+            except docker.errors.NotFound:
+                pass
         binding = with_local_mounts(
             binding,
             wheelhouse=self.wheelhouse,
@@ -252,6 +324,8 @@ class LocalDockerBackend:
             uv_binary=self.uv_binary,
             memory_home=self.memory_home,
             memory_mount=self.memory_mount,
+            memory_env_home=self.memory_env_home,
+            memory_lock_dir=self.memory_lock_dir,
         )
         start_container(
             client,
@@ -352,6 +426,8 @@ def _create_kwargs(
         "volumes": {k: dict(v) for k, v in binding.mounts.items()},
         "cap_add": list(spec.launch_spec.cap_add),
     }
+    if spec.launch_spec.security_opt:
+        kwargs["security_opt"] = list(spec.launch_spec.security_opt)
     if binding.add_hosts:
         kwargs["extra_hosts"] = dict(binding.add_hosts)
     if spec.launch_spec.entrypoint is not None:

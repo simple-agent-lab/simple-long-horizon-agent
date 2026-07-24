@@ -19,15 +19,7 @@ answer) and exits non-zero if any breaks.
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from simple_agent_lab import (  # noqa: E402
+from simple_agent_lab import (
     ContextCompressionEvent,
     ContextPolicy,
     State,
@@ -38,10 +30,10 @@ from simple_agent_lab import (  # noqa: E402
     run,
     text_of,
 )
-from simple_agent_lab.compression import summarize_compression  # noqa: E402
-from simple_agent_lab.llm import Provider  # noqa: E402
-from simple_agent_lab.llm.env import provider_from_env  # noqa: E402
-from simple_agent_lab.tools import (  # noqa: E402
+from simple_agent_lab.compression import summarize_compression
+from simple_agent_lab.llm import Provider
+from simple_agent_lab.llm.env import provider_from_env
+from simple_agent_lab.tools import (
     AgentTool,
     make_recall_tool,
     text_result,

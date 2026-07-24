@@ -43,10 +43,32 @@ from evals.swebench.harness import (  # noqa: E402
     prepare_wheelhouse_for_run,
     resolve_api_kind,
 )
+import simple_agent_lab.config as config  # noqa: E402
+from simple_agent_lab.agent_flavors import (  # noqa: E402
+    AGENT_FLAVOR_ENV,
+    DEFAULT_AGENT_FLAVOR,
+)
+
+# Provider / reasoning env-var names are owned by `simple_agent_lab.llm.env`
+# (single source of truth, see ADR consolidate-provider-env). This host-side
+# harness only forwards them into the container.
+from simple_agent_lab.llm.env import (  # noqa: E402
+    API_KIND_ENV,
+    OPENAI_API_KIND_CHOICES,
+    OPENAI_AUTH_ENV,
+    OPENAI_BASE_URL_ENV,
+    OPENAI_LOG_ID_ENV,
+    OPENAI_MODEL_ENV,
+    OPENAI_REASONING_EFFORT_ENV,
+    OPENAI_SESSION_ID_ENV,
+    REASONING_EFFORT_ENV,
+    container_provider_env,
+)
 
 __all__ = [
     "API_KIND_CHOICES",
     "API_KIND_ENV",
+    "AGENT_FLAVOR_ENV",
     "DEFAULT_AGENT_FLAVOR",
     "DEFAULT_IMAGE_TAG",
     "DEFAULT_NODE_BINARY",
@@ -93,19 +115,7 @@ NODE_ARCHIVE_SHA256 = "55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450
 NODE_BINARY_SHA256 = "41a74efb34cbde5c7632cdac0cf8bd1a14d0b8d73dc1e82755014d9a9ce70f5c"
 DEFAULT_NODE_BINARY = f"{DEFAULT_WHEELHOUSE_MOUNT}/{NODE_DIST_NAME}/bin/node"
 
-OPENAI_MODEL_ENV = "OPENAI_MODEL"
-OPENAI_AUTH_ENV = "OPENAI_AUTH_TOKEN"
-OPENAI_BASE_URL_ENV = "OPENAI_BASE_URL"
-OPENAI_SESSION_ID_ENV = "OPENAI_SESSION_ID"
-OPENAI_LOG_ID_ENV = "OPENAI_LOG_ID"
-API_KIND_ENV = "API_KIND"
-# Reasoning depth knob read by the in-container provider. Without forwarding
-# these, the agent silently runs at the endpoint's default (no/low reasoning)
-# even when the operator set OPENAI_REASONING_EFFORT=high in .env.
-REASONING_EFFORT_ENV = "REASONING_EFFORT"
-OPENAI_REASONING_EFFORT_ENV = "OPENAI_REASONING_EFFORT"
-API_KIND_CHOICES = ("openai-chat", "openai-responses")
-DEFAULT_AGENT_FLAVOR = "bash"
+API_KIND_CHOICES = OPENAI_API_KIND_CHOICES
 OPENAI_PASSTHROUGH_ENVS = (
     OPENAI_MODEL_ENV,
     OPENAI_AUTH_ENV,
@@ -115,6 +125,10 @@ OPENAI_PASSTHROUGH_ENVS = (
     API_KIND_ENV,
     REASONING_EFFORT_ENV,
     OPENAI_REASONING_EFFORT_ENV,
+    AGENT_FLAVOR_ENV,
+    config.COMPRESSION_THRESHOLD.name,
+    config.COMPRESSION_WINDOW_RATIO.name,
+    config.COMPRESSION_KEEP_RECENT.name,
 )
 
 # Gold / project-identity fields kept out of the agent-visible instance. The
@@ -331,20 +345,4 @@ def _ensure_node_cache_directories(wheelhouse: Path) -> None:
 def container_environment(provider: str) -> dict[str, str]:
     """Collect the provider env vars passed into the container (openai only)."""
 
-    env: dict[str, str] = {}
-    if provider != "openai":
-        return env
-    for name in OPENAI_PASSTHROUGH_ENVS:
-        value = os.environ.get(name)
-        if value:
-            env[name] = value
-    for name in ("NO_PROXY", "no_proxy"):
-        value = os.environ.get(name)
-        if value:
-            env[name] = value
-    missing = [name for name in (OPENAI_MODEL_ENV, OPENAI_AUTH_ENV) if name not in env]
-    if missing:
-        raise SystemExit(
-            "Missing required env vars for --provider openai: " + ", ".join(missing)
-        )
-    return env
+    return container_provider_env(provider, OPENAI_PASSTHROUGH_ENVS)

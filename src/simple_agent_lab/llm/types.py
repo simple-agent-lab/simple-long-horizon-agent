@@ -167,13 +167,16 @@ class LLMResponse:
         (`refusal`, `prompt_tokens_details.cached_tokens`,
         `safety_ratings`, etc.) directly off `raw["response"]`.
 
-    The `request` half is captured without its `messages` / `input`
-    history — that history is already canonical in the runtime
-    trajectory and would otherwise pin O(N²) memory across a long
-    session. Everything else (model, tools, temperature, system, and
-    our outbound `extra` translations) is retained so the
-    "did our cache_control / reasoning_content land?" question is
-    still answerable from `raw["request"]` alone.
+    The `request` half is the full outbound request body — model,
+    tools, temperature, system, the `messages` / `input` history, and
+    our outbound `extra` translations — so "did our cache_control /
+    reasoning_content land?" and "what exactly did the model see?" are
+    both answerable from `raw["request"]` alone. It is the single ground
+    truth of what crossed the model boundary. The trace writer keeps it
+    out of the main trajectory file by externalizing it (deduped) to the
+    sibling `*.raw.jsonl` pool rather than embedding the growing history
+    inline, which would pin O(N²) size across a long session. See ADR
+    trajectory-schema-v5.
     """
 
     content: MessageContent = ()

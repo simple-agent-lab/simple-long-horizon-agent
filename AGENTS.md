@@ -18,6 +18,21 @@ Simple Agent Lab should make agent systems easier to understand, modify, and tea
 - Capture reference-architecture research notes locally under `docs/reference-architectures/` before borrowing a pattern; the directory's contents are gitignored except for the README and template, so notes stay on your disk and only the durable commitment lands in an ADR.
 - Keep examples small and runnable once code exists.
 
+## Environment and Commands
+
+This is a `uv`-managed project (`[tool.uv] managed = true`). Run **every**
+command through `uv` so it uses the project's pinned environment.
+
+- Run Python through `uv run`, never a bare `python`/`python3`/`pip`. Examples:
+  `uv run python -m unittest ...`, `uv run python scripts/foo.py`,
+  `uv run ruff check`.
+- Manage dependencies with `uv` (`uv add`, `uv remove`, `uv sync`), not `pip`.
+  Edit `pyproject.toml` for dependency-group or optional-dependency changes,
+  then `uv sync`.
+- Tests use the standard-library `unittest` runner (there is no `pytest`
+  dependency). Run them with `uv run python -m unittest`, e.g. a single module:
+  `uv run python -m unittest tests.unit.test_programbench_suite -v`.
+
 ## Agent-Native Documentation
 
 This repo uses a small progressive-disclosure documentation system for future agents.

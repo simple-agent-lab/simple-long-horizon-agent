@@ -19,16 +19,9 @@ Two things to read off the output:
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Callable
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from simple_agent_lab import (  # noqa: E402
+from simple_agent_lab import (
     Agent,
     ContextPolicy,
     Message,
@@ -39,9 +32,9 @@ from simple_agent_lab import (  # noqa: E402
     assistant_message,
     run,
 )
-from simple_agent_lab.compression import summarize_compression  # noqa: E402
-from simple_agent_lab.messages import TextBlock, ToolCallBlock  # noqa: E402
-from simple_agent_lab.tools import AgentTool, ToolResult, text_result  # noqa: E402
+from simple_agent_lab.compression import summarize_compression
+from simple_agent_lab.messages import TextBlock, ToolCallBlock
+from simple_agent_lab.tools import AgentTool, ToolResult, text_result
 
 THRESHOLD = 4000
 PolicyFactory = Callable[[], ContextPolicy]
@@ -120,17 +113,17 @@ def _run_tool_heavy(policy: ContextPolicy, n_reads: int) -> list:
                         f"call_{index}", "read_file", {"path": f"f{index}.py"}
                     ),
                 ],
-                sender="explorer",
+                sender="general-purpose",
                 target="user",
                 kind="step",
             )
         return assistant_message(
-            "Done exploring.", sender="explorer", target="user", kind="final"
+            "Done exploring.", sender="general-purpose", target="user", kind="final"
         )
 
     state = State("Explore the codebase.")
-    state.send("task", "user", "explorer", state.task)
-    agent = Agent("explorer", brain, tools=(read_tool,), context_policy=policy)
+    state.send("task", "user", "general-purpose", state.task)
+    agent = Agent("general-purpose", brain, tools=(read_tool,), context_policy=policy)
     return list(run(agent, state, max_turns=n_reads + 2))
 
 

@@ -76,8 +76,8 @@ A runnable, deterministic demo (no API key) starts a local MCP server that
 returns a generated PNG and shows the image flowing back as an `ImageBlock`:
 
 ```bash
-bash runs/run_mcp_agent_demo.sh
-bash runs/run_mcp_agent_demo.sh --color gold --save-image /tmp/swatch.png
+bash runs/demos/run_mcp_agent_demo.sh
+bash runs/demos/run_mcp_agent_demo.sh --color gold --save-image /tmp/swatch.png
 ```
 
 The server is `scripts/mcp_demo_server.py`; the client/agent is

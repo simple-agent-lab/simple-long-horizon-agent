@@ -7,11 +7,11 @@ and persists the script/journal/subagent trace summary for ``extract_result``.
 
 from __future__ import annotations
 
-import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+import simple_agent_lab.config as config
 from simple_agent_lab.core import Agent
 from simple_agent_lab.dynamic_workflows import (
     AgentCallOptions,
@@ -36,10 +36,11 @@ from .container import (  # noqa: F401  (suite surface re-exports)
 from .container import extract_result as _base_extract_result
 from .workflow_container import ANSWER_SYSTEM_PROMPT
 
-DYNAMIC_WORKFLOW_SCRIPT_ENV = "OMB_DYNAMIC_WORKFLOW_SCRIPT"
-DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV = "OMB_DYNAMIC_MAX_CONCURRENCY"
-DYNAMIC_WORKFLOW_MAX_AGENTS_ENV = "OMB_DYNAMIC_MAX_AGENTS"
-DYNAMIC_WORKFLOW_TIMEOUT_ENV = "OMB_DYNAMIC_TIMEOUT"
+DYNAMIC_WORKFLOW_SCRIPT_ENV = config.OMB_DYNAMIC_WORKFLOW_SCRIPT.name
+DYNAMIC_WORKFLOW_SOURCE_ENV = config.OMB_DYNAMIC_WORKFLOW_SOURCE.name
+DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV = config.OMB_DYNAMIC_MAX_CONCURRENCY.name
+DYNAMIC_WORKFLOW_MAX_AGENTS_ENV = config.OMB_DYNAMIC_MAX_AGENTS.name
+DYNAMIC_WORKFLOW_TIMEOUT_ENV = config.OMB_DYNAMIC_TIMEOUT.name
 DYNAMIC_WORKFLOW_ARTIFACT_DIR = "dynamic_workflow"
 
 DEFAULT_DYNAMIC_WORKFLOW_SCRIPT = r"""
@@ -114,13 +115,15 @@ def build_agent(
             cwd=cwd,
             request_extra=request_extra,
             build_agent=build_subagent,
+            allow_worktrees=False,
+            max_turns_cap=config.WORKER_MAX_TURNS.get(),
         )
         runtime = DynamicWorkflowRuntime(
             runner=runner,
             options=WorkflowRuntimeOptions(
-                max_concurrency=_env_int(DYNAMIC_WORKFLOW_MAX_CONCURRENCY_ENV, 16),
-                max_agents=_env_int(DYNAMIC_WORKFLOW_MAX_AGENTS_ENV, 1000),
-                timeout_seconds=_env_float(DYNAMIC_WORKFLOW_TIMEOUT_ENV, 1800.0),
+                max_concurrency=config.OMB_DYNAMIC_MAX_CONCURRENCY.get(),
+                max_agents=config.OMB_DYNAMIC_MAX_AGENTS.get(),
+                timeout_seconds=config.OMB_DYNAMIC_TIMEOUT.get(),
             ),
         )
         result = runtime.run(
@@ -158,7 +161,10 @@ def _load_or_generate_script(
     task: str,
     request_extra: Mapping[str, Any] | None,
 ) -> str:
-    script_path = os.environ.get(DYNAMIC_WORKFLOW_SCRIPT_ENV, "").strip()
+    script_source = config.OMB_DYNAMIC_WORKFLOW_SOURCE.get()
+    if script_source:
+        return script_source
+    script_path = config.OMB_DYNAMIC_WORKFLOW_SCRIPT.get()
     if script_path:
         return Path(script_path).read_text(encoding="utf-8")
     generated = generate_workflow_script(
@@ -175,23 +181,3 @@ def _task_text(visible: list[Message]) -> str:
         if message.kind == "task":
             return text_of(message.content)
     return text_of(visible[0].content) if visible else ""
-
-
-def _env_int(name: str, default: int, *, minimum: int = 1) -> int:
-    raw = (os.environ.get(name) or "").strip()
-    if not raw:
-        return default
-    try:
-        return max(minimum, int(raw))
-    except ValueError:
-        return default
-
-
-def _env_float(name: str, default: float, *, minimum: float = 1.0) -> float:
-    raw = (os.environ.get(name) or "").strip()
-    if not raw:
-        return default
-    try:
-        return max(minimum, float(raw))
-    except ValueError:
-        return default

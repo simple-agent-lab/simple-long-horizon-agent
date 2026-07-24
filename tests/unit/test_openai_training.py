@@ -163,7 +163,3 @@ class OpenAITrainingRecordTest(unittest.TestCase):
         user_with_image = record["messages"][3]
         parts = user_with_image["content"]
         self.assertIn("image_url", [p["type"] for p in parts])
-
-
-if __name__ == "__main__":  # pragma: no cover
-    unittest.main()

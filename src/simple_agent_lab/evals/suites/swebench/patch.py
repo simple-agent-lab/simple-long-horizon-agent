@@ -286,13 +286,16 @@ def git_diff(
     if not (repo_dir / ".git").exists():
         return ""
     update_info_exclude(repo_dir, language=language)
-    subprocess.run(
+    added = subprocess.run(
         ["git", "add", "-A"],
         cwd=repo_dir,
         check=False,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
     )
+    if added.returncode != 0:
+        raise RuntimeError(f"git add -A failed in {repo_dir}: {added.stderr.strip()}")
     command = ["git", "diff", "--cached", "--src-prefix=a/", "--dst-prefix=b/"]
     if commit:
         command.append(commit)
@@ -301,11 +304,15 @@ def git_diff(
         cwd=repo_dir,
         check=False,
         capture_output=True,
-        encoding="utf-8",
-        errors="replace",
     )
-    stripped = completed.stdout.strip()
-    return stripped + ("\n" if stripped else "")
+    if completed.returncode != 0:
+        raise RuntimeError(
+            f"{' '.join(command)} failed in {repo_dir}: "
+            f"{completed.stderr.decode('utf-8', errors='replace').strip()}"
+        )
+    # A unified diff's final whitespace can be part of its last hunk. Return
+    # Git's stdout exactly; callers serialize it without normalization.
+    return completed.stdout.decode("utf-8", errors="replace")
 
 
 def prepare_baseline_commit(repo_dir: Path, *, language: str = "python") -> str | None:

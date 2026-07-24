@@ -6,10 +6,10 @@ abort it. Both retries are provider-layer concerns — they talk only
 are applied once, by default, where the LLM-backed `generate` is built
 (`make_llm_agent`). Callers do not re-wrap them per run.
 
-1. `complete_with_retry` — transient *provider* throttling (TPM / rate-limit /
-   429). Retries only errors that look like throttling (a real bad-request /
-   auth / schema error still surfaces immediately) with capped exponential
-   backoff.
+1. `complete_with_retry` — transient *provider* throttling or server failures
+   (TPM / rate-limit / 429 / 500). Retries only errors that look transient (a
+   real bad-request / auth / schema error still surfaces immediately) with
+   capped exponential backoff.
 2. `complete_with_tool_call_retry` — a malformed tool call in the model's *own
    output* (a call to a tool that isn't on offer, or arguments that weren't
    valid JSON). Re-asks the model with a short corrective note appended, so a
@@ -49,7 +49,7 @@ TOOL_CALL_RETRY_MAX_ATTEMPTS = 3
 
 
 def is_retryable_llm_error(exc: BaseException) -> bool:
-    """True for transient provider throttling (TPM / rate-limit / 429)."""
+    """True for transient provider throttling or server errors."""
 
     text = f"{type(exc).__name__}: {exc}".casefold()
     return any(
@@ -61,6 +61,11 @@ def is_retryable_llm_error(exc: BaseException) -> bool:
             "rate_limit",
             "too many requests",
             "429",
+            "internalservererror",
+            "internal server error",
+            "server_error",
+            "error code: 500",
+            "http 500",
         )
     )
 
@@ -75,12 +80,12 @@ def complete_with_retry(
     sleep_fn: Callable[[float], None] | None = None,
     log_fn: Callable[[str], None] | None = None,
 ) -> LLMResponse:
-    """Call `complete_fn(request)`, retrying transient throttling with backoff.
+    """Call `complete_fn(request)`, retrying transient failures with backoff.
 
     `complete_fn` defaults to the blocking `complete`; tests inject a fake.
-    Non-throttling errors are re-raised on the first attempt. After
-    `max_attempts` the last throttling error propagates. `sleep_fn` defaults
-    to `time.sleep`, resolved at call time so it stays patchable.
+    Non-transient errors are re-raised on the first attempt. After
+    `max_attempts` the last transient error propagates. `sleep_fn` defaults to
+    `time.sleep`, resolved at call time so it stays patchable.
     """
 
     sleep = sleep_fn if sleep_fn is not None else time.sleep

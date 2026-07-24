@@ -26,7 +26,10 @@ from simple_agent_lab import (
     run,
     text_of,
 )
-from simple_agent_lab.compression import format_index_ranges, source_note
+from simple_agent_lab.compression import (
+    continuation_preamble,
+    format_index_ranges,
+)
 from simple_agent_lab.messages import (
     ToolResultBlock,
     make_message,
@@ -76,10 +79,10 @@ class IndexCitationTest(unittest.TestCase):
         self.assertEqual(format_index_ranges((9, 1, 2)), "1-2, 9")
         self.assertEqual(format_index_ranges(()), "")
 
-    def test_source_note_cites_indices(self) -> None:
-        note = source_note((1, 2, 3))
-        self.assertIn("transcript messages 1-3", note)
-        self.assertIn("recall", note)
+    def test_continuation_preamble_frames_a_session_handoff(self) -> None:
+        preamble = continuation_preamble()
+        self.assertIn("continues a previous", preamble)
+        self.assertIn("working memory", preamble)
 
 
 class RecallToolTest(unittest.TestCase):
@@ -269,8 +272,9 @@ class CompactControlTest(unittest.TestCase):
         replacement = state.messages[compression.summary_message_index]
         self.assertEqual(replacement.kind, "summary")
         replacement_text = text_of(replacement.content)
+        # Framed as a continuation, then the agent's summary.
+        self.assertTrue(replacement_text.startswith("[This session continues"))
         self.assertIn("B is the answer", replacement_text)
-        self.assertIn("transcript messages 1-2", replacement_text)
         # The run still finishes normally after the fold.
         self.assertEqual(state.messages[-1].kind, "final")
 
@@ -332,6 +336,7 @@ class CompactControlTest(unittest.TestCase):
         decision = control.strategy(items, "worker")
         assert decision is not None
         self.assertIn("first call", text_of(decision.replacement.content))
+        self.assertEqual(decision.replacement.role, "user")
 
     def test_request_is_not_reapplied_once_a_newer_summary_exists(self) -> None:
         # Exactly-once via the high-water mark: once a fold has spliced a summary
@@ -351,7 +356,7 @@ class CompactControlTest(unittest.TestCase):
         # The applied fold splices a summary at a higher transcript index (4)
         # than the request (3); the request must now be treated as consumed.
         summary = make_message(
-            "system",
+            "user",
             "running summary",
             sender="runtime",
             target="worker",
@@ -374,7 +379,3 @@ class CompactControlTest(unittest.TestCase):
             "call", {"summary": "s", "keep_recent": 1.5}, _no_abort, None
         )
         self.assertTrue(result.is_error)
-
-
-if __name__ == "__main__":
-    unittest.main()

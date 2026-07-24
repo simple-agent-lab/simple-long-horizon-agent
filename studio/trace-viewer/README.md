@@ -1,6 +1,6 @@
 # Observatory — trace viewer
 
-A single-file HTML viewer for `simple-agent-lab.trajectory.v3` trace records.
+A single-file HTML viewer for `simple-agent-lab.trajectory.v5` trace records.
 
 It is designed to make multi-layer agent traces (parent + sub-agents),
 context compressions, tool errors, and the raw event stream all
@@ -30,7 +30,7 @@ load it. This mode needs no server.
 ## Live eval mode (recommended for running evals)
 
 ```bash
-bash runs/run_trace_viewer.sh
+bash runs/demos/run_trace_viewer.sh
 # → http://127.0.0.1:8765
 ```
 
@@ -57,9 +57,9 @@ panel:
 Server flags:
 
 ```bash
-bash runs/run_trace_viewer.sh --port 9000
-bash runs/run_trace_viewer.sh --dir evals/out/swebench_container_runs
-bash runs/run_trace_viewer.sh --host 0.0.0.0      # expose on the network
+bash runs/demos/run_trace_viewer.sh --port 9000
+bash runs/demos/run_trace_viewer.sh --dir evals/out/swebench_container_runs
+bash runs/demos/run_trace_viewer.sh --host 0.0.0.0      # expose on the network
 ```
 
 The server walks recursively and detects trajectories by JSON shape
@@ -105,10 +105,16 @@ Three panes plus a top stat strip:
 - **Right — Inspector.** Whatever you clicked (span, event, message,
   model turn) gets a full breakdown: typed metadata, content blocks
   rendered with role-specific styling, and a folded raw JSON dump
-  where useful.   For model calls and model-request selections, **Wire debug ↗**
-  opens a wire-debug panel with three tabs: **Raw request** (adapter
-  `data.raw.request` when present, else reconstructed body), **Raw response**
-  (`data.raw.response`), and **Export** (JSON / cURL / Python snippets).
+  where useful. The inspector maps 1:1 to what the trajectory actually
+  records — it never invents a request payload. v5 traces store only the
+  *shape* of a model request (visible/llm message counts, `context_view`,
+  tool definitions, and the linked output message), so the inspector shows
+  exactly that and points to **Wire debug ↗** for the rest. All request
+  reconstruction (system prompt + visible transcript) and raw-blob
+  resolution happen only inside that panel, which has three tabs:
+  **Raw request** (adapter `sidecar.raw.request` when captured, else a body
+  reconstructed from the event stream), **Raw response**
+  (`sidecar.raw.response`), and **Export** (JSON / cURL / Python snippets).
 
 The top **stat strip** surfaces the things that usually point to a
 problem: error count (lit red), context compressions (amber),
@@ -134,7 +140,7 @@ every other dashboard.
 
 ## Compatibility
 
-The viewer reads `simple-agent-lab.trajectory.v3` records produced by
-`simple_agent_lab.trace.trace_record(...)`. It re-derives spans
-and model turns from `events` in the browser, so older records
-without `spans`/`model_turns` work fine.
+The viewer reads `simple-agent-lab.trajectory.v5` records produced by
+`simple_agent_lab.trace` (a header line followed by one JSON event per
+line). It re-derives spans and model turns from `events` in the browser,
+so records that ship only the event stream work fine.

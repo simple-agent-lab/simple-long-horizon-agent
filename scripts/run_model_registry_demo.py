@@ -13,16 +13,10 @@ See ADRs model-alias-registry and model-config-file.
 from __future__ import annotations
 
 import json
-import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from simple_agent_lab.llm import ModelRegistry  # noqa: E402
+from simple_agent_lab.llm import ModelRegistry
 
 
 def _print_aliases(registry: ModelRegistry) -> None:

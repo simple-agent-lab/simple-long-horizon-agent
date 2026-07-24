@@ -32,7 +32,7 @@ jobs:
       - name: Run unit tests
         run: uv run python -m unittest discover -s tests/unit
       - name: Run example smoke
-        run: bash runs/run_bash_agent_demo.sh
+        run: bash runs/demos/run_bash_agent_demo.sh
 
   type-check:
     name: ty / src
@@ -65,6 +65,8 @@ jobs:
         run: uv run python scripts/lint_docs.py
       - name: Check decision-record index is up to date
         run: uv run python docs/decisions/build_index.py --check
+      - name: Check config reference is up to date
+        run: uv run python scripts/build_config_reference.py --check
 
   arch-lint:
     name: architecture lint
@@ -80,6 +82,8 @@ jobs:
         run: uv sync --group dev
       - name: Run architecture lint
         run: uv run python scripts/arch_lint.py
+      - name: Run env-registry lint
+        run: uv run python scripts/env_lint.py
 
   format:
     name: ruff format / check

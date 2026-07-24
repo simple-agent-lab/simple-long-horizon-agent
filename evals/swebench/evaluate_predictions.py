@@ -17,8 +17,7 @@ from pathlib import Path
 import argparse
 import importlib.util
 import json
-import os
-import stat
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -33,7 +32,12 @@ if str(ROOT) not in sys.path:
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from evals.swebench import harness  # noqa: E402
 from simple_agent_lab.trace import json_safe, read_jsonl, write_jsonl  # noqa: E402
+from simple_agent_lab.evals.backends.docker_local import (  # noqa: E402
+    ensure_docker_host_env,
+)
+from simple_agent_lab.evals.runner import canonical_run_id  # noqa: E402
 
 
 DEFAULT_DATASET = "princeton-nlp/SWE-bench_Verified"
@@ -41,21 +45,14 @@ DEFAULT_MULTILINGUAL_DATASET = "SWE-bench/SWE-bench_Multilingual"
 DEFAULT_SPLIT = "test"
 DEFAULT_RUN_ID = "simple-agent-lab-swebench"
 DEFAULT_PREDICTIONS = ROOT / "evals/out/swebench_predictions.jsonl"
-DEFAULT_EVAL_RESULTS = ROOT / "evals/out/swebench_eval_results.jsonl"
 DEFAULT_OFFICIAL_OUTPUT_DIR = ROOT / "evals/out/swebench_official"
 DEFAULT_MULTILINGUAL_PREDICTIONS = (
     ROOT / "evals/out/swebench_multilingual/swebench_multilingual_predictions.jsonl"
-)
-DEFAULT_MULTILINGUAL_EVAL_RESULTS = (
-    ROOT / "evals/out/swebench_multilingual/swebench_multilingual_eval_results.jsonl"
 )
 DEFAULT_MULTILINGUAL_OFFICIAL_OUTPUT_DIR = (
     ROOT / "evals/out/swebench_multilingual_official"
 )
 DEFAULT_PRO_PREDICTIONS = ROOT / "evals/out/swebench_pro/swebench_pro_predictions.jsonl"
-DEFAULT_PRO_EVAL_RESULTS = (
-    ROOT / "evals/out/swebench_pro/swebench_pro_eval_results.jsonl"
-)
 DEFAULT_PRO_OFFICIAL_OUTPUT_DIR = ROOT / "evals/out/swebench_pro_official"
 _PRO_REPO_DIR = ROOT / "evals/out/swebench_pro/official_harness"
 _PRO_REPO_URL = "https://github.com/scaleapi/SWE-bench_Pro-os.git"
@@ -85,48 +82,7 @@ def eval_result_record(result: EvalResult) -> dict[str, Any]:
 
 
 def load_predictions(path: str | Path) -> list[dict[str, Any]]:
-    prediction_path = Path(path)
-    first = _first_non_whitespace(prediction_path)
-    if not first:
-        return []
-    if first in "[{":
-        try:
-            with prediction_path.open(encoding="utf-8") as f:
-                parsed = json.load(f)
-        except json.JSONDecodeError:
-            pass
-        else:
-            if isinstance(parsed, list):
-                return [dict(record) for record in parsed]
-            if isinstance(parsed, dict):
-                if "predictions" in parsed and isinstance(parsed["predictions"], list):
-                    return [dict(record) for record in parsed["predictions"]]
-                return [dict(parsed)]
-    return [dict(record) for record in read_jsonl(prediction_path)]
-
-
-def ensure_docker_host_env() -> None:
-    """Probe known Docker socket locations when DOCKER_HOST is unset.
-
-    The Python `docker` SDK that ships with SWE-bench falls back to
-    `/var/run/docker.sock`, which doesn't exist on Docker Desktop (macOS) or
-    Colima setups. Mirror the launcher script so `--run-official` works in
-    headless / CI sessions without an explicit export.
-    """
-    if os.environ.get("DOCKER_HOST"):
-        return
-    home = Path(os.environ.get("HOME") or "~").expanduser()
-    candidates = (
-        home / ".docker/run/docker.sock",
-        home / ".colima/default/docker.sock",
-    )
-    for sock in candidates:
-        try:
-            if stat.S_ISSOCK(sock.stat().st_mode):
-                os.environ["DOCKER_HOST"] = f"unix://{sock}"
-                return
-        except FileNotFoundError:
-            continue
+    return harness.load_records(path, collection_key="predictions")
 
 
 def run_official_harness(args: argparse.Namespace) -> None:
@@ -187,7 +143,7 @@ _PRO_DOCKER_TIMEOUT_S = 600
 
 
 def _ensure_pro_repo(target_dir: Path) -> None:
-    """Clone the SWE-bench_Pro-os repo and patch its Docker timeout."""
+    """Clone SWE-bench_Pro-os when the evaluator is not already available."""
     eval_script = target_dir / "swe_bench_pro_eval.py"
     if eval_script.exists():
         return
@@ -202,23 +158,92 @@ def _ensure_pro_repo(target_dir: Path) -> None:
             f"Clone succeeded but {eval_script} not found — "
             "the upstream repo layout may have changed."
         )
-    _patch_pro_docker_timeout(eval_script)
 
 
-def _patch_pro_docker_timeout(eval_script: Path) -> None:
-    """Replace bare ``docker.from_env()`` with a 600s timeout variant.
+def _patch_pro_evaluator(eval_script: Path) -> None:
+    """Install the local timeout and fail-fast patch-application contract."""
 
-    The upstream script defaults to docker-py's 60 s socket timeout which is
-    too short for Go projects that compile before running tests.
-    """
     text = eval_script.read_text(encoding="utf-8")
-    old = "docker.from_env()"
-    new = f"docker.from_env(timeout={_PRO_DOCKER_TIMEOUT_S})"
-    if old not in text:
-        return
-    patched = text.replace(old, new)
-    eval_script.write_text(patched, encoding="utf-8")
-    print(f"Patched {eval_script.name}: docker timeout → {_PRO_DOCKER_TIMEOUT_S}s")
+    patched = text.replace(
+        "docker.from_env()",
+        f"docker.from_env(timeout={_PRO_DOCKER_TIMEOUT_S})",
+    )
+    marker = "PATCH_APPLY_STATUS=/workspace/patch_apply_status.json"
+    if marker not in patched:
+        old = """# apply patch
+cd /app
+git reset --hard {base_commit}
+git checkout {base_commit}
+git apply -v /workspace/patch.diff
+{before_repo_set_cmd}
+# run test and save stdout and stderr to separate files"""
+        new = """# apply patch
+cd /app
+PATCH_APPLY_STATUS=/workspace/patch_apply_status.json
+PATCH_APPLY_STDERR=/workspace/patch_apply.stderr
+if ! git reset --hard {base_commit}; then
+  printf '%s\\n' '{{"success": false, "stage": "reset"}}' > "$PATCH_APPLY_STATUS"
+  exit 80
+fi
+if ! git checkout {base_commit}; then
+  printf '%s\\n' '{{"success": false, "stage": "checkout"}}' > "$PATCH_APPLY_STATUS"
+  exit 81
+fi
+if ! git apply --check /workspace/patch.diff 2> "$PATCH_APPLY_STDERR"; then
+  printf '%s\\n' '{{"success": false, "stage": "check"}}' > "$PATCH_APPLY_STATUS"
+  exit 82
+fi
+if ! git apply -v /workspace/patch.diff 2> "$PATCH_APPLY_STDERR"; then
+  printf '%s\\n' '{{"success": false, "stage": "apply"}}' > "$PATCH_APPLY_STATUS"
+  exit 83
+fi
+printf '%s\\n' '{{"success": true, "stage": "applied"}}' > "$PATCH_APPLY_STATUS"
+{before_repo_set_cmd}
+# run test and save stdout and stderr to separate files"""
+        if old not in patched:
+            raise RuntimeError(
+                f"Official Pro evaluator entryscript shape changed: {eval_script}"
+            )
+        patched = patched.replace(old, new, 1)
+    local_image_marker = "Using locally cached Docker image:"
+    if local_image_marker not in patched:
+        old_pull = """        try:
+            if docker_platform:
+                client.images.pull(dockerhub_image_uri, platform=docker_platform)
+            else:
+                client.images.pull(dockerhub_image_uri)
+        except Exception as pull_err:
+            # If pull fails, fall back to a local image if present; otherwise, fail this run
+            try:
+                client.images.get(dockerhub_image_uri)
+                print(f"Using locally available image: {dockerhub_image_uri}")
+            except Exception:
+                print(f"Failed to pull or find image locally for {uid}: {pull_err}")
+                return None"""
+        local_first = """        try:
+            client.images.get(dockerhub_image_uri)
+            print(f"Using locally cached Docker image: {dockerhub_image_uri}")
+        except Exception:
+            try:
+                if docker_platform:
+                    client.images.pull(
+                        dockerhub_image_uri, platform=docker_platform
+                    )
+                else:
+                    client.images.pull(dockerhub_image_uri)
+            except Exception as pull_err:
+                print(f"Failed to pull image for {uid}: {pull_err}")
+                return None"""
+        if old_pull not in patched:
+            raise RuntimeError(
+                f"Official Pro evaluator image-pull shape changed: {eval_script}"
+            )
+        patched = patched.replace(old_pull, local_first, 1)
+    if patched != text:
+        eval_script.write_text(patched, encoding="utf-8")
+        print(
+            f"Patched {eval_script.name}: timeout + strict apply + local-first images"
+        )
 
 
 def run_official_pro_harness(args: argparse.Namespace) -> None:
@@ -234,12 +259,18 @@ def run_official_pro_harness(args: argparse.Namespace) -> None:
                 f"Official Pro evaluator not found: {pro_eval_script}\n"
                 "Pass --pro-eval-script /path/to/swe_bench_pro_eval.py"
             )
-    _patch_pro_docker_timeout(pro_eval_script)
+    _patch_pro_evaluator(pro_eval_script)
 
     predictions_path = Path(args.predictions)
     instances_path = Path(args.instances)
     output_dir = official_report_dir(args)
     output_dir.mkdir(parents=True, exist_ok=True)
+    official_output_dir = output_dir / "official"
+    if official_output_dir.exists():
+        # Upstream --redo rewrites inputs but leaves workspace/output.json
+        # behind. Remove the prior evaluator products so a failed parser cannot
+        # be mistaken for this patch's result.
+        shutil.rmtree(official_output_dir)
     instance_ids = args.instance_ids or None
 
     # Convert predictions to JSON array format expected by official script
@@ -264,7 +295,7 @@ def run_official_pro_harness(args: argparse.Namespace) -> None:
     patches_path.write_text(json.dumps(patches, ensure_ascii=False), encoding="utf-8")
 
     # Convert instances to JSONL format expected by official script.
-    instances_data = _load_instance_records(instances_path)
+    instances_data = harness.load_instance_records(instances_path)
     if instance_ids:
         instances_data = [
             i for i in instances_data if i.get("instance_id") in instance_ids
@@ -290,7 +321,7 @@ def run_official_pro_harness(args: argparse.Namespace) -> None:
         "--patch_path",
         str(patches_path),
         "--output_dir",
-        str(output_dir / "official"),
+        str(official_output_dir),
         "--dockerhub_username",
         args.dockerhub_username,
         "--scripts_dir",
@@ -332,7 +363,41 @@ def load_official_results(args: argparse.Namespace) -> dict[str, dict[str, Any]]
     results.update(results_from_summary_files(report_dir))
     results.update(results_from_instance_result_files(report_dir))
     results.update(results_from_report_dir(report_dir))
+    if getattr(args, "pro", False):
+        merge_pro_apply_statuses(results, report_dir / "official")
     return results
+
+
+def merge_pro_apply_statuses(
+    results: dict[str, dict[str, Any]], official_dir: Path
+) -> None:
+    """Attach strict Pro patch-application status and force failures unresolved."""
+
+    for status_path in official_dir.glob(
+        "instance_*/workspace/patch_apply_status.json"
+    ):
+        instance_id = status_path.parents[1].name
+        status = json.loads(status_path.read_text(encoding="utf-8"))
+        success = bool(status.get("success"))
+        record = results.setdefault(
+            instance_id,
+            {
+                "resolved": False,
+                "status": "missing_official_result",
+                "report_source": str(status_path),
+            },
+        )
+        record["patch_exists"] = True
+        record["patch_successfully_applied"] = success
+        record["patch_apply_stage"] = str(status.get("stage") or "")
+        stderr_path = status_path.with_name("patch_apply.stderr")
+        if not success and stderr_path.is_file():
+            record["patch_apply_stderr"] = stderr_path.read_text(
+                encoding="utf-8", errors="replace"
+            )
+        if not success:
+            record["resolved"] = False
+            record["status"] = "patch_apply_failed"
 
 
 def official_run_dir(args: argparse.Namespace) -> Path:
@@ -594,11 +659,13 @@ def eval_result_from_official(
             "status": status,
             "patch_exists": official.get("patch_exists"),
             "patch_successfully_applied": official.get("patch_successfully_applied"),
+            "patch_apply_stage": official.get("patch_apply_stage"),
             "tests_status": official.get("tests_status"),
         },
         meta={
             "suite": suite,
             "report_source": official.get("report_source"),
+            "patch_apply_stderr": official.get("patch_apply_stderr"),
         },
     )
 
@@ -624,8 +691,6 @@ def reuse_eval_row(
     rows are interchangeable and the parity gate (`parity_mismatches`) can
     cross-check the reuse verdict against the official harness (ADR collapse-scorer-seam-into-run-primitive).
     """
-
-    from evals.swebench import harness
 
     instance_id = str(instance.get("instance_id") or "")
     prediction = harness.prediction_record(
@@ -683,8 +748,6 @@ def _grade_reuse_log(
 ) -> dict[str, Any]:
     """Grade the captured official eval log host-side with the official grader."""
 
-    from evals.swebench import harness
-
     try:
         from swebench.harness.grading import get_eval_report
     except Exception as exc:  # noqa: BLE001 — surface as an unresolved diagnostic
@@ -728,38 +791,61 @@ def predictions_from_run_dirs(
     run_id: str | None = None,
     model_name: str = "simple-agent-lab-containerized",
     dataset_name: str = DEFAULT_DATASET,
+    expected_instance_ids: Sequence[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Shape generic run dirs into official SWE-bench prediction records.
 
     Generic runs write ``<run-root>/<run-id>/<instance-id>/out/result.json`` with
-    ``{"model_patch": ...}``. The official harness instead wants a predictions
-    JSONL keyed by instance id + model name. This rebuilds that record via
-    `harness.prediction_record` (so Verified, Multilingual, and Pro shapes stay
-    correct), taking the instance id from the staged ``input/instance.json``
-    (falling back to the run-dir name). Empty-patch runs are kept — the harness
-    counts them unresolved, so totals match the launched set. With ``run_id``
-    only that run is collected; without it, every run under ``run_root``.
+    the collected workspace diff under ``model_patch``. The official harness
+    instead wants a predictions JSONL keyed by instance id + model name. This
+    rebuilds that record via `harness.prediction_record` (so Verified,
+    Multilingual, and Pro shapes stay correct), taking the instance id from the
+    staged ``input/instance.json`` (falling back to the run-dir name). Empty-patch
+    runs are kept — the harness counts them unresolved, so totals match the
+    launched set. With ``run_id`` only that run is collected; without it, every
+    run under ``run_root``.
     """
 
-    from evals.swebench import harness
-
     root = Path(run_root)
-    search = (root / run_id).glob("*") if run_id else root.glob("*/*")
-    predictions: list[dict[str, Any]] = []
+    search = (root / canonical_run_id(run_id)).glob("*") if run_id else root.glob("*/*")
+    expected = tuple(str(value) for value in (expected_instance_ids or ()))
+    if len(set(expected)) != len(expected):
+        raise ValueError("Expected instance ids contain duplicates")
+    expected_set = set(expected)
+    predictions_by_id: dict[str, dict[str, Any]] = {}
     for run_dir in sorted(p for p in search if p.is_dir()):
+        instance_id = _instance_id_for_run_dir(run_dir)
+        if instance_id in predictions_by_id:
+            raise ValueError(
+                f"Duplicate result for instance id {instance_id!r}: {run_dir}"
+            )
         result_path = run_dir / "out" / "result.json"
         if not result_path.is_file():
             continue
         result = json.loads(result_path.read_text(encoding="utf-8") or "{}")
-        predictions.append(
-            harness.prediction_record(
-                _instance_id_for_run_dir(run_dir),
-                model_name,
-                str(result.get("model_patch", "")),
-                dataset_name=dataset_name,
+        if expected and instance_id not in expected_set:
+            raise ValueError(
+                f"Unexpected instance id {instance_id!r} under run {run_id!r}"
             )
+        patch = str(result.get("model_patch", ""))
+        predictions_by_id[instance_id] = harness.prediction_record(
+            instance_id,
+            model_name,
+            patch,
+            dataset_name=dataset_name,
         )
-    return predictions
+    if not expected:
+        return [predictions_by_id[key] for key in sorted(predictions_by_id)]
+    return [
+        predictions_by_id.get(instance_id)
+        or harness.prediction_record(
+            instance_id,
+            model_name,
+            "",
+            dataset_name=dataset_name,
+        )
+        for instance_id in expected
+    ]
 
 
 def _instance_id_for_run_dir(run_dir: Path) -> str:
@@ -922,6 +1008,13 @@ def build_parser() -> argparse.ArgumentParser:
         default="simple-agent-lab-containerized",
         help="model_name_or_path label written into collected predictions.",
     )
+    parser.add_argument(
+        "--expected-ids-file",
+        help=(
+            "Expected instance ids, one per line. Missing run results are emitted "
+            "as empty patches so failed instances remain in the denominator."
+        ),
+    )
     return parser
 
 
@@ -961,12 +1054,18 @@ def main() -> None:
     if args.collect_predictions:
         if not args.run_root:
             raise SystemExit("--collect-predictions requires --run-root PATH")
+        expected_instance_ids = (
+            _load_expected_instance_ids(Path(args.expected_ids_file))
+            if args.expected_ids_file
+            else None
+        )
         run_id = None if args.run_id == DEFAULT_RUN_ID else args.run_id
         predictions = predictions_from_run_dirs(
             args.run_root,
             run_id=run_id,
             model_name=args.model_name,
             dataset_name=args.dataset_name,
+            expected_instance_ids=expected_instance_ids,
         )
         write_jsonl(args.predictions, predictions)
         empty = sum(
@@ -1032,42 +1131,22 @@ def _is_pro_eval_results_map(data: Any) -> bool:
     )
 
 
-def _load_instance_records(path: Path) -> list[dict[str, Any]]:
-    first = _first_non_whitespace(path)
-    if not first:
-        return []
-    if first in "[{":
-        try:
-            with path.open(encoding="utf-8") as f:
-                parsed = json.load(f)
-        except json.JSONDecodeError:
-            if first == "[":
-                raise SystemExit(f"Expected valid JSON list in {path}")
-        else:
-            return _records_from_json(parsed, path)
-    return [dict(record) for record in read_jsonl(path)]
-
-
-def _first_non_whitespace(path: Path) -> str:
-    with path.open(encoding="utf-8") as f:
-        while chunk := f.read(4096):
-            stripped = chunk.lstrip()
-            if stripped:
-                return stripped[0]
-    return ""
-
-
-def _records_from_json(parsed: Any, path: Path) -> list[dict[str, Any]]:
-    if isinstance(parsed, list):
-        return [dict(item) for item in parsed]
-    if isinstance(parsed, dict):
-        if "instances" in parsed:
-            instances = parsed["instances"]
-            if not isinstance(instances, list):
-                raise SystemExit(f"Expected instances to be a JSON list in {path}")
-            return [dict(item) for item in instances]
-        return [dict(parsed)]
-    raise SystemExit(f"Expected JSON object, JSON list, or JSONL records in {path}")
+def _load_expected_instance_ids(path: Path) -> tuple[str, ...]:
+    instance_ids: list[str] = []
+    seen: set[str] = set()
+    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        instance_id = line.split("#", 1)[0].strip()
+        if not instance_id:
+            continue
+        if instance_id in seen:
+            raise SystemExit(
+                f"Duplicate instance id in {path} on line {lineno}: {instance_id}"
+            )
+        seen.add(instance_id)
+        instance_ids.append(instance_id)
+    if not instance_ids:
+        raise SystemExit(f"Expected ids file is empty: {path}")
+    return tuple(instance_ids)
 
 
 if __name__ == "__main__":
