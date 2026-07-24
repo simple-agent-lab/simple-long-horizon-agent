@@ -65,9 +65,9 @@ published here with the exact model, agent setup, and cost.
 
 | Benchmark | Model | **Score ↑** | Baseline | **Δ vs. Baseline ↑** | Cost / Task |
 | --- | --- | ---: | ---: | ---: | ---: |
-| [SWE-bench Pro](evals/swebench/README.md)<br>Resolved (%) | — | **—** | — | **—** | — |
-| [Terminal-Bench](evals/harbor/README.md)<br>2.1 official score | — | **—** | — | **—** | — |
-| [PostTrainBench](https://posttrainbench.com/)<br>Weighted average | — | **—** | — | **—** | — |
+| [SWE-bench Pro](evals/swebench/README.md)<br>Resolved (%) | GPT-5.4 (xHigh) | **63.20%** | [59.10%](https://labs.scale.com/leaderboard/swe_bench_pro_public) | **+6.94%** | $7.7823 |
+| [Terminal-Bench](evals/harbor/README.md)<br>2.1 official score | GPT-5.3-Codex (xHigh) | **77.53%** | [64.70%](https://www.tbench.ai/leaderboard/terminal-bench/2.0) | **+19.83%** | $0.5667 |
+| [PostTrainBench](https://posttrainbench.com/)<br>Weighted average | GPT-5.5 (xHigh) | **45.88%** | 43.97% | **+4.34%** | — |
 
 **Δ vs. Baseline** is the score improvement over a baseline using the same
 model and task budget. It separates the value of the agent from the capability
