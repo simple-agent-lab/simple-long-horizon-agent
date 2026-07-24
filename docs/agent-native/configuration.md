@@ -166,6 +166,17 @@ hierarchy. Knobs not yet migrated stay in the hand-written sections that follow.
 | `OMB_DYNAMIC_MAX_AGENTS` | `1000` | Maximum subagent calls in a dynamic workflow. |
 | `OMB_DYNAMIC_TIMEOUT` | `1800.0` | Whole dynamic workflow timeout in seconds. |
 
+### `eval.programbench`
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PROGRAMBENCH_DYNAMIC_WORKFLOW_SCRIPT` | `` | Container-local path to an optional dynamic workflow JavaScript file. |
+| `PROGRAMBENCH_DYNAMIC_WORKFLOW_SOURCE` | `` | Inline dynamic workflow JavaScript; takes precedence over the script path. |
+| `PROGRAMBENCH_DYNAMIC_MAX_CONCURRENCY` | `1` | Maximum concurrent subagents in a dynamic workflow. |
+| `PROGRAMBENCH_DYNAMIC_MAX_AGENTS` | `12` | Maximum subagent calls in a dynamic workflow. |
+| `PROGRAMBENCH_DYNAMIC_TIMEOUT` | `21600.0` | Whole dynamic workflow timeout in seconds. |
+| `PROGRAMBENCH_DYNAMIC_NODE_BINARY` | `node` | Node executable path inside the ProgramBench container. |
+
 ### `eval.swebench`
 
 | Variable | Default | Purpose |

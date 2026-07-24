@@ -58,26 +58,32 @@ specific choices:
 
 2. **Per-command network isolation, not per-container.** The container runs
    online (`launch_spec.network_mode="host"`) so the model API and the wheel
-   bootstrap work, but **every agent bash command runs in a no-network namespace**
-   via `unshare --net`. Model calls keep the network; agent commands do not, so
-   the agent cannot fetch source. This needs `CAP_SYS_ADMIN`, supplied as
-   `launch_spec.cap_add=("SYS_ADMIN",)`. A fresh net namespace ships only a *down*
-   loopback (unlike `docker run --network none`, which auto-ups `lo`), so the
-   command is wrapped in `sh -c 'ip link set lo up; exec "$@"'` to raise loopback
-   first — keeping `127.0.0.1` usable for local self-tests inside the sandbox.
+   bootstrap work, but **every untrusted agent process runs in fresh user and
+   network namespaces**. The prefix first uses `setpriv` to drop to outer
+   uid/gid 65534, then invokes `unshare --user --map-root-user --net`; the scored
+   workspace is handed to that identity during preparation. Model calls keep the
+   network; agent commands do not, so the agent cannot fetch source. The
+   container needs `CAP_SYS_ADMIN` to create the namespaces, supplied as
+   `launch_spec.cap_add=("SYS_ADMIN",)`, but the untrusted process never owns
+   that capability in the parent namespace. It therefore cannot rejoin PID 1's
+   online namespace or replace the root-owned isolation helpers for a later
+   command. A small shell shim raises loopback on images that provide `ip`, then
+   execs the real command.
 
 3. **A generic `exec_prefix` on the bash tool is the mechanism.** `make_bash_tool`
    / `run_bash` gained an optional `exec_prefix` argv prefix so the launched
    process is `[*exec_prefix, "bash", "-lc", command]`. The ProgramBench container
-   half passes an `unshare --net --` prefix (followed by the loopback-raising `sh`
-   shim above). This is a *general* seam (any suite needing a sandbox/cgroup/
-   firejail wrapper can reuse it), not ProgramBench plumbing, and the
-   model-visible command string is unchanged.
+   half passes the `setpriv` + `unshare --user --map-root-user --net --` prefix
+   described above (followed by the loopback-raising `sh` shim). This is a
+   *general* seam (any suite needing a sandbox/cgroup/firejail wrapper can reuse
+   it), not ProgramBench plumbing, and the model-visible command string is
+   unchanged.
 
-4. **Graceful fallback, recorded.** The container half probes `unshare --net`
-   once; if it is unavailable (no `CAP_SYS_ADMIN`, restrictive kernel/seccomp) it
-   falls back to un-isolated commands and records `network_isolated: false` in
-   `result.json` instead of failing the run.
+4. **Fail closed unless explicitly opted out.** The container half probes the
+   sealed namespaces once. If they are unavailable (no `CAP_SYS_ADMIN`,
+   restrictive kernel/seccomp), the run aborts by default. An explicit
+   `--no-network-isolation` opt-out permits un-isolated commands and records
+   `network_isolated: false` in `result.json`.
 
 Scoring is the official ProgramBench evaluator run on the host — the
 "official-harness as a standalone follow-up" shape of
@@ -103,8 +109,9 @@ Scoring is the official ProgramBench evaluator run on the host — the
   `--no-network-isolation`, which then weakens the anti-cheat and is recorded).
   `result.json` now carries the gzipped workspace (a few KB to a few MB), so it
   is larger than a diff. Isolation depends on the kernel/daemon permitting new
-  network namespaces; where it does not, runs silently weaken to online commands
-  (surfaced only via `network_isolated: false`).
+  user and network namespaces; where it does not, runs fail closed unless the
+  operator explicitly passes `--no-network-isolation` (recorded as
+  `network_isolated: false`).
 - **Out of scope.** No `cap_drop` / non-root `user` field on `LaunchSpec` (we
   keep root + `cap_add`); no in-environment scoring; no new product protocol.
 
@@ -118,8 +125,9 @@ Scoring is the official ProgramBench evaluator run on the host — the
   core" (AGENTS.md). Base64-in-`result.json` keeps the single decoupling artifact
   intact.
 - **An egress allowlist proxy (only the model API reachable).** More moving parts
-  than `unshare --net`, easy to misconfigure, and still lets commands open
-  connections to allowlisted hosts. Per-command `unshare --net` is both simpler
-  and stricter (commands have *no* network), at per-command granularity.
+  than sealed namespaces, easy to misconfigure, and still lets commands open
+  connections to allowlisted hosts. Per-command user + network namespaces are
+  both simpler and stricter (commands have *no* network), at per-command
+  granularity.
 - **Host firewall / global seccomp.** Heavier than a per-command namespace and
   would also have to carve out the model API, reintroducing the same leak risk.

@@ -20,9 +20,11 @@ Four seams, none of which need the optional ``programbench`` package or Docker:
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import json
 import os
+import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -116,6 +118,78 @@ class ProgrambenchSuiteDriverTest(unittest.TestCase):
         # The `--no-network-isolation` run path withholds CAP_SYS_ADMIN.
         spec = ProgrambenchSuite(cap_add=()).launch_spec(_instance())
         self.assertEqual(spec.cap_add, ())
+
+    def test_prepare_node_runtime_verifies_and_extracts_binary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source" / harness.NODE_DIST_NAME / "bin"
+            source.mkdir(parents=True)
+            node = source / "node"
+            node.write_bytes(b"fake-linux-node")
+            archive = root / "fixture.tar.xz"
+            with tarfile.open(archive, mode="w:xz") as bundle:
+                bundle.add(
+                    source.parent,
+                    arcname=harness.NODE_DIST_NAME,
+                )
+            checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
+            binary_checksum = hashlib.sha256(node.read_bytes()).hexdigest()
+            wheelhouse = root / "wheelhouse"
+
+            def download(_url: str, destination: Path) -> None:
+                shutil.copyfile(archive, destination)
+
+            installed = harness.prepare_node_runtime(
+                wheelhouse,
+                url="https://example.invalid/node.tar.xz",
+                sha256=checksum,
+                binary_sha256=binary_checksum,
+                downloader=download,
+            )
+            self.assertEqual(installed.name, "node")
+            self.assertEqual(installed.read_bytes(), b"fake-linux-node")
+
+            installed.write_bytes(b"poisoned-cache")
+            restored = harness.prepare_node_runtime(
+                wheelhouse,
+                url="https://example.invalid/node.tar.xz",
+                sha256=checksum,
+                binary_sha256=binary_checksum,
+                downloader=download,
+            )
+            self.assertEqual(restored.read_bytes(), b"fake-linux-node")
+
+            victim = root / "victim"
+            victim.write_bytes(b"must-not-execute")
+            restored.unlink()
+            restored.symlink_to(victim)
+            replaced = harness.prepare_node_runtime(
+                wheelhouse,
+                url="https://example.invalid/node.tar.xz",
+                sha256=checksum,
+                binary_sha256=binary_checksum,
+                downloader=download,
+            )
+            self.assertFalse(replaced.is_symlink())
+            self.assertEqual(replaced.read_bytes(), b"fake-linux-node")
+            self.assertEqual(victim.read_bytes(), b"must-not-execute")
+
+            bad_wheelhouse = root / "bad-wheelhouse"
+            bad_wheelhouse.mkdir()
+            escaped = root / "escaped"
+            escaped.mkdir()
+            (bad_wheelhouse / harness.NODE_DIST_NAME).symlink_to(
+                escaped, target_is_directory=True
+            )
+            with self.assertRaisesRegex(RuntimeError, "must not be a symlink"):
+                harness.prepare_node_runtime(
+                    bad_wheelhouse,
+                    url="https://example.invalid/node.tar.xz",
+                    sha256=checksum,
+                    binary_sha256=binary_checksum,
+                    downloader=download,
+                )
+            self.assertFalse((escaped / "bin").exists())
 
 
 class ProgrambenchEvaluationScriptTest(unittest.TestCase):
@@ -400,18 +474,25 @@ class NetworkIsolationWiringTest(unittest.TestCase):
         self.assertEqual(wrapped.command, "echo netns=$SAL_NETNS")
 
     def test_net_isolation_prefix_raises_lo_then_execs_command(self) -> None:
-        """NET_ISOLATION_PREFIX wraps `unshare --net` around a tiny sh that ups
-        loopback then execs the command. `unshare --net` needs CAP_SYS_ADMIN we
-        can't assume here, so check the structure, then prove the inner sh shim
-        (everything after `unshare --net --`) still execs `bash -lc <cmd>` — the
-        up-lo step fails harmlessly without a private netns thanks to `2>/dev/null`
-        and `;`."""
+        """The prefix seals capabilities in a new user+network namespace and
+        then executes the command through the loopback setup shim."""
 
         from simple_agent_lab.tools.bash import run_bash
 
         prefix = container.NET_ISOLATION_PREFIX
-        self.assertEqual(prefix[:3], ("unshare", "--net", "--"))
-        wrapper = prefix[3:]  # the `sh -c '...up lo...; exec "$@"' _` shim
+        self.assertEqual(
+            prefix[:5],
+            (
+                "/usr/bin/setpriv",
+                "--reuid=65534",
+                "--regid=65534",
+                "--clear-groups",
+                "/usr/bin/unshare",
+            ),
+        )
+        self.assertIn("--map-root-user", prefix)
+        self.assertIn("--net", prefix)
+        wrapper = prefix[prefix.index("/bin/sh") :]
         self.assertIn('exec "$@"', " ".join(wrapper))
 
         with tempfile.TemporaryDirectory() as tmp:

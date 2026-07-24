@@ -61,11 +61,13 @@ prediction-evaluation unit tests without installing SWE-bench or running
 Docker.
 
 The ProgramBench adapter (reverse-engineering; ADR
-`programbench-reverse-engineering-adapter`) has a matching
-Docker-free, dependency-free smoke check:
+`programbench-reverse-engineering-adapter`) has matching Docker-free checks that
+do not require the `programbench` package. The dynamic test requires Node with
+the permission model on `PATH`:
 
 ```bash
 uv run python -m unittest tests.unit.test_programbench_suite
+uv run python -m unittest tests.unit.test_programbench_dynamic_workflow
 ```
 
 Generated files under `evals/out/` are local artifacts and are ignored by git.

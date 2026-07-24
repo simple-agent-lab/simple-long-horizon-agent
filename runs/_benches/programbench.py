@@ -20,10 +20,15 @@ for path in (ROOT, SRC):
         sys.path.insert(0, str(path))
 
 from evals.programbench import harness  # noqa: E402
-from evals.programbench.suite import ProgrambenchSuite  # noqa: E402
+from evals.programbench.suite import (  # noqa: E402
+    ProgrambenchDynamicWorkflowSuite,
+    ProgrambenchSuite,
+)
 from evals.swebench.harness import ensure_linux_uv  # noqa: E402
 from runs.lib.container_batch import run_container_batch  # noqa: E402
 from runs.lib import docker_cli  # noqa: E402
+import simple_agent_lab.config as config  # noqa: E402
+from simple_agent_lab.agent_flavors import AGENT_FLAVORS  # noqa: E402
 from simple_agent_lab.evals import (  # noqa: E402
     LocalDirStore,
     run_suite_instance,
@@ -46,7 +51,20 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("instance_id")
     parser.add_argument("--profile", help="JSON run-profile path.")
-    parser.add_argument("--max-turns", type=int, default=1000)
+    parser.add_argument(
+        "--max-turns",
+        type=int,
+        default=1000,
+        help=(
+            "Outer turn limit; with --agent-flavor dynamic this caps each "
+            "worker and the facade itself runs one turn."
+        ),
+    )
+    parser.add_argument(
+        "--agent-flavor",
+        choices=(*AGENT_FLAVORS, "dynamic"),
+        default=harness.DEFAULT_AGENT_FLAVOR,
+    )
     parser.add_argument(
         "--wall-time-seconds",
         type=float,
@@ -85,6 +103,22 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Allow agent bash commands network access.",
     )
+    parser.add_argument(
+        "--workflow-script",
+        default="",
+        help="Optional workflow.js path for --agent-flavor dynamic.",
+    )
+    parser.add_argument("--workflow-max-concurrency", type=int, default=1)
+    parser.add_argument("--workflow-max-agents", type=int, default=12)
+    parser.add_argument("--workflow-timeout", type=float, default=21600.0)
+    parser.add_argument(
+        "--workflow-node-binary",
+        default="",
+        help=(
+            "Node path inside the container. By default a pinned Linux x64 "
+            "binary is cached in the ProgramBench wheelhouse."
+        ),
+    )
     return parser
 
 
@@ -107,14 +141,44 @@ def _provider_environment(args: argparse.Namespace) -> dict[str, str]:
         harness.load_dotenv(args.dotenv)
     provider_env = harness.container_environment(args.provider)
     provider_env[harness.API_KIND_ENV] = harness.resolve_api_kind(args.api_kind)
+    provider_env[harness.AGENT_FLAVOR_ENV] = (
+        "bash" if args.agent_flavor == "dynamic" else args.agent_flavor
+    )
     provider_env[container.REQUIRE_ISOLATION_ENV] = (
         "0" if args.no_network_isolation else "1"
     )
+    if args.agent_flavor == "dynamic":
+        provider_env.update(
+            {
+                config.WORKER_MAX_TURNS.name: str(args.max_turns),
+                config.PROGRAMBENCH_DYNAMIC_MAX_CONCURRENCY.name: str(
+                    args.workflow_max_concurrency
+                ),
+                config.PROGRAMBENCH_DYNAMIC_MAX_AGENTS.name: str(
+                    args.workflow_max_agents
+                ),
+                config.PROGRAMBENCH_DYNAMIC_TIMEOUT.name: str(
+                    min(args.workflow_timeout, args.wall_time_seconds)
+                ),
+                config.PROGRAMBENCH_DYNAMIC_NODE_BINARY.name: (
+                    args.workflow_node_binary or harness.DEFAULT_NODE_BINARY
+                ),
+            }
+        )
+        if args.workflow_script:
+            provider_env[config.PROGRAMBENCH_DYNAMIC_WORKFLOW_SOURCE.name] = Path(
+                args.workflow_script
+            ).read_text(encoding="utf-8")
     return provider_env
 
 
 def _suite(args: argparse.Namespace) -> ProgrambenchSuite:
-    return ProgrambenchSuite(
+    suite_cls = (
+        ProgrambenchDynamicWorkflowSuite
+        if args.agent_flavor == "dynamic"
+        else ProgrambenchSuite
+    )
+    return suite_cls(
         image_tag=args.image_tag,
         platform=args.platform,
         network_mode=args.network_mode,
@@ -123,6 +187,23 @@ def _suite(args: argparse.Namespace) -> ProgrambenchSuite:
         cpus=args.cpus,
         mem_limit=args.mem_limit or None,
     )
+
+
+def _prepare_dynamic_node(args: argparse.Namespace, wheelhouse: Path) -> None:
+    if args.agent_flavor != "dynamic" or args.workflow_node_binary:
+        return
+    normalized = args.platform.strip().lower()
+    if normalized and normalized not in {
+        "amd64",
+        "x86_64",
+        "linux/amd64",
+        "linux/x86_64",
+    }:
+        raise SystemExit(
+            "ProgramBench dynamic workflows provision a Linux x64 Node binary; "
+            "use --platform linux/amd64 or provide --workflow-node-binary."
+        )
+    harness.prepare_node_runtime(wheelhouse)
 
 
 def run(args: argparse.Namespace) -> dict:
@@ -137,6 +218,7 @@ def run(args: argparse.Namespace) -> dict:
         else harness.DEFAULT_WHEELHOUSE
     )
     harness.prepare_wheelhouse_for_run(wheelhouse, prepare_all=args.prepare_wheelhouse)
+    _prepare_dynamic_node(args, wheelhouse)
 
     suite = _suite(args)
     backend = docker_cli.backend(args, wheelhouse)
@@ -145,6 +227,7 @@ def run(args: argparse.Namespace) -> dict:
 
     print(
         f"==> ProgramBench {args.instance_id} run={args.run_id} container={name} "
+        f"flavor={args.agent_flavor} "
         f"isolation={'off' if args.no_network_isolation else 'on'}"
     )
     docker_cli.warn_if_unconfined(suite.security_opt)
@@ -157,7 +240,7 @@ def run(args: argparse.Namespace) -> dict:
         run_id=args.run_id,
         provider=args.provider,
         api_kind=provider_env[harness.API_KIND_ENV],
-        max_turns=args.max_turns,
+        max_turns=1 if args.agent_flavor == "dynamic" else args.max_turns,
         wall_time_seconds=args.wall_time_seconds,
         provider_env=provider_env,
         wheelhouse_mount=harness.DEFAULT_WHEELHOUSE_MOUNT,
@@ -211,6 +294,7 @@ def run_batch(args: argparse.Namespace) -> dict:
     args.uv_binary = args.uv_binary or str(ensure_linux_uv())
     print("Preparing wheelhouse and Linux uv once before launching batch...")
     harness.prepare_wheelhouse(wheelhouse)
+    _prepare_dynamic_node(args, wheelhouse)
 
     suite = _suite(args)
     backend = docker_cli.backend(args, wheelhouse)
@@ -234,7 +318,7 @@ def run_batch(args: argparse.Namespace) -> dict:
         per_instance_kwargs=per_instance,
         provider=args.provider,
         api_kind=provider_env[harness.API_KIND_ENV],
-        max_turns=args.max_turns,
+        max_turns=1 if args.agent_flavor == "dynamic" else args.max_turns,
         wall_time_seconds=args.wall_time_seconds,
         provider_env=provider_env,
         wheelhouse_mount=harness.DEFAULT_WHEELHOUSE_MOUNT,

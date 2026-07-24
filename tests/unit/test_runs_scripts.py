@@ -57,6 +57,48 @@ class RunsScriptsTest(unittest.TestCase):
 
                 self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_programbench_dynamic_flavor_uses_unified_runner(self) -> None:
+        module = _load_run_programbench_suite_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            script = Path(tmp) / "workflow.js"
+            script.write_text("return 'ok';\n", encoding="utf-8")
+            args = module._build_parser().parse_args(
+                [
+                    "example__repo-1",
+                    "--agent-flavor",
+                    "dynamic",
+                    "--max-turns",
+                    "7",
+                    "--workflow-script",
+                    str(script),
+                    "--workflow-max-agents",
+                    "9",
+                    "--workflow-node-binary",
+                    "/agent/node",
+                ]
+            )
+            with (
+                mock.patch.object(module.harness, "load_dotenv"),
+                mock.patch.object(
+                    module.harness, "container_environment", return_value={}
+                ),
+            ):
+                env = module._provider_environment(args)
+
+        self.assertEqual(env[module.harness.AGENT_FLAVOR_ENV], "bash")
+        self.assertEqual(env[module.config.WORKER_MAX_TURNS.name], "7")
+        self.assertEqual(
+            env[module.config.PROGRAMBENCH_DYNAMIC_WORKFLOW_SOURCE.name],
+            "return 'ok';\n",
+        )
+        self.assertEqual(
+            env[module.config.PROGRAMBENCH_DYNAMIC_NODE_BINARY.name],
+            "/agent/node",
+        )
+        self.assertIsInstance(
+            module._suite(args), module.ProgrambenchDynamicWorkflowSuite
+        )
+
     def test_swebench_run_scripts_support_batch_flags(self) -> None:
         module = _load_run_swebench_suite_module()
         args = module._build_batch_parser().parse_args(

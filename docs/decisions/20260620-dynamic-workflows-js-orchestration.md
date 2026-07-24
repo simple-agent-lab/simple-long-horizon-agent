@@ -64,8 +64,11 @@ reuse, and concurrency caps live in `dynamic_workflows`, not in `State` or
 
 The first integrations are OneMillion-Bench through `LocalProcessBackend`,
 which provides a deterministic no-Docker smoke path with the fake provider,
-and SWE-bench with bash-capable subagents. Both keep workspace lifecycle in the
-suite and therefore disable workflow-created worktrees.
+SWE-bench, and ProgramBench with bash-capable subagents. All three keep
+workspace lifecycle in the suite and therefore disable workflow-created
+worktrees. ProgramBench additionally places both Node orchestration and every
+worker command in sealed user/network namespaces, and writes workflow artifacts
+outside the scored workspace.
 
 Workflow deadlines stop the Node process and abandon stuck calls on daemon
 workers, so a timed-out subagent cannot keep the Python interpreter alive.

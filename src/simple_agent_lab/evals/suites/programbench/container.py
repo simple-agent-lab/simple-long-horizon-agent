@@ -16,8 +16,8 @@ SWE-bench and shape this module (see
 - ProgramBench's anti-cheat relies on the agent having **no network** while it
   works. Our agent runs *inside* the container and must reach the model API, so
   instead of ``--network none`` we keep the container online but run **every
-  agent bash command in a network-isolated namespace** (``unshare --net``), built
-  in ``build_agent``. Model calls keep the network; agent commands do not.
+  untrusted agent process in sealed user + network namespaces**, built in
+  ``build_agent``. Model calls keep the network; agent commands do not.
 
 It imports only the standard library and the installed wheel (``core``, ``llm``,
 ``llm_agent``, ``tools.bash``), so it runs inside any ProgramBench image with no
@@ -44,9 +44,11 @@ from simple_agent_lab.agents.flavors import ArtifactPut, build_flavor_agent
 from simple_agent_lab.core import Agent
 from simple_agent_lab.hooks import HookContext, HookDecision, HookPoint
 from simple_agent_lab.llm import Provider
+from simple_agent_lab.llm_agent import make_llm_agent
 from simple_agent_lab.messages import runtime_message
 from simple_agent_lab.protocols import EventKind
 from simple_agent_lab.tools import AgentTool, text_result
+from simple_agent_lab.tools.bash import make_bash_tool
 
 AGENT_NAME = "programbench_agent"
 SUBMIT_TOOL_NAME = "submit"
@@ -150,27 +152,39 @@ AGENT_SYSTEM_PROMPT = (
     "submission."
 )
 
-# Wrapper that runs each agent bash command in a fresh, network-less namespace.
-# `unshare --net` needs CAP_SYS_ADMIN (the suite's launch_spec adds it). A brand
-# new net namespace ships only a *down* loopback, so unlike `docker run --network
-# none` (which auto-ups lo) `127.0.0.1` would be unusable inside it — breaking any
-# command that binds localhost or starts a local server to self-test. We therefore
-# slip a tiny `sh -c 'ip link set lo up; exec "$@"'` between `unshare` and the
-# bootstrap-appended `bash -lc <cmd>`: it raises loopback first (best-effort —
-# needs CAP_NET_ADMIN, which the container root has; silenced and `;`-chained so a
-# failure never blocks the command), then execs the real command. `--` ends
-# unshare's options; `_` is the `$0` placeholder so `"$@"` starts at `bash`.
+# Wrapper that first drops to an unprivileged *parent* uid/gid, then runs the
+# untrusted process as root only inside fresh user and network namespaces. The
+# outer uid drop is essential: mapping parent uid 0 would stop `nsenter`, but
+# still let an agent overwrite root-owned `/usr/bin/unshare` and bypass the next
+# command's prefix. Absolute, root-owned helper paths plus outer uid 65534 make
+# the bootstrap immutable to workers. The inner shim raises loopback when `ip`
+# is available, gives build tools a writable HOME, then execs the real command.
+# `--` ends unshare's options; `_` is the `$0` placeholder so `"$@"` starts at
+# the wrapped argv.
+SANDBOX_UID = 65534
+SANDBOX_GID = 65534
 NET_ISOLATION_PREFIX: tuple[str, ...] = (
-    "unshare",
+    "/usr/bin/setpriv",
+    f"--reuid={SANDBOX_UID}",
+    f"--regid={SANDBOX_GID}",
+    "--clear-groups",
+    "/usr/bin/unshare",
+    "--user",
+    "--map-root-user",
     "--net",
     "--",
-    "sh",
+    "/bin/sh",
     "-c",
-    'ip link set lo up 2>/dev/null; exec "$@"',
+    (
+        "for ip in /usr/sbin/ip /usr/bin/ip /sbin/ip; do "
+        '[ -x "$ip" ] && "$ip" link set lo up 2>/dev/null && break; done; '
+        'HOME=/tmp/programbench-agent-home; export HOME; mkdir -p "$HOME"; '
+        'exec "$@"'
+    ),
     "_",
 )
 
-# Env var (default-closed gate): a failed `unshare --net` probe hard-fails the
+# Env var (default-closed gate): a failed namespace probe hard-fails the
 # run unless an explicit opt-out (`--no-network-isolation`) sets this false-y.
 REQUIRE_ISOLATION_ENV = "PROGRAMBENCH_REQUIRE_NET_ISOLATION"
 
@@ -179,17 +193,16 @@ _network_isolation_active: bool | None = None
 
 
 def _detect_network_isolation() -> bool:
-    """Probe whether ``unshare --net`` works in this container.
+    """Probe whether sealed user + network namespaces work in this container.
 
-    Returns True when a no-network namespace can be created (CAP_SYS_ADMIN plus
-    a permissive-enough kernel/seccomp), so agent commands can be isolated. When
-    it is unavailable we fall back to plain bash and record it, rather than
-    failing the run on an environment that cannot isolate.
+    Returns True when the namespaces can be created (CAP_SYS_ADMIN plus a
+    permissive-enough kernel/seccomp), so agent commands can be isolated. The
+    caller applies the default-closed policy when this returns False.
     """
 
     try:
         proc = subprocess.run(
-            ["unshare", "--net", "true"],
+            [*NET_ISOLATION_PREFIX, "/usr/bin/true"],
             capture_output=True,
             timeout=15,
         )
@@ -202,7 +215,7 @@ def _isolation_required() -> bool:
     """Whether a failed isolation probe should hard-fail the run (default True).
 
     ProgramBench's anti-cheat depends on agent commands having no network, so we
-    fail closed: a missing ``unshare --net`` aborts the run unless the caller
+    fail closed: unavailable namespace isolation aborts unless the caller
     opts out explicitly (the run scripts set ``REQUIRE_ISOLATION_ENV`` to a
     false-y value when ``--no-network-isolation`` is passed). An unset variable
     counts as required, so silently un-isolated runs cannot happen by default.
@@ -221,10 +234,10 @@ def build_agent(
     context: Mapping[str, Any] | None = None,
     trace_put: ArtifactPut | None = None,
 ) -> Agent:
-    """Build the ProgramBench agent: a bash agent whose commands are net-isolated.
+    """Build the ProgramBench agent with namespace-isolated bash commands.
 
-    Probes ``unshare --net`` once; when available, every agent command runs in a
-    network-less namespace (the model call still uses the container network).
+    Probes sealed user + network namespaces once; when available, every agent
+    command runs inside them (the model call still uses the container network).
     When it is unavailable this fails closed (raises) unless the caller opted out
     via ``--no-network-isolation`` (see ``_isolation_required``), so a run never
     silently loses ProgramBench's anti-cheat.
@@ -236,33 +249,9 @@ def build_agent(
     breakdown + sub-traces, so it uses the trace sink and ignores the tools).
     """
 
-    global _network_isolation_active
-    isolated = _detect_network_isolation()
-    _network_isolation_active = isolated
-    if not isolated:
-        if _isolation_required():
-            raise RuntimeError(
-                "ProgramBench requires per-command network isolation, but "
-                "'unshare --net' is unavailable here. It needs CAP_SYS_ADMIN "
-                "(the suite's launch_spec adds it) plus a kernel/daemon that "
-                "permits new network namespaces. Running without it would give "
-                "the agent's bash commands network access and weaken the "
-                "anti-cheat. Fix the container capability, or pass "
-                "--no-network-isolation to explicitly accept un-isolated commands."
-            )
-        print(
-            "[programbench] WARNING: 'unshare --net' is unavailable; agent bash "
-            "commands will run WITH network access (explicitly allowed via "
-            "--no-network-isolation).",
-            flush=True,
-        )
-    flavor = flavor_from_env()
-    exec_prefix = NET_ISOLATION_PREFIX if isolated else ()
-    # Pass both the simple-only knobs (hooks/submit tool) and the workflow-only
-    # knob (trace_put) in one call; build_flavor_agent owns the simple/workflow
-    # split and drops whichever knobs the selected flavor does not use.
+    exec_prefix = network_isolation_prefix()
     return build_flavor_agent(
-        flavor=flavor,
+        flavor=flavor_from_env(),
         name=AGENT_NAME,
         provider=provider,
         cwd=cwd,
@@ -273,6 +262,64 @@ def build_agent(
         tools=(make_submit_tool(),),
         trace_put=trace_put,
         bash_exec_prefix=exec_prefix,
+    )
+
+
+def network_isolation_prefix() -> tuple[str, ...]:
+    """Resolve and record the bash prefix that enforces ProgramBench isolation."""
+
+    global _network_isolation_active
+    isolated = _detect_network_isolation()
+    _network_isolation_active = isolated
+    if not isolated:
+        if _isolation_required():
+            raise RuntimeError(
+                "ProgramBench requires per-command network isolation, but "
+                "sealed user/network namespaces are unavailable here. They need "
+                "CAP_SYS_ADMIN "
+                "(the suite's launch_spec adds it) plus a kernel/daemon that "
+                "permits new network namespaces. Running without it would give "
+                "the agent's bash commands network access and weaken the "
+                "anti-cheat. Fix the container capability, or pass "
+                "--no-network-isolation to explicitly accept un-isolated commands."
+            )
+        print(
+            "[programbench] WARNING: sealed namespace isolation is unavailable; "
+            "agent bash "
+            "commands will run WITH network access (explicitly allowed via "
+            "--no-network-isolation).",
+            flush=True,
+        )
+    return NET_ISOLATION_PREFIX if isolated else ()
+
+
+def make_programbench_agent(
+    *,
+    provider: Provider,
+    cwd: Path,
+    name: str = AGENT_NAME,
+    role: str = AGENT_ROLE,
+    system_prompt: str = AGENT_SYSTEM_PROMPT,
+    request_extra: Mapping[str, Any] | None = None,
+    timeout_seconds: float | None = None,
+    exec_prefix: tuple[str, ...] | None = None,
+) -> Agent:
+    """Build one ProgramBench worker with the suite's isolated bash tool."""
+
+    prefix = network_isolation_prefix() if exec_prefix is None else exec_prefix
+    bash_tool = make_bash_tool(
+        cwd=cwd,
+        exec_prefix=prefix,
+    )
+    return make_llm_agent(
+        name=name,
+        provider=provider,
+        role=role,
+        tools=[bash_tool, make_submit_tool()],
+        system_prompt=system_prompt,
+        target="user",
+        request_extra=request_extra,
+        timeout_seconds=timeout_seconds,
     )
 
 
@@ -646,6 +693,7 @@ def prepare(workspace: Path, instance: Mapping[str, Any]) -> dict[str, Any]:
     _git(workspace, "config", "user.name", "simple-agent-lab")
     _git(workspace, "add", "-A")
     _git(workspace, "commit", "--allow-empty", "-m", "baseline")
+    _chown_workspace_for_sandbox(workspace)
     return {}
 
 
@@ -700,3 +748,19 @@ def _git(workspace: Path, *args: str) -> None:
         )
     except (OSError, subprocess.SubprocessError):
         pass
+
+
+def _chown_workspace_for_sandbox(workspace: Path) -> None:
+    """Let the non-privileged outer identity edit the scored workspace."""
+
+    if not hasattr(os, "geteuid") or os.geteuid() != 0:
+        return
+    for root, directories, files in os.walk(workspace, followlinks=False):
+        os.chown(root, SANDBOX_UID, SANDBOX_GID, follow_symlinks=False)
+        for name in (*directories, *files):
+            os.chown(
+                Path(root) / name,
+                SANDBOX_UID,
+                SANDBOX_GID,
+                follow_symlinks=False,
+            )

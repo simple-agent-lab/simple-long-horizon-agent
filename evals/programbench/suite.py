@@ -6,8 +6,8 @@ encode the deal in `programbench-reverse-engineering-adapter`:
 
 - `network_mode="host"` keeps the container online (so the in-container agent
   can reach the model API and bootstrap can install the wheel), while
-- `cap_add=("SYS_ADMIN",)` lets the container half wrap each agent bash command
-  in ``unshare --net`` — so the agent's *commands* have no network even though
+- `cap_add=("SYS_ADMIN",)` lets the container half bootstrap sealed user +
+  network namespaces — so the agent's *commands* have no network even though
   the container does. That restores ProgramBench's offline anti-cheat without
   the ``--network none`` that would also cut off the agent's own model calls.
 
@@ -58,11 +58,10 @@ class ProgrambenchSuite:
         self.image_tag = image_tag
         self.platform = platform
         # Online container (model API + wheel install); agent *commands* are
-        # isolated per-command via unshare --net in the container half.
+        # isolated per-command via user + network namespaces in the container half.
         self.network_mode = network_mode
-        # SYS_ADMIN is what `unshare --net` needs to build the per-command
-        # network namespace; drop it and the container half falls back to
-        # un-isolated commands (and says so in the result).
+        # SYS_ADMIN bootstraps the per-command namespaces. The nested user
+        # namespace prevents untrusted children from retaining that authority.
         self.cap_add = tuple(cap_add)
         # Default seccomp=unconfined so older daemons (whose default profile
         # predates `clone3`) don't kill the agent's threads — same default as
@@ -98,3 +97,11 @@ class ProgrambenchSuite:
         # `collapse-scorer-seam-into-run-primitive`).
         del instance
         return None
+
+
+class ProgrambenchDynamicWorkflowSuite(ProgrambenchSuite):
+    """ProgramBench suite whose agent runs an agent-written JS workflow."""
+
+    container_module = (
+        "simple_agent_lab.evals.suites.programbench.dynamic_workflow_container"
+    )

@@ -24,6 +24,10 @@ This adapter maps ProgramBench onto the generic `Suite` protocol
 - The container half ships in the wheel at
   `simple_agent_lab.evals.suites.programbench` (`build_task`, `build_agent`,
   `prepare`, `extract_result`).
+- `ProgrambenchDynamicWorkflowSuite` swaps in the sibling
+  `dynamic_workflow_container` facade: an agent-written JavaScript workflow
+  orchestrates normal ProgramBench workers while preserving the same isolated
+  bash tool, workspace product, and official scorer.
 
 ## What differs from SWE-bench
 
@@ -40,11 +44,15 @@ ProgramBench forces two adaptations versus the SWE-bench reference:
    anti-cheat relies on the agent having no network while it works
    (`--network none`). Our agent runs *inside* the container and must reach the
    model API, so we keep the container online but run **every agent bash command
-   in a no-network namespace** (`unshare --net`, which needs `CAP_SYS_ADMIN`).
-   Model calls keep the container network; agent commands do not, so the agent
-   cannot `git clone` / `cargo install` / `curl` source code. If `unshare --net`
-   is unavailable (no `CAP_SYS_ADMIN` or a restrictive kernel), the run **fails
-   closed** rather than silently dropping the anti-cheat; pass
+   in sealed user + network namespaces**. The prefix drops to outer uid/gid
+   65534 before `unshare --user --map-root-user --net` (which needs
+   `CAP_SYS_ADMIN` to bootstrap), and preparation hands the scored workspace to
+   that identity. The untrusted process therefore cannot use the container's
+   capability to rejoin PID 1's online namespace or overwrite the root-owned
+   isolation helpers used by a later command. Model calls keep the container
+   network; agent commands do not, so the agent cannot `git clone` / `cargo
+   install` / `curl` source code. If namespace creation is unavailable, the run
+   **fails closed** rather than silently dropping the anti-cheat; pass
    `--no-network-isolation` to deliberately run un-isolated, which records
    `network_isolated: false` in `result.json`.
 
@@ -74,6 +82,21 @@ bash runs/programbench/run_programbench.sh abishekvashok__cmatrix.5c082c6
 uv run python evals/programbench/evaluate_submissions.py --run-id <run-id>
 ```
 
+Run the same instance through an agent-written JavaScript workflow:
+
+```bash
+uv run --extra programbench python runs/run_bench.py programbench \
+  abishekvashok__cmatrix.5c082c6 --agent-flavor dynamic
+```
+
+ProgramBench images do not include Node. On the first dynamic run, the runner
+downloads the pinned official Linux x64 Node archive, verifies both the archive
+and extracted binary SHA-256, and extracts only `bin/node` inside the ignored
+ProgramBench wheelhouse. The verified archive remains cached there too. That
+wheelhouse is already mounted read-only in the container, so no image rebuild
+or extra Docker mount is required. Pass `--workflow-node-binary <container-path>`
+to use a pre-provisioned binary instead.
+
 For the whole task set:
 
 ```bash
@@ -81,6 +104,9 @@ bash runs/programbench/run_programbench.sh --all --parallel 4
 # equivalent Python entry used by that thin wrapper:
 uv run --extra programbench python runs/run_bench.py batch programbench \
   --all --parallel 4
+# dynamic workflow batch:
+uv run --extra programbench python runs/run_bench.py batch programbench \
+  --all --parallel 4 --agent-flavor dynamic
 ```
 
 ## Running the Agent
@@ -95,6 +121,31 @@ SWE-bench.
 From the agent's point of view, `/workspace` holds `./executable` + docs and the
 bash tool is the normal local bash tool — except each command runs network-less
 (see above). The runtime modules come from the installed wheel, not from `src/`.
+
+### Dynamic workflow mode
+
+`--agent-flavor dynamic` selects `ProgrambenchDynamicWorkflowSuite`. Its facade
+generates a task-specific `workflow.js` (or accepts `--workflow-script`), then
+executes JavaScript phases that call ordinary ProgramBench subagents. Subagents
+share `/workspace`, are serialized by default, and both the Node orchestration
+process and every worker bash call run in sealed user + network namespaces.
+Generated scripts cannot request git worktrees because the scored product is
+the original shared workspace.
+
+Workflow artifacts are attached to `result.json` under `dynamic_workflow`:
+
+- `workflow_js`
+- `result` and `journal`
+- `agent_calls`
+- `subagent_traces`
+
+Raw workflow files live under the run's `out/dynamic_workflow/` artifact
+directory, outside `/workspace`; they therefore cannot enter the submission,
+including indirectly through `.git/objects`. Useful controls are
+`--workflow-max-concurrency`, `--workflow-max-agents`, and
+`--workflow-timeout`. In dynamic mode, `--max-turns` is a per-worker ceiling;
+the facade itself runs one outer turn. The workflow timeout is also capped by
+`--wall-time-seconds`. Keep concurrency at `1` when workers may edit files.
 
 ## Scoring (official harness)
 
@@ -118,16 +169,18 @@ the authoritative per-instance scores via `programbench info`.
 
 This does not install `programbench` and does not run Docker — it exercises the
 suite + container half in-process with a fake provider (also in `runs/dev/run_ci.sh`):
+The dynamic test requires a Node version with the permission model on `PATH`:
 
 ```bash
 uv run python -m unittest tests.unit.test_programbench_suite
+uv run python -m unittest tests.unit.test_programbench_dynamic_workflow
 ```
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| Run aborts: "requires per-command network isolation" | `unshare --net` unavailable (no `CAP_SYS_ADMIN` / restrictive kernel) | Use a kernel/daemon that permits new net namespaces (CAP_SYS_ADMIN is added by default); pass `--no-network-isolation` only to deliberately run un-isolated |
+| Run aborts: "requires per-command network isolation" | user/network namespace creation unavailable (`CAP_SYS_ADMIN` missing or restrictive kernel) | Use a kernel/daemon that permits the sealed namespaces (`CAP_SYS_ADMIN` is added by default); pass `--no-network-isolation` only to deliberately run un-isolated |
 | `ModuleNotFoundError: programbench` during scoring | scorer package not installed | `uv sync --extra programbench` |
 | `programbench: command not found` during final score summary | optional `programbench info` binary not on PATH | `uv sync --extra programbench`, pass `--programbench-info-bin`, or use `--no-info` |
 | `programbench eval` can't download the HF test blobs | gated/private dataset or anonymous rate limit | Set `HF_TOKEN` in `.env` or the environment (the scorer loads `.env`) |

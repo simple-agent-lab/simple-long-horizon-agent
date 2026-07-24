@@ -19,6 +19,9 @@ def read_workflow_artifacts(
     script = _read_text(root / "workflow.js")
     traces = _read_subagent_traces(root)
     if embed_traces_in_calls:
+        # Preserve the result schema used by OneMillion and SWE-bench.
+        # ProgramBench opts out because its long worker trajectories would
+        # otherwise be serialized in the result three times.
         agent_calls = list((result or {}).get("agent_calls") or [])
         for call in agent_calls:
             if not isinstance(call, dict):
@@ -79,7 +82,7 @@ def _read_subagent_traces(root: Path) -> dict[str, dict[str, Any]]:
     subagents = root / "subagents"
     if not subagents.exists():
         return traces
-    for trace_path in subagents.glob("*/trajectory.jsonl"):
+    for trace_path in sorted(subagents.glob("*/trajectory.jsonl")):
         records = _read_jsonl(trace_path)
         if records:
             header = dict(records[0])

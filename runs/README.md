@@ -169,3 +169,20 @@ bash runs/swebench/eval_swebench.sh --pro --predictions evals/out/swebench_pro/s
 
 See `evals/swebench/README.md` for detailed Docker setup, macOS arm64
 workarounds, and troubleshooting.
+
+## ProgramBench Dynamic Workflows
+
+The ProgramBench runner can select an agent-written JavaScript workflow while
+preserving ProgramBench's sealed network boundary and official workspace
+submission format:
+
+```bash
+uv run --extra programbench python runs/run_bench.py programbench \
+  abishekvashok__cmatrix.5c082c6 --agent-flavor dynamic
+
+uv run --extra programbench python runs/run_bench.py batch programbench \
+  --all --parallel 4 --agent-flavor dynamic
+```
+
+See `evals/programbench/README.md` for Node provisioning, workflow controls,
+artifact layout, and official scoring.

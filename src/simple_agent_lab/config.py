@@ -245,6 +245,49 @@ SWEBENCH_DYNAMIC_TIMEOUT = EnvVar(
 )
 
 # --------------------------------------------------------------------------- #
+# eval.programbench — ProgramBench dynamic-workflow container knobs.
+# --------------------------------------------------------------------------- #
+PROGRAMBENCH_DYNAMIC_WORKFLOW_SCRIPT = EnvVar(
+    "PROGRAMBENCH_DYNAMIC_WORKFLOW_SCRIPT",
+    "",
+    "eval.programbench",
+    "Container-local path to an optional dynamic workflow JavaScript file.",
+)
+PROGRAMBENCH_DYNAMIC_WORKFLOW_SOURCE = EnvVar(
+    "PROGRAMBENCH_DYNAMIC_WORKFLOW_SOURCE",
+    "",
+    "eval.programbench",
+    "Inline dynamic workflow JavaScript; takes precedence over the script path.",
+)
+PROGRAMBENCH_DYNAMIC_MAX_CONCURRENCY = EnvVar(
+    "PROGRAMBENCH_DYNAMIC_MAX_CONCURRENCY",
+    1,
+    "eval.programbench",
+    "Maximum concurrent subagents in a dynamic workflow.",
+    as_int(minimum=1),
+)
+PROGRAMBENCH_DYNAMIC_MAX_AGENTS = EnvVar(
+    "PROGRAMBENCH_DYNAMIC_MAX_AGENTS",
+    12,
+    "eval.programbench",
+    "Maximum subagent calls in a dynamic workflow.",
+    as_int(minimum=1),
+)
+PROGRAMBENCH_DYNAMIC_TIMEOUT = EnvVar(
+    "PROGRAMBENCH_DYNAMIC_TIMEOUT",
+    21600.0,
+    "eval.programbench",
+    "Whole dynamic workflow timeout in seconds.",
+    as_float(minimum=1.0),
+)
+PROGRAMBENCH_DYNAMIC_NODE_BINARY = EnvVar(
+    "PROGRAMBENCH_DYNAMIC_NODE_BINARY",
+    "node",
+    "eval.programbench",
+    "Node executable path inside the ProgramBench container.",
+)
+
+# --------------------------------------------------------------------------- #
 # eval.onemillion — OneMillion workflow-flavor tuning knobs. (The workflow is
 # selected with AGENT_FLAVOR, like every suite; these only tune the chosen one.)
 # --------------------------------------------------------------------------- #
@@ -337,6 +380,12 @@ REGISTRY: tuple[EnvVar, ...] = (
     SWEBENCH_DYNAMIC_MAX_CONCURRENCY,
     SWEBENCH_DYNAMIC_MAX_AGENTS,
     SWEBENCH_DYNAMIC_TIMEOUT,
+    PROGRAMBENCH_DYNAMIC_WORKFLOW_SCRIPT,
+    PROGRAMBENCH_DYNAMIC_WORKFLOW_SOURCE,
+    PROGRAMBENCH_DYNAMIC_MAX_CONCURRENCY,
+    PROGRAMBENCH_DYNAMIC_MAX_AGENTS,
+    PROGRAMBENCH_DYNAMIC_TIMEOUT,
+    PROGRAMBENCH_DYNAMIC_NODE_BINARY,
     OMB_REFLECTION_ROUNDS,
     OMB_PARALLEL_WORKERS,
     OMB_PDR_ROUNDS,
