@@ -1,4 +1,4 @@
-"""Run OneMillion-Bench cases through the generic `Suite` framework (ADR 0017).
+"""Run OneMillion-Bench cases through the generic `Suite` framework.
 
 The OneMillion-Bench run entry, mirroring ``runs/_benches/swebench.py`` but for
 a light, Docker-free suite: it drives the container half through
@@ -15,11 +15,11 @@ orchestration. There is one OneMillion entry — the flavor picks the strategy.
 Usage (a downloaded dataset under ``datasets/OneMillion-Bench/``):
 
     # one case, single tool-free turn (default)
-    uv run python runs/run_bench.py onemillion case_2860 \
+    uv run python -m runs.run_bench onemillion case_2860 \
         --dataset datasets/OneMillion-Bench/healthcare_and_medicine
 
     # a whole domain via the reflection workflow
-    uv run python runs/run_bench.py onemillion --all --agent-flavor reflection \
+    uv run python -m runs.run_bench onemillion --all --agent-flavor reflection \
         --dataset datasets/OneMillion-Bench --concurrency 8
 
 Reads the generator OPENAI_MODEL / OPENAI_AUTH_TOKEN (+ optional OPENAI_BASE_URL)
@@ -31,28 +31,23 @@ from __future__ import annotations
 
 import argparse
 import os
-import sys
 from datetime import datetime
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "src"
-for path in (ROOT, SRC):
-    if str(path) not in sys.path:
-        sys.path.insert(0, str(path))
-
-import simple_agent_lab.config as config  # noqa: E402
-from evals.onemillion import harness  # noqa: E402
-from evals.onemillion.suite import OneMillionSuite  # noqa: E402
-from simple_agent_lab.agent_flavors import AGENT_FLAVOR_ENV  # noqa: E402
-from simple_agent_lab.evals import (  # noqa: E402
+import simple_agent_lab.config as config
+from evals.onemillion import harness
+from evals.onemillion.suite import OneMillionSuite
+from simple_agent_lab.agent_flavors import AGENT_FLAVOR_ENV
+from simple_agent_lab.evals import (
     LocalDirStore,
     LocalProcessBackend,
     parse_with_profile,
     run_dataset,
     run_suite_instance,
 )
-from simple_agent_lab.evals.suites.onemillion.container import OMB_FLAVORS  # noqa: E402
+from simple_agent_lab.evals.suites.onemillion.container import OMB_FLAVORS
+
+ROOT = Path(__file__).resolve().parents[2]
 
 # Identity for the unified entry (runs/run_bench.py). `run(args)` returns a
 # result dict so the dispatcher / dashboard can read a machine-readable outcome.
@@ -76,8 +71,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Path to a JSON run-profile (its `env` fills env gaps, its `run` "
-            "flags are defaults overridable by explicit flags). See ADR "
-            "run-profile-file."
+            "flags are defaults overridable by explicit flags)."
         ),
     )
     parser.add_argument(

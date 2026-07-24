@@ -1,4 +1,4 @@
-"""OneMillion-Bench container half (ADR 0017): the functions a suite supplies.
+"""OneMillion-Bench container half: the functions a suite supplies.
 
 OneMillion-Bench is a *rubric-graded Q&A* benchmark, not an agent-in-a-repo
 benchmark, so its mapping onto the generic framework (`SwebenchSuite` is the
@@ -12,9 +12,9 @@ reference) is:
   agent's messages (only the workspace), the final answer is persisted to
   ``model_response.txt`` — the analog of SWE-bench writing a ``git diff`` to the
   filesystem.
-- **Scoring** is the in-environment ``evaluate`` hook (ADR 0020): the host stages
-  the case's weighted rubrics via ``eval_inputs`` (gold the agent must not see),
-  and this hook calls a *judge* model to grade the response against them,
+- **Scoring** is the in-environment ``evaluate`` hook: the host stages the
+  case's weighted rubrics via ``eval_inputs`` (gold the agent must not see), and
+  this hook calls a *judge* model to grade the response against them,
   reproducing the upstream ``omb`` rubric scoring (see ``grading``). The verdict
   is merged into ``result.json``.
 
@@ -108,7 +108,7 @@ AGENT_SYSTEM_PROMPT = (
 
 # The judge provider's env contract (`JUDGE_*`, falling back to `OPENAI_*`) and
 # its builder live in `simple_agent_lab.llm.env`; `judge_provider_from_env` below
-# is a thin wrapper. See ADR consolidate-provider-env.
+# is a thin wrapper.
 JUDGE_TIMEOUT_S = 600.0
 
 

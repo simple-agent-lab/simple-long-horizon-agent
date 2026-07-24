@@ -20,7 +20,7 @@ from typing import Any
 
 # The OpenAI/Judge env-var names and the `.env` loader are owned by
 # `simple_agent_lab.llm.env` (single source of truth); this host-side harness
-# only forwards them into the container half. See ADR consolidate-provider-env.
+# only forwards them into the container half.
 from simple_agent_lab.llm.env import (
     API_KIND_ENV,
     JUDGE_API_KIND_ENV,

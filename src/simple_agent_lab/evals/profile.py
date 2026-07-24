@@ -3,15 +3,14 @@
 A run-profile is a small JSON document with two sections — `env` (the catalogued
 environment knobs) and `run` (the `run_*_suite.py` long-option names) — so one
 committed file names a runnable agent-on-a-bench arm instead of a remembered
-mix of exports and CLI flags. See ADR run-profile-file.
+mix of exports and CLI flags.
 
 The loader is deliberately suite-agnostic: it returns an env map and a run map
 and never knows any suite's flag set. `apply_profile_env` fills env gaps (a real
 export wins, exactly like `load_dotenv`), and `profile_run_argv` turns the run
 map into an argv prefix the caller places *before* the real command line, so an
-explicit CLI flag overrides the profile. JSON (not YAML/TOML) matches ADR
-model-config-file: no new dependency, and a leading-`_` key is an ignored
-comment so the example file documents itself.
+explicit CLI flag overrides the profile. JSON adds no dependency, and a
+leading-`_` key is an ignored comment so the example file documents itself.
 """
 
 from __future__ import annotations

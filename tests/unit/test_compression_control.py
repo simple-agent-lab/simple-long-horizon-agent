@@ -1,6 +1,6 @@
 """Recoverable compression and agent-controlled compaction.
 
-Two halves of one loop (ADR recoverable-compression-and-agent-compaction):
+Two halves of one loop:
 
 - `make_recall_tool` reads original transcript messages back off the
   append-only `State`, using the indices that compression summaries cite.

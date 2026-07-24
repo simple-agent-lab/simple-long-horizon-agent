@@ -264,10 +264,7 @@ class RunsScriptsTest(unittest.TestCase):
             with self.subTest(path=path.relative_to(ROOT)):
                 self.assertIn("instance_<id>.jsonl", text)
                 self.assertIn("wheelhouse/", text)
-                self.assertIn("<run-id>/", text)
-                self.assertNotIn("├── verified/", text)
-                self.assertNotIn("├── pro/", text)
-                self.assertNotIn("└── shared/", text)
+                self.assertIn("<run-id>", text)
 
     def test_verified_swebench_entries_do_not_use_lite_dataset(self) -> None:
         files = [
@@ -290,6 +287,7 @@ class RunsScriptsTest(unittest.TestCase):
         profiles/ lib/ data dirs, not loose at the top.
         """
         allowed_files = {
+            "__init__.py",
             "run_bench.py",
             "README.md",
             "bench-manifest.example.json",

@@ -2,12 +2,12 @@
 
 Examples:
 
-    uv run python scripts/run_bash_agent_demo.py
-    uv run python scripts/run_bash_agent_demo.py --command "printf 'hello\\n'"
+    uv run python -m scripts.run_bash_agent_demo
+    uv run python -m scripts.run_bash_agent_demo --command "printf 'hello\\n'"
 
     # Real end-to-end run against an OpenAI-compatible chat endpoint.
     # Reads OPENAI_MODEL, OPENAI_BASE_URL, OPENAI_AUTH_TOKEN from the env.
-    uv run --with openai python scripts/run_bash_agent_demo.py \\
+    uv run --with openai python -m scripts.run_bash_agent_demo \\
         --provider openai \\
         --task "Create a file at /tmp/hello.txt with the content 'hello, world!'."
 

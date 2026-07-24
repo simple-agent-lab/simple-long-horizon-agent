@@ -31,10 +31,10 @@ JUDGE_BASE_URL=https://your-provider/v1
 EOF
 
 # 3. Run one case, or a whole domain.
-uv run python runs/run_bench.py onemillion case_2860 \
+uv run python -m runs.run_bench onemillion case_2860 \
   --dataset datasets/OneMillion-Bench/healthcare_and_medicine
 
-uv run python runs/run_bench.py onemillion --all \
+uv run python -m runs.run_bench onemillion --all \
   --dataset datasets/OneMillion-Bench --concurrency 8
 ```
 
@@ -67,4 +67,10 @@ uv run python -m unittest \
 
 ## Scoring
 
-Scoring is the in-environment `evaluate` hook (ADR 0020), on by default. The host stages `{prompt, rubrics, human_scores}` via `eval_inputs`; the hook builds the upstream judge prompt, parses the per-rubric yes/no verdict, and converts hits to weighted scores. The per-case `score` is `total_score / max_score` (positive-weight total), matching `omb`'s per-task accuracy. Pass `--no-scoring` (or `OneMillionSuite(in_env_scoring=False)`) to capture answers only and grade later.
+Scoring uses the in-environment `evaluate` hook and is on by default. The host
+stages `{prompt, rubrics, human_scores}` via `eval_inputs`; the hook builds the
+upstream judge prompt, parses the per-rubric yes/no verdict, and converts hits
+to weighted scores. The per-case `score` is `total_score / max_score`
+(positive-weight total), matching `omb`'s per-task accuracy. Pass
+`--no-scoring` (or `OneMillionSuite(in_env_scoring=False)`) to capture answers
+only and grade later.

@@ -16,10 +16,9 @@ Do not read for:
 
 ## Status
 
-This is an implementation guide for the small memory boundary in
-`src/simple_agent_lab/memory/`. It is not an ADR; if the project later commits
-to a harder-to-reverse memory architecture, promote that decision into
-`docs/decisions/`.
+This is the implementation guide for the small memory boundary in
+`src/simple_agent_lab/memory/`. The current code and tests remain the source of
+truth for behavior.
 
 ## Goal
 
@@ -99,8 +98,8 @@ memory quality:
   is cheap.
 - A fast path can capture explicit user-requested notes or small durable facts;
   a slow path should consolidate, deduplicate, prune, and resolve conflicts.
-- Keep human-owned project rules in human-owned docs or ADRs. Automatic memory
-  may help recall those rules, but should not be their only home.
+- Keep human-owned project rules in human-owned docs. Automatic memory may help
+  recall those rules, but should not be their only home.
 
 ## Implemented Shape
 
@@ -244,10 +243,8 @@ read-distill-commit operation with one inter-process lock per memory root. The
 lock includes the optional model call because `MEMORY.md` is a full rewrite and
 because the distiller may choose the final namespace only after reading prior
 memory. Temporary-file replacement remains responsible for per-file atomicity;
-it is not a substitute for this logical single-writer boundary. See ADR
-[serialize-filesystem-memory-consolidation](../decisions/20260714-serialize-filesystem-memory-consolidation.md).
-The deliberately small storage limits are recorded in ADR
-[bound-filesystem-memory-growth](../decisions/20260714-bound-filesystem-memory-growth.md).
+it is not a substitute for this logical single-writer boundary. Storage limits
+stay deliberately small and are enforced by the implementation and tests.
 
 Keep the package facade small. Top-level imports should expose the memory
 protocol and complete memory implementations. For the starter mechanisms, keep

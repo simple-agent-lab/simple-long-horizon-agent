@@ -343,16 +343,7 @@ class PackagingTest(unittest.TestCase):
         self.assertTrue((Path(BUNDLED_LIBRARY_DIR) / "README.md").is_file())
 
 
-import sys  # noqa: E402
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-
-
 class SwebenchFlavorTest(unittest.TestCase):
-    def setUp(self) -> None:
-        if str(REPO_ROOT) not in sys.path:
-            sys.path.insert(0, str(REPO_ROOT))
-
     def test_bash_skills_in_flavor_choices(self) -> None:
         from evals.swebench import harness
 

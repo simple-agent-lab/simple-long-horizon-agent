@@ -2,10 +2,9 @@
 
 <!-- 1–3 bullets describing what this PR changes and why. -->
 
-## Linked issues / ADRs
+## Linked issues
 
-<!-- Link any GitHub issue this resolves, and any ADR under docs/decisions/
-     that this PR confirms, extends, or supersedes. -->
+<!-- Link any GitHub issue this resolves. -->
 
 ## How this was tested
 
@@ -13,7 +12,7 @@
 
 - [ ] `bash runs/dev/run_ci.sh` passed locally
 - [ ] Added or updated tests for the changed behavior
-- [ ] Updated the relevant README / docs / ADR alongside the code change
+- [ ] Updated the relevant README or docs alongside the code change
 
 ## Notes for reviewers
 

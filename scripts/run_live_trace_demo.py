@@ -8,8 +8,8 @@ path without standing up a real bench eval.
 
 Usage::
 
-    uv run python scripts/run_live_trace_demo.py
-    uv run python scripts/run_live_trace_demo.py \\
+    uv run python -m scripts.run_live_trace_demo
+    uv run python -m scripts.run_live_trace_demo \\
         --out evals/out/_live_demo/trajectory.jsonl \\
         --turns 8 --turn-delay 2.5
 

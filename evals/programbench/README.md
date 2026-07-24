@@ -7,8 +7,8 @@ codebase from scratch whose `./compile.sh` rebuilds an executable with identical
 behavior — inferring behavior **only** by running `./executable` and reading the
 docs (no original source, no wrapping the binary, no decompiling).
 
-This adapter maps ProgramBench onto the generic `Suite` protocol
-(`generic-containerized-eval-framework`) as a peer of the SWE-bench adapter:
+This adapter maps ProgramBench onto the generic `Suite` protocol as a peer of
+the SWE-bench adapter:
 
 - `suite.py` — `ProgrambenchSuite`: `launch_spec` (image `:task_cleanroom`,
   workdir `/workspace`, `network_mode=host`, `cap_add=("SYS_ADMIN",)`),
@@ -71,7 +71,7 @@ EOF
 
 # 4. Run the agent, then score it
 bash runs/programbench/run_programbench.sh abishekvashok__cmatrix.5c082c6
-uv run python evals/programbench/evaluate_submissions.py --run-id <run-id>
+uv run python -m evals.programbench.evaluate_submissions --run-id <run-id>
 ```
 
 For the whole task set:
@@ -79,7 +79,7 @@ For the whole task set:
 ```bash
 bash runs/programbench/run_programbench.sh --all --parallel 4
 # equivalent Python entry used by that thin wrapper:
-uv run --extra programbench python runs/run_bench.py batch programbench \
+uv run --extra programbench python -m runs.run_bench batch programbench \
   --all --parallel 4
 ```
 
@@ -106,7 +106,7 @@ overriding the environment, so the evaluator inherits it and huggingface-hub use
 it:
 
 ```bash
-uv run python evals/programbench/evaluate_submissions.py \
+uv run python -m evals.programbench.evaluate_submissions \
   --run-root evals/out/programbench --run-id <run-id> --workers 4
 ```
 

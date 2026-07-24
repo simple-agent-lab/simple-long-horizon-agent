@@ -12,7 +12,8 @@
 # API the viewer uses to surface new traces as evals finish.
 
 set -e
+cd "$(dirname "$0")/../.."
 export PYTHONDONTWRITEBYTECODE=1
-source "$(dirname "$0")/../lib/_python.sh"
+source runs/lib/_python.sh
 
-"${PYTHON[@]}" "$(dirname "$0")/../studio/trace-viewer/serve.py" "$@"
+"${PYTHON[@]}" studio/trace-viewer/serve.py "$@"

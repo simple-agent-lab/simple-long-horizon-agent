@@ -4,7 +4,7 @@ One place to see every environment variable the project reads, grouped by the
 layer that owns it. This is a *discoverability* surface — the code is still the
 source of truth for behavior. Each variable's **name constant** is declared in
 exactly one module (the "Owner" column); other call sites import it rather than
-re-declaring the string. See ADR `consolidate-provider-env` for why.
+re-declaring the string.
 
 ## Launching a run: the JSON run-profile (`--profile`)
 
@@ -12,7 +12,7 @@ To launch one agent-on-a-bench arm from a single committed file instead of a
 remembered mix of exports and flags, pass `--profile PATH` to any bench through
 the unified entry (`runs/run_bench.py <bench> --profile PATH`; the per-bench
 modules live in `runs/_benches/`). A profile is a small JSON document with two
-sections (see ADR `run-profile-file`):
+sections:
 
 ```json
 {
@@ -41,13 +41,13 @@ logic lives in internal modules (`runs/_benches/<bench>.py`, imported by the
 dispatcher); `run_bench.py` is the one surface to learn:
 
 ```bash
-uv run python runs/run_bench.py list [--json]            # discover benches
-uv run python runs/run_bench.py setup [bench ...] [--oracle] [--json]
-uv run python runs/run_bench.py <bench> [bench args ...] [--json]
-uv run python runs/run_bench.py batch <bench> [batch args ...] [--json]
-uv run python runs/run_bench.py score <bench> [scorer args ...] [--json]
-uv run python runs/run_bench.py oracle <bench> [bench args ...] [--json]
-uv run python runs/run_bench.py all --manifest M.json [--parallel N]
+uv run python -m runs.run_bench list [--json]            # discover benches
+uv run python -m runs.run_bench setup [bench ...] [--oracle] [--json]
+uv run python -m runs.run_bench <bench> [bench args ...] [--json]
+uv run python -m runs.run_bench batch <bench> [batch args ...] [--json]
+uv run python -m runs.run_bench score <bench> [scorer args ...] [--json]
+uv run python -m runs.run_bench oracle <bench> [bench args ...] [--json]
+uv run python -m runs.run_bench all --manifest M.json [--parallel N]
 ```
 
 - `list` — registered benches (name, description, whether Docker is needed).
@@ -100,8 +100,8 @@ owner modules above fails the build unless the line carries an inline
 `# env-ok: <reason>` marker. So a new behavioral knob must be declared as an
 `EnvVar` in the registry; ad-hoc reads can't creep back in unnoticed.
 
-> Direction (ADR `centralized-env-config`, in progress): env knobs are moving
-> into one declarative registry, `src/simple_agent_lab/config.py`. It is a
+> Direction: env knobs are moving into one declarative registry,
+> `src/simple_agent_lab/config.py`. It is a
 > FOUNDATION-zone leaf that *declares* each name (with default/parser/group)
 > and imports nothing internal, so it centralizes without the coupling this
 > rule guards against — layers depend on `config`, never the reverse. Several
@@ -200,7 +200,7 @@ Note: the eval harnesses (`evals/swebench`, `evals/programbench`,
 
 ## Named model aliases (`ModelRegistry`)
 
-Owner: `src/simple_agent_lab/llm/config.py`. See ADR `model-alias-registry`.
+Owner: `src/simple_agent_lab/llm/config.py`.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |

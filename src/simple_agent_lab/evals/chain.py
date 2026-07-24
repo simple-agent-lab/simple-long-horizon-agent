@@ -598,7 +598,10 @@ def run_chain_in_container(
                 if handoff_active
                 else never_abort
             )
-            run_abort = lambda: deadline_abort() or window_abort()  # noqa: E731
+
+            def run_abort(window_abort: AbortFlag = window_abort) -> bool:
+                return deadline_abort() or window_abort()
+
             try:
                 end_reason: AgentEndReason = "max_turns"
                 for event in run_agent(

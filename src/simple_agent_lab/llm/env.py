@@ -2,10 +2,10 @@
 
 Everything about *how a `Provider` is built from environment variables* lives
 here: the canonical env-var names, the `.env` loader, the reasoning/effort and
-request-header readers, and `provider_from_env` itself. Scripts, the TUI
-gateway, the eval harnesses, and the live e2e tests all import from this module
-instead of each re-declaring `OPENAI_MODEL_ENV = "OPENAI_MODEL"` and a bespoke
-`build_*_provider()` (they used to — five near-identical copies that drifted).
+request-header readers, and `provider_from_env` itself. Scripts, eval harnesses,
+and live e2e tests all import from this module instead of each re-declaring
+`OPENAI_MODEL_ENV = "OPENAI_MODEL"` and a bespoke `build_*_provider()` (they
+used to — five near-identical copies that drifted).
 
 The env contract, by convention of this project's gateway setup:
 

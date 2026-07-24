@@ -1,12 +1,12 @@
 """Lint: environment knobs go through the config registry, not scattered reads.
 
 A new behavioral env knob belongs in `simple_agent_lab.config` — one `EnvVar`
-with one precedence rule (ADR centralized-env-config). To keep knobs from
-scattering back into ad-hoc `os.environ` / `os.getenv` reads across the package,
-this lint forbids direct environment access in `src/simple_agent_lab/` except:
+with one precedence rule. To keep knobs from scattering back into ad-hoc
+`os.environ` / `os.getenv` reads across the package, this lint forbids direct
+environment access in `src/simple_agent_lab/` except:
 
-- in the designated env-owner modules (ALLOWLIST below) — the registry itself,
-  the provider / model-alias env layer, and the interactive TUI gateway; and
+- in the designated env-owner modules (ALLOWLIST below) — the registry itself
+  and the provider / model-alias env layer; and
 - on a line carrying an inline ``# env-ok: <reason>`` marker, for a genuine
   one-off infra read (process-env scrubbing, a host->container handoff, the
   `.env`/profile loader, an optional-mapping fallback) that is not a behavioral
@@ -15,7 +15,7 @@ this lint forbids direct environment access in `src/simple_agent_lab/` except:
 So the only way to add a new env *knob* is to declare it in the registry; any
 other environment touch must be a consciously-marked exception.
 
-Run: uv run python scripts/env_lint.py
+Run: uv run python -m scripts.env_lint
 """
 
 from __future__ import annotations
@@ -36,8 +36,6 @@ ALLOWLIST = {
     "llm/env.py",  # provider / credentials / reasoning env (the owner)
     "llm/config.py",  # model-alias registry (<ALIAS>_* env)
     "llm/registry.py",  # model-alias resolution
-    "tui_gateway/server.py",  # interactive gateway: builds a provider from env
-    "tui_gateway/entry.py",  # interactive gateway: loads .env into its process
 }
 
 # Direct global-environment access. A passed-in `environ`/`env` Mapping (the

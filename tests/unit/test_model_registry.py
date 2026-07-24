@@ -1,8 +1,7 @@
 """Model registry: aliases resolved from a JSON file, or one OPENAI_* provider.
 
 Multi-model comes from a JSON config file (`llm.config`); single-model falls back
-to the base ``OPENAI_*`` provider that ``main`` uses. See ADRs
-model-alias-registry and model-config-file.
+to the base ``OPENAI_*`` provider that ``main`` uses.
 """
 
 from __future__ import annotations

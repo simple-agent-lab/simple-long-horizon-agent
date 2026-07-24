@@ -439,7 +439,8 @@ def run_official_eval(
     subprocess.run(
         [
             sys.executable,
-            str(ROOT / "evals/swebench/evaluate_predictions.py"),
+            "-m",
+            "evals.swebench.evaluate_predictions",
             "--pro",
             "--run-official",
             "--predictions",

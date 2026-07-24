@@ -5,9 +5,7 @@ Deterministic and credential-free: it feeds the registry an explicit env dict
 config for the multi-model path, and prints how each alias resolves, so both
 surfaces are visible without a provider call.
 
-    uv run python scripts/run_model_registry_demo.py
-
-See ADRs model-alias-registry and model-config-file.
+    uv run python -m scripts.run_model_registry_demo
 """
 
 from __future__ import annotations

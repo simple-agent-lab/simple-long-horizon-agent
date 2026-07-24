@@ -26,23 +26,16 @@ import tempfile
 from pathlib import Path
 from typing import Any, Callable
 
-ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "src"
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
 # The OpenAI env-var names and the `.env` loader are owned by
 # `simple_agent_lab.llm.env` (single source of truth). This host-side harness
 # only forwards these names into the container; the container half reads them
-# via the same module. See ADR consolidate-provider-env.
-import simple_agent_lab.config as config  # noqa: E402
-from simple_agent_lab.agent_flavors import (  # noqa: E402
+# via the same module.
+import simple_agent_lab.config as config
+from simple_agent_lab.agent_flavors import (
     AGENT_FLAVORS,
     DEFAULT_AGENT_FLAVOR as _DEFAULT_AGENT_FLAVOR,
 )
-from simple_agent_lab.llm.env import (  # noqa: E402
+from simple_agent_lab.llm.env import (
     API_KIND_ENV,
     OPENAI_API_KIND_CHOICES,
     OPENAI_AUTH_ENV,
@@ -58,8 +51,10 @@ from simple_agent_lab.llm.env import (  # noqa: E402
 
 # Re-exported so the run entry (`runs/_benches/swebench.py`) keeps calling
 # `harness.load_dotenv`; the implementation is owned by `llm.env`.
-from simple_agent_lab.llm.env import load_dotenv as load_dotenv  # noqa: E402,F401
-from simple_agent_lab.trace import read_jsonl  # noqa: E402
+from simple_agent_lab.llm.env import load_dotenv as load_dotenv
+from simple_agent_lab.trace import read_jsonl
+
+ROOT = Path(__file__).resolve().parents[2]
 
 DEFAULT_DATASET = "princeton-nlp/SWE-bench_Verified"
 DEFAULT_MULTILINGUAL_DATASET = "SWE-bench/SWE-bench_Multilingual"
@@ -97,7 +92,7 @@ OPENAI_PASSTHROUGH_ENVS = (
     OPENAI_REASONING_EFFORT_ENV,
     # Every registered config knob (compression threshold, workflow widths, …),
     # so the in-container agent honours any host `.env` setting without each new
-    # knob having to be added here by hand. See ADR centralized-env-config.
+    # knob having to be added here by hand.
     *(var.name for var in config.REGISTRY),
 )
 PRIVATE_INSTANCE_FIELDS = {

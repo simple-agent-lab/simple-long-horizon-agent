@@ -23,4 +23,4 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 source runs/lib/_python.sh
 
-exec "${PYTHON[@]}" evals/swebench/evaluate_predictions.py "$@"
+exec "${PYTHON[@]}" -m evals.swebench.evaluate_predictions "$@"

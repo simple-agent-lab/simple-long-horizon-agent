@@ -3,9 +3,8 @@
 ProgramBench's authoritative scorer is the official ``programbench`` evaluator
 (compile the submission → restore ``./executable`` with a sha256 check → run each
 test branch's pytest → JUnit XML → pass rate). It is not a framework seam
-(`collapse-scorer-seam-into-run-primitive` /
-`programbench-reverse-engineering-adapter`): a run writes its product to
-``out/result.json`` and scoring is this standalone follow-up step.
+because a run writes its product to ``out/result.json`` and scoring is this
+standalone follow-up step.
 
 The one ProgramBench-specific shaping step is that our container half returns the
 submission tarball base64-encoded inside ``result.json`` (a container half can
@@ -22,7 +21,7 @@ only return bytes through that file). This script:
 
 Usage::
 
-    uv run python evals/programbench/evaluate_submissions.py \
+    uv run python -m evals.programbench.evaluate_submissions \
         --run-root evals/out/programbench --run-id my-run [--instance-ids a b] \
         [--workers 4] [--branch-workers 2] [--docker-cpus 20] [--docker-memory 60g] [--force] [--collect-only]
 """
@@ -33,18 +32,12 @@ import argparse
 import base64
 import json
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
+from evals.programbench import harness
+
 ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "src"
-for _path in (ROOT, SRC):
-    if str(_path) not in sys.path:
-        sys.path.insert(0, str(_path))
-
-from evals.programbench import harness  # noqa: E402
-
 SUBMISSION_KEY = "submission_tar_b64"
 DEFAULT_DOCKER_MEMORY = "60g"
 
@@ -197,7 +190,7 @@ def run_official_info(eval_dir: Path, *, programbench_bin: str = "programbench")
 
     cmd = [programbench_bin, "info", str(eval_dir)]
     print("==> " + " ".join(cmd))
-    return subprocess.run(cmd).returncode
+    return subprocess.run(cmd, check=False).returncode
 
 
 def collect_eval_manifest(eval_dir: Path, instance_ids: list[str]) -> dict[str, Any]:

@@ -14,8 +14,9 @@ Simple Agent Lab should make agent systems easier to understand, modify, and tea
 - Treat tests and feedback as first-priority work; define the feedback signal before editing code.
 - Prefer small, explicit modules over clever abstractions.
 - Preserve beginner readability unless there is a clear reason not to.
-- Document important architectural choices in `docs/decisions/`.
-- Capture reference-architecture research notes locally under `docs/reference-architectures/` before borrowing a pattern; the directory's contents are gitignored except for the README and template, so notes stay on your disk and only the durable commitment lands in an ADR.
+- Capture reference-architecture research notes locally under
+  `docs/reference-architectures/` before borrowing a pattern; the directory's
+  contents are gitignored except for the README and template.
 - Keep examples small and runnable once code exists.
 
 ## Environment and Commands
@@ -24,7 +25,7 @@ This is a `uv`-managed project (`[tool.uv] managed = true`). Run **every**
 command through `uv` so it uses the project's pinned environment.
 
 - Run Python through `uv run`, never a bare `python`/`python3`/`pip`. Examples:
-  `uv run python -m unittest ...`, `uv run python scripts/foo.py`,
+  `uv run python -m unittest ...`, `uv run python -m scripts.foo`,
   `uv run ruff check`.
 - Manage dependencies with `uv` (`uv add`, `uv remove`, `uv sync`), not `pip`.
   Edit `pyproject.toml` for dependency-group or optional-dependency changes,
@@ -40,10 +41,8 @@ This repo uses a small progressive-disclosure documentation system for future ag
 Read this first:
 
 - `docs/agent-native/README.md` is the single agent-facing loading map. It
-  routes future agents to operating rules, context docs, ADRs, runbooks, and
+  routes future agents to operating rules, context docs, runbooks, and
   tests as needed.
-- `docs/decisions/` is this repo's ADR directory; do not create a parallel
-  ADR tree.
 
 Maintenance principles:
 
@@ -56,7 +55,8 @@ Maintenance principles:
 - If future agents should load different docs, update the same loading map.
 - Put unresolved owner or external-system facts in the owner-question doc named
   by the agent loading map.
-- Use ADRs only for hard-to-reverse decisions with real tradeoffs; link ADRs from the relevant agent-native doc instead of duplicating them.
+- Keep durable architectural guidance in the relevant topic doc and verify
+  behavior through code and tests.
 
 ## Goals
 
@@ -78,15 +78,19 @@ Maintenance principles:
 - Use plain names and direct control flow.
 - Add comments only when they clarify non-obvious intent.
 - Keep public examples stable and beginner-friendly.
-- Avoid implementation work until the architecture exploration phase has produced decisions.
+- Validate architectural changes with a concrete feedback signal before broad
+  implementation.
 
 ## Suggested Agent Workflow
 
 1. Read `README.md` and this file.
-2. Use `docs/agent-native/README.md` to choose the relevant context, decision,
-   or validation docs.
+2. Use `docs/agent-native/README.md` to choose the relevant context or
+   validation docs.
 3. Inspect the current source of truth before editing; do not rely on chat memory alone.
 4. Define the feedback signal: unit test, smoke run, eval, trace, or review checklist.
-5. If the task depends on an external idea, capture or update a local note under `docs/reference-architectures/` (the dir is gitignored; only the convention is shared). Promote the durable commitment to an ADR.
-6. If the task creates an architectural commitment, add a decision record in `docs/decisions/`.
+5. If the task depends on an external idea, capture or update a local note
+   under `docs/reference-architectures/` (the dir is gitignored; only the
+   convention is shared).
+6. If the task changes an architectural boundary, update the relevant topic
+   doc and its validation.
 7. Run the narrowest useful check and report the command.

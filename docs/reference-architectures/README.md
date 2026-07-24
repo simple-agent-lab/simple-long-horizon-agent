@@ -2,8 +2,7 @@
 
 This directory is a local workspace for reference-architecture research
 notes — sketches of how external agent systems are built, captured
-before you borrow a pattern in `src/` or commit to a decision in
-`docs/decisions/`.
+before you borrow a pattern in `src/`.
 
 The directory's contents are **gitignored by design** (see the project
 `.gitignore`), except for this README and `template.md`. Drop your own
@@ -21,6 +20,6 @@ Each note should describe:
 
 Use [template.md](template.md) for new entries.
 
-When a reference note actually drives an implementation choice, capture
-the resulting commitment in an ADR under `docs/decisions/` — that part
-*is* tracked and forms the public, durable record.
+When a reference note drives implementation, update the narrowest relevant
+topic doc and add a test or other executable validation for the resulting
+boundary.

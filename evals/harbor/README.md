@@ -74,7 +74,7 @@ Use `--dry-run` to inspect the Harbor command without requiring Harbor, Docker,
 or model credentials:
 
 ```bash
-uv run python runs/run_bench.py harbor \
+uv run python -m runs.run_bench harbor \
   --dataset demo \
   --n-tasks 1 \
   --dry-run \
@@ -92,7 +92,7 @@ harbor run --dataset demo --n-tasks 1 --agent simple_agent_lab.evals.harbor.agen
 For a Harbor registry dataset:
 
 ```bash
-uv run python runs/run_bench.py harbor \
+uv run python -m runs.run_bench harbor \
   --dataset <dataset-name> \
   --n-tasks 1 \
   --model <provider/model>
@@ -101,7 +101,7 @@ uv run python runs/run_bench.py harbor \
 For a local Harbor dataset or task directory:
 
 ```bash
-uv run python runs/run_bench.py harbor \
+uv run python -m runs.run_bench harbor \
   --path /path/to/harbor/dataset-or-task \
   --n-tasks 1 \
   --model <provider/model>
@@ -155,10 +155,11 @@ trajectory are debugging artifacts for understanding the agent loop.
 ## Terminal-Bench 2.1 Batch Runs
 
 The checked-in Terminal-Bench 2.1 launchers use the model configured in the
-root `.env`, force `OPENAI_REASONING_EFFORT=xhigh`, run 10 trials concurrently,
+root `.env`, default `REASONING_EFFORT` to `xhigh`, run 10 trials concurrently,
 set the general and agent-setup timeout multipliers to 3, and give each SAL
-agent 150 turns. They also forward `SAL_BASH_MAX_TIMEOUT_SECONDS=300`, matching
-the Bash tool's 300-second default maximum command timeout:
+agent 150 turns. An existing `REASONING_EFFORT` value takes precedence. The
+launchers also forward `SAL_BASH_MAX_TIMEOUT_SECONDS=300`, matching the Bash
+tool's 300-second default maximum command timeout:
 
 ```bash
 bash runs/harbor/run_terminal_bench_2_1_bash.sh

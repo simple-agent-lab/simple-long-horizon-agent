@@ -8,8 +8,8 @@ form the product. Here the product is the program's actual output: the agent edi
 "edit code, then execute to check" shape SWE-bench uses, just one file instead of
 a repo. It needs a real model (the agent must locate and fix the bug).
 
-This suite scores *in the run environment* (ADR collapse-scorer-seam-into-run-primitive): the gold answer rides on
-the instance as ``expected``; `task_input` *hides* it from the agent; `eval_inputs`
+This suite scores *in the run environment*: the gold answer rides on the
+instance as ``expected``; `task_input` *hides* it from the agent; `eval_inputs`
 stages it under EVAL_KEY (gold the agent never sees); and the container-half
 `evaluate` hook runs the program and compares its output against the gold, merging
 a verdict into ``result.json``. The verdict lives next to the product, so there is
@@ -115,5 +115,6 @@ def _program_output(workspace: Path) -> str:
         capture_output=True,
         text=True,
         timeout=30,
+        check=False,
     )
     return (proc.stdout or "").strip()

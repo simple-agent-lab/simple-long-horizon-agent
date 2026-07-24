@@ -9,9 +9,9 @@ the model would see a real image on its next turn.
 
 Examples:
 
-    uv run --extra mcp python scripts/run_mcp_agent_demo.py
-    uv run --extra mcp python scripts/run_mcp_agent_demo.py --list
-    uv run --extra mcp python scripts/run_mcp_agent_demo.py --color gold --save-image /tmp/swatch.png
+    uv run --extra mcp python -m scripts.run_mcp_agent_demo
+    uv run --extra mcp python -m scripts.run_mcp_agent_demo --list
+    uv run --extra mcp python -m scripts.run_mcp_agent_demo --color gold --save-image /tmp/swatch.png
 
 The default run is deterministic: a small scripted `generate` issues the
 tool call (no API key needed) while still going through the real runtime

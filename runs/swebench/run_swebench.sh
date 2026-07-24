@@ -3,4 +3,4 @@
 
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-exec uv run --extra swebench python runs/run_bench.py batch swebench "$@"
+exec uv run --extra swebench python -m runs.run_bench batch swebench "$@"

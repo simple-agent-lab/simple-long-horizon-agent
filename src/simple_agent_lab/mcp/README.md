@@ -12,9 +12,6 @@ This subpackage is **optional**. Install the extra:
 uv sync --extra mcp          # or: pip install "simple-agent-lab[mcp]"
 ```
 
-See [ADR mcp-as-tool-source](../../../docs/decisions/20260531-mcp-as-tool-source.md) for the
-rationale.
-
 ## Quick start
 
 ```python
@@ -85,5 +82,5 @@ The server is `scripts/mcp_demo_server.py`; the client/agent is
 
 ## Scope
 
-Tools only. MCP resources, prompts, and sampling are out of scope for now
-(see ADR mcp-as-tool-source). Transports: stdio and Streamable HTTP.
+Tools only. MCP resources, prompts, and sampling are out of scope for now.
+Transports: stdio and Streamable HTTP.

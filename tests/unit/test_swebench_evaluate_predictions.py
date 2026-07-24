@@ -385,7 +385,7 @@ def _separate_row(instance_id: str, *, resolved: bool) -> dict[str, object]:
 
 
 class ReuseEvalRowTest(unittest.TestCase):
-    """In-environment ("reuse") scoring helper, no Docker (ADR collapse-scorer-seam-into-run-primitive).
+    """In-environment ("reuse") scoring helper without Docker.
 
     `reuse_eval_row` grades what the container-half ``evaluate`` hook merged into
     ``result.json``. The no-Docker branches (an explicit verdict, a missing
@@ -427,7 +427,7 @@ class ReuseEvalRowTest(unittest.TestCase):
 
 
 class ParityGateTest(unittest.TestCase):
-    """The parity gate (hard requirement, ADR collapse-scorer-seam-into-run-primitive): reuse must match official."""
+    """The parity gate requires reuse to match the official result."""
 
     def test_parity_holds_when_reuse_matches_official(self) -> None:
         separate = [

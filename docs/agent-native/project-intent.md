@@ -8,7 +8,7 @@ Read when:
 
 Do not read for:
 
-- Narrow bug fixes already covered by source code, tests, or ADRs.
+- Narrow bug fixes already covered by source code or tests.
 
 ## Mission
 
@@ -37,15 +37,15 @@ changed without reading a large framework.
 Works inside a company team and wants to test whether agents can help with
 internal tasks.
 
-Needs a small base that can be adapted to local workflows, explicit architecture
-choices, simple extension points, and enough structure for team collaboration.
+Needs a small base that can be adapted to local workflows, visible architecture,
+simple extension points, and enough structure for team collaboration.
 
 ### Agent Contributor
 
 Uses an AI coding agent to extend the project.
 
-Needs a stable collaboration contract, clear task specs, decision records, and
-context files that explain intent rather than only file locations.
+Needs a stable collaboration contract, clear task specs, and context files that
+explain intent rather than only file locations.
 
 ## Design Principles
 
@@ -76,10 +76,11 @@ constraints, and next steps before editing files.
 
 ## Current Phase
 
-The repo now has a canonical small runtime under `src/simple_agent_lab/`, a
-provider-agnostic LLM boundary under `src/simple_agent_lab/llm/`, deterministic
-local examples, focused tests, and an optional SWE-bench eval adapter.
+The repo has a canonical small runtime under `src/simple_agent_lab/`, a
+provider-agnostic LLM boundary with OpenAI and Anthropic adapters,
+deterministic local examples, focused tests, and optional benchmark
+integrations.
 
-Near-term work should preserve the small teaching core while making one live
-provider path practical. Owner confirmation on 2026-05-11 chose `openai-chat`
-as the first live provider adapter target.
+Near-term work should preserve the small teaching core while improving
+reliability on long-horizon tasks, observability, and reproducible evaluation.
+External providers and benchmark infrastructure should remain optional.

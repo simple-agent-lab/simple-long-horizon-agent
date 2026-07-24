@@ -162,7 +162,7 @@ Set `OPENAI_MODEL`, provider tokens, and optional `REASONING_EFFORT` in `.env`.
 Prepare the wheelhouse on the first run or after dependency changes.
 
 ```bash
-uv run --extra swebench python runs/swebench/run_swebench_pro_repo_chains.py \
+uv run --extra swebench python -m runs.swebench.run_swebench_pro_repo_chains \
   --all \
   --chains-json evals/swebench/data/swe_bench_pro_chain_experiment_nodes_deep.jsonl \
   --provider-auth-envs OPENAI_AUTH_TOKEN:12,OPENAI_AUTH_TOKEN2:11 \

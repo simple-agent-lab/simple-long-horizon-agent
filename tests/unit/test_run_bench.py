@@ -3,28 +3,16 @@
 from __future__ import annotations
 
 import io
+import importlib.util
 import json
-import sys
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-from tests.unit._support import load_module
+from runs import run_bench
 
 ROOT = Path(__file__).resolve().parents[2]
-
-
-def _load_run_bench():
-    # run_bench.py sets up sys.path itself; ensure runs/ is importable for the
-    # bench modules it pulls in.
-    for p in (str(ROOT), str(ROOT / "src"), str(ROOT / "runs")):
-        if p not in sys.path:
-            sys.path.insert(0, p)
-    return load_module(ROOT / "runs/run_bench.py", "sal_run_bench")
-
-
-run_bench = _load_run_bench()
 
 EXPECTED_BENCHES = {
     "swebench",
@@ -172,10 +160,11 @@ class RunBenchScoreOracleTest(unittest.TestCase):
             accepts(run_bench.BENCHES["programbench"].module._build_parser())
         )
 
-    def test_benches_with_a_scorer_point_at_a_real_file(self) -> None:
+    def test_benches_with_a_scorer_point_at_an_importable_module(self) -> None:
         for name, bench in run_bench.BENCHES.items():
             scorer = getattr(bench.module, "SCORER", None)
             if scorer is None:
                 continue
             with self.subTest(bench=name):
-                self.assertTrue((ROOT / scorer[0]).exists(), scorer)
+                self.assertEqual(scorer[0], "-m")
+                self.assertIsNotNone(importlib.util.find_spec(scorer[1]), scorer)

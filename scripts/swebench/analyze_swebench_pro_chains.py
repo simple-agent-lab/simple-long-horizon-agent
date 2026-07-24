@@ -4,7 +4,7 @@
 
 Run from the repository root:
 
-    uv run python scripts/swebench/analyze_swebench_pro_chains.py --help
+    uv run python -m scripts.swebench.analyze_swebench_pro_chains --help
 """
 
 from __future__ import annotations

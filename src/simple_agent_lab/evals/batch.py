@@ -238,9 +238,9 @@ def _finish(
     status_code: int,
 ) -> InstanceResult:
     run_dir = Path(handle.run_dir)
-    # Artifact paths follow the same keys as the blocking path (ADR eval-output-directory-convention), so
-    # they track TRACE_KEY rather than re-hardcoding the layout. ``result.json``
-    # is the decoupling artifact; any follow-up scoring reads it back.
+    # Artifact paths follow the same keys as the blocking path, so they track
+    # TRACE_KEY rather than re-hardcoding the layout. ``result.json`` is the
+    # decoupling artifact; any follow-up scoring reads it back.
     trajectory_path = run_dir / TRACE_KEY
     has_result = _has_result(store, handle.run_dir)
 

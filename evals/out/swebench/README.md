@@ -7,39 +7,30 @@ Verified batch runs are named `verified-<timestamp>`.
 
 ```text
 evals/out/swebench/
-├── README.md                       ← this file
-├── instance_<id>.jsonl             ← fetched instance records
-├── wheelhouse/                     ← pre-built wheels for container installs
+├── README.md
+├── instance_<id>.jsonl
+├── wheelhouse/
 │   └── cp311-manylinux/*.whl
 └── <run-id>/
-    └── <instance-id>/              (e.g. django__django-12113)
+    └── <instance-id>/
         ├── input/
-        │   └── instance.json       sanitized instance fed to the agent
+        │   └── instance.json
         └── out/
-            ├── trajectory.jsonl    three-layer trace (schema v3)
-            └── prediction.jsonl    {instance_id, model_name_or_path, model_patch}
+            ├── trajectory.jsonl    three-layer trace (schema v5)
+            └── prediction.jsonl    model_patch prediction
 ```
 
 ## Generating a Run
 
 ```bash
-# Quick smoke run on a single instance
 bash runs/swebench/run_swebench.sh sympy__sympy-23824
-
-# Full SWE-bench Verified split
 bash runs/swebench/run_swebench.sh --all --parallel 4
 ```
 
 ## Evaluating Predictions
 
 ```bash
-python evals/swebench/evaluate_predictions.py \
+uv run python -m evals.swebench.evaluate_predictions \
   --predictions evals/out/swebench/<run-id>/<id>/out/prediction.jsonl \
-  --instance    evals/out/swebench/<run-id>/<id>/input/instance.json
+  --instance evals/out/swebench/<run-id>/<id>/input/instance.json
 ```
-
-## File Sizes
-
-- `trajectory.jsonl`: 50 KB – 5 MB per instance (contains raw LLM I/O)
-- `prediction.jsonl`: < 10 KB per instance
-- `instance.json`: < 50 KB per instance

@@ -4,7 +4,7 @@ Read when:
 
 - You are changing behavior, public contracts, validation gates, eval records,
   generated artifacts, or doc routing.
-- You are unsure whether a change needs more evidence, owner input, or an ADR.
+- You are unsure whether a change needs more evidence or owner input.
 
 Do not read for:
 
@@ -12,7 +12,7 @@ Do not read for:
 - Purely mechanical formatting changes that do not alter behavior.
 
 This file is a maintenance policy, not a loading map. Use the agent-native
-README to choose task-specific code, docs, tests, runbooks, and ADRs.
+README to choose task-specific code, docs, tests, and runbooks.
 
 ## Source-Of-Truth Principles
 
@@ -20,7 +20,6 @@ README to choose task-specific code, docs, tests, runbooks, and ADRs.
 - Tests, smoke scripts, and CI config win for what is actually verified.
 - The public README wins for the user-facing project tour and setup path.
 - The agent loading map wins for what future agents should read first.
-- ADRs win for durable architecture decisions and rejected alternatives.
 - Topic docs should explain intent, constraints, and maintenance preferences
   that code does not make obvious.
 - Generated artifacts, local eval outputs, traces, and scratch notes are not
@@ -40,8 +39,8 @@ needed as a routing hint.
    default.
 5. Update docs only where the reader needs non-obvious context or a changed
    command/path.
-6. If a change creates a hard-to-reverse architectural commitment, add or
-   update an ADR instead of burying the decision in a topic doc.
+6. If a change creates a durable architectural boundary, update the relevant
+   topic doc and add an executable validation where practical.
 
 ## Dates In Docs
 
@@ -49,12 +48,11 @@ needed as a routing hint.
   "updated on", "as of <date>", "inspected on <date>", or similar lines. They
   go stale on the next edit and cause avoidable merge conflicts.
 - Express freshness through content that can be checked against the repo
-  (paths, commands, exports, ADR slugs, commit refs), not a hand-maintained
+  (paths, commands, exports, commit refs), not a hand-maintained
   date.
-- Exception: a date that records an immutable historical event may stay — ADR
-  acceptance or withdrawal metadata, a dated owner decision, or a changelog
-  entry. These are facts about the past, not freshness stamps that need
-  re-touching on every edit.
+- Exception: a date that records an immutable historical event may stay, such
+  as a dated owner choice or a changelog entry. These are facts about the past,
+  not freshness stamps that need re-touching on every edit.
 
 ## Usually Safe To Edit
 
@@ -64,7 +62,7 @@ Agents can usually edit these with code evidence and a narrow check:
 - Deterministic examples and smoke scripts.
 - Stale commands, stale links, and doc routing.
 - Local reference notes before implementation begins.
-- Handoff notes that are clearly temporary and not architectural decisions.
+- Handoff notes that are clearly temporary.
 
 ## Needs More Evidence
 
@@ -85,7 +83,7 @@ Ask or record a question before changing:
 - Required-vs-optional status for live providers, Docker, or benchmark suites.
 - Release ownership, reviewer expectations, tagging, or publishing flow.
 - Product positioning, teaching audience, or scope boundaries that are not
-  already reflected in the public README, loading map, or ADRs.
+  already reflected in the public README or loading map.
 
 ## Validation Selection
 
@@ -111,14 +109,8 @@ crosses module boundaries.
   the owner explicitly changes that policy.
 - Keep generated outputs in ignored artifact directories, not in source docs.
 
-## ADR Boundary
+## Durable Guidance
 
-Create or update an ADR only when all of these are true:
-
-- The decision is hard or expensive to reverse.
-- Future agents or engineers would otherwise wonder why the system is shaped
-  this way.
-- There is a real tradeoff between credible alternatives.
-
-Otherwise, update the relevant code, test, topic doc, run script, reference
-note, or loading-map entry.
+Keep long-lived architectural constraints in the narrowest relevant topic doc.
+Prefer code, tests, run scripts, and validation rules for behavior that can be
+checked mechanically.

@@ -11,8 +11,7 @@ adapters.
 The eval system spans two trees. The split is **by deployment, not by
 accident**: the engine plus each suite's *light* half ship in the wheel and get
 imported inside the container; the *heavy* host-side half (Docker SDK, official
-scorers) stays out of the wheel. See ADR
-[`generic-containerized-eval-framework`](../docs/decisions/20260531-generic-containerized-eval-framework.md).
+scorers) stays out of the wheel.
 
 ```
 src/simple_agent_lab/evals/     ← the ENGINE — ships in the wheel
@@ -60,18 +59,31 @@ That script runs the focused patch extraction, host-helper, and
 prediction-evaluation unit tests without installing SWE-bench or running
 Docker.
 
-The ProgramBench adapter (reverse-engineering; ADR
-`programbench-reverse-engineering-adapter`) has a matching
-Docker-free, dependency-free smoke check:
+The ProgramBench reverse-engineering adapter has a matching Docker-free,
+dependency-free smoke check:
 
 ```bash
 uv run python -m unittest tests.unit.test_programbench_suite
 ```
 
+## Output artifacts
+
 Generated files under `evals/out/` are local artifacts and are ignored by git.
-Each subdirectory keeps a committed README describing the expected output layout
-so that every user sees the same directory skeleton after cloning. See
-[`evals/out/README.md`](out/README.md) for the full structure.
+The committed README skeleton makes the expected suite roots visible before the
+first run. Every suite follows the same compact layout:
+
+```text
+evals/out/<suite>/
+├── instance_<id>.jsonl
+├── wheelhouse/
+└── <run-id>/<instance-id>/
+    ├── input/
+    └── out/
+```
+
+See [`evals/out/README.md`](out/README.md) for the full skeleton. Suite-specific
+variations stay beside the relevant output root and in
+`evals/<suite>/README.md`.
 
 Record types:
 
@@ -81,8 +93,8 @@ Record types:
 
 ## Adding a Containerized Suite
 
-The generic framework lives in `simple_agent_lab.evals` (ADR generic-containerized-eval-framework). It supplies
-the container lifecycle, the Python/uv bootstrap, the run-directory convention,
+The generic framework lives in `simple_agent_lab.evals`. It supplies the
+container lifecycle, the Python/uv bootstrap, the run-directory convention,
 and the one artifact seam, so a new Docker benchmark only implements what is
 genuinely suite-specific:
 
@@ -163,7 +175,7 @@ needs **no third-party middleware** (the host runs a stdlib HTTP server).
 Reference: `evals/swebench/suite.py` (host half) +
 `simple_agent_lab.evals.suites.swebench.container` (the two functions).
 `FakeBackend` runs the whole flow without Docker for tests. Still follow the
-output-directory checklist in [`out/README.md`](out/README.md).
+shared output convention described in [Output artifacts](#output-artifacts).
 
 ### Local development → deployment (swap the backend)
 
@@ -306,8 +318,8 @@ run-only).
 ### Scoring
 
 There is no separate scoring driver: scoring is expressed through the run
-primitive (ADR collapse-scorer-seam-into-run-primitive). A run produces `out/result.json`, and scoring takes one of
-three shapes depending on where it belongs:
+primitive. A run produces `out/result.json`, and scoring takes one of three
+shapes depending on where it belongs:
 
 - **In the run environment — the `evaluate` hook.** The container half exposes an
   optional `evaluate(workspace, instance, *, context)`; when the suite stages gold
@@ -351,12 +363,12 @@ For SWE-bench, enable in-environment scoring with
 The default runtimes — `LocalProcessBackend` or `LocalDockerBackend`, with
 `LocalDirStore` — are compatible with the Observatory trace viewer
 (`studio/trace-viewer`) and its live tail with no extra wiring, because the
-framework preserves the viewer's three on-disk expectations (ADR eval-output-directory-convention):
+framework preserves the viewer's three on-disk expectations:
 
 - **Layout** `<run_root>/<run_id>/<instance_id>/out/trajectory.jsonl` — the
   viewer parses `run_id` / `instance_id` from exactly this shape.
 - **Filename** `trajectory.jsonl` (the `out/trajectory.jsonl` artifact key).
-- **Schema** `simple-agent-lab.trajectory.v3`, written by
+- **Schema** `simple-agent-lab.trajectory.v5`, written by
   `simple_agent_lab.trace.trace_record(...)`.
 
 Live updates work because the in-container runner re-`put`s the trajectory key

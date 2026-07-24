@@ -1,4 +1,4 @@
-"""Container halves of shipped suites (ADR generic-containerized-eval-framework).
+"""Container halves of shipped suites.
 
 These modules run *inside* the eval container, so they ship in the wheel and
 import only the standard library plus the installed ``simple-agent-lab``

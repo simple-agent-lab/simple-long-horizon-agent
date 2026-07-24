@@ -13,13 +13,13 @@ compression.
 
 Example smoke:
 
-    uv run --extra swebench python runs/swebench/run_swebench_pro_repo_chains.py \
+    uv run --extra swebench python -m runs.swebench.run_swebench_pro_repo_chains \
       --chains-json evals/swebench/data/swe_bench_pro_chain_experiment_nodes_deep.jsonl \
       --max-chains 1 --limit 2 --max-turns 5
 
 Formal run shape:
 
-    uv run --extra swebench python runs/swebench/run_swebench_pro_repo_chains.py \
+    uv run --extra swebench python -m runs.swebench.run_swebench_pro_repo_chains \
       --all \
       --chains-json evals/swebench/data/swe_bench_pro_chain_experiment_nodes_deep.jsonl \
       --provider-auth-envs OPENAI_AUTH_TOKEN:12,OPENAI_AUTH_TOKEN2:11 \
@@ -40,51 +40,44 @@ from __future__ import annotations
 
 import argparse
 import os
-import sys
 from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "src"
-for path in (ROOT, SRC):
-    if str(path) not in sys.path:
-        sys.path.insert(0, str(path))
-
-from evals.swebench import harness  # noqa: E402
-from evals.swebench.pro_memory_chain import (  # noqa: E402
+from evals.swebench import harness
+from evals.swebench.pro_memory_chain import (
     MemoryChain,
     RawIssueChain,
     load_issue_chains,
     plan_memory_chains,
 )
-from evals.swebench import pro_chain_runner as chain_runner  # noqa: E402
-from evals.swebench.pro_repo_chain import (  # noqa: E402
+from evals.swebench import pro_chain_runner as chain_runner
+from evals.swebench.pro_repo_chain import (
     ProRepoExperimentConfig,
     group_instances_by_repo,
 )
-from evals.swebench.suite import SwebenchSuite  # noqa: E402
-from simple_agent_lab.evals import LocalDirStore, LocalDockerBackend  # noqa: E402
-from simple_agent_lab.evals.protocols import RESULT_KEY  # noqa: E402
-from simple_agent_lab.evals.runner import (  # noqa: E402
+from evals.swebench.suite import SwebenchSuite
+from simple_agent_lab.evals import LocalDirStore, LocalDockerBackend
+from simple_agent_lab.evals.protocols import RESULT_KEY
+from simple_agent_lab.evals.runner import (
     canonical_run_id,
     container_name,
     prepare_run_directory,
     run_suite_instance,
     safe_path_part,
 )
-from simple_agent_lab.evals.chain import (  # noqa: E402
+from simple_agent_lab.evals.chain import (
     CHAIN_CONFIG_KEY,
     CHAIN_STATE_INPUT_KEY,
     CHAIN_STATE_OUTPUT_KEY,
 )
-from simple_agent_lab.llm.env import (  # noqa: E402
+from simple_agent_lab.llm.env import (
     OPENAI_MODEL_ENV,
     OPENAI_REASONING_EFFORT_ENV,
     REASONING_EFFORT_ENV,
 )
-from simple_agent_lab.trace import write_jsonl_atomic  # noqa: E402
+from simple_agent_lab.trace import write_jsonl_atomic
 
 PRO_REPO_CHAIN_RUNNER_MODULE = "simple_agent_lab.evals.chain"
 REPO_CHAIN_AGENT_FLAVORS = ("bash", "loop", "pdr")

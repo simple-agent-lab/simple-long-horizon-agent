@@ -115,7 +115,7 @@ class IncrementalTraceWriter:
     it writes the header once, then appends only the events added since the last
     flush (and their raw blobs to the sibling pool). A long run therefore never
     rewrites the growing file; a tailing reader only skips an incomplete trailing
-    line. See ADR trajectory-schema-v5.
+    line.
 
     Cadence: a background daemon thread takes a snapshot of ``state`` every
     ``min_interval_s`` seconds and appends only when the event log has actually
@@ -163,7 +163,7 @@ class IncrementalTraceWriter:
         self._write_lock = threading.Lock()
         # Append-only writer state: events / raw blobs already on disk, whether
         # the header line was written, and the running raw pool (so `raw_ref`
-        # stays append-stable across flushes). See schema v5 ADR.
+        # stays append-stable across flushes).
         self._events_written: int = 0
         self._pool: list[Any] = []
         self._pool_written: int = 0

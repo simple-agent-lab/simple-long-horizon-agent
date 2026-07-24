@@ -170,7 +170,7 @@ def collect_agents(events: Any) -> dict[str, str]:
 
     This is a *reader* helper: the v5 file does not persist the registry — this
     and the viewer's JS twin derive it from the stream, so a system prompt is
-    always the real one and never fabricated. See ADR trajectory-schema-v5.
+    always the real one and never fabricated.
     """
 
     agents: dict[str, str] = {}
@@ -199,8 +199,7 @@ def trace_header(trace: RunTrace) -> dict[str, Any]:
     the ``agents`` registry are all derived by readers from the event lines that
     follow (the viewer already recomputes spans/turns from events). ``task`` is a
     one-line preview only — the full task is the first event's ``task`` message, so
-    the header never re-stores the whole (possibly multi-KB) task. See ADR
-    trajectory-schema-v5.
+    the header never re-stores the whole (possibly multi-KB) task.
     """
 
     return {
@@ -223,7 +222,7 @@ def event_stream(
     event's verbatim provider ``raw`` snapshot into ``raw_pool`` (written to the
     sibling ``*.raw.jsonl``), leaving a ``{raw_ref}`` pointer. Writers emit
     ``header`` then the event lines as JSONL; the live writer appends only the
-    new tail each flush. See ADR trajectory-schema-v5.
+    new tail each flush.
     """
 
     lines, pool = split_raw_from_record([event_record(e) for e in trace.events])

@@ -2,7 +2,7 @@
 
 Simple Agent Lab should be developed as an agent-first project. Humans define
 intent, constraints, taste, and acceptance criteria. Agents do the mechanical
-work: reading context, editing files, running checks, recording decisions, and
+work: reading context, editing files, running checks, updating guidance, and
 improving the repository so later agents can work with less ambiguity.
 
 Reference:
@@ -24,18 +24,19 @@ Use this loop for non-trivial work:
 ```text
 read map -> define feedback signal -> inspect source of truth
   -> make the smallest useful change -> run the local check
-  -> update docs or decisions -> leave a clear trace
+  -> update relevant docs -> leave a clear trace
 ```
 
 In practice:
 
 1. Read `AGENTS.md`, then use `docs/agent-native/README.md` to pick the
-   relevant context, decision, or validation docs.
+   relevant context or validation docs.
 2. Define the feedback signal before editing: test, smoke script, eval,
    screenshot, trace, or explicit review checklist.
 3. If the task depends on external architecture ideas, capture or update a
    local note under `docs/reference-architectures/` (gitignored workspace).
-4. If the task changes architecture, add or update an ADR in `docs/decisions/`.
+4. If the task changes an architectural boundary, update the relevant topic
+   doc and its validation.
 5. Make the smallest implementation or documentation change that satisfies the
    task.
 6. Run the narrowest useful command from `runs/`, `scripts/`, or `tests/`.
@@ -56,15 +57,15 @@ Use this order:
 feedback signal -> red or baseline check -> implementation -> green check
 ```
 
-There is no default test suite yet because the core architecture is still being
-settled. Until then, document the intended feedback signal in the task, ADR, or
-architecture note.
+The unit suite is the default local feedback signal. When behavior is not
+unit-testable, document the intended signal in the relevant topic or workflow
+guide.
 
 For Simple Agent Lab, useful feedback signals include:
 
 - Unit tests for message shape, context visibility, scheduling, and model
   payload conversion.
-- Smoke runs for public examples and design versions.
+- Smoke runs for public examples and supported benchmarks.
 - Tiny evals for prompt, recipe, or context-view behavior.
 - Trace output that shows what an agent saw and emitted.
 - A short review checklist when the question is architectural rather than
@@ -103,7 +104,6 @@ Use progressive disclosure:
   agent-native map.
 - `docs/reference-architectures/`: local workspace for external-system research
   notes (gitignored; convention is documented, individual notes stay personal).
-- `docs/decisions/`: accepted architecture choices.
 - `runs/`: reproducible commands for demos, checks, and experiments.
 
 When adding documentation, prefer a small page with a clear owner and purpose
@@ -133,7 +133,8 @@ Human taste should become repository-local guidance.
 If a review discovers a better convention, do one of these:
 
 - Update `docs/agent-native/code-style.md` for style or readability preferences.
-- Update an ADR when the choice affects architecture.
+- Update the relevant agent-native topic doc when the choice affects an
+  architectural boundary.
 - Update a task template when future work should include a missing step.
 - Add a small test or run script when the rule can be checked mechanically.
 

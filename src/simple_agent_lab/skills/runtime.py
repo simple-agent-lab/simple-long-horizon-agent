@@ -142,8 +142,8 @@ def run_with_skills(
     """Run ``agent`` on ``task`` with skills advertised and injected.
 
     A thin wrapper over :func:`init_state_with_skills` + ``core.run`` for
-    callers that drive a skills run in one call (the interactive demo, the
-    gateway). Building a *bare, reusable* skills agent instead? Install
+    callers that drive a skills run in one call. Building a *bare, reusable*
+    skills agent instead? Install
     :func:`init_state_with_skills` as the agent's ``init_state`` (see
     ``agents.make_skill_agent``) and just call ``agent.run``.
 

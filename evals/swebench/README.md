@@ -2,7 +2,7 @@
 
 This directory is the first scene-level evaluation suite adapter.
 
-The adapter maps SWE-bench onto the generic `Suite` protocol (ADR generic-containerized-eval-framework):
+The adapter maps SWE-bench onto the generic `Suite` protocol:
 
 - `suite.py` defines `SwebenchSuite`, mapping SWE-bench Verified, SWE-bench
   Multilingual, and SWE-bench Pro onto one `Suite` whose per-suite differences
@@ -132,7 +132,7 @@ Or use the REST API without installing `datasets`:
 ```bash
 mkdir -p evals/out/swebench
 curl -s 'https://datasets-server.huggingface.co/rows?dataset=princeton-nlp/SWE-bench_Verified&config=default&split=test&offset=0&length=500' \
-  | python3 -c "
+  | uv run python -c "
 import json, sys
 data = json.load(sys.stdin)
 for row in data.get('rows', []):
@@ -301,7 +301,7 @@ directly on an already-prepared instance JSONL:
 ```bash
 bash runs/swebench/run_swebench.sh sympy__sympy-23824
 # or, equivalently:
-uv run python runs/run_bench.py swebench sympy__sympy-23824 \
+uv run python -m runs.run_bench swebench sympy__sympy-23824 \
   --instance-json evals/out/swebench/instance_sympy__sympy-23824.jsonl \
   --dataset-name princeton-nlp/SWE-bench_Verified \
   --provider openai --api-kind openai-chat --dotenv .env \
@@ -311,7 +311,7 @@ uv run python runs/run_bench.py swebench sympy__sympy-23824 \
 
 Add `--in-env-scoring` to also run the official eval script in the run
 environment via the container-half `evaluate` hook (graded host-side with
-`evaluate_predictions.reuse_eval_row`); see ADR collapse-scorer-seam-into-run-primitive.
+`evaluate_predictions.reuse_eval_row`).
 
 Outputs land under `evals/out/swebench/<run-id>/<instance-id>/out/`:
 
@@ -324,7 +324,7 @@ The official judge runs in a separate clean container. First collect the per-run
 this for you with `predictions_from_run_dirs`):
 
 ```bash
-uv run python evals/swebench/evaluate_predictions.py --collect-predictions \
+uv run python -m evals.swebench.evaluate_predictions --collect-predictions \
   --run-root evals/out/swebench --run-id my-run \
   --dataset-name princeton-nlp/SWE-bench_Verified \
   --model-name simple-agent-lab \

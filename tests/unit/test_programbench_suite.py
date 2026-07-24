@@ -1,4 +1,4 @@
-"""Unit-smoke for the ProgramBench adapter (ADR 0022). No Docker, no programbench.
+"""Unit smoke for the ProgramBench adapter. No Docker or ProgramBench install.
 
 Four seams, none of which need the optional ``programbench`` package or Docker:
 

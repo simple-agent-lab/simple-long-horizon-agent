@@ -23,13 +23,13 @@ runs/
 Start with the unified entry:
 
 ```bash
-uv run python runs/run_bench.py list            # what benches exist
-uv run python runs/run_bench.py setup           # is my environment ready?
-uv run python runs/run_bench.py <bench> ...     # run one bench
-uv run python runs/run_bench.py batch <bench> ...   # select/run a concurrent batch
-uv run python runs/run_bench.py score <bench> ...   # official scorer (or note inline scoring)
-uv run python runs/run_bench.py oracle <bench> ...  # gold/model-free reference run (wiring check)
-uv run python runs/run_bench.py all --manifest runs/bench-manifest.json
+uv run python -m runs.run_bench list            # what benches exist
+uv run python -m runs.run_bench setup           # is my environment ready?
+uv run python -m runs.run_bench <bench> ...     # run one bench
+uv run python -m runs.run_bench batch <bench> ...   # select/run a concurrent batch
+uv run python -m runs.run_bench score <bench> ...   # official scorer (or note inline scoring)
+uv run python -m runs.run_bench oracle <bench> ...  # gold/model-free reference run (wiring check)
+uv run python -m runs.run_bench all --manifest runs/bench-manifest.json
 ```
 
 `score` reaches a bench's official scorer (SWE-bench / ProgramBench delegate to
@@ -128,7 +128,7 @@ bash runs/swebench/run_swebench.sh --variant pro --ids-file ids.txt --parallel 4
 bash runs/swebench/run_swebench.sh --variant pro --all --parallel 4
 
 # The same Python entry, without the compatibility wrapper:
-uv run --extra swebench python runs/run_bench.py batch swebench \
+uv run --extra swebench python -m runs.run_bench batch swebench \
   --variant pro --all --parallel 4
 ```
 
