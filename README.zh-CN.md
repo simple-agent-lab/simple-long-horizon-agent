@@ -51,9 +51,9 @@ Simple Agent Lab 足够小，可以被完整理解和自由修改；同时也足
 
 | Benchmark | 模型 | **分数 ↑** | 同模型基线 | **相对基线提升 ↑** | 单任务成本 |
 | --- | --- | ---: | ---: | ---: | ---: |
-| [SWE-bench Pro](evals/swebench/README.md)<br>Resolved (%) | — | **—** | — | **—** | — |
-| [Terminal-Bench](evals/harbor/README.md)<br>2.1 官方分数 | — | **—** | — | **—** | — |
-| [PostTrainBench](https://posttrainbench.com/)<br>加权平均分 | — | **—** | — | **—** | — |
+| [SWE-bench Pro](evals/swebench/README.md)<br>Resolved (%) | GPT-5.4 (xHigh) | **63.20%** | [59.10%](https://labs.scale.com/leaderboard/swe_bench_pro_public) | **+6.94%** | $7.7823 |
+| [Terminal-Bench](evals/harbor/README.md)<br>2.1 官方分数 | GPT-5.3-Codex (xHigh) | **77.53%** | [64.70%](https://www.tbench.ai/leaderboard/terminal-bench/2.0) | **+19.83%** | $0.5667 |
+| [PostTrainBench](https://posttrainbench.com/)<br>加权平均分 | GPT-5.5 (xHigh) | **45.88%** | 43.97% | **+4.34%** | — |
 
 **相对基线提升**表示：在使用相同模型和任务预算时，相比基础方案取得的分数增益。它用于区分 Agent 带来的价值与底层模型本身的能力。
 
