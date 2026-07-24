@@ -20,15 +20,7 @@ Both use one `ContextPolicy(strategy=TieredStrategy((ToolCompact, Summarize)))`:
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from simple_agent_lab import (  # noqa: E402
+from simple_agent_lab import (
     Agent,
     ContextCompressionEvent,
     ContextPolicy,
@@ -42,8 +34,8 @@ from simple_agent_lab import (  # noqa: E402
     message_text,
     run,
 )
-from simple_agent_lab.messages import TextBlock, ToolCallBlock  # noqa: E402
-from simple_agent_lab.tools import AgentTool, ToolResult, text_result  # noqa: E402
+from simple_agent_lab.messages import TextBlock, ToolCallBlock
+from simple_agent_lab.tools import AgentTool, ToolResult, text_result
 
 
 def _policy() -> ContextPolicy:

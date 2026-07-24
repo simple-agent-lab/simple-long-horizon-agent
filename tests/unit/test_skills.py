@@ -407,7 +407,3 @@ class SwebenchFlavorTest(unittest.TestCase):
             ):
                 prompt = system_prompt_with_skills("BASE", cwd=Path(tmp), home=tmp)
         self.assertEqual(prompt, "BASE")
-
-
-if __name__ == "__main__":
-    unittest.main()

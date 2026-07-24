@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
 from simple_agent_lab import (
     ContextWindowBook,
@@ -142,10 +146,6 @@ class ContextWindowBookLookupTest(unittest.TestCase):
         self.assertIsNone(book.window_for("claude-opus-4-2-20260101"))
 
     def test_litellm_env_file_adds_models(self) -> None:
-        import os
-        import tempfile
-        from pathlib import Path
-
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "windows.json"
             path.write_text(
@@ -161,23 +161,12 @@ class ContextWindowBookLookupTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            old = os.environ.get(CONTEXT_WINDOW_BOOK_ENV)
-            os.environ[CONTEXT_WINDOW_BOOK_ENV] = str(path)
-            try:
+            with mock.patch.dict(os.environ, {CONTEXT_WINDOW_BOOK_ENV: str(path)}):
                 book = default_context_window_book()
-            finally:
-                if old is None:
-                    del os.environ[CONTEXT_WINDOW_BOOK_ENV]
-                else:
-                    os.environ[CONTEXT_WINDOW_BOOK_ENV] = old
 
         self.assertEqual(book.window_for("my-model"), 123_456)
 
     def test_models_dev_models_json_adds_context_windows(self) -> None:
-        import os
-        import tempfile
-        from pathlib import Path
-
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "models.json"
             path.write_text(
@@ -195,23 +184,12 @@ class ContextWindowBookLookupTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            old = os.environ.get(CONTEXT_WINDOW_BOOK_ENV)
-            os.environ[CONTEXT_WINDOW_BOOK_ENV] = str(path)
-            try:
+            with mock.patch.dict(os.environ, {CONTEXT_WINDOW_BOOK_ENV: str(path)}):
                 book = default_context_window_book()
-            finally:
-                if old is None:
-                    del os.environ[CONTEXT_WINDOW_BOOK_ENV]
-                else:
-                    os.environ[CONTEXT_WINDOW_BOOK_ENV] = old
 
         self.assertEqual(book.window_for("deepseek-v4-flash"), 1_000_000)
 
     def test_models_dev_api_json_provider_models_add_context_windows(self) -> None:
-        import os
-        import tempfile
-        from pathlib import Path
-
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "api.json"
             path.write_text(
@@ -234,15 +212,8 @@ class ContextWindowBookLookupTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            old = os.environ.get(CONTEXT_WINDOW_BOOK_ENV)
-            os.environ[CONTEXT_WINDOW_BOOK_ENV] = str(path)
-            try:
+            with mock.patch.dict(os.environ, {CONTEXT_WINDOW_BOOK_ENV: str(path)}):
                 book = default_context_window_book()
-            finally:
-                if old is None:
-                    del os.environ[CONTEXT_WINDOW_BOOK_ENV]
-                else:
-                    os.environ[CONTEXT_WINDOW_BOOK_ENV] = old
 
         self.assertEqual(book.window_for("gpt-5"), 400_000)
         self.assertEqual(book.window_for("openai/gpt-5"), 400_000)
@@ -252,9 +223,6 @@ class EnvOverrideTest(unittest.TestCase):
     def test_env_file_overrides_and_adds_models(
         self,
     ) -> None:
-        import tempfile
-        from pathlib import Path
-
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "prices.json"
             path.write_text(
@@ -266,17 +234,9 @@ class EnvOverrideTest(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            import os
 
-            old = os.environ.get(PRICE_BOOK_ENV)
-            os.environ[PRICE_BOOK_ENV] = str(path)
-            try:
+            with mock.patch.dict(os.environ, {PRICE_BOOK_ENV: str(path)}):
                 book = default_price_book()
-            finally:
-                if old is None:
-                    del os.environ[PRICE_BOOK_ENV]
-                else:
-                    os.environ[PRICE_BOOK_ENV] = old
 
             opus = book.price_for("claude-opus-4-8")
             assert opus is not None
@@ -400,7 +360,3 @@ class TraceRecordEmbedsCostTest(unittest.TestCase):
         self.assertEqual(cost["calls"], 1)
         # Round-trips through json without error -> genuinely JSON-safe.
         json.dumps(cost)
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -32,10 +32,10 @@ Ten checks must pass before a change ships. They're cheap; run them often.
 | Format | `uv run ruff format --check .` | Python code in the repo |
 | Lint | `uv run ruff check .` | Python code in the repo |
 | Docs lint | `uv run python scripts/lint_docs.py` | Local Markdown links and backticked path references |
-| ADR index | `uv run python docs/decisions/build_index.py --check` | Generated architecture-decision index |
+| ADR index | `uv run python docs/decisions/build_index.py --check` | Generated decision-record index |
 | Config reference | `uv run python scripts/build_config_reference.py --check` | Generated environment-variable reference |
-| Architecture lint | `uv run python scripts/arch_lint.py` | Internal layering and optional-dependency boundaries |
-| Environment lint | `uv run python scripts/env_lint.py` | Central environment-variable ownership |
+| Architecture lint | `uv run python scripts/arch_lint.py` | Package and dependency boundaries |
+| Environment lint | `uv run python scripts/env_lint.py` | Environment-variable registry boundaries |
 | Type check | `uv run ty check src` | Every module under `src/` |
 | Unit tests | `uv run python -m unittest discover -s tests/unit` | Every unit test under `tests/unit/` |
 | Demo smoke | `bash runs/demos/run_bash_agent_demo.sh` | Public deterministic teaching path |
@@ -63,8 +63,8 @@ The script:
 3. Runs `uv run ruff format --check .`.
 4. Runs `uv run ruff check .`.
 5. Runs `uv run python scripts/lint_docs.py`.
-6. Checks the generated ADR index and config reference.
-7. Runs the architecture and environment-registry lints.
+6. Checks the generated ADR index and configuration reference.
+7. Runs the architecture and environment-variable linters.
 8. Runs `uv run ty check src`.
 9. Runs `uv run python -m unittest discover -s tests/unit`.
 10. Runs `bash runs/demos/run_bash_agent_demo.sh` so the public teaching demo stays runnable.

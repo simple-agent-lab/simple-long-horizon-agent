@@ -4,8 +4,7 @@ This is the pure planning/configuration half of the *memory-based* repo-chain
 runner. It is a peer of ``pro_repo_chain`` but with a different research shape,
 using filesystem memory as the only cross-instance state:
 
-- Chains come from a pre-analyzed chain manifest vendored under ``data/`` (a
-  flat chain-nodes JSONL by default, or the older nested issue-chains JSON),
+- Chains come from a flat chain-nodes JSONL manifest vendored under ``data/``,
   not from splitting a repo by commit time.
 - Each issue in a chain runs as an ordinary, isolated SWE-bench Pro instance in
   a *fresh* agent context. Nothing about the previous instance's transcript is
@@ -30,26 +29,18 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 DEFAULT_DATASET = "ScaleAI/SWE-bench_Pro"
 DEFAULT_SPLIT = "test"
-# Chain manifests are vendored into the repo so a run does not depend on an
-# external checkout. ``CHAIN_DATA_DIR`` sits next to this module; the deep
-# node file is the default. It is the flat, one-node-per-line JSONL produced by
-# repository-owned chain analysis (each row carries ``chain_id``/``step_index``/
-# ``instance_id``/``repo``/``commit_time``). ``load_issue_chains`` also still
-# accepts the older nested issue-chains JSON so external manifests keep working.
-CHAIN_DATA_DIR = Path(__file__).resolve().parent / "data"
-DEFAULT_CHAINS_JSON = CHAIN_DATA_DIR / "swe_bench_pro_chain_experiment_nodes_deep.jsonl"
 DEFAULT_API_KIND = "openai-responses"
 DEFAULT_MAX_TURNS = 250
 DEFAULT_AGENT_FLAVOR = "bash"
 # Simple flavors are built through the generic runner's ``agent_spec`` path,
 # which is the path that also installs the filesystem-memory lifecycle hooks.
-# Workflow arms (loop / goal / pdr) use a custom ``build_agent`` facade that does
+# Workflow arms (loop / pdr) use a custom ``build_agent`` facade that does
 # not wire memory, so they are intentionally excluded from the memory chain.
 MEMORY_CHAIN_AGENT_FLAVORS = ("bash", "bash_task", "bash_task_read", "bash_skills")
 
@@ -88,7 +79,7 @@ class MemoryChain:
 
 @dataclass(frozen=True)
 class RawIssueChain:
-    """A chain as declared by the issue-chains JSON, before dataset matching."""
+    """A chain declared by the JSONL manifest, before dataset matching."""
 
     chain_id: str
     repo: str
@@ -96,47 +87,10 @@ class RawIssueChain:
 
 
 def load_issue_chains(path: str | Path) -> list[RawIssueChain]:
-    """Parse a chain manifest into commit-time-ordered raw chains.
+    """Parse the one-node-per-line chain manifest used by both Pro runners."""
 
-    Two on-disk shapes are accepted:
-
-    - Flat *chain-nodes* JSONL (one node object per line) — the format vendored
-      under ``data/`` and produced by the chain analysis. Nodes are
-      grouped by ``chain_id`` and ordered by ``step_index`` (falling back to
-      ``commit_time``); see :func:`chains_from_nodes`.
-    - Nested issue-chains JSON (``{"repos": [{"repo", "chains": [{"chain_id",
-      "issues": [{"instance_id", "commit_time"}]}]}]}``) — the older
-      single-object manifest; see :func:`chains_from_manifest`.
-
-    Detection uses the ``.jsonl`` / ``.json`` suffix first, then sniffs the
-    content so a misnamed file still parses.
-    """
-
-    resolved = Path(path)
-    text = resolved.read_text(encoding="utf-8")
-    if _is_jsonl_manifest(resolved, text):
-        nodes = [json.loads(line) for line in text.splitlines() if line.strip()]
-        return chains_from_nodes(nodes)
-    return chains_from_manifest(json.loads(text))
-
-
-def _is_jsonl_manifest(path: Path, text: str) -> bool:
-    """Decide whether ``text`` is a one-node-per-line JSONL chain manifest."""
-
-    if path.suffix == ".jsonl":
-        return True
-    if path.suffix == ".json":
-        return False
-    # Unknown suffix: a nested manifest is a single JSON value that parses as a
-    # whole, while a JSONL file has several independently-parseable lines.
-    lines = [line for line in text.splitlines() if line.strip()]
-    if len(lines) <= 1:
-        return False
-    try:
-        json.loads(text)
-    except json.JSONDecodeError:
-        return True
-    return False
+    lines = Path(path).read_text(encoding="utf-8").splitlines()
+    return chains_from_nodes(json.loads(line) for line in lines if line.strip())
 
 
 def chains_from_nodes(nodes: Iterable[Mapping[str, Any]]) -> list[RawIssueChain]:
@@ -151,7 +105,6 @@ def chains_from_nodes(nodes: Iterable[Mapping[str, Any]]) -> list[RawIssueChain]
     """
 
     grouped: dict[str, list[Mapping[str, Any]]] = {}
-    order: list[str] = []
     for node in nodes:
         if not isinstance(node, Mapping):
             continue
@@ -163,14 +116,11 @@ def chains_from_nodes(nodes: Iterable[Mapping[str, Any]]) -> list[RawIssueChain]
             raise ValueError(
                 f"chain node {instance_id!r} is missing a non-empty chain_id"
             )
-        if chain_id not in grouped:
-            grouped[chain_id] = []
-            order.append(chain_id)
-        grouped[chain_id].append(node)
+        grouped.setdefault(chain_id, []).append(node)
 
     chains: list[RawIssueChain] = []
-    for chain_id in order:
-        ordered = sorted(grouped[chain_id], key=_node_sort_key)
+    for chain_id, chain_nodes in grouped.items():
+        ordered = sorted(chain_nodes, key=_node_sort_key)
         instance_ids = tuple(str(node.get("instance_id")) for node in ordered)
         repos = {
             str(node.get("repo") or "").strip()
@@ -181,14 +131,7 @@ def chains_from_nodes(nodes: Iterable[Mapping[str, Any]]) -> list[RawIssueChain]
             raise ValueError(
                 f"chain_id {chain_id!r} spans multiple repos: {sorted(repos)!r}"
             )
-        repo = next(
-            (
-                str(node.get("repo")).strip()
-                for node in ordered
-                if str(node.get("repo") or "").strip()
-            ),
-            "",
-        )
+        repo = next(iter(repos), "")
         chains.append(
             RawIssueChain(
                 chain_id=chain_id,
@@ -196,7 +139,6 @@ def chains_from_nodes(nodes: Iterable[Mapping[str, Any]]) -> list[RawIssueChain]
                 instance_ids=instance_ids,
             )
         )
-    _validate_raw_chain_ids(chains)
     return chains
 
 
@@ -224,44 +166,6 @@ def _node_sort_key(node: Mapping[str, Any]) -> tuple[int, str, str]:
     )
 
 
-def chains_from_manifest(data: Mapping[str, Any]) -> list[RawIssueChain]:
-    """Build raw chains from an already-loaded issue-chains manifest mapping."""
-
-    chains: list[RawIssueChain] = []
-    for repo_entry in data.get("repos", []) or []:
-        if not isinstance(repo_entry, Mapping):
-            continue
-        repo = str(repo_entry.get("repo") or "").strip()
-        for chain in repo_entry.get("chains", []) or []:
-            if not isinstance(chain, Mapping):
-                continue
-            issues = [
-                issue
-                for issue in (chain.get("issues", []) or [])
-                if isinstance(issue, Mapping) and issue.get("instance_id")
-            ]
-            ordered = sorted(
-                issues,
-                key=lambda issue: (
-                    str(issue.get("commit_time") or ""),
-                    str(issue.get("instance_id") or ""),
-                ),
-            )
-            instance_ids = tuple(str(issue.get("instance_id")) for issue in ordered)
-            if not instance_ids:
-                continue
-            chains.append(
-                RawIssueChain(
-                    chain_id=str(chain.get("chain_id") or "").strip()
-                    or f"{repo}-{instance_ids[0]}",
-                    repo=repo,
-                    instance_ids=instance_ids,
-                )
-            )
-    _validate_raw_chain_ids(chains)
-    return chains
-
-
 def _validate_raw_chain_ids(chains: Sequence[RawIssueChain]) -> None:
     """Reject empty or duplicate ids before they can share state/artifacts."""
 
@@ -282,18 +186,6 @@ class MemoryChainPlan:
     chains: tuple[MemoryChain, ...]
     missing_instance_ids: tuple[str, ...]
     duplicate_instance_ids: tuple[str, ...]
-
-    @property
-    def chain_units(self) -> list[MemoryChain]:
-        return [chain for chain in self.chains if not chain.is_singleton]
-
-    @property
-    def singleton_units(self) -> list[MemoryChain]:
-        return [chain for chain in self.chains if chain.is_singleton]
-
-    @property
-    def instance_count(self) -> int:
-        return sum(chain.length for chain in self.chains)
 
 
 def plan_memory_chains(
@@ -344,7 +236,6 @@ def plan_memory_chains(
                 repo=raw.repo or str(chain_rows[0].get("repo") or ""),
                 rows=tuple(chain_rows),
                 memory_enabled=bool(memory),
-                source=CHAIN_SOURCE,
             )
         )
 
@@ -359,7 +250,7 @@ def plan_memory_chains(
     for row in singleton_rows:
         chains.append(
             MemoryChain(
-                chain_id=singleton_chain_id(row),
+                chain_id=str(row.get("instance_id") or "").strip(),
                 repo=str(row.get("repo") or ""),
                 rows=(row,),
                 memory_enabled=bool(memory and singleton_memory),
@@ -403,12 +294,6 @@ def order_chains_longest_first(chains: Iterable[MemoryChain]) -> list[MemoryChai
             chain.chain_id,
         ),
     )
-
-
-def singleton_chain_id(row: Mapping[str, Any]) -> str:
-    """Stable run-unit id for an instance that is not part of any chain."""
-
-    return str(row.get("instance_id") or "").strip() or "singleton"
 
 
 def expand_auth_slots(spec: str | None, *, default_env: str) -> list[str]:
@@ -481,7 +366,6 @@ class ProMemoryChainConfig:
     reasoning_effort: str = ""
     max_turns: int = DEFAULT_MAX_TURNS
     agent_flavor: str = DEFAULT_AGENT_FLAVOR
-    task_tool: bool = False
     memory: bool = True
     singleton_memory: bool = False
     model_name: str = ""
@@ -495,7 +379,6 @@ class ProMemoryChainConfig:
             "reasoning_effort": self.reasoning_effort,
             "max_turns": self.max_turns,
             "agent_flavor": self.agent_flavor,
-            "task_tool": self.task_tool,
             "memory": self.memory,
             "singleton_memory": self.singleton_memory,
             "model_name": self.model_name,
@@ -526,13 +409,13 @@ def plan_manifest(
 ) -> dict[str, Any]:
     """A JSON-friendly manifest capturing the run plan and match statistics."""
 
-    if run_units is not None:
-        plan = replace(plan, chains=tuple(run_units))
+    chains = tuple(run_units) if run_units is not None else plan.chains
+    chain_units = [chain for chain in chains if not chain.is_singleton]
 
     per_repo: dict[str, dict[str, int]] = defaultdict(
         lambda: {"chains": 0, "chain_instances": 0, "singletons": 0}
     )
-    for chain in plan.chains:
+    for chain in chains:
         bucket = per_repo[chain.repo]
         if chain.is_singleton:
             bucket["singletons"] += 1
@@ -541,7 +424,7 @@ def plan_manifest(
             bucket["chain_instances"] += chain.length
 
     length_histogram: dict[int, int] = defaultdict(int)
-    for chain in plan.chain_units:
+    for chain in chain_units:
         length_histogram[chain.length] += 1
 
     return {
@@ -549,11 +432,11 @@ def plan_manifest(
         "run_id": run_id,
         "config": config.as_record(),
         "parallel": parallel,
-        "run_unit_count": len(plan.chains),
-        "chain_count": len(plan.chain_units),
-        "singleton_count": len(plan.singleton_units),
-        "instance_count": plan.instance_count,
-        "chain_instance_count": sum(chain.length for chain in plan.chain_units),
+        "run_unit_count": len(chains),
+        "chain_count": len(chain_units),
+        "singleton_count": len(chains) - len(chain_units),
+        "instance_count": sum(chain.length for chain in chains),
+        "chain_instance_count": sum(chain.length for chain in chain_units),
         "missing_instance_ids": list(plan.missing_instance_ids),
         "duplicate_instance_ids": list(plan.duplicate_instance_ids),
         "chain_length_histogram": {
@@ -569,6 +452,6 @@ def plan_manifest(
                 "memory_enabled": chain.memory_enabled,
                 "instance_ids": chain.instance_ids,
             }
-            for chain in plan.chains
+            for chain in chains
         ],
     }

@@ -356,7 +356,3 @@ class HookTest(unittest.TestCase):
         self.assertFalse(
             any(isinstance(event, HookFiredEvent) for event in state.events)
         )
-
-
-if __name__ == "__main__":
-    unittest.main()

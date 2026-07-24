@@ -44,6 +44,7 @@ dispatcher); `run_bench.py` is the one surface to learn:
 uv run python runs/run_bench.py list [--json]            # discover benches
 uv run python runs/run_bench.py setup [bench ...] [--oracle] [--json]
 uv run python runs/run_bench.py <bench> [bench args ...] [--json]
+uv run python runs/run_bench.py batch <bench> [batch args ...] [--json]
 uv run python runs/run_bench.py score <bench> [scorer args ...] [--json]
 uv run python runs/run_bench.py oracle <bench> [bench args ...] [--json]
 uv run python runs/run_bench.py all --manifest M.json [--parallel N]
@@ -56,6 +57,10 @@ uv run python runs/run_bench.py all --manifest M.json [--parallel N]
   environment wired correctly?" check before launching real runs.
 - `<bench>` — delegate to that bench's own parser (same flags, incl. `--profile`);
   with `--json` it prints one result object to stdout (human logs go to stderr).
+- `batch <bench>` — use the benchmark's dataset selectors and bounded
+  concurrency while preparing shared wheelhouse/runtime assets once. Currently
+  provided by SWE-bench and ProgramBench; their shell launchers are thin
+  compatibility wrappers over this command.
 - `score` — reach a bench's official scorer. SWE-bench / ProgramBench delegate to
   their `evals/<suite>/evaluate_*.py`; the test run is already inline (with
   `--in-env-scoring` the eval log is in `result.json`), so this is just the

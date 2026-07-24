@@ -17,8 +17,8 @@ SWE-bench container half), so nothing here launches or talks to a container.
 from __future__ import annotations
 
 import importlib
-import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -44,6 +44,7 @@ from simple_agent_lab.agent_flavors import (  # noqa: E402
 )
 from simple_agent_lab.llm.env import (  # noqa: E402
     API_KIND_ENV,
+    OPENAI_API_KIND_CHOICES,
     OPENAI_AUTH_ENV,
     OPENAI_BASE_URL_ENV,
     OPENAI_LOG_ID_ENV,
@@ -51,11 +52,14 @@ from simple_agent_lab.llm.env import (  # noqa: E402
     OPENAI_REASONING_EFFORT_ENV,
     OPENAI_SESSION_ID_ENV,
     REASONING_EFFORT_ENV,
+    container_provider_env,
+    resolve_openai_api_kind,
 )
 
 # Re-exported so the run entry (`runs/_benches/swebench.py`) keeps calling
 # `harness.load_dotenv`; the implementation is owned by `llm.env`.
 from simple_agent_lab.llm.env import load_dotenv as load_dotenv  # noqa: E402,F401
+from simple_agent_lab.trace import read_jsonl  # noqa: E402
 
 DEFAULT_DATASET = "princeton-nlp/SWE-bench_Verified"
 DEFAULT_MULTILINGUAL_DATASET = "SWE-bench/SWE-bench_Multilingual"
@@ -73,11 +77,8 @@ DEFAULT_MULTILINGUAL_WHEELHOUSE = (
 DEFAULT_PRO_RUN_ROOT = ROOT / "evals/out/swebench_pro"
 DEFAULT_PRO_WHEELHOUSE = ROOT / "evals/out/swebench_pro/wheelhouse/cp311-manylinux"
 DEFAULT_UV_BINARY = shutil.which("uv") or ""
-# This suite intentionally accepts only the OpenAI-protocol adapters (not the
-# broader set in `llm.env.API_KIND_CHOICES`), so it is declared locally. The
-# reasoning-effort names are imported above from `llm.env`; forwarding them keeps
-# the in-container agent from silently running at the endpoint's default depth.
-API_KIND_CHOICES = ("openai-chat", "openai-responses")
+DEFAULT_LINUX_UV_ROOT = ROOT / "evals/out/uv-linux"
+API_KIND_CHOICES = OPENAI_API_KIND_CHOICES
 # The single agent selector (`--agent-flavor` / AGENT_FLAVOR). The vocabulary is
 # owned by `simple_agent_lab.agent_flavors` so host and container choices cannot
 # drift.
@@ -286,7 +287,7 @@ def _pro_dockerhub_tag_from_instance(instance: dict[str, Any]) -> str:
 def load_instance(path: str | Path, instance_id: str | None) -> dict[str, Any]:
     """Load one instance record from JSON or JSONL."""
 
-    records = _load_instance_records(Path(path))
+    records = load_instance_records(path)
     if not records:
         raise SystemExit(f"No instance records found in {path}")
     if instance_id is None:
@@ -297,72 +298,55 @@ def load_instance(path: str | Path, instance_id: str | None) -> dict[str, Any]:
     raise SystemExit(f"Instance {instance_id!r} not found in {path}")
 
 
-def _load_instance_records(path: Path) -> list[dict[str, Any]]:
-    raw = path.read_text(encoding="utf-8").strip()
-    if not raw:
-        return []
-    if raw.startswith("[") or raw.startswith("{"):
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            if raw.startswith("["):
-                raise SystemExit(f"Expected valid JSON list in {path}")
-        else:
-            return _records_from_json(parsed, path)
-    records: list[dict[str, Any]] = []
-    for line in raw.splitlines():
-        line = line.strip()
-        if line:
-            records.append(dict(json.loads(line)))
-    return records
+def load_instance_records(path: str | Path) -> list[dict[str, Any]]:
+    return load_records(path, collection_key="instances")
 
 
-def _records_from_json(parsed: Any, path: Path) -> list[dict[str, Any]]:
-    if isinstance(parsed, list):
-        return [dict(item) for item in parsed]
-    if isinstance(parsed, dict):
-        if "instances" in parsed:
-            instances = parsed["instances"]
-            if not isinstance(instances, list):
-                raise SystemExit(f"Expected instances to be a JSON list in {path}")
-            return [dict(item) for item in instances]
-        return [dict(parsed)]
-    raise SystemExit(f"Expected JSON object, JSON list, or JSONL records in {path}")
+def load_records(
+    path: str | Path,
+    *,
+    collection_key: str | None = None,
+) -> list[dict[str, Any]]:
+    """Load records from a JSON array, wrapper object, or JSONL file."""
+
+    record_path = Path(path)
+    records: list[Any] = read_jsonl(record_path)
+    if len(records) > 1:
+        return [dict(record) for record in records]
+    if not records:
+        raw = record_path.read_text(encoding="utf-8").strip()
+        if not raw:
+            return []
+        if raw.startswith("["):
+            raise SystemExit(f"Expected valid JSON list in {record_path}")
+        raise SystemExit(
+            f"Expected JSON object, JSON list, or JSONL records in {record_path}"
+        )
+
+    value = records[0]
+    if collection_key and isinstance(value, dict) and collection_key in value:
+        value = value[collection_key]
+        if not isinstance(value, list):
+            raise SystemExit(
+                f"Expected {collection_key} to be a JSON list in {record_path}"
+            )
+    if isinstance(value, dict):
+        return [dict(value)]
+    if isinstance(value, list):
+        return [dict(record) for record in value]
+    raise SystemExit(
+        f"Expected JSON object, JSON list, or JSONL records in {record_path}"
+    )
 
 
 # --------------------------------------------------------------------------- #
 # Provider environment + dotenv
 # --------------------------------------------------------------------------- #
 def _container_environment(provider: str) -> dict[str, str]:
-    env: dict[str, str] = {}
-    if provider != "openai":
-        return env
-    for name in OPENAI_PASSTHROUGH_ENVS:
-        value = os.environ.get(name)
-        if value:
-            env[name] = value
-    for name in ("NO_PROXY", "no_proxy"):
-        value = os.environ.get(name)
-        if value:
-            env[name] = value
-    missing = [name for name in (OPENAI_MODEL_ENV, OPENAI_AUTH_ENV) if name not in env]
-    if missing:
-        raise SystemExit(
-            "Missing required env vars for --provider openai: " + ", ".join(missing)
-        )
-    return env
+    return container_provider_env(provider, OPENAI_PASSTHROUGH_ENVS)
 
 
-def resolve_api_kind(value: str | None) -> str:
-    """Return the requested adapter API kind, defaulting through API_KIND."""
-
-    api_kind = (value or os.environ.get(API_KIND_ENV) or "openai-chat").strip()
-    if api_kind not in API_KIND_CHOICES:
-        raise SystemExit(
-            f"Unsupported API_KIND {api_kind!r}; expected one of: "
-            + ", ".join(API_KIND_CHOICES)
-        )
-    return api_kind
+resolve_api_kind = resolve_openai_api_kind
 
 
 # --------------------------------------------------------------------------- #
@@ -391,6 +375,35 @@ def prediction_record(
 # --------------------------------------------------------------------------- #
 # Offline wheelhouse (provider wheels + the current project wheel)
 # --------------------------------------------------------------------------- #
+def ensure_linux_uv(
+    *,
+    target: str | None = None,
+    root: Path = DEFAULT_LINUX_UV_ROOT,
+    downloader: Callable[[str, Path], None] | None = None,
+) -> Path:
+    """Return a cached static Linux ``uv`` suitable for eval containers."""
+
+    target = target or os.environ.get("UV_LINUX_TARGET", "uv-x86_64-unknown-linux-musl")
+    if not re.fullmatch(r"uv-[A-Za-z0-9_.-]+", target):
+        raise ValueError(f"Invalid UV_LINUX_TARGET: {target!r}")
+    binary = root / target / "uv"
+    if binary.is_file() and os.access(binary, os.X_OK):
+        return binary
+
+    print(f"==> Fetching Linux uv ({target}) for the container...", file=sys.stderr)
+    root.mkdir(parents=True, exist_ok=True)
+    url = f"https://github.com/astral-sh/uv/releases/latest/download/{target}.tar.gz"
+    archive = root / "uv.tgz"
+    (downloader or _download_file)(url, archive)
+    subprocess.run(["tar", "xzf", str(archive), "-C", str(root)], check=True)
+    binary.chmod(0o755)
+    return binary
+
+
+def _download_file(url: str, destination: Path) -> None:
+    subprocess.run(["curl", "-fsSL", url, "-o", str(destination)], check=True)
+
+
 def prepare_wheelhouse_for_run(
     wheelhouse: Path | None,
     *,
@@ -598,8 +611,3 @@ def _project_runtime_dependencies() -> list[str]:
 
 def _run_checked(command: list[str]) -> None:
     subprocess.run(command, check=True)
-
-
-def _get_container(client: Any, name: str) -> Any | None:
-    matches = client.containers.list(all=True, filters={"name": name})
-    return next((container for container in matches if container.name == name), None)

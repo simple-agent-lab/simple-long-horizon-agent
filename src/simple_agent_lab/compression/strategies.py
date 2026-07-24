@@ -49,6 +49,7 @@ from ..context_view import (
     CompressionDecision,
     CompressionStrategy,
     build_context_view,
+    estimate_context_tokens,
 )
 from ..llm.bridge import messages_to_llm_messages
 from ..llm.types import llm_message
@@ -293,7 +294,7 @@ class SummarizeStrategy:
             if after_run:
                 selected_runs.append(after_run)
 
-        return tuple(to_compress for to_compress in selected_runs if to_compress)
+        return tuple(selected_runs)
 
     def _decision_for_span(
         self,
@@ -340,8 +341,6 @@ class SummarizeStrategy:
             ]
         compressor_provider = self.compressor.llm_provider
         api = compressor_provider.api if compressor_provider is not None else ""
-        trace_events: tuple[ModelRequestEvent | ModelResponseEvent, ...] = ()
-
         request_event = ModelRequestEvent(
             agent=self.compressor.name,
             api=api,
@@ -431,22 +430,14 @@ def _largest_run(
         return []
     return max(
         runs,
-        key=lambda pair: (_active_context_tokens(pair[1]), len(pair[1]), -pair[0]),
+        key=lambda pair: (
+            estimate_context_tokens(
+                [message for _, message in pair[1]], allow_usage_baseline=False
+            ),
+            len(pair[1]),
+            -pair[0],
+        ),
     )[1]
-
-
-def _largest_contiguous_run(
-    active: list[tuple[int, Message]],
-    indices: set[int],
-) -> list[tuple[int, Message]]:
-    """Return one contiguous active-order run from a candidate index set.
-
-    Preserved messages such as the current task are semantic boundaries. A
-    summary should replace one uninterrupted span instead of folding content
-    from both sides of a pinned message into the same replacement.
-    """
-
-    return _largest_run(_contiguous_runs(active, indices))
 
 
 def _compression_sidecar(output: Message) -> MessageSidecar:

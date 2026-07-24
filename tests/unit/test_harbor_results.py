@@ -60,7 +60,3 @@ class HarborResultsTest(unittest.TestCase):
             os.utime(new / "result.json", (2000, 2000))
 
             self.assertEqual(find_latest_job_dir(root), new)
-
-
-if __name__ == "__main__":
-    unittest.main()

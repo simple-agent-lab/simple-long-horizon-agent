@@ -22,16 +22,9 @@ command the agent should run.
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from simple_agent_lab import (  # noqa: E402
+from simple_agent_lab import (
     AssistantMessage,
     Event,
     Message,
@@ -42,14 +35,15 @@ from simple_agent_lab import (  # noqa: E402
     text_of,
     tool_results_of,
 )
-from simple_agent_lab.agents.starter import (  # noqa: E402
+from simple_agent_lab.agents.starter import (
     BASH_AGENT_SYSTEM_PROMPT,
     make_bash_agent,
 )
-from simple_agent_lab.llm import Provider  # noqa: E402
-from simple_agent_lab.llm.env import FAKE_PROVIDER, provider_from_env  # noqa: E402
+from simple_agent_lab.llm import Provider
+from simple_agent_lab.llm.env import FAKE_PROVIDER, provider_from_env
 
 
+ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BASH_DEMO_COMMAND = (
     "pwd && find src/simple_agent_lab -maxdepth 1 -type f -name '*.py' | sort"
 )

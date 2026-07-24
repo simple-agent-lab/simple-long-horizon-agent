@@ -155,7 +155,3 @@ class LiveOpenAIResponsesE2ETest(unittest.TestCase):
         if final is None:
             self.fail("agent did not produce a final message")
         self.assertEqual(final.sender, "bash_agent")
-
-
-if __name__ == "__main__":
-    unittest.main()

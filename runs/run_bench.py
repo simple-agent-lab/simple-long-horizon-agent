@@ -7,6 +7,7 @@ JSON. Subcommands:
     uv run python runs/run_bench.py list [--json]
     uv run python runs/run_bench.py setup [bench ...] [--oracle] [--json]
     uv run python runs/run_bench.py <bench> [bench args ...] [--json]
+    uv run python runs/run_bench.py batch <bench> [batch args ...] [--json]
     uv run python runs/run_bench.py score <bench> [scorer args ...] [--json]
     uv run python runs/run_bench.py oracle <bench> [bench args ...] [--json]
     uv run python runs/run_bench.py all --manifest M.json [--parallel N]
@@ -20,6 +21,8 @@ to stderr), so the dashboard gets a clean contract.
 `setup` probes the environment (Python/uv, `.env` + provider creds, Docker,
 datasets) and, with `--oracle`, runs a cheap model-free oracle smoke where a
 bench supports it — a fast "is my environment wired correctly?" check.
+`batch` delegates dataset selection and bounded concurrency to benches that
+provide it, while retaining the same JSON result contract.
 
 `score` reaches a bench's official scorer (SWE-bench / ProgramBench delegate to
 their `evals/<suite>/evaluate_*.py`; the test run is already inline, so this is
@@ -34,7 +37,7 @@ prints a combined JSON summary:
      "parallel": 1}
 
 The per-bench logic lives in internal modules (runs/_benches/<bench>.py); this
-file imports their `run()` / `_build_parser()` and is the one supported entry.
+file imports their single-run and optional batch APIs and is the supported entry.
 """
 
 from __future__ import annotations
@@ -115,16 +118,19 @@ def cmd_list(json_mode: bool) -> int:
     return 0
 
 
-def cmd_bench(name: str, rest: list[str], json_mode: bool) -> int:
-    bench = BENCHES[name]
-    parser = bench.module._build_parser()
+def _run_entry(
+    name: str,
+    parser: argparse.ArgumentParser,
+    runner: Any,
+    rest: list[str],
+    json_mode: bool,
+) -> int:
     if not json_mode:
-        outcome = bench.module.run(parse_with_profile(parser, argv=rest))
+        outcome = runner(parse_with_profile(parser, argv=rest))
         return int(outcome.get("status_code", 0))
-    # JSON mode: keep stdout clean for the result; human logs go to stderr.
     with redirect_stdout(sys.stderr):
         try:
-            outcome = bench.module.run(parse_with_profile(parser, argv=rest))
+            outcome = runner(parse_with_profile(parser, argv=rest))
         except SystemExit as exc:
             code = exc.code if isinstance(exc.code, int) else 1
             outcome = {
@@ -134,6 +140,20 @@ def cmd_bench(name: str, rest: list[str], json_mode: bool) -> int:
             }
     _emit_json(outcome)
     return int(outcome.get("status_code", 0))
+
+
+def cmd_bench(name: str, rest: list[str], json_mode: bool) -> int:
+    module = BENCHES[name].module
+    return _run_entry(name, module._build_parser(), module.run, rest, json_mode)
+
+
+def cmd_batch(name: str, rest: list[str], json_mode: bool) -> int:
+    bench = BENCHES[name]
+    build_parser = getattr(bench.module, "_build_batch_parser", None)
+    run_batch = getattr(bench.module, "run_batch", None)
+    if build_parser is None or run_batch is None:
+        raise SystemExit(f"{name} does not expose a batch entry")
+    return _run_entry(name, build_parser(), run_batch, rest, json_mode)
 
 
 def cmd_score(name: str, rest: list[str], json_mode: bool) -> int:
@@ -472,12 +492,20 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         handler = cmd_score if cmd == "score" else cmd_oracle
         return handler(rest[0], rest[1:], json_mode)
+    if cmd == "batch":
+        if not rest or rest[0] not in BENCHES:
+            sys.stderr.write(
+                "usage: run_bench.py batch <bench> [args]; "
+                f"bench is one of {list(BENCHES)}\n"
+            )
+            return 2
+        return cmd_batch(rest[0], rest[1:], json_mode)
     if cmd in BENCHES:
         return cmd_bench(cmd, rest, json_mode)
 
     sys.stderr.write(
         f"unknown command {cmd!r}. Use: "
-        f"list | setup | score | oracle | all | {' | '.join(BENCHES)}\n"
+        f"list | setup | batch | score | oracle | all | {' | '.join(BENCHES)}\n"
     )
     return 2
 

@@ -1,13 +1,8 @@
-"""Defense against trace-producer / trace-viewer schema drift (the `data` ->
-`sidecar` bug class).
+"""Guard against trace-producer / trace-viewer schema drift.
 
-The viewer's `sample-trace.jsonl` used to be hand-authored, so it drifted away
-from what the runtime actually serializes and silently masked a field rename.
-Here the sample is GENERATED from the real `Message`/event dataclasses through
-the real `trace_record` path, and a golden test asserts the committed file still
-matches. If anyone renames a serialized trace field (e.g. `Message.sidecar`),
-this test fails — surfacing the change in a PR diff and forcing the viewer to
-follow instead of quietly breaking.
+The viewer sample is generated from real message and event dataclasses through
+the production serializer. Serialized field changes therefore fail this golden
+test until the viewer and fixture are intentionally updated together.
 
 Regenerate after an intentional schema change and review the diff:
 
@@ -55,9 +50,8 @@ from simple_agent_lab.trace.jsonl import read_jsonl, write_jsonl
 
 _VIEWER_DIR = Path(__file__).resolve().parents[2] / "studio" / "trace-viewer"
 SAMPLE_PATH = _VIEWER_DIR / "sample-trace.jsonl"
-# The viewer is a single self-contained file: the sample it shows on first paint
-# (and via the "Sample" button) is embedded in this <script> block, not fetched
-# from sample-trace.jsonl. Both must stay in lockstep with the real serializer.
+# The viewer renders this embedded copy instead of fetching the JSONL fixture,
+# so both copies must stay in lockstep with the serializer.
 INDEX_HTML_PATH = _VIEWER_DIR / "index.html"
 _EMBED_OPEN = '<script type="application/json" id="embedded-sample">'
 _EMBED_CLOSE = "</script>"
@@ -90,9 +84,7 @@ TASK = (
 # Static so the record is byte-stable across runs (no clock / no run-counters).
 META = {"model": MODEL, "provider": "fake", "run_label": "observatory-demo"}
 
-# A provider raw wire snapshot, the slot the viewer's "Wire debug" panel reads
-# off `message.sidecar.raw`. OpenAI-chat shaped with reasoning_effort so the
-# sample also exercises the reasoning fields end to end.
+# OpenAI-shaped wire data exercises `message.sidecar.raw` and reasoning fields.
 RAW_BLOB = {
     "request": {
         "model": MODEL,
@@ -136,98 +128,171 @@ def _stamp(events: list[Event]) -> list[Event]:
     ]
 
 
+def _usage(
+    input_tokens: int,
+    output_tokens: int,
+    cache_read_tokens: int = 0,
+    cache_write_tokens: int = 0,
+) -> TokenUsage:
+    return TokenUsage(
+        input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
+    )
+
+
+def _user(
+    *content: TextBlock | ToolResultBlock,
+    sender: str,
+    target: str,
+    kind: str,
+    sidecar: dict | None = None,
+) -> MessageEvent:
+    kwargs = dict(content=content, sender=sender, target=target, kind=kind)
+    if sidecar is not None:
+        kwargs["sidecar"] = sidecar
+    return MessageEvent(message=UserMessage(**kwargs))
+
+
+def _model_output(
+    *,
+    agent: str,
+    kind: str,
+    target: str,
+    tool_calls: int,
+    usage: TokenUsage,
+    content: tuple[TextBlock | ThinkingBlock | ToolCallBlock, ...],
+    include_message_usage: bool = False,
+    sidecar: dict | None = None,
+) -> list[Event]:
+    message_kwargs = {
+        "content": content,
+        "sender": agent,
+        "target": target,
+        "kind": kind,
+        **({"usage": usage, "model": MODEL} if include_message_usage else {}),
+        **({"sidecar": sidecar} if sidecar is not None else {}),
+    }
+    return [
+        ModelResponseEvent(
+            agent=agent,
+            api=API,
+            output_kind=kind,
+            target=target,
+            tool_call_count=tool_calls,
+            usage=usage,
+            model=MODEL,
+        ),
+        MessageEvent(message=AssistantMessage(**message_kwargs)),
+    ]
+
+
+def _request(
+    agent: str,
+    visible: int,
+    messages: int,
+    estimate: int,
+    *,
+    tools: list[dict] | None = None,
+    payload: list[dict] | None = None,
+    include_message_count: bool = True,
+) -> ModelRequestEvent:
+    context = {
+        "input_tokens_estimate": estimate,
+        **({"messages": messages} if include_message_count else {}),
+    }
+    return ModelRequestEvent(
+        agent=agent,
+        api=API,
+        visible_count=visible,
+        llm_message_count=messages,
+        context_view=context,
+        tools=tools or [],
+        llm_payload=payload or [],
+    )
+
+
+def _tool_exchange(
+    call_id: str,
+    tool_name: str,
+    text: str,
+    *,
+    target: str,
+    is_error: bool = False,
+    sidecar: dict | None = None,
+) -> list[Event]:
+    result = ToolResultBlock(
+        tool_call_id=call_id,
+        tool_name=tool_name,
+        content=(TextBlock(text),),
+        is_error=is_error,
+    )
+    return [
+        ToolExecutionStartEvent(tool_call_id=call_id, tool_name=tool_name),
+        ToolExecutionEndEvent(
+            tool_call_id=call_id,
+            tool_name=tool_name,
+            is_error=is_error,
+            terminate=False,
+        ),
+        _user(
+            result,
+            sender="tool",
+            target=target,
+            kind="tool_result",
+            sidecar=sidecar,
+        ),
+    ]
+
+
 def _sub_events() -> list[Event]:
     """The search sub-agent's own trace, nested under the task tool result."""
+    thought_usage = _usage(188, 40)
     return _stamp(
         [
-            MessageEvent(
-                message=UserMessage(
-                    content=(TextBlock("Search the repo for wc_lines callers."),),
-                    sender=PARENT,
-                    target=SUB,
-                    kind="task",
-                )
+            _user(
+                TextBlock("Search the repo for wc_lines callers."),
+                sender=PARENT,
+                target=SUB,
+                kind="task",
             ),
             AgentStartEvent(agent=SUB, system_prompt=f"You are {SUB}."),
             TurnStartEvent(agent=SUB),
-            ModelRequestEvent(
-                agent=SUB,
-                api=API,
-                visible_count=2,
-                llm_message_count=2,
-                context_view={"input_tokens_estimate": 188},
+            _request(
+                SUB,
+                2,
+                2,
+                188,
                 tools=[{"name": "bash", "description": "Run a bash command."}],
-                llm_payload=[],
+                include_message_count=False,
             ),
-            ModelResponseEvent(
+            *_model_output(
                 agent=SUB,
-                api=API,
-                output_kind="thought",
+                kind="thought",
                 target=SUB,
-                tool_call_count=1,
-                usage=TokenUsage(input_tokens=188, output_tokens=40),
-                model=MODEL,
-            ),
-            MessageEvent(
-                message=AssistantMessage(
-                    content=(
-                        TextBlock("Running ripgrep."),
-                        ToolCallBlock(
-                            id="sub_call_01",
-                            name="bash",
-                            arguments={"command": "rg -n wc_lines"},
-                        ),
+                tool_calls=1,
+                usage=thought_usage,
+                content=(
+                    TextBlock("Running ripgrep."),
+                    ToolCallBlock(
+                        id="sub_call_01",
+                        name="bash",
+                        arguments={"command": "rg -n wc_lines"},
                     ),
-                    sender=SUB,
-                    target=SUB,
-                    kind="thought",
-                )
+                ),
             ),
-            ToolExecutionStartEvent(tool_call_id="sub_call_01", tool_name="bash"),
-            ToolExecutionEndEvent(
-                tool_call_id="sub_call_01",
-                tool_name="bash",
-                is_error=False,
-                terminate=False,
-            ),
-            MessageEvent(
-                message=UserMessage(
-                    content=(
-                        ToolResultBlock(
-                            tool_call_id="sub_call_01",
-                            tool_name="bash",
-                            content=(
-                                TextBlock(
-                                    "src/simple_agent_lab/tools/wc.py:1:def wc_lines"
-                                ),
-                            ),
-                            is_error=False,
-                        ),
-                    ),
-                    sender="tool",
-                    target=SUB,
-                    kind="tool_result",
-                )
+            *_tool_exchange(
+                "sub_call_01",
+                "bash",
+                "src/simple_agent_lab/tools/wc.py:1:def wc_lines",
+                target=SUB,
             ),
             TurnEndEvent(agent=SUB),
-            ModelResponseEvent(
+            *_model_output(
                 agent=SUB,
-                api=API,
-                output_kind="final",
+                kind="final",
                 target=PARENT,
-                tool_call_count=0,
-                usage=TokenUsage(input_tokens=264, output_tokens=52),
-                model=MODEL,
-            ),
-            MessageEvent(
-                message=AssistantMessage(
-                    content=(
-                        TextBlock("wc_lines: 1 caller, 1 test. Low blast radius."),
-                    ),
-                    sender=SUB,
-                    target=PARENT,
-                    kind="final",
-                )
+                tool_calls=0,
+                usage=_usage(264, 52),
+                content=(TextBlock("wc_lines: 1 caller, 1 test. Low blast radius."),),
             ),
             AgentEndEvent(reason="final"),
         ]
@@ -237,236 +302,110 @@ def _sub_events() -> list[Event]:
 def _build_events() -> list[Event]:
     """Hand-built but via REAL dataclasses, so the serialized shape is coupled to
     the runtime schema; covers every slot the viewer reads."""
+    turn_1_usage = _usage(612, 88, cache_write_tokens=612)
+    turn_2_usage = _usage(894, 120, 612, 282)
+    turn_3_usage = _usage(1842, 96, 894, 948)
+    final_usage = _usage(1812, 76, cache_write_tokens=1812)
     return _stamp(
         [
-            MessageEvent(
-                message=UserMessage(
-                    content=(TextBlock(TASK),),
-                    sender="user",
-                    target=PARENT,
-                    kind="task",
-                )
-            ),
+            _user(TextBlock(TASK), sender="user", target=PARENT, kind="task"),
             AgentStartEvent(agent=PARENT, system_prompt=f"You are {PARENT}."),
             # Turn 1 — thinking + bash (ok); carries the wire-debug raw blob.
             TurnStartEvent(agent=PARENT),
-            ModelRequestEvent(
-                agent=PARENT,
-                api=API,
-                visible_count=1,
-                llm_message_count=2,
-                context_view={"input_tokens_estimate": 612, "messages": 2},
+            _request(
+                PARENT,
+                1,
+                2,
+                612,
                 tools=[
                     {"name": "bash", "description": "Run a bash command."},
                     {"name": "task", "description": "Delegate a focused subtask."},
                 ],
-                llm_payload=[
+                payload=[
                     {"role": "system", "content": "You are obs_agent."},
                     {"role": "user", "content": TASK},
                 ],
             ),
-            ModelResponseEvent(
+            *_model_output(
                 agent=PARENT,
-                api=API,
-                output_kind="thought",
+                kind="thought",
                 target=PARENT,
-                tool_call_count=1,
-                usage=TokenUsage(
-                    input_tokens=612, output_tokens=88, cache_write_tokens=612
+                tool_calls=1,
+                usage=turn_1_usage,
+                content=(
+                    ThinkingBlock(text="Inspect the layout before editing."),
+                    TextBlock("Looking at the repo layout."),
+                    ToolCallBlock(
+                        id="call_01",
+                        name="bash",
+                        arguments={"command": "ls src/simple_agent_lab"},
+                    ),
                 ),
-                model=MODEL,
+                include_message_usage=True,
+                sidecar={"raw": RAW_BLOB},
             ),
-            MessageEvent(
-                message=AssistantMessage(
-                    content=(
-                        ThinkingBlock(text="Inspect the layout before editing."),
-                        TextBlock("Looking at the repo layout."),
-                        ToolCallBlock(
-                            id="call_01",
-                            name="bash",
-                            arguments={"command": "ls src/simple_agent_lab"},
-                        ),
-                    ),
-                    sender=PARENT,
-                    target=PARENT,
-                    kind="thought",
-                    usage=TokenUsage(
-                        input_tokens=612, output_tokens=88, cache_write_tokens=612
-                    ),
-                    model=MODEL,
-                    sidecar={"raw": RAW_BLOB},
-                )
-            ),
-            ToolExecutionStartEvent(tool_call_id="call_01", tool_name="bash"),
-            ToolExecutionEndEvent(
-                tool_call_id="call_01",
-                tool_name="bash",
-                is_error=False,
-                terminate=False,
-            ),
-            MessageEvent(
-                message=UserMessage(
-                    content=(
-                        ToolResultBlock(
-                            tool_call_id="call_01",
-                            tool_name="bash",
-                            content=(
-                                TextBlock("core.py\nmessages.py\nstate.py\ntools/"),
-                            ),
-                            is_error=False,
-                        ),
-                    ),
-                    sender="tool",
-                    target=PARENT,
-                    kind="tool_result",
-                )
+            *_tool_exchange(
+                "call_01",
+                "bash",
+                "core.py\nmessages.py\nstate.py\ntools/",
+                target=PARENT,
             ),
             TurnEndEvent(agent=PARENT),
             # Turn 2 — delegate to a sub-agent; result carries nested sub_events.
             TurnStartEvent(agent=PARENT),
-            ModelRequestEvent(
+            _request(PARENT, 3, 4, 894),
+            *_model_output(
                 agent=PARENT,
-                api=API,
-                visible_count=3,
-                llm_message_count=4,
-                context_view={"input_tokens_estimate": 894, "messages": 4},
-                tools=[],
-                llm_payload=[],
-            ),
-            ModelResponseEvent(
-                agent=PARENT,
-                api=API,
-                output_kind="thought",
+                kind="thought",
                 target=PARENT,
-                tool_call_count=1,
-                usage=TokenUsage(
-                    input_tokens=894,
-                    output_tokens=120,
-                    cache_read_tokens=612,
-                    cache_write_tokens=282,
+                tool_calls=1,
+                usage=turn_2_usage,
+                content=(
+                    TextBlock("Dispatching a search sub-agent."),
+                    ToolCallBlock(
+                        id="call_02_task",
+                        name="task",
+                        arguments={
+                            "agent": SUB,
+                            "task": "Search for wc_lines callers.",
+                        },
+                    ),
                 ),
-                model=MODEL,
+                include_message_usage=True,
             ),
-            MessageEvent(
-                message=AssistantMessage(
-                    content=(
-                        TextBlock("Dispatching a search sub-agent."),
-                        ToolCallBlock(
-                            id="call_02_task",
-                            name="task",
-                            arguments={
-                                "agent": SUB,
-                                "task": "Search for wc_lines callers.",
-                            },
-                        ),
-                    ),
-                    sender=PARENT,
-                    target=PARENT,
-                    kind="thought",
-                    usage=TokenUsage(
-                        input_tokens=894,
-                        output_tokens=120,
-                        cache_read_tokens=612,
-                        cache_write_tokens=282,
-                    ),
-                    model=MODEL,
-                )
-            ),
-            ToolExecutionStartEvent(tool_call_id="call_02_task", tool_name="task"),
-            ToolExecutionEndEvent(
-                tool_call_id="call_02_task",
-                tool_name="task",
-                is_error=False,
-                terminate=False,
-            ),
-            MessageEvent(
-                message=UserMessage(
-                    content=(
-                        ToolResultBlock(
-                            tool_call_id="call_02_task",
-                            tool_name="task",
-                            content=(
-                                TextBlock("Sub-agent: wc_lines has 1 caller, 1 test."),
-                            ),
-                            is_error=False,
-                        ),
-                    ),
-                    sender="tool",
-                    target=PARENT,
-                    kind="tool_result",
-                    sidecar={
-                        "details": {"call_02_task": {"sub_events": _sub_events()}}
-                    },
-                )
+            *_tool_exchange(
+                "call_02_task",
+                "task",
+                "Sub-agent: wc_lines has 1 caller, 1 test.",
+                target=PARENT,
+                sidecar={"details": {"call_02_task": {"sub_events": _sub_events()}}},
             ),
             TurnEndEvent(agent=PARENT),
             # Turn 3 — a failing tool call, then a compression, then the final.
             TurnStartEvent(agent=PARENT),
-            ModelRequestEvent(
+            _request(PARENT, 5, 6, 1842),
+            *_model_output(
                 agent=PARENT,
-                api=API,
-                visible_count=5,
-                llm_message_count=6,
-                context_view={"input_tokens_estimate": 1842, "messages": 6},
-                tools=[],
-                llm_payload=[],
-            ),
-            ModelResponseEvent(
-                agent=PARENT,
-                api=API,
-                output_kind="thought",
+                kind="thought",
                 target=PARENT,
-                tool_call_count=1,
-                usage=TokenUsage(
-                    input_tokens=1842,
-                    output_tokens=96,
-                    cache_read_tokens=894,
-                    cache_write_tokens=948,
+                tool_calls=1,
+                usage=turn_3_usage,
+                content=(
+                    TextBlock("Applying the fix."),
+                    ToolCallBlock(
+                        id="call_03",
+                        name="bash",
+                        arguments={"command": "patch -p0 < /tmp/missing.patch"},
+                    ),
                 ),
-                model=MODEL,
+                include_message_usage=True,
             ),
-            MessageEvent(
-                message=AssistantMessage(
-                    content=(
-                        TextBlock("Applying the fix."),
-                        ToolCallBlock(
-                            id="call_03",
-                            name="bash",
-                            arguments={"command": "patch -p0 < /tmp/missing.patch"},
-                        ),
-                    ),
-                    sender=PARENT,
-                    target=PARENT,
-                    kind="thought",
-                    usage=TokenUsage(
-                        input_tokens=1842,
-                        output_tokens=96,
-                        cache_read_tokens=894,
-                        cache_write_tokens=948,
-                    ),
-                    model=MODEL,
-                )
-            ),
-            ToolExecutionStartEvent(tool_call_id="call_03", tool_name="bash"),
-            ToolExecutionEndEvent(
-                tool_call_id="call_03", tool_name="bash", is_error=True, terminate=False
-            ),
-            MessageEvent(
-                message=UserMessage(
-                    content=(
-                        ToolResultBlock(
-                            tool_call_id="call_03",
-                            tool_name="bash",
-                            content=(
-                                TextBlock("patch: /tmp/missing.patch: No such file"),
-                            ),
-                            is_error=True,
-                        ),
-                    ),
-                    sender="tool",
-                    target=PARENT,
-                    kind="tool_result",
-                )
+            *_tool_exchange(
+                "call_03",
+                "bash",
+                "patch: /tmp/missing.patch: No such file",
+                target=PARENT,
+                is_error=True,
             ),
             TurnEndEvent(agent=PARENT),
             ContextCompressionEvent(
@@ -479,45 +418,19 @@ def _build_events() -> list[Event]:
                 strategy="tool-compact",
             ),
             TurnStartEvent(agent=PARENT),
-            ModelRequestEvent(
+            _request(PARENT, 5, 5, 1432),
+            *_model_output(
                 agent=PARENT,
-                api=API,
-                visible_count=5,
-                llm_message_count=5,
-                context_view={"input_tokens_estimate": 1432, "messages": 5},
-                tools=[],
-                llm_payload=[],
-            ),
-            ModelResponseEvent(
-                agent=PARENT,
-                api=API,
-                output_kind="final",
+                kind="final",
                 target="user",
-                tool_call_count=0,
-                usage=TokenUsage(
-                    input_tokens=1812,
-                    output_tokens=76,
-                    cache_write_tokens=1812,
+                tool_calls=0,
+                usage=final_usage,
+                content=(
+                    TextBlock(
+                        "Fixed the off-by-one in wc.py; the focused test passes."
+                    ),
                 ),
-                model=MODEL,
-            ),
-            MessageEvent(
-                message=AssistantMessage(
-                    content=(
-                        TextBlock(
-                            "Fixed the off-by-one in wc.py; the focused test passes."
-                        ),
-                    ),
-                    sender=PARENT,
-                    target="user",
-                    kind="final",
-                    usage=TokenUsage(
-                        input_tokens=1812,
-                        output_tokens=76,
-                        cache_write_tokens=1812,
-                    ),
-                    model=MODEL,
-                )
+                include_message_usage=True,
             ),
             TurnEndEvent(agent=PARENT, terminated=True),
             AgentEndEvent(reason="done"),
@@ -526,9 +439,7 @@ def _build_events() -> list[Event]:
 
 
 def _build_state() -> State:
-    # Hand-built events bypass `record_event`, so stamp deterministic uuids here
-    # (a real run gets random UUID4s) — keeps the golden stable while still
-    # exercising the per-event `uuid` field.
+    # Hand-built events need deterministic UUIDs in place of record_event's UUID4s.
     events = [
         dataclasses.replace(e, uuid=f"evt-{i}") for i, e in enumerate(_build_events())
     ]
@@ -536,67 +447,48 @@ def _build_state() -> State:
 
 
 def build_stream() -> list[dict]:
-    """The canonical v5 trajectory stream — a header line then one line per event
-    — produced through the real serializers.
-
-    Provider raw snapshots are kept INLINE (not externalized to a pool) so the
-    embedded fixture is self-contained and the viewer's Wire panel works on it
-    offline.
-    """
+    """Build the canonical v5 header/event stream through real serializers."""
     trace = run_trace_from_state(
         state=_build_state(), trace_id=TRACE_ID, producer=PRODUCER, meta=META
     )
     return [trace_header(trace), *[event_record(e) for e in trace.events]]
 
 
-def _assembled(stream: list[dict]) -> dict:
-    """Fold the stream (header + event lines) into the in-memory trace the viewer
-    builds, matching the JS `assembleTrace`."""
-
-    header, *events = stream
-    return {**header, "events": events}
-
-
 class TraceFixtureGoldenTest(unittest.TestCase):
-    def test_sample_trace_matches_real_serializer(self) -> None:
+    def test_samples_match_real_serializer(self) -> None:
         stream = build_stream()
-        if os.environ.get("UPDATE_GOLDEN"):
-            write_jsonl(SAMPLE_PATH, stream)
-            self.skipTest(f"regenerated {SAMPLE_PATH.name}")
-        self.assertEqual(
-            read_jsonl(SAMPLE_PATH),
-            stream,
-            "sample-trace.jsonl drifted from the real trace serializer. If you "
-            "renamed/restructured a serialized trace field, the viewer reads it too "
-            "— update the viewer, then regenerate with UPDATE_GOLDEN=1 and review "
-            "the diff.",
-        )
-
-    def test_embedded_sample_matches_real_serializer(self) -> None:
-        # The viewer SHOWS the embedded copy (the file is an offline artifact),
-        # so it is the one that actually goes stale. Guard it the same way.
-        stream = build_stream()
-        if os.environ.get("UPDATE_GOLDEN"):
-            _write_embedded_sample(stream)
-            self.skipTest("regenerated embedded-sample in index.html")
-        self.assertEqual(
-            _read_embedded_sample(),
-            stream,
-            "the embedded sample in index.html drifted from the real trace "
-            "serializer — update the viewer for the schema change, then regenerate "
-            "with UPDATE_GOLDEN=1 and review the diff.",
-        )
+        samples = {
+            SAMPLE_PATH.name: (
+                lambda: read_jsonl(SAMPLE_PATH),
+                lambda: write_jsonl(SAMPLE_PATH, stream),
+            ),
+            "embedded-sample": (
+                _read_embedded_sample,
+                lambda: _write_embedded_sample(stream),
+            ),
+        }
+        update = os.environ.get("UPDATE_GOLDEN")
+        for name, (read, write) in samples.items():
+            with self.subTest(sample=name):
+                if update:
+                    write()
+                else:
+                    self.assertEqual(
+                        read(),
+                        stream,
+                        f"{name} drifted from the real trace serializer; update the "
+                        "viewer for intentional schema changes, regenerate with "
+                        "UPDATE_GOLDEN=1, and review the diff.",
+                    )
+        if update:
+            self.skipTest(f"regenerated {', '.join(samples)}")
 
     def test_file_and_embedded_samples_are_identical(self) -> None:
-        # One source of truth: the offline file and the shown embedded copy must
-        # be the same stream, so neither can drift independently.
         self.assertEqual(read_jsonl(SAMPLE_PATH), _read_embedded_sample())
 
     def test_fixture_exercises_every_viewer_read_path(self) -> None:
-        # A generated fixture is only a guard if it contains the slots the viewer
-        # reads. Pin those so a future trim can't quietly drop one and let the
-        # golden pass while the viewer goes blank.
-        record = _assembled(build_stream())
+        header, *events = build_stream()
+        record = {**header, "events": events}
         msgs = [e["message"] for e in record["events"] if e["kind"] == "message"]
         sidecars = [m.get("sidecar") or {} for m in msgs]
 
@@ -644,18 +536,19 @@ class TraceFixtureGoldenTest(unittest.TestCase):
             "an event still carries llm_payload — v5 drops it",
         )
 
-        # Every event carries a stable, unique uuid (stamped on record_event).
         uuids = [e["uuid"] for e in record["events"]]
         self.assertTrue(all(uuids), "an event is missing its uuid")
         self.assertEqual(len(uuids), len(set(uuids)), "event uuids are not unique")
 
     def test_sample_is_loadable_v5_stream(self) -> None:
-        # What the viewer's loader checks: a header line (schema, no events) then
-        # one line per event, with an agent system prompt derivable from it.
         stream = read_jsonl(SAMPLE_PATH)
         header, events = stream[0], stream[1:]
-        self.assertEqual(header["schema"], "simple-agent-lab.trajectory.v5")
-        self.assertEqual(header["type"], "trajectory")
+        for field, expected in {
+            "schema": "simple-agent-lab.trajectory.v5",
+            "type": "trajectory",
+        }.items():
+            with self.subTest(field=field):
+                self.assertEqual(header[field], expected)
         self.assertNotIn("events", header)
         self.assertTrue(events and all("kind" in e for e in events))
         self.assertTrue(
@@ -663,7 +556,3 @@ class TraceFixtureGoldenTest(unittest.TestCase):
             "no agent system prompt derivable from the stream — request "
             "reconstruction would have nothing real to show",
         )
-
-
-if __name__ == "__main__":
-    unittest.main()

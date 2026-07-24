@@ -80,10 +80,10 @@ Set the Docker socket for all subsequent commands:
 export DOCKER_HOST=unix://$HOME/.colima/default/docker.sock
 ```
 
-`runs/swebench/run_swebench.sh` also probes
-`~/.docker/run/docker.sock` (Docker Desktop) and the Colima socket above when
-`DOCKER_HOST` is unset, so headless invocations from CI or chat sessions reach
-the right daemon without an explicit export.
+`LocalDockerBackend` also probes `~/.docker/run/docker.sock` (Docker Desktop)
+and the Colima socket above when `DOCKER_HOST` is unset, so both the Python
+entry and its thin shell wrapper reach the right daemon without an explicit
+export.
 
 **Known issue: `docker build` + Rosetta.** The Docker BuildKit builder fails
 to run x86_64 ELF binaries through Rosetta during image builds (the dynamic
@@ -285,15 +285,15 @@ bash runs/swebench/run_swebench.sh --variant pro --ids-file ids.txt --parallel 4
 bash runs/swebench/run_swebench.sh --variant pro --all --parallel 4
 ```
 
-The scripts keep each suite under its own flat output root. SWE-bench Verified
+The batch entry keeps each suite under its own flat output root. SWE-bench Verified
 uses `evals/out/swebench/`; SWE-bench Multilingual and Pro use sibling roots
 `evals/out/swebench_multilingual/` and `evals/out/swebench_pro/`. Each root has
-`instance_<id>.jsonl` caches, `wheelhouse/` provider wheels, and
-`<run-id>/<instance-id>/` per-instance run outputs. When instance records are
-not cached, the scripts fetch HuggingFace rows with the `datasets` package from
-`uv sync --extra swebench`. On macOS the scripts also fetch a static Linux `uv`
-once (cached under `evals/out/uv-linux/`) so the container can build its Python
-3.11 venv.
+optional `instance_<id>.jsonl` setup inputs, `wheelhouse/` provider wheels, and
+`<run-id>/<instance-id>/` per-instance run outputs. It loads HuggingFace rows
+with the `datasets` package from `uv sync --extra swebench`, reusing that
+library's cache. The Python harness also fetches a static Linux `uv` once
+(cached under `evals/out/uv-linux/`) so the container can build its Python 3.11
+venv.
 
 For a single instance with full control over arguments, call the run entry
 directly on an already-prepared instance JSONL:
@@ -320,8 +320,8 @@ Outputs land under `evals/out/swebench/<run-id>/<instance-id>/out/`:
   verdict when `--in-env-scoring` is set.
 
 The official judge runs in a separate clean container. First collect the per-run
-`result.json` files into an official predictions JSONL (the batch scripts do
-this for you via `collect_predictions`):
+`result.json` files into an official predictions JSONL (the batch entry does
+this for you with `predictions_from_run_dirs`):
 
 ```bash
 uv run python evals/swebench/evaluate_predictions.py --collect-predictions \

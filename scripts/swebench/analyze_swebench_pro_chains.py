@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-"""Build chronological SWE-bench Pro issue chains grouped by repository.
+"""Build chronological SWE-bench Pro issue chains and runner manifests.
 
 Run from the repository root:
 
@@ -372,7 +372,7 @@ def load_issues(
         else {}
     )
     for item in items:
-        raw_files, files_source = relation_files(item)
+        raw_files, files_source = relations[item["instance_id"]]
         files = llm_filtered.get(item["instance_id"], raw_files)
         if filter_noise:
             files = filter_relation_files(files, item.get("repo_language", ""))
@@ -391,7 +391,10 @@ def load_issues(
 
 
 def issue_chains(
-    issues: list[Issue], min_chain_size: int, ignore_file_freq: int = 0
+    issues: list[Issue],
+    min_chain_size: int,
+    ignore_file_freq: int = 0,
+    compact_chain_ids: bool = False,
 ) -> list[dict]:
     file_freq = Counter(file for issue in issues for file in issue.files)
     union_find = UnionFind(len(issues))
@@ -409,17 +412,20 @@ def issue_chains(
     for idx, issue in enumerate(issues):
         groups[union_find.find(idx)].append(issue)
 
-    chains = []
-    for chain_idx, chain_issues in enumerate(
-        sorted(
-            (
-                sorted(group, key=lambda issue: (issue.commit_time, issue.instance_id))
-                for group in groups.values()
-            ),
-            key=lambda group: (group[0].commit_time, group[0].instance_id),
+    ordered_groups = sorted(
+        (
+            sorted(group, key=lambda issue: (issue.commit_time, issue.instance_id))
+            for group in groups.values()
         ),
-        start=1,
-    ):
+        key=lambda group: (group[0].commit_time, group[0].instance_id),
+    )
+    if compact_chain_ids:
+        ordered_groups = [
+            group for group in ordered_groups if len(group) >= min_chain_size
+        ]
+
+    chains = []
+    for chain_idx, chain_issues in enumerate(ordered_groups, start=1):
         if len(chain_issues) < min_chain_size:
             continue
         file_counts = Counter(file for issue in chain_issues for file in issue.files)
@@ -448,7 +454,10 @@ def issue_chains(
 
 
 def analyze(
-    issues: list[Issue], min_chain_size: int, ignore_file_freq: int = 0
+    issues: list[Issue],
+    min_chain_size: int,
+    ignore_file_freq: int = 0,
+    compact_chain_ids: bool = False,
 ) -> dict:
     repos = []
     for repo, repo_issues in sorted(group_by_repo(issues).items()):
@@ -461,7 +470,12 @@ def analyze(
                 "issue_count": len(sorted_issues),
                 "first_commit_time": sorted_issues[0].commit_time.isoformat(),
                 "last_commit_time": sorted_issues[-1].commit_time.isoformat(),
-                "chains": issue_chains(sorted_issues, min_chain_size, ignore_file_freq),
+                "chains": issue_chains(
+                    sorted_issues,
+                    min_chain_size,
+                    ignore_file_freq,
+                    compact_chain_ids,
+                ),
             }
         )
     return {"repo_count": len(repos), "issue_count": len(issues), "repos": repos}
@@ -486,6 +500,32 @@ def print_summary(result: dict) -> None:
         )
 
 
+def write_chain_nodes(result: dict, path: Path) -> int:
+    """Write the minimal JSONL manifest consumed by the chain runners."""
+
+    nodes = [
+        {
+            "chain_id": chain["chain_id"],
+            "step_index": step_index,
+            "instance_id": issue["instance_id"],
+            "repo": repo["repo"],
+            "commit_time": issue["commit_time"],
+        }
+        for repo in result["repos"]
+        for chain in repo["chains"]
+        for step_index, issue in enumerate(chain["issues"], start=1)
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "".join(
+            json.dumps(node, ensure_ascii=False, separators=(",", ":")) + "\n"
+            for node in nodes
+        ),
+        encoding="utf-8",
+    )
+    return len(nodes)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -505,6 +545,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=WORK_CACHE_DIR / "swe_bench_pro_issue_chains.json",
         help="Where to write the chain analysis JSON.",
+    )
+    parser.add_argument(
+        "--nodes-output-path",
+        type=Path,
+        help="Also write the minimal JSONL manifest consumed by chain runners.",
     )
     parser.add_argument(
         "--commit-cache",
@@ -579,6 +624,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=0,
         help="Ignore files touched by more than N issues when linking; 0 disables.",
     )
+    parser.add_argument(
+        "--compact-chain-ids",
+        action="store_true",
+        help="Number only emitted chains, matching the vendored deep manifest.",
+    )
     return parser
 
 
@@ -608,9 +658,13 @@ def main() -> None:
         ),
         args.min_chain_size,
         args.ignore_file_freq,
+        args.compact_chain_ids,
     )
     args.output_path.parent.mkdir(parents=True, exist_ok=True)
     args.output_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    if args.nodes_output_path is not None:
+        node_count = write_chain_nodes(result, args.nodes_output_path)
+        print(f"wrote {args.nodes_output_path} ({node_count} nodes)")
     print_summary(result)
 
 

@@ -27,6 +27,7 @@ from simple_agent_lab.agent_flavors import SIMPLE_AGENT_FLAVORS  # noqa: E402
 from simple_agent_lab.evals.harbor import (  # noqa: E402
     AGENT_IMPORT_PATH,
     DEFAULT_API_KIND,
+    DEFAULT_MAX_TURNS,
 )
 from simple_agent_lab.evals.harbor.results import (  # noqa: E402
     find_latest_job_dir,
@@ -165,7 +166,7 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=SIMPLE_AGENT_FLAVORS,
         default="bash_task_read",
     )
-    parser.add_argument("--max-turns", type=int, default=75)
+    parser.add_argument("--max-turns", type=int, default=DEFAULT_MAX_TURNS)
     parser.add_argument("--provider", choices=["openai", "fake"], default="openai")
     parser.add_argument("--api-kind", default=DEFAULT_API_KIND)
     parser.add_argument(

@@ -1,31 +1,17 @@
-"""Run one ProgramBench instance through the generic `Suite` framework.
+"""Run one or many ProgramBench tasks through the generic Suite API.
 
-This is the ProgramBench run entry point: it drives the ProgramBench container
-half through `run_suite_instance(ProgrambenchSuite, LocalDockerBackend,
-LocalDirStore)`, the same primitive every suite uses. The launch shape (image,
-workdir, ``cap_add=("SYS_ADMIN",)`` for per-command network isolation) and the
-wheelhouse/uv mounts come from `ProgrambenchSuite` + the shared `harness`
-helpers.
-
-Usage (host with Docker + the ProgramBench image pulled):
-
-    uv run python runs/run_bench.py programbench <instance-id> \
-        [--max-turns N] [--run-id ID] [--no-network-isolation] [--force]
-
-Reads OPENAI_MODEL / OPENAI_AUTH_TOKEN (and optional OPENAI_BASE_URL) from .env.
-The agent runs *inside* the container with the model API reachable, but each
-agent bash command runs in a network-isolated namespace (see
-`programbench-reverse-engineering-adapter`). Score the run afterwards with
-evals/programbench/evaluate_submissions.py. For batch / parallel runs over the
-whole task set, see runs/programbench/run_programbench.sh.
+The container can reach the model, while agent bash commands run in an isolated
+network namespace unless ``--no-network-isolation`` is explicit.
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
@@ -35,128 +21,114 @@ for path in (ROOT, SRC):
 
 from evals.programbench import harness  # noqa: E402
 from evals.programbench.suite import ProgrambenchSuite  # noqa: E402
+from evals.swebench.harness import ensure_linux_uv  # noqa: E402
+from runs.lib.container_batch import run_container_batch  # noqa: E402
+from runs.lib import docker_cli  # noqa: E402
 from simple_agent_lab.evals import (  # noqa: E402
     LocalDirStore,
-    LocalDockerBackend,
-    parse_with_profile,
     run_suite_instance,
 )
 from simple_agent_lab.evals.suites.programbench import container  # noqa: E402
 from simple_agent_lab.evals.backends.docker_local import (  # noqa: E402
     DEFAULT_DOCKER_TIMEOUT_S,
 )
-from simple_agent_lab.evals.runner import container_name  # noqa: E402
+from simple_agent_lab.evals.runner import canonical_run_id, container_name  # noqa: E402
 
-# Identity for the unified entry (runs/run_bench.py). `run(args)` returns a
-# result dict so the dispatcher / dashboard can read a machine-readable outcome.
 NAME = "programbench"
 DESCRIPTION = (
     "ProgramBench reverse-engineering instance in a Docker container "
     "(single instance per run; per-command network isolation)."
 )
-# Official scorer reached by `run_bench.py score programbench ...`.
 SCORER = ("evals/programbench/evaluate_submissions.py",)
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("instance_id")
-    parser.add_argument(
-        "--profile",
-        default=None,
-        help=(
-            "Path to a JSON run-profile (its `env` fills env gaps, its `run` "
-            "flags are defaults overridable by explicit flags). See ADR "
-            "run-profile-file."
-        ),
-    )
+    parser.add_argument("--profile", help="JSON run-profile path.")
     parser.add_argument("--max-turns", type=int, default=1000)
     parser.add_argument(
         "--wall-time-seconds",
         type=float,
         default=21600,
-        help="Wall-clock time limit for the agent run in seconds (default: 21600 = 6h).",
+        help="Agent wall-clock limit (default: 6h).",
     )
     parser.add_argument(
         "--run-id", default=f"programbench-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     )
     parser.add_argument("--provider", choices=["fake", "openai"], default="openai")
-    parser.add_argument("--api-kind", default=None)
+    parser.add_argument("--api-kind")
     parser.add_argument(
         "--image-tag",
         default=harness.DEFAULT_IMAGE_TAG,
-        help="Inference image tag (default: task_cleanroom).",
+        help="Inference image tag.",
     )
-    parser.add_argument("--network-mode", default="host")
-    parser.add_argument(
-        "--security-opt",
-        action="append",
-        default=None,
-        help="Docker --security-opt (repeatable). Defaults to seccomp=unconfined; "
-        "pass --security-opt seccomp=default to restore the daemon's profile.",
-    )
-    parser.add_argument(
-        "--platform", default="", help="Override docker --platform (e.g. linux/amd64)"
-    )
-    parser.add_argument(
-        "--pull",
-        choices=["missing", "always", "never"],
-        default="never",
-        help="Image pull policy before create. Default 'never' (opt-in): use "
-        "local images only, so a run never silently downloads multi-GB images. "
-        "Pass 'missing' to download what's absent, or 'always' to force a refresh.",
+    docker_cli.add_arguments(
+        parser,
+        default_uv_binary=harness.DEFAULT_UV_BINARY,
+        default_timeout_seconds=DEFAULT_DOCKER_TIMEOUT_S,
     )
     parser.add_argument("--dotenv", default=str(ROOT / ".env"))
-    parser.add_argument("--run-root", default=None)
-    parser.add_argument("--wheelhouse", default=None)
-    parser.add_argument("--uv-binary", default=harness.DEFAULT_UV_BINARY)
-    parser.add_argument(
-        "--docker-timeout-seconds",
-        type=float,
-        default=DEFAULT_DOCKER_TIMEOUT_S,
-        help="Docker SDK HTTP timeout in seconds for daemon calls.",
-    )
     parser.add_argument(
         "--cpus",
         type=int,
         default=20,
-        help="Docker CPU limit for the inference container (default: 20).",
+        help="Docker CPU limit.",
     )
     parser.add_argument(
         "--mem-limit",
         default="60g",
-        help="Docker memory and memory-swap limit for the inference container.",
+        help="Docker memory and memory-swap limit.",
     )
-    parser.add_argument("--prepare-wheelhouse", action="store_true")
-    parser.add_argument("--keep-container", action="store_true")
     parser.add_argument(
         "--no-network-isolation",
         action="store_true",
-        help=(
-            "Do not add CAP_SYS_ADMIN. Agent bash commands then run WITH network "
-            "access (no `unshare --net`), weakening ProgramBench's anti-cheat."
-        ),
-    )
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Remove an existing container with the same name before starting.",
+        help="Allow agent bash commands network access.",
     )
     return parser
+
+
+def _build_batch_parser() -> argparse.ArgumentParser:
+    parser = _build_parser()
+    parser.description = (
+        "Run one or many ProgramBench instances; prepare shared assets once."
+    )
+    docker_cli.enable_batch(parser, instance_nargs="*")
+    parser.set_defaults(run_id=None, uv_binary=None, force=True)
+    parser.add_argument("--all", action="store_true")
+    parser.add_argument("--parallel", type=int, default=1)
+    parser.add_argument("--filter", default="", help="Regex on instance_id.")
+    parser.add_argument("--slice", default="", help="Task slice, e.g. 0:5.")
+    return parser
+
+
+def _provider_environment(args: argparse.Namespace) -> dict[str, str]:
+    if args.provider == "openai":
+        harness.load_dotenv(args.dotenv)
+    provider_env = harness.container_environment(args.provider)
+    provider_env[harness.API_KIND_ENV] = harness.resolve_api_kind(args.api_kind)
+    provider_env[container.REQUIRE_ISOLATION_ENV] = (
+        "0" if args.no_network_isolation else "1"
+    )
+    return provider_env
+
+
+def _suite(args: argparse.Namespace) -> ProgrambenchSuite:
+    return ProgrambenchSuite(
+        image_tag=args.image_tag,
+        platform=args.platform,
+        network_mode=args.network_mode,
+        cap_add=() if args.no_network_isolation else ("SYS_ADMIN",),
+        security_opt=docker_cli.security_options(args.security_opt),
+        cpus=args.cpus,
+        mem_limit=args.mem_limit or None,
+    )
 
 
 def run(args: argparse.Namespace) -> dict:
     instance = harness.load_instance(args.instance_id)
 
-    if args.provider == "openai":
-        harness.load_dotenv(args.dotenv)
-    provider_env = harness.container_environment(args.provider)
-    provider_env[harness.API_KIND_ENV] = harness.resolve_api_kind(args.api_kind)
-    # Fail closed in-container: a missing `unshare --net` aborts the run unless
-    # the operator opted out here (so isolation is never lost silently).
-    provider_env[container.REQUIRE_ISOLATION_ENV] = (
-        "0" if args.no_network_isolation else "1"
-    )
+    provider_env = _provider_environment(args)
 
     run_root = Path(args.run_root) if args.run_root else harness.DEFAULT_RUN_ROOT
     wheelhouse = (
@@ -166,53 +138,16 @@ def run(args: argparse.Namespace) -> dict:
     )
     harness.prepare_wheelhouse_for_run(wheelhouse, prepare_all=args.prepare_wheelhouse)
 
-    security_opt = (
-        tuple(args.security_opt)
-        if args.security_opt is not None
-        else ("seccomp=unconfined",)
-    )
-    suite = ProgrambenchSuite(
-        image_tag=args.image_tag,
-        platform=args.platform,
-        network_mode=args.network_mode,
-        cap_add=() if args.no_network_isolation else ("SYS_ADMIN",),
-        security_opt=security_opt,
-        cpus=args.cpus,
-        mem_limit=args.mem_limit or None,
-    )
-    backend = LocalDockerBackend(
-        pull=args.pull,
-        keep_container=args.keep_container,
-        wheelhouse=wheelhouse,
-        uv_binary=args.uv_binary or None,
-        docker_timeout_s=args.docker_timeout_seconds,
-    )
+    suite = _suite(args)
+    backend = docker_cli.backend(args, wheelhouse)
 
     name = container_name(suite.name, args.instance_id, args.run_id)
-    if args.force:
-        _force_remove(name)
 
-    isolation = "off (CAP_SYS_ADMIN withheld)" if args.no_network_isolation else "on"
-    print("==> Running ProgramBench instance through ProgrambenchSuite")
-    print(f"    instance:        {args.instance_id}")
-    print(f"    max-turns:       {args.max_turns}")
     print(
-        f"    wall-time:       {args.wall_time_seconds}s ({args.wall_time_seconds / 3600:.1f}h)"
+        f"==> ProgramBench {args.instance_id} run={args.run_id} container={name} "
+        f"isolation={'off' if args.no_network_isolation else 'on'}"
     )
-    print(f"    docker cpus:     {args.cpus}")
-    print(f"    docker memory:   {args.mem_limit}")
-    print(f"    run-id:          {args.run_id}")
-    print(f"    image-tag:       {args.image_tag}")
-    print(f"    cmd net-isolate: {isolation}")
-    print(f"    container:       {name}")
-    if any("seccomp=unconfined" in opt for opt in security_opt):
-        print(
-            "    WARNING: seccomp disabled (seccomp=unconfined) — reduced "
-            "container isolation. Pass --security-opt seccomp=default to "
-            "restore the daemon's profile."
-        )
-    print("")
-
+    docker_cli.warn_if_unconfined(suite.security_opt)
     result = run_suite_instance(
         suite=suite,
         instance=instance,
@@ -231,37 +166,91 @@ def run(args: argparse.Namespace) -> dict:
 
     if result.logs:
         print(result.logs, end="" if result.logs.endswith("\n") else "\n")
-    print("")
-    print(f"==> run dir: {result.run_dir}")
-    print(f"    result:  {result.run_dir / 'out' / 'result.json'}")
-    print(f"    status:  {result.status_code}")
+    print(f"==> status={result.status_code} run_dir={result.run_dir}")
     print(
         "    score it: uv run python evals/programbench/evaluate_submissions.py "
         f"--run-root {run_root} --run-id {args.run_id}"
     )
+    return docker_cli.result_record(NAME, result)
+
+
+def _batch_instances(args: argparse.Namespace) -> list[dict[str, Any]]:
+    instance_ids = list(args.instance_id)
+    if (args.all or args.filter or args.slice) and instance_ids:
+        raise SystemExit(
+            "Pass positional instance ids or --all/--filter/--slice, not both."
+        )
+    if args.all or args.filter or args.slice:
+        instances = harness.load_instances(
+            filter_spec=args.filter,
+            slice_spec=args.slice,
+        )
+    elif instance_ids:
+        instances = [harness.load_instance(instance_id) for instance_id in instance_ids]
+    else:
+        instances = [harness.load_instance("abishekvashok__cmatrix.5c082c6")]
+    if not instances:
+        raise SystemExit("No instances selected.")
+    return instances
+
+
+def run_batch(args: argparse.Namespace) -> dict:
+    if args.parallel < 1:
+        raise SystemExit("--parallel must be a positive integer")
+    args.run_id = canonical_run_id(
+        args.run_id or f"programbench-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    )
+    run_root = Path(args.run_root) if args.run_root else harness.DEFAULT_RUN_ROOT
+    wheelhouse = (
+        Path(args.wheelhouse).resolve()
+        if args.wheelhouse
+        else harness.DEFAULT_WHEELHOUSE
+    )
+    instances = _batch_instances(args)
+    provider_env = _provider_environment(args)
+    args.uv_binary = args.uv_binary or str(ensure_linux_uv())
+    print("Preparing wheelhouse and Linux uv once before launching batch...")
+    harness.prepare_wheelhouse(wheelhouse)
+
+    suite = _suite(args)
+    backend = docker_cli.backend(args, wheelhouse)
+
+    def per_instance(instance: Mapping[str, Any]) -> dict[str, Any]:
+        instance_id = str(instance["instance_id"])
+        return {"name": container_name(suite.name, instance_id, args.run_id)}
+
+    print("=== ProgramBench batch ===")
+    print(f"Run ID: {args.run_id}")
+    print(f"Instances: {len(instances)}")
+    print(f"Parallel: {args.parallel}")
+    report, failed = run_container_batch(
+        suite=suite,
+        instances=instances,
+        backend=backend,
+        store=LocalDirStore(run_root),
+        run_root=run_root,
+        run_id=args.run_id,
+        parallel=args.parallel,
+        per_instance_kwargs=per_instance,
+        provider=args.provider,
+        api_kind=provider_env[harness.API_KIND_ENV],
+        max_turns=args.max_turns,
+        wall_time_seconds=args.wall_time_seconds,
+        provider_env=provider_env,
+        wheelhouse_mount=harness.DEFAULT_WHEELHOUSE_MOUNT,
+    )
+    print(f"Outputs: {run_root / args.run_id}/")
+    print(
+        "Score with: uv run --extra programbench python "
+        "evals/programbench/evaluate_submissions.py "
+        f"--run-id {args.run_id} --workers {args.parallel}"
+    )
+    if failed:
+        print(f"Failed runs: {failed}", file=sys.stderr)
     return {
         "bench": NAME,
-        "status_code": result.status_code,
-        "run_dir": str(result.run_dir),
-        "result_path": str(result.run_dir / "out" / "result.json"),
-        "summary": None,
+        "status_code": int(bool(failed)),
+        "run_dir": str(run_root / args.run_id),
+        "result_path": None,
+        "summary": {**report.summary(), "nonzero": failed},
     }
-
-
-def main() -> None:
-    raise SystemExit(run(parse_with_profile(_build_parser()))["status_code"])
-
-
-def _force_remove(name: str) -> None:
-    """Drop a leftover container with the deterministic run name."""
-
-    import docker
-
-    client = docker.from_env(timeout=DEFAULT_DOCKER_TIMEOUT_S)
-    for existing in client.containers.list(all=True, filters={"name": name}):
-        if existing.name == name:
-            existing.remove(force=True)
-
-
-if __name__ == "__main__":
-    main()

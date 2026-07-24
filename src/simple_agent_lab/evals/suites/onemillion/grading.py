@@ -248,39 +248,63 @@ def clean_and_parse_json(json_str: str) -> Any:
         raise ValueError("Empty JSON string")
 
     json_str = json_str.strip()
-
-    try:
-        return json.loads(json_str)
-    except json.JSONDecodeError:
-        pass
-
-    json_str_fixed = re.sub(r",\s*\]", "]", json_str)
-    json_str_fixed = re.sub(r",\s*\}", "}", json_str_fixed)
-    try:
-        return json.loads(json_str_fixed)
-    except json.JSONDecodeError:
-        pass
-
-    json_str_quotes = json_str.replace("“", '"').replace("”", '"')
-    try:
-        return json.loads(json_str_quotes)
-    except json.JSONDecodeError:
-        pass
-
-    json_str_quotes_fixed = re.sub(r",\s*\]", "]", json_str_quotes)
-    json_str_quotes_fixed = re.sub(r",\s*\}", "}", json_str_quotes_fixed)
-    try:
-        return json.loads(json_str_quotes_fixed)
-    except json.JSONDecodeError:
-        pass
-
+    fixed_commas = re.sub(r",\s*([}\]])", r"\1", json_str)
+    fixed_quotes = json_str.replace("“", '"').replace("”", '"')
+    candidates = (
+        json_str,
+        fixed_commas,
+        fixed_quotes,
+        re.sub(r",\s*([}\]])", r"\1", fixed_quotes),
+    )
     if json_str.startswith("[") and not json_str.endswith("]"):
+        candidates += (json_str + "]",)
+    for candidate in dict.fromkeys(candidates):
         try:
-            return json.loads(json_str + "]")
+            return json.loads(candidate)
         except json.JSONDecodeError:
-            pass
+            continue
 
     raise ValueError("Could not parse JSON")
+
+
+def _json_array_candidates(response_text: str) -> list[tuple[str, int]]:
+    """Return fenced, balanced, then broad JSON-array candidates."""
+
+    candidates = [
+        (match.group(1), pattern)
+        for pattern, regex in enumerate(
+            (r"```json\s*(\[[\s\S]*\])\s*```", r"```\s*(\[[\s\S]*\])\s*```"),
+            1,
+        )
+        if (match := re.search(regex, response_text, re.DOTALL))
+    ]
+    for start in (match.start() for match in re.finditer(r"\[", response_text)):
+        depth = 0
+        in_string = False
+        escaped = False
+        for end, char in enumerate(response_text[start:], start):
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = not in_string
+            elif not in_string:
+                depth += (char == "[") - (char == "]")
+                if depth == 0:
+                    candidates.append((response_text[start : end + 1], 3))
+                    break
+    first, last = response_text.find("["), response_text.rfind("]")
+    if 0 <= first < last:
+        candidates.append((response_text[first : last + 1], 4))
+    return candidates
+
+
+def _rubric_key(value: Any) -> Any:
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return value
 
 
 def parse_grading_response(
@@ -289,113 +313,40 @@ def parse_grading_response(
     """Parse the judge response into a per-rubric verdict dict."""
 
     results: Dict[Any, Dict[str, Any]] = {}
-
-    patterns = [
-        r"```json\s*(\[[\s\S]*\])\s*```",
-        r"```\s*(\[[\s\S]*\])\s*```",
-    ]
-
-    json_str = None
+    json_str: str | None = None
     data_list: Any = None
-    matched_pattern = None
-
-    for i, pattern in enumerate(patterns):
-        match = re.search(pattern, response_text, re.DOTALL)
-        if match:
-            try:
-                data_list = clean_and_parse_json(match.group(1))
-                json_str = match.group(1)
-                matched_pattern = i + 1
-                break
-            except (ValueError, json.JSONDecodeError):
-                continue
-
-    if not json_str:
-        start_positions = [m.start() for m in re.finditer(r"\[", response_text)]
-        for start in start_positions:
-            bracket_count = 0
-            in_string = False
-            escape_next = False
-            for i in range(start, len(response_text)):
-                char = response_text[i]
-                if escape_next:
-                    escape_next = False
-                    continue
-                if char == "\\":
-                    escape_next = True
-                    continue
-                if char == '"' and not escape_next:
-                    in_string = not in_string
-                    continue
-                if not in_string:
-                    if char == "[":
-                        bracket_count += 1
-                    elif char == "]":
-                        bracket_count -= 1
-                        if bracket_count == 0:
-                            candidate = response_text[start : i + 1]
-                            try:
-                                data_list = clean_and_parse_json(candidate)
-                                json_str = candidate
-                                matched_pattern = 3
-                                break
-                            except (ValueError, json.JSONDecodeError):
-                                continue
-            if json_str:
-                break
-
-    if not json_str:
-        first_bracket = response_text.find("[")
-        last_bracket = response_text.rfind("]")
-        if first_bracket != -1 and last_bracket != -1 and last_bracket > first_bracket:
-            candidate = response_text[first_bracket : last_bracket + 1]
-            try:
-                data_list = clean_and_parse_json(candidate)
-                json_str = candidate
-                matched_pattern = 4
-            except (ValueError, json.JSONDecodeError):
-                pass
-
-    if json_str:
+    matched_pattern: int | None = None
+    for candidate, pattern in _json_array_candidates(response_text):
         try:
-            if data_list is None:
-                data_list = clean_and_parse_json(json_str)
+            data_list = clean_and_parse_json(candidate)
+        except (ValueError, json.JSONDecodeError):
+            continue
+        json_str, matched_pattern = candidate, pattern
+        break
+
+    if json_str is None:
+        _warn(f"no JSON array found; first 500 chars: {response_text[:500]}")
+    else:
+        try:
             for item in data_list:
-                rubric_id = item.get("rubric_id")
+                rubric_id = _rubric_key(item.get("rubric_id"))
                 status = item.get("status", "").strip()
-                justification = item.get("justification", "").strip()
-                consistency = item.get("consistency", "").strip()
-
-                yes_values = ["是", "Yes", "yes", "Y", "YES", "true", "True", "命中"]
-                binary_score: Any = 1 if status in yes_values else 0
-
                 if rubric_id is not None and rubric_id != "":
-                    try:
-                        rubric_id = int(rubric_id)
-                    except (ValueError, TypeError):
-                        pass
                     results[rubric_id] = {
                         "status": status,
-                        "binary_score": binary_score,
-                        "justification": justification,
-                        "consistency": consistency,
+                        "binary_score": int(
+                            status
+                            in {"是", "Yes", "yes", "Y", "YES", "true", "True", "命中"}
+                        ),
+                        "justification": item.get("justification", "").strip(),
+                        "consistency": item.get("consistency", "").strip(),
                     }
         except Exception as exc:  # noqa: BLE001 - keep grading resilient
             _warn(f"JSON parse error: {str(exc)[:100]}")
-            _warn(
-                f"matched pattern: {matched_pattern}, "
-                f"json length: {len(json_str) if json_str else 0}"
-            )
-    else:
-        _warn(f"no JSON array found; first 500 chars: {response_text[:500]}")
+            _warn(f"matched pattern: {matched_pattern}, json length: {len(json_str)}")
 
     for rubric in rubrics:
-        rubric_num = rubric["rubric_number"]
-        lookup_key: Any = rubric_num
-        try:
-            lookup_key = int(rubric_num)
-        except (ValueError, TypeError):
-            pass
+        lookup_key = _rubric_key(rubric["rubric_number"])
         if lookup_key not in results:
             results[lookup_key] = {
                 "status": "否",
@@ -418,12 +369,7 @@ def convert_scores(
         rubric_num = rubric["rubric_number"]
         weight = rubric["rubric_weight"]
 
-        lookup_key: Any = rubric_num
-        try:
-            lookup_key = int(rubric_num)
-        except (ValueError, TypeError):
-            pass
-
+        lookup_key = _rubric_key(rubric_num)
         raw_result = raw_results.get(lookup_key, {"binary_score": 0})
         binary_score = raw_result["binary_score"]
 
@@ -431,14 +377,7 @@ def convert_scores(
             final_scores[rubric_num] = "NA"
             continue
 
-        if weight > 0:
-            final_score = weight if binary_score == 1 else 0
-        elif weight < 0:
-            final_score = weight if binary_score == 1 else 0
-        else:
-            final_score = 0
-
-        final_scores[rubric_num] = final_score
+        final_scores[rubric_num] = weight if binary_score == 1 else 0
 
     return final_scores
 
