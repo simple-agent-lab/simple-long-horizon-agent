@@ -37,7 +37,6 @@ DEFAULT_BASH_TIMEOUT_SECONDS = 30.0
 DEFAULT_BASH_MAX_OUTPUT_CHARS = 4000
 MAX_BASH_TIMEOUT_SECONDS = 300.0
 DEFAULT_BASH_MAX_ATTACH_BYTES = 5 * 1024 * 1024  # 5 MiB per attached image
-DEFAULT_SUBMISSION_MARKER = "COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
 
 # Env vars we inject (additively) into the bash subprocess so that paging tools
 # and progress bars do not blow the model-visible output budget. Mirrors the

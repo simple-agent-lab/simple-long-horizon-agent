@@ -110,7 +110,6 @@ class FlavorSelectionTest(unittest.TestCase):
         from evals.swebench.harness import AGENT_FLAVOR_CHOICES
 
         self.assertEqual(tuple(AGENT_FLAVOR_CHOICES), tuple(AGENT_FLAVORS))
-        self.assertEqual(tuple(wc.ALL_FLAVORS), tuple(AGENT_FLAVORS))
 
     def test_agent_spec_keeps_capability_prompt_out_of_suite(self) -> None:
         with mock.patch.dict(os.environ, {AGENT_FLAVOR_ENV: "bash_task_read"}):

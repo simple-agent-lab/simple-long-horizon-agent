@@ -14,9 +14,10 @@ based on the task.
 
 - [`agent-native/integrating-a-docker-eval-suite.md`](agent-native/integrating-a-docker-eval-suite.md)
   — the maintained step-by-step guide for adding a containerized benchmark.
-- [`glossary.md`](glossary.md) — shared vocabulary. The repo-root
-  [`CONTEXT.md`](../CONTEXT.md) holds resolved terminology boundaries
-  (message protocol, provider adapter, content blocks).
+- [`glossary.md`](glossary.md) — general vocabulary (agent, tool, state,
+  event, evaluation). The repo-root [`CONTEXT.md`](../CONTEXT.md) is the
+  single source for message-protocol terminology (message protocol, provider
+  adapter, content blocks).
 - [`reference-architectures/`](reference-architectures/README.md) — local
   workspace for reference-architecture research notes. The directory's
   contents are gitignored except for `README.md` and `template.md`, so the

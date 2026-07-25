@@ -8,7 +8,6 @@ so the always-present menu stays cheap even with many skills.
 from __future__ import annotations
 
 import os
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -43,9 +42,7 @@ SCOPE_RANK = {"repo": 0, "user": 1, "bundled": 2}
 
 DEFAULT_PROJECT_SUBDIRS = (".agents/skills", ".simple_agent_lab/skills")
 
-MAX_NAME_LEN = 64
 MAX_DESCRIPTION_LEN = 1024
-NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
 
 def default_skill_roots(

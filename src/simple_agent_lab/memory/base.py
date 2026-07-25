@@ -32,32 +32,28 @@ class MemoryContext:
     session_id: str = ""
     run_id: str = ""
     memory_name: str = ""
-    step_index: int | None = None
     state: State | None = None
     data: Mapping[str, Any] = field(default_factory=dict)
 
 
 class Memory:
-    """Base class for optional memory behavior around an agent run."""
+    """Base class for optional memory behavior around an agent run.
+
+    The surface is exactly what the core hook points can drive today:
+    `initial(...)` at `SESSION_START`, `tools(...)` at assembly, and
+    `finish(...)` at `SESSION_END`. Add a method only when a hook point
+    exists to call it.
+    """
 
     def initial(self, ctx: MemoryContext) -> tuple[Message, ...]:
         """Messages to record before the run starts."""
         del ctx
         return ()
 
-    def recall(self, ctx: MemoryContext, query: str) -> tuple[Message, ...]:
-        """Messages to record before a model request."""
-        del ctx, query
-        return ()
-
     def tools(self, ctx: MemoryContext) -> tuple[AgentTool, ...]:
         """Additional tools to expose for this run."""
         del ctx
         return ()
-
-    def record(self, ctx: MemoryContext, messages: tuple[Message, ...]) -> None:
-        """Observe messages recorded during one completed turn."""
-        del ctx, messages
 
     def finish(self, ctx: MemoryContext) -> None:
         """Best-effort post-run learning or persistence."""

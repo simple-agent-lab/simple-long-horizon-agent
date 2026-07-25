@@ -23,7 +23,7 @@ the tool result.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable, Iterator
 
 from .compression import maybe_compress_context
@@ -66,7 +66,6 @@ if TYPE_CHECKING:
 # It takes no other arguments: name/role/tools/etc. are closed over at the
 # point where the function is built (see `llm_agent.py` and the test fakes).
 GenerateFn = Callable[[list[Message]], Message]
-GenerateForToolsFn = Callable[[tuple[AgentTool, ...]], GenerateFn]
 
 # A state initializer builds the initial `State` for `Agent.run` from a task.
 # The default (see `Agent._default_init_state`) records a single task message; a
@@ -90,54 +89,28 @@ class Agent:
     tools: tuple[AgentTool, ...] = ()
     context_policy: ContextPolicy | None = None
     # Lifecycle hooks consulted during `run()` — observe, block a PRE_TOOL_USE
-    # call, or emit messages (append-only; never edit). A sibling of
-    # `context_policy`: a pluggable
-    # policy bound at construction, read by the loop, defaulting to a no-op
-    # empty map. A bare `{HookPoint: [hook, ...]}` dict (like `tools` is a bare
-    # tuple). Sub-agents carry their own, so `task_tool` delegation inherits
-    # hooks for free. To vary hooks for one invocation without a new agent,
-    # `dataclasses.replace(agent, hooks=...)` (same as context_policy).
+    # call, or emit messages (append-only; never edit). A bare
+    # `{HookPoint: [hook, ...]}` dict, like `tools` is a bare tuple. Sub-agents
+    # carry their own, so `task_tool` delegation inherits hooks for free.
     hooks: HookMap = field(default_factory=dict)
-    # The system prompt `generate` actually sends to the model. Closed over
-    # inside `generate` (see `llm_agent.py`), so the loop can't see it on the
-    # wire; mirrored here purely so `run()` can record it in the request trace
-    # alongside the messages. Empty means "no system prompt was sent".
+    # Mirror of the system prompt `generate` closes over (see `llm_agent.py`),
+    # so `run()` can record it in the request trace. Empty means none was sent.
     system_prompt: str = ""
-    # Provider metadata for agents built through `make_llm_agent`. Programmatic
-    # facades leave this unset, so their deterministic `generate` calls do not
-    # masquerade as model calls in traces.
+    # Set only by `make_llm_agent`. Programmatic facades leave it unset so their
+    # deterministic `generate` calls do not look like model calls in traces.
     llm_provider: Provider | None = None
-    # How `run` builds the initial `State` from a task. `None` means the default
-    # single-task-message initializer (`_default_init_state`); a `StateInitFn`
-    # (e.g. installed by the skills layer) can record extra context messages
-    # before the task so they are present at the first sample. The loop (`run`)
-    # is unaffected — it always drives whatever `State` the initializer
-    # produced.
+    # How `run` builds the initial `State`. `None` uses `_default_init_state`
+    # (just the task message); the skills layer installs one that records the
+    # skills menu first, so a bare `agent.run(task)` is skills-aware.
     init_state: StateInitFn | None = None
-    # Optional final trace projection. Workflow facades can run many sub-agents
-    # behind one outer `generate`; this lets the agent provide a richer final
-    # trace view without changing the message loop or asking callers to know the
-    # workflow's internals. None means "trace the run state as-is".
+    # Optional final trace projection. A workflow facade runs many sub-agents
+    # behind one outer `generate`; this lets it export a richer final trace
+    # without changing the message loop. None means "trace the run state as-is".
     compose_trace_state: TraceStateFn | None = None
-    # LLM-backed agents close over their wire tool schemas. Their factory sets
-    # this hook so a workflow can derive a tool-bound copy whose runtime
-    # dispatch table and model request stay in sync. Programmatic agents leave
-    # it unset and keep their existing generate callable when tools are rebound.
-    generate_for_tools: GenerateForToolsFn | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.tools, tuple):
             self.tools = tuple(self.tools)
-
-    def with_tools(self, tools: tuple[AgentTool, ...]) -> Agent:
-        """Return a copy with matching runtime and model-visible tool bindings."""
-
-        generate = (
-            self.generate_for_tools(tools)
-            if self.generate_for_tools is not None
-            else self.generate
-        )
-        return replace(self, generate=generate, tools=tools)
 
     def run(
         self,
@@ -236,18 +209,12 @@ def run(
 ) -> Iterator[Event]:
     """Run one agent as a generator until it emits `final` or hits `max_turns`.
 
-    Each yielded `Event` is recorded in `state`. Multi-agent flows are
-    expressed by giving `agent` a `task_tool` whose sub-agents each call
-    their own `run()` inside the tool execute function.
-
-    The agent's `hooks` (an `Agent` field, like `context_policy`) let callers
-    observe points in the loop, block a `PRE_TOOL_USE` call, or emit messages —
-    append-only, never editing. The default empty map is a no-op, so an agent
-    built without hooks runs exactly as before.
+    Each yielded `Event` is also recorded in `state`.
     """
     name = agent.name
     tool_by_name = {tool.name: tool for tool in agent.tools}
     hooks = agent.hooks
+    api = agent.llm_provider.api if agent.llm_provider is not None else ""
 
     def session_hook(point: HookPoint) -> Iterator[Event]:
         _, hook_events = fire_hooks(
@@ -289,7 +256,6 @@ def run(
         if agent.system_prompt:
             llm_payload = [llm_message("system", agent.system_prompt), *llm_payload]
 
-        api = agent.llm_provider.api if agent.llm_provider is not None else ""
         yield state.record_event(
             ModelRequestEvent(
                 agent=name,
@@ -311,7 +277,6 @@ def run(
 
         output = agent.generate(visible)
         output_tool_calls = message_tool_calls(output)
-        api = agent.llm_provider.api if agent.llm_provider is not None else ""
         yield state.record_event(
             ModelResponseEvent(
                 agent=name,

@@ -57,8 +57,6 @@ from typing import TYPE_CHECKING, Any
 
 import simple_agent_lab.config as config
 from simple_agent_lab.agent_flavors import (
-    AGENT_FLAVORS,
-    SIMPLE_AGENT_FLAVORS,
     WORKFLOW_AGENT_FLAVORS,
     flavor_from_env,
 )
@@ -82,12 +80,6 @@ from .patch import (
 
 if TYPE_CHECKING:
     from simple_agent_lab.memory import FilesystemArtifact
-
-# Back-compatible flavor-name aliases for older scripts/tests. The source of
-# truth lives in `simple_agent_lab.agent_flavors`.
-SIMPLE_FLAVORS = SIMPLE_AGENT_FLAVORS
-ARM_FLAVORS = WORKFLOW_AGENT_FLAVORS
-ALL_FLAVORS = AGENT_FLAVORS
 
 AGENT_NAME = "swebench_agent"
 AGENT_ROLE = (
@@ -439,7 +431,7 @@ def build_agent(
 
     _enable_swebench_runtime_defaults()
     flavor = flavor_from_env()
-    if flavor not in ARM_FLAVORS:
+    if flavor not in WORKFLOW_AGENT_FLAVORS:
         return None
 
     return build_flavor_agent(

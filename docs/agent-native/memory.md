@@ -108,30 +108,21 @@ thing future users can implement:
 
 ```text
 Memory
-  initial(ctx)        -> tuple[Message, ...]
-  recall(ctx, query)  -> tuple[Message, ...]
-  tools(ctx)          -> tuple[AgentTool, ...]
-  record(ctx, msgs)   -> None
-  finish(ctx)         -> None
+  initial(ctx)  -> tuple[Message, ...]    at SESSION_START
+  tools(ctx)    -> tuple[AgentTool, ...]  at assembly
+  finish(ctx)   -> None                   at SESSION_END
 ```
 
-`Memory` is a concrete base class with no-op defaults, not a protocol that
-forces every implementation to define every method. Subclass it and override
-only the pieces you need. This keeps method-specific choices at the edge while
-making the lifecycle explicit. A memory implementation may inject initial
-context only, recall context before model requests, expose tools only, observe
-completed turns, learn at run end only, or combine these. `MemoryContext`
-carries `agent`, `task`, optional `session_id`, optional `run_id`, optional
-`memory_name`, optional `step_index`, optional `state`, and extra metadata.
+The surface is exactly what the core hook points can drive today. `Memory` is a
+concrete base class with no-op defaults, not a protocol that forces every
+implementation to define every method — subclass it and override only the
+pieces you need. `MemoryContext` carries `agent`, `task`, optional
+`session_id`, optional `run_id`, optional `memory_name`, optional `state`, and
+extra metadata under `data`.
 
-```python
-class VectorMemory(Memory):
-    def recall(self, ctx, query):
-        snippets = self.index.search(query)
-        if not snippets:
-            return ()
-        return (memory_context_message(render(snippets), target=ctx.agent),)
-```
+Query-shaped recall and per-turn observation need pre-model and after-turn hook
+points the runtime does not expose. Add the method together with the hook point
+that calls it; do not land a no-op that reads as a live extension seam.
 
 Bind memory before the agent is built, then pass its tools through the same
 factory path MCP uses. `MemoryBinding.hooks` is a normal core `HookMap`; pass
@@ -156,34 +147,9 @@ agent = make_llm_agent(
 state, events = agent.run(task)
 ```
 
-Current core hooks map `initial(...)` to `SESSION_START` and `finish(...)` to
-`SESSION_END`. `recall(...)` and `record(...)` remain optional methods for a
-future pre-model or after-turn hook point; do not pretend they run live until
-the runtime exposes those points.
-
-## Capability Roles
-
-Use small role names when a concrete implementation needs them:
-
-- `MemorySource`: recalls candidate memory for a task, agent, or context view.
-- `MemoryLearner`: reads a finished or in-progress `State` and proposes memory
-  items worth keeping.
-- `MemorySink`: commits approved memory items to a durable place.
-- `MemoryToolProvider`: exposes one or more ordinary `AgentTool` values for
-  model-directed search or writes.
-- `MemoryInjector`: turns recalled memory into runtime `Message` values.
-
-These roles are lower-level parts. The user-facing entry point should stay
-`Memory` so later implementations do not have to pretend every memory method is
-a store.
-
-## Lifecycle Boundary
-
-The interface deliberately avoids a large hook surface. Initial read happens
-through `initial(...)`, query-shaped recall happens through `recall(...)`,
-model-directed memory operations happen through ordinary tools, completed-turn
-observation happens through `record(...)`, and write/consolidation happens
-through `finish(...)`. Add finer hooks such as `after_tool_result` only after a
+The interface deliberately avoids a large hook surface: initial read through
+`initial(...)`, model-directed memory operations through ordinary tools, and
+write/consolidation through `finish(...)`. Add a finer hook point only after a
 concrete experiment cannot be expressed with this shape.
 
 ## Context Injection
@@ -257,17 +223,11 @@ filesystem directory and lets the model inspect files through tools.
 
 ## Trace And Events
 
-Memory should be observable before it becomes clever. Future implementation
-work should consider explicit memory events such as:
-
-- `MemoryRecallStartEvent` / `MemoryRecallEndEvent`
-- `MemoryInjectionEvent`
-- `MemoryWriteEvent`
-
-The first implementation may instead record injected messages and use existing
-tool events, but it should not leave recall or writes invisible. If memory
-retrieval becomes a durable operation in the runtime, add event pairs and derive
-memory spans in `trace/spans.py`.
+Memory should be observable before it becomes clever. Today that is covered by
+the injected messages themselves plus the existing hook and tool events —
+nothing memory does is invisible. If memory retrieval ever becomes a durable
+runtime operation, add explicit event pairs and derive memory spans in
+`trace/spans.py` rather than leaving it untraced.
 
 ## Expected Fits
 
@@ -276,9 +236,8 @@ memory spans in `trace/spans.py`.
 | Run summary memory | `finish(...)` learner plus `initial(...)` injection |
 | User preference memory | explicit memory tool plus stable `initial(...)` context |
 | File-system memory | backend directory plus injected instructions or filesystem tool exposure |
-| Vector memory | `recall(...)` plus snippet injection |
 | Self-editing memory | memory tools plus write policy and trace events |
-| Read-only project memory | `MemorySource` plus `initial(...)` context, no sink |
+| Read-only project memory | `initial(...)` context only, no writes |
 
 ## Imported Mechanism Fit
 
@@ -327,10 +286,9 @@ Default layout:
 
 Mapping to this sketch:
 
-- The directory is a persistence backend, but not necessarily a
-  `MemorySource`; recall is model-driven through normal file tools. Do not add a
-  default `recall(...)` implementation that silently searches and injects
-  filesystem snippets before every model request.
+- The directory is a persistence backend, not a retrieval engine: recall is
+  model-driven through normal file tools. Do not add an implicit search that
+  injects filesystem snippets before every model request.
 - The path/policy block is `initial(...)` context injection.
 - The existing bash or MCP filesystem tool provides tool exposure; the memory
   layer may contribute no tools of its own.
@@ -438,9 +396,9 @@ Abstraction notes:
   instructions rather than a direct recall API.
 - It must support a no-tools model call for distillation so memory updates do
   not depend on or pollute the main agent tool surface.
-- It needs run metadata such as `session_id`, `run_id`, an optional explicit
-  memory namespace key, and optional `step_index`; these should stay outside
-  `Message` and flow through memory hook context.
+- It needs run metadata such as `session_id`, `run_id`, and an optional explicit
+  memory namespace key; these should stay outside `Message` and flow through
+  memory hook context.
 
 ### Refinements From The Imported Spec
 

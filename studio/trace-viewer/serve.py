@@ -170,28 +170,6 @@ def count_records(path: Path) -> int:
         return 0
 
 
-def _nth_json_object(text: str, n: int) -> dict | None:
-    """Parse the *n*-th JSON object from *text* (0-based)."""
-    decoder = json.JSONDecoder()
-    idx = 0
-    length = len(text)
-    record_num = 0
-    while idx < length:
-        while idx < length and text[idx] in " \t\n\r":
-            idx += 1
-        if idx >= length:
-            break
-        try:
-            obj, end = decoder.raw_decode(text, idx)
-        except json.JSONDecodeError:
-            break
-        if record_num == n:
-            return obj
-        idx = end
-        record_num += 1
-    return None
-
-
 def _nth_json_span(text: str, n: int) -> tuple[int, int] | None:
     """Return the ``(start, end)`` character offsets of the *n*-th JSON object."""
     decoder = json.JSONDecoder()
@@ -395,20 +373,6 @@ def _safe_head_text(path: Path) -> str:
             return f.read(MAX_PEEK_BYTES).decode("utf-8", errors="replace")
     except OSError:
         return ""
-
-
-def read_trace_record(path: Path, line_index: int = 0) -> dict | None:
-    """Return one parsed record from path.
-
-    For plain .json: the whole file (line_index ignored).
-    For .jsonl: the record at line_index (0-based).  Supports both
-    single-line JSONL and pretty-printed (``indent=2``) records.
-    """
-    if path.suffix.lower() == ".json":
-        with path.open("r", encoding="utf-8") as f:
-            return json.load(f)
-    text = path.read_text(encoding="utf-8")
-    return _nth_json_object(text, line_index)
 
 
 def read_all_records(path: Path, limit: int = 5000) -> list[dict]:
