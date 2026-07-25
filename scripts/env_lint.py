@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src" / "simple_agent_lab"
 
 # Modules whose job IS to read the environment (paths relative to SRC). These
-# are the documented env owners (see docs/agent-native/configuration.md's
+# are the documented env owners (see docs/configuration.md's
 # boundary rule); a knob lives with exactly one of them.
 ALLOWLIST = {
     "config.py",  # the env registry itself (EnvVar.get)

@@ -223,7 +223,7 @@ class ContainerTask(Protocol):
     ``extract_result``. Omit it to fall back to memory's generic defaults.
 
     Step-by-step guidance for writing a new suite lives in
-    ``docs/agent-native/integrating-a-docker-eval-suite.md``.
+    ``docs/adding-an-eval-suite.md``.
     """
 
     def build_task(self, instance: Mapping[str, Any], *, workdir: str) -> ContentInput:

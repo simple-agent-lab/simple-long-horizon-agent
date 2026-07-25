@@ -22,7 +22,7 @@ The adapter maps SWE-bench onto the generic `Suite` protocol:
   verifies the workspace; it does not spend turns formatting a second patch for
   submission. Incremental traces for the host viewer use the live-trace helpers
   in `simple_agent_lab.trace` — see
-  `docs/agent-native/docker-live-trace.md`.
+  `docs/docker-live-trace.md`.
 - `evaluate_predictions.py` collects per-run `result.json` files into an official
   predictions JSONL (`--collect-predictions`) and runs or normalizes the official
   SWE-bench harness result into `EvalResult` records.

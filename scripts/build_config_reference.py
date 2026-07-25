@@ -3,7 +3,7 @@
 The env knobs that have moved into the central registry
 (`simple_agent_lab.config.REGISTRY`) are the source of truth for their name /
 default / docs. This script renders them into the marked block of
-`docs/agent-native/configuration.md`, grouped by the `domain.subsystem`
+`docs/configuration.md`, grouped by the `domain.subsystem`
 hierarchy, so the catalog cannot drift from the code.
 
 Usage:
@@ -21,7 +21,7 @@ from pathlib import Path
 
 from simple_agent_lab.config import REGISTRY, EnvVar
 
-DOC_PATH = Path(__file__).resolve().parents[1] / "docs/agent-native/configuration.md"
+DOC_PATH = Path(__file__).resolve().parents[1] / "docs/configuration.md"
 BEGIN = "<!-- BEGIN GENERATED: config-registry (scripts/build_config_reference.py) -->"
 END = "<!-- END GENERATED: config-registry -->"
 

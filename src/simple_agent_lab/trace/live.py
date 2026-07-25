@@ -8,7 +8,7 @@ skip this module entirely; nothing in ``core`` depends on it.
 
 Mount a host-visible directory into the container and point
 ``LiveTraceSession`` (or ``run_agent_with_live_trace``) at a path under that
-mount. See ``docs/agent-native/docker-live-trace.md`` for the mount + env
+mount. See ``docs/docker-live-trace.md`` for the mount + env
 contract.
 """
 
