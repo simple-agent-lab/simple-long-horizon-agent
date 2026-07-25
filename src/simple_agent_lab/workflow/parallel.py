@@ -22,10 +22,16 @@ from typing import Any, Mapping, Sequence
 
 from simple_agent_lab.core import Agent
 from simple_agent_lab.llm import Provider as LLMProvider
-from simple_agent_lab.llm_agent import make_llm_agent
 from simple_agent_lab.tools import AbortFlag, AgentTool
 
-from .base import StepResult, WorkflowResult, as_text, never_abort, run_agent
+from .base import (
+    StepResult,
+    WorkflowResult,
+    as_text,
+    make_role_agent,
+    never_abort,
+    run_agent,
+)
 
 AGGREGATOR_ROLE = "Synthesize several agents' answers into one final answer."
 AGGREGATOR_SYSTEM_PROMPT = (
@@ -124,21 +130,17 @@ def run_parallel(
 def make_aggregator_agent(
     provider: LLMProvider,
     *,
-    name: str = "aggregator",
-    role: str = AGGREGATOR_ROLE,
-    system_prompt: str = AGGREGATOR_SYSTEM_PROMPT,
     tools: Sequence[AgentTool] = (),
     request_extra: Mapping[str, Any] | None = None,
     timeout_seconds: float | None = None,
 ) -> Agent:
-    """Build an aggregator `Agent` for `run_parallel`."""
-    return make_llm_agent(
-        name=name,
-        provider=provider,
-        role=role,
+    """Build the aggregator `Agent` for `run_parallel`."""
+    return make_role_agent(
+        provider,
+        name="aggregator",
+        role=AGGREGATOR_ROLE,
+        system_prompt=AGGREGATOR_SYSTEM_PROMPT,
         tools=tools,
-        system_prompt=system_prompt,
-        target="user",
         request_extra=request_extra,
         timeout_seconds=timeout_seconds,
     )

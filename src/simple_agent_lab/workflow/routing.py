@@ -21,10 +21,9 @@ from typing import Any, Mapping, Sequence
 
 from simple_agent_lab.core import Agent
 from simple_agent_lab.llm import Provider as LLMProvider
-from simple_agent_lab.llm_agent import make_llm_agent
 from simple_agent_lab.tools import AbortFlag
 
-from .base import WorkflowResult, as_text, never_abort, run_agent
+from .base import WorkflowResult, as_text, make_role_agent, never_abort, run_agent
 
 ROUTER_ROLE = "Pick the single best specialist for a task."
 
@@ -139,18 +138,15 @@ def make_router_agent(
     provider: LLMProvider,
     routes: Sequence[Route],
     *,
-    name: str = "router",
-    role: str = ROUTER_ROLE,
     request_extra: Mapping[str, Any] | None = None,
     timeout_seconds: float | None = None,
 ) -> Agent:
     """Build a router `Agent` whose system prompt lists `routes`."""
-    return make_llm_agent(
-        name=name,
-        provider=provider,
-        role=role,
+    return make_role_agent(
+        provider,
+        name="router",
+        role=ROUTER_ROLE,
         system_prompt=_router_system_prompt(routes),
-        target="user",
         request_extra=request_extra,
         timeout_seconds=timeout_seconds,
     )
