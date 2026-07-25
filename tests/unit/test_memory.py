@@ -776,8 +776,8 @@ class FilesystemMemoryTest(unittest.TestCase):
             root=self.root,
             limits=FilesystemMemoryLimits(max_namespaces_per_root=1),
         )
-        self.assertTrue(memory.admit_namespace("first"))
-        self.assertFalse(memory.admit_namespace("second"))
+        self.assertTrue(memory.admit_namespaces(("first",)))
+        self.assertFalse(memory.admit_namespaces(("second",)))
 
     def test_filesystem_memory_sanitizes_duplicate_artifact_names(self) -> None:
         def artifacts(ctx):

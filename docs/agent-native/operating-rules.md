@@ -31,16 +31,10 @@ needed as a routing hint.
 
 ## Maintenance Flow
 
-1. Start from the loading map and inspect the current source of truth.
-2. Decide the feedback signal before editing: unit test, smoke run, eval,
-   trace, type check, format check, or explicit review checklist.
-3. Make the smallest change that resolves the mismatch.
-4. Keep public examples small, runnable, and free of external services by
-   default.
-5. Update docs only where the reader needs non-obvious context or a changed
-   command/path.
-6. If a change creates a durable architectural boundary, update the relevant
-   topic doc and add an executable validation where practical.
+Follow the working loop in `AGENTS.md`. Two additions apply when the change is
+a maintenance fix rather than a feature: make the smallest change that resolves
+the mismatch, and update docs only where the reader needs non-obvious context
+or a changed command/path.
 
 ## Dates In Docs
 

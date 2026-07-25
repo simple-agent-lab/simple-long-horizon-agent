@@ -65,6 +65,9 @@ Maintenance principles:
 - Easy customization for students, workshops, and small team experiments.
 - Documentation that explains why the system works, not only how to run it.
 
+Audience and design principles behind these goals live in
+`docs/agent-native/project-intent.md`; this file does not restate them.
+
 ## Non-Goals
 
 - Do not introduce a heavy framework before the first simple implementation exists.
@@ -81,7 +84,10 @@ Maintenance principles:
 - Validate architectural changes with a concrete feedback signal before broad
   implementation.
 
-## Suggested Agent Workflow
+## Working Loop
+
+This is the canonical loop; `docs/agent-native/README.md` and
+`docs/agent-native/operating-rules.md` refer back here rather than restating it.
 
 1. Read `README.md` and this file.
 2. Use `docs/agent-native/README.md` to choose the relevant context or

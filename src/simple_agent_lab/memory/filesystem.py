@@ -260,9 +260,6 @@ class FilesystemMemory(Memory):
         with _memory_lock(self.root):
             self._prune_all()
 
-    def admit_namespace(self, memory_name: str) -> bool:
-        return self.admit_namespaces((memory_name,))
-
     def admit_namespaces(self, memory_names: Iterable[str]) -> bool:
         """Reserve a finite namespace batch under the shared root lock."""
 

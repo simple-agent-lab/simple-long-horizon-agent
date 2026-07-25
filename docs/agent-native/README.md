@@ -152,12 +152,7 @@ Stop and collect more evidence before changing behavior when:
 
 ## Maintenance Workflow
 
-1. Start from the loading map above.
-2. Update the canonical topic doc first.
-3. Update this loading map if doc roles, freshness, loading triggers, or
-   first-read choices change.
-4. Move unresolved owner or external-system facts to `owner-questions.md`.
-
-## Open Questions
-
-See `docs/agent-native/owner-questions.md`.
+`AGENTS.md` holds the canonical working loop. Two rules are specific to this
+map: update the canonical topic doc before the map, and update the map itself
+only when doc roles or loading triggers change. Unresolved owner or
+external-system facts go to `owner-questions.md`.
