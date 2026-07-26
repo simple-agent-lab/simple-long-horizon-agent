@@ -19,8 +19,8 @@ doc sync should preserve the source of truth for future humans and agents.
 3. Compare the source of truth with the docs:
    - source: `src/simple_agent_lab/`, `scripts/`, `runs/`, `tests/`,
      `evals/`, `pyproject.toml`, `.github/workflows/ci.yml`
-   - docs: `README.md`, `CONTEXT.md`, `CONTRIBUTING.md`,
-     `docs/agent-native/README.md`, `docs/`, `runs/README.md`,
+   - docs: `README.md`, `AGENTS.md`, `CONTEXT.md`, `CONTRIBUTING.md`,
+     `docs/README.md` and the guides it indexes, `runs/README.md`,
      `tests/README.md`, `evals/README.md`, `evals/swebench/README.md`,
      `src/simple_agent_lab/llm/README.md`
 4. Look for only practical mismatches: missing behavior, outdated paths,

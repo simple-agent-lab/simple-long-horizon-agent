@@ -89,8 +89,6 @@ class MemoryBaseTest(unittest.TestCase):
     ) -> None:
         class FakeMemory(Memory):
             finished = False
-            recorded_turns = 0
-            recalled = 0
 
             def initial(self, ctx: MemoryContext):
                 return (
@@ -101,27 +99,6 @@ class MemoryBaseTest(unittest.TestCase):
                         kind="context",
                     ),
                 )
-
-            def recall(self, ctx: MemoryContext, query: str):
-                del ctx, query
-                self.recalled += 1
-                return (
-                    runtime_message(
-                        "remembered recall",
-                        sender="memory",
-                        target="agent",
-                        kind="context",
-                    ),
-                )
-
-            def record(
-                self,
-                ctx: MemoryContext,
-                messages: tuple,
-            ) -> None:
-                del ctx
-                self.recorded_turns += 1
-                self.recorded_message_count = len(messages)
 
             def finish(self, ctx: MemoryContext) -> None:
                 self.finished = True
@@ -161,8 +138,6 @@ class MemoryBaseTest(unittest.TestCase):
             fired_points,
             [str(HookPoint.SESSION_START), str(HookPoint.SESSION_END)],
         )
-        self.assertEqual(memory.recalled, 0)
-        self.assertEqual(memory.recorded_turns, 0)
         self.assertTrue(memory.finished)
         self.assertEqual(memory.final_count, 1)
 
@@ -366,7 +341,6 @@ class FilesystemMemoryTest(unittest.TestCase):
             session_id="inst/1",
             run_id="run/42",
             memory_name="repo/name",
-            step_index=2,
         )
         assert ctx.state is not None
         ctx.state.data["model_patch"] = "diff --git a/core.py b/core.py\n"
@@ -802,8 +776,8 @@ class FilesystemMemoryTest(unittest.TestCase):
             root=self.root,
             limits=FilesystemMemoryLimits(max_namespaces_per_root=1),
         )
-        self.assertTrue(memory.admit_namespace("first"))
-        self.assertFalse(memory.admit_namespace("second"))
+        self.assertTrue(memory.admit_namespaces(("first",)))
+        self.assertFalse(memory.admit_namespaces(("second",)))
 
     def test_filesystem_memory_sanitizes_duplicate_artifact_names(self) -> None:
         def artifacts(ctx):

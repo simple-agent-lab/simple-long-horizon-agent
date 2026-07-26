@@ -36,21 +36,18 @@ from .messages import (
 from .protocols import Event
 
 
-# Chars-per-token for the char-based fallback estimate — a rounded neutral
-# default, not a provider-accurate count. The real ratio varies by content type
-# (denser for prose, sparser for code / json / logs), so one constant can't be
-# exact; this is a deliberate middle value below the old 4 guess. One global
-# ratio is enough because the estimate only covers the small tail since the last
-# provider usage report, and the runtime's safety buffer absorbs the residual
-# estimation error.
+# Chars-per-token for the char-based fallback estimate — a neutral middle
+# value, not a provider-accurate count (the real ratio is denser for prose,
+# sparser for code / json / logs). One global ratio is enough: the estimate
+# only covers the tail since the last provider usage report, and the safety
+# buffer below absorbs the residual error.
 CHARS_PER_TOKEN = 3.5
 IMAGE_CHAR_ESTIMATE = 7373
 
 # Default reserves for the effective context budget (mirrors opencode's
 # OUTPUT_TOKEN_MAX / COMPACTION_BUFFER). They assume a large window — tune per
-# model. The safety buffer matters because the size signal partly rests on the
-# char estimate, which is approximate; the buffer is the slack that keeps that
-# error from overflowing the real window.
+# model. The safety buffer is the slack that keeps the char estimate's error
+# from overflowing the real window.
 DEFAULT_OUTPUT_RESERVE = 32000
 DEFAULT_SAFETY_BUFFER = 20000
 

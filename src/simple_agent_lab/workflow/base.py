@@ -19,9 +19,11 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Sequence
+from typing import Any, Mapping, Sequence
 
 from simple_agent_lab.core import Agent
+from simple_agent_lab.llm import Provider as LLMProvider
+from simple_agent_lab.llm_agent import make_llm_agent
 from simple_agent_lab.messages import (
     AssistantMessage,
     ContentInput,
@@ -30,7 +32,7 @@ from simple_agent_lab.messages import (
     text_of,
 )
 from simple_agent_lab.state import State
-from simple_agent_lab.tools import AbortFlag
+from simple_agent_lab.tools import AbortFlag, AgentTool
 
 
 def never_abort() -> bool:
@@ -179,4 +181,32 @@ def run_agent(
         task=as_text(task),
         output=final_output(state, agent.name),
         state=state,
+    )
+
+
+def make_role_agent(
+    provider: LLMProvider,
+    *,
+    name: str,
+    role: str,
+    system_prompt: str,
+    tools: Sequence[AgentTool] = (),
+    request_extra: Mapping[str, Any] | None = None,
+    timeout_seconds: float | None = None,
+) -> Agent:
+    """Build one workflow-role `Agent` (planner, critic, judge, ...).
+
+    Every role factory in this package differs only in its default `name` /
+    `role` / `system_prompt`, so the construction lives here once. `target` is
+    always `"user"`: a workflow agent answers the workflow, not another agent.
+    """
+    return make_llm_agent(
+        name=name,
+        provider=provider,
+        role=role,
+        tools=tools,
+        system_prompt=system_prompt,
+        target="user",
+        request_extra=request_extra,
+        timeout_seconds=timeout_seconds,
     )

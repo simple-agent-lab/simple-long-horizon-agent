@@ -20,10 +20,16 @@ from typing import Any, Mapping, Sequence
 
 from simple_agent_lab.core import Agent
 from simple_agent_lab.llm import Provider as LLMProvider
-from simple_agent_lab.llm_agent import make_llm_agent
 from simple_agent_lab.tools import AbortFlag, AgentTool
 
-from .base import StepResult, WorkflowResult, as_text, never_abort, run_agent
+from .base import (
+    StepResult,
+    WorkflowResult,
+    as_text,
+    make_role_agent,
+    never_abort,
+    run_agent,
+)
 
 DEFAULT_APPROVAL_MARKER = "APPROVED"
 
@@ -138,21 +144,17 @@ def run_reflection(
 def make_generator_agent(
     provider: LLMProvider,
     *,
-    name: str = "generator",
-    role: str = GENERATOR_ROLE,
-    system_prompt: str = GENERATOR_SYSTEM_PROMPT,
     tools: Sequence[AgentTool] = (),
     request_extra: Mapping[str, Any] | None = None,
     timeout_seconds: float | None = None,
 ) -> Agent:
-    """Build a generator `Agent` for the reflection loop."""
-    return make_llm_agent(
-        name=name,
-        provider=provider,
-        role=role,
+    """Build the generator `Agent` for `run_reflection`."""
+    return make_role_agent(
+        provider,
+        name="generator",
+        role=GENERATOR_ROLE,
+        system_prompt=GENERATOR_SYSTEM_PROMPT,
         tools=tools,
-        system_prompt=system_prompt,
-        target="user",
         request_extra=request_extra,
         timeout_seconds=timeout_seconds,
     )
@@ -161,22 +163,16 @@ def make_generator_agent(
 def make_critic_agent(
     provider: LLMProvider,
     *,
-    name: str = "critic",
-    role: str = CRITIC_ROLE,
-    system_prompt: str = CRITIC_SYSTEM_PROMPT,
-    tools: Sequence[AgentTool] = (),
     request_extra: Mapping[str, Any] | None = None,
     timeout_seconds: float | None = None,
 ) -> Agent:
-    """Build a critic `Agent`. Its system prompt must mention the marker that
+    """Build the critic `Agent`. Its prompt must mention the marker
     `run_reflection`'s `approval_marker` looks for (default "APPROVED")."""
-    return make_llm_agent(
-        name=name,
-        provider=provider,
-        role=role,
-        tools=tools,
-        system_prompt=system_prompt,
-        target="user",
+    return make_role_agent(
+        provider,
+        name="critic",
+        role=CRITIC_ROLE,
+        system_prompt=CRITIC_SYSTEM_PROMPT,
         request_extra=request_extra,
         timeout_seconds=timeout_seconds,
     )

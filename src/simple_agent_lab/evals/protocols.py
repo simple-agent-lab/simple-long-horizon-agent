@@ -215,16 +215,15 @@ class ContainerTask(Protocol):
     official harness) simply omits it.
 
     Optional ``memory_artifacts(workspace, instance, *, context)`` returns this
-    run's durable products as memory ``FilesystemArtifact`` values gathered
-    straight from the workspace — the same ``(workspace, instance, *, context)``
-    shape as ``extract_result``. When persistent memory is active the generic
-    runner injects it as the memory ``artifact_builder``, so the products are
-    captured inside ``memory.finish`` at the standard ``SESSION_END`` hook —
-    while the workspace is still intact, before ``extract_result``. The hook name
-    is generic: any suite can register its own collector, and a suite that does
-    not integrate with memory simply omits it (memory then falls back to its
-    generic defaults). Keeping this a suite-supplied hook is what keeps the
-    runner free of any suite-specific product flow.
+    run's durable products as memory ``FilesystemArtifact`` values, in the same
+    ``(workspace, instance, *, context)`` shape as ``extract_result``. When
+    persistent memory is active the runner injects it as the memory
+    ``artifact_builder``, so products are captured inside ``memory.finish`` at
+    ``SESSION_END`` — while the workspace is still intact, before
+    ``extract_result``. Omit it to fall back to memory's generic defaults.
+
+    Step-by-step guidance for writing a new suite lives in
+    ``docs/adding-an-eval-suite.md``.
     """
 
     def build_task(self, instance: Mapping[str, Any], *, workdir: str) -> ContentInput:

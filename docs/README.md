@@ -1,24 +1,34 @@
 # Docs
 
-Human-facing entry point to the doc tree. Future agents should start at
-[`agent-native/README.md`](agent-native/README.md) instead — it routes
-based on the task.
+One guide per subsystem. The working contract for contributors and agents is
+[`AGENTS.md`](../AGENTS.md); code and `tests/` are the source of truth for
+behavior.
 
-## Documentation
+## Guides
 
-- [`agent-native/`](agent-native/README.md) — agent-native context tree:
-  project intent, code style, harness workflow, development commands,
-  operating rules, and unresolved owner questions.
+- [`development.md`](development.md) — the quality gate, and the `ty` false
+  positives worth recognizing.
+- [`configuration.md`](configuration.md) — every environment variable, grouped
+  by owning layer. Start here when you cannot find a config knob.
+- [`memory.md`](memory.md) — the memory boundary and `FilesystemMemory`.
+- [`adding-an-eval-suite.md`](adding-an-eval-suite.md) — adding a containerized
+  benchmark: the two halves plus registration.
+- [`multi-machine-eval.md`](multi-machine-eval.md) — running evals across
+  several machines: daemons, image distribution, online vs offline.
+- [`swebench-pro-chains.md`](swebench-pro-chains.md) — operator contract for
+  long SWE-bench Pro chain runs.
+- [`docker-live-trace.md`](docker-live-trace.md) — the mount + env contract for
+  tailing a containerized run's trace.
 
-## Supporting
+## Vocabulary
 
-- [`agent-native/integrating-a-docker-eval-suite.md`](agent-native/integrating-a-docker-eval-suite.md)
-  — the maintained step-by-step guide for adding a containerized benchmark.
-- [`glossary.md`](glossary.md) — shared vocabulary. The repo-root
-  [`CONTEXT.md`](../CONTEXT.md) holds resolved terminology boundaries
-  (message protocol, provider adapter, content blocks).
-- [`reference-architectures/`](reference-architectures/README.md) — local
-  workspace for reference-architecture research notes. The directory's
-  contents are gitignored except for `README.md` and `template.md`, so the
-  convention is shared but individual notes stay on the contributor's
-  local disk.
+- [`glossary.md`](glossary.md) — general terms (agent, tool, state, event).
+- [`../CONTEXT.md`](../CONTEXT.md) — the single source for message-protocol
+  terminology: `Message`, `LLMMessage`, content blocks, provider adapters.
+
+## Local workspace
+
+- [`reference-architectures/`](reference-architectures/README.md) — notes on
+  external agent systems, captured before borrowing a pattern. Contents are
+  gitignored except the README and template, so the convention is shared but
+  individual notes stay on your disk.

@@ -248,7 +248,7 @@ LIVE_TRACE_PATH = EnvVar(
     "Bind-mounted path for incremental live trace output (unset = off).",
 )
 
-# Every declared var, so the catalog (docs/agent-native/configuration.md) can be
+# Every declared var, so the catalog (docs/configuration.md) can be
 # generated from / validated against this list. New EnvVars must be added here.
 REGISTRY: tuple[EnvVar, ...] = (
     WORKER_MAX_TURNS,

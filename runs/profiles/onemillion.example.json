@@ -1,7 +1,7 @@
 {
   "_comment": "Default OneMillion-Bench arm: one tool-free generation turn graded by the in-environment rubric judge. Copy to onemillion.json and run: uv run python -m runs.run_bench onemillion <case-id> --dataset datasets/OneMillion-Bench/<domain> --profile runs/profiles/onemillion.json. Generator + judge creds (OPENAI_*, JUDGE_*) stay in .env.",
   "env": {
-    "_comment": "Catalogued knobs read by the in-process generator (see docs/agent-native/configuration.md). Applied fill-the-gaps: a real export still wins.",
+    "_comment": "Catalogued knobs read by the in-process generator (see docs/configuration.md). Applied fill-the-gaps: a real export still wins.",
     "REASONING_EFFORT": "high"
   },
   "run": {

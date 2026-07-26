@@ -251,20 +251,14 @@ class RunsScriptsTest(unittest.TestCase):
             ROOT / "evals/out/swebench_multilingual/wheelhouse/cp311-manylinux",
         )
 
-    def test_swebench_output_docs_show_flat_suite_layout(self) -> None:
-        docs = [
-            ROOT / "evals/out/README.md",
-            ROOT / "evals/out/swebench/README.md",
-            ROOT / "evals/out/swebench_multilingual/README.md",
-            ROOT / "evals/out/swebench_pro/README.md",
-        ]
+    def test_eval_output_doc_shows_flat_suite_layout(self) -> None:
+        text = (ROOT / "evals/out/README.md").read_text(encoding="utf-8")
 
-        for path in docs:
-            text = path.read_text(encoding="utf-8")
-            with self.subTest(path=path.relative_to(ROOT)):
-                self.assertIn("instance_<id>.jsonl", text)
-                self.assertIn("wheelhouse/", text)
-                self.assertIn("<run-id>", text)
+        self.assertIn("instance_<id>.jsonl", text)
+        self.assertIn("wheelhouse/", text)
+        self.assertIn("<run-id>", text)
+        for suite in ("swebench", "swebench_multilingual", "swebench_pro"):
+            self.assertIn(f"`{suite}/`", text)
 
     def test_verified_swebench_entries_do_not_use_lite_dataset(self) -> None:
         files = [

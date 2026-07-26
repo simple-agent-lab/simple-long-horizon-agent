@@ -11,9 +11,9 @@ Read these in order:
 
 1. [`README.md`](README.md) — what this project is and how to set it up.
 2. [`AGENTS.md`](AGENTS.md) — collaboration contract for humans and coding
-   agents (working principles, goals, non-goals, editing expectations).
-3. [`docs/agent-native/development.md`](docs/agent-native/development.md) — day-to-day
-   commands and the quality gate.
+   agents (mission, working loop, editing expectations).
+3. [`docs/development.md`](docs/development.md) — the quality gate and the
+   known type-checker false positives.
 
 ## Local quality gate
 
@@ -37,8 +37,8 @@ tooling behind optional extras.
 ## Pull requests
 
 - Keep changes small and focused. One commit per logical change is preferred.
-- Update the relevant README or `docs/agent-native/` note in the same PR
-  when behavior or contracts change.
+- Update the relevant README or `docs/` guide in the same PR when behavior
+  or contracts change.
 - Use the PR template in [`.github/pull_request_template.md`](.github/pull_request_template.md).
 
 ## Reporting bugs and proposing features

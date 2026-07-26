@@ -1,5 +1,10 @@
 # Glossary
 
+General vocabulary used across the repo. The message-protocol terms —
+`Message`, `LLMMessage`, `RuntimeMessage`, content blocks, provider adapters,
+and message sidecars — are defined once in [`CONTEXT.md`](../CONTEXT.md); this
+file does not repeat them.
+
 ## Agent
 
 A system that uses a model to decide what to do next, often across multiple steps.
@@ -7,31 +12,6 @@ A system that uses a model to decide what to do next, often across multiple step
 ## Agent Loop
 
 The repeated control flow where the system observes state, asks a model for the next action, executes that action, and records the result.
-
-## Message
-
-The runtime transcript unit exchanged between agents. In the current core it
-has model-adjacent `role` and `content`, plus lab-facing `sender`, `target`,
-`kind`, `channel`, and structured `data`. It is projected into an `LLMMessage`
-before a provider call.
-
-## RuntimeMessage
-
-A message variant for system, instruction, summary, or runtime guidance that should stay visible in transcript state.
-
-## LLMMessage
-
-A provider-agnostic model-call payload derived from a runtime message. It
-keeps role and ordered content blocks, but drops runtime routing fields.
-
-## Content Block
-
-A typed unit of model-visible content such as text, image, thinking, tool call,
-or tool result.
-
-## Message Sidecar
-
-Rare escape-hatch metadata attached to a message before a stable field or type exists.
 
 ## Event
 
@@ -45,10 +25,6 @@ A callable capability exposed to the agent, such as reading a file, searching
 data, calling an API, or running a calculation. In this repo, shared tool
 values live in `simple_agent_lab.tools`; each runtime owns its own dispatch
 semantics.
-
-## Model Adapter
-
-The boundary between project code and a model provider or model API.
 
 ## State
 

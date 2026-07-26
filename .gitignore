@@ -29,27 +29,9 @@ runs/bench-manifest*.json
 .ruff_cache/
 .python-version
 
-# Local eval artifacts — keep README files for directory structure docs
+# Local eval artifacts — keep only the README documenting the layout.
 evals/out/*
 !evals/out/README.md
-!evals/out/swebench/
-evals/out/swebench/*
-!evals/out/swebench/README.md
-!evals/out/swebench_multilingual/
-evals/out/swebench_multilingual/*
-!evals/out/swebench_multilingual/README.md
-!evals/out/swebench_pro/
-evals/out/swebench_pro/*
-!evals/out/swebench_pro/README.md
-!evals/out/onemillion/
-evals/out/onemillion/*
-!evals/out/onemillion/README.md
-!evals/out/programbench/
-evals/out/programbench/*
-!evals/out/programbench/README.md
-!evals/out/harbor/
-evals/out/harbor/*
-!evals/out/harbor/README.md
 logs/
 .tmp/
 

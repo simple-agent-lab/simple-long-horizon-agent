@@ -24,13 +24,12 @@ from typing import Any
 
 from simple_agent_lab.core import Agent
 from simple_agent_lab.llm import Provider
-from simple_agent_lab.llm_agent import make_llm_agent
 from simple_agent_lab.messages import tool_results_of
 from simple_agent_lab.state import State
 from simple_agent_lab.tools import AgentTool, ToolResult, ToolUpdateFn, text_result
 from simple_agent_lab.tools.bash import run_bash
 
-from .base import final_output, run_agent
+from .base import final_output, make_role_agent, run_agent
 from .goal_loop import CompletionCheck, CompletionResult
 
 UPDATE_GOAL_TOOL_NAME = "update_goal"
@@ -307,21 +306,15 @@ VERIFY_CONTINUATION = (
 def make_completion_judge(
     provider: Provider,
     *,
-    name: str = "completion_judge",
-    role: str = COMPLETION_JUDGE_ROLE,
-    system_prompt: str = COMPLETION_JUDGE_SYSTEM_PROMPT,
     request_extra: Mapping[str, Any] | None = None,
     timeout_seconds: float | None = None,
 ) -> Agent:
-    """Build the tool-free independent completion judge for `verified_completion_check`."""
-
-    return make_llm_agent(
-        name=name,
-        provider=provider,
-        role=role,
-        tools=(),
-        system_prompt=system_prompt,
-        target="user",
+    """Build the judge `Agent` for `judge_agent_check` (no tools: it only judges)."""
+    return make_role_agent(
+        provider,
+        name="completion_judge",
+        role=COMPLETION_JUDGE_ROLE,
+        system_prompt=COMPLETION_JUDGE_SYSTEM_PROMPT,
         request_extra=request_extra,
         timeout_seconds=timeout_seconds,
     )
