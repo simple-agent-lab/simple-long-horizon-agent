@@ -44,12 +44,11 @@ shape of work while keeping the project clear and approachable.
 
 ## Highlight Features
 
-- **All in One Platform**: 
-- **Crafting Extensibility**:
-- **Minimal Base for Custimizaiton Evolution**: 
-- **Plug-and-play Compatibility**:
-- **Observability**: 
-
+- **All in One Platform**: State-of-art evolving algorithms integration and abstraction for LLM agents through operator composition and mutation in one unified platform. 
+- **Crafting Extensibility**: Accustom to craft new or reform existing operators to forge your own evolution loop.
+- **Minimal Base for Custimizaiton Evolution**: A minimum seed agent with fundamental evolving operators and feedback loop with strong tracebility and observability. It meets the needs of lightweight and flexible customization for various real-world tasks and scenarios like coding, research,business workflows.
+- **Plug-and-play Compatibility**: Easily integrate OpenAI, Claude, Deepseek, Qwen or other popular models and well-acknowledged agents like ClaudeCode, Codex，etc. 
+- **Hierchical Observability**: Providing observability from execution trace to decision intelligence to keep each edit verifible and revertable with measurable resource and time. The design ensures that the evolution always has a autonomous yet controlled progress.
 
 
 ## Live Demo
