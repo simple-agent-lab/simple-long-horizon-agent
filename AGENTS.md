@@ -6,7 +6,7 @@ subsystem, and code plus tests are the source of truth for behavior.
 
 ## Mission
 
-Simple Agent Lab should make agent systems easier to understand, modify, and
+Simple Long Horizon Agent should make agent systems easier to understand, modify, and
 teach. Every implementation choice should preserve that.
 
 - A minimal agent loop understandable by inspection.

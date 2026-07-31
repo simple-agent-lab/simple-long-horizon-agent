@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import unittest
 
-from simple_agent_lab import (
+from simple_long_horizon_agent import (
     Agent,
     ContextCompressionEvent,
     ContextPolicy,
@@ -31,10 +31,10 @@ from simple_agent_lab import (
     run,
     text_of,
 )
-from simple_agent_lab.compression import summarize_compression
-from simple_agent_lab.llm import Provider
-from simple_agent_lab.messages import TextBlock, ToolCallBlock
-from simple_agent_lab.tools import make_recall_tool, tool_result_text
+from simple_long_horizon_agent.compression import summarize_compression
+from simple_long_horizon_agent.llm import Provider
+from simple_long_horizon_agent.messages import TextBlock, ToolCallBlock
+from simple_long_horizon_agent.tools import make_recall_tool, tool_result_text
 
 THRESHOLD = 4000
 REAL_PROVIDER = Provider(id="test", api="openai-chat", model="test-model")
@@ -45,7 +45,7 @@ def _no_abort() -> bool:
 
 
 def _read_tool():
-    from simple_agent_lab.tools import AgentTool, text_result
+    from simple_long_horizon_agent.tools import AgentTool, text_result
 
     def execute(call_id, args, abort, on_update):
         del call_id, abort, on_update

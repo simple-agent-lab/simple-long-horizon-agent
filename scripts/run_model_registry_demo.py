@@ -14,7 +14,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from simple_agent_lab.llm import ModelRegistry
+from simple_long_horizon_agent.llm import ModelRegistry
 
 
 def _print_aliases(registry: ModelRegistry) -> None:

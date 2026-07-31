@@ -10,7 +10,7 @@ the official harness.
 (`runs/_benches/swebench.py`, via `runs/run_bench.py swebench`) consumes
 instance loading + env + wheelhouse prep;
 `evaluate_predictions.py` consumes the test spec + prediction shaping. The agent
-loop itself lives in the wheel (`simple_agent_lab.evals.in_container` + the
+loop itself lives in the wheel (`simple_long_horizon_agent.evals.in_container` + the
 SWE-bench container half), so nothing here launches or talks to a container.
 """
 
@@ -27,15 +27,15 @@ from pathlib import Path
 from typing import Any, Callable
 
 # The OpenAI env-var names and the `.env` loader are owned by
-# `simple_agent_lab.llm.env` (single source of truth). This host-side harness
+# `simple_long_horizon_agent.llm.env` (single source of truth). This host-side harness
 # only forwards these names into the container; the container half reads them
 # via the same module.
-import simple_agent_lab.config as config
-from simple_agent_lab.agent_flavors import (
+import simple_long_horizon_agent.config as config
+from simple_long_horizon_agent.agent_flavors import (
     AGENT_FLAVORS,
     DEFAULT_AGENT_FLAVOR as _DEFAULT_AGENT_FLAVOR,
 )
-from simple_agent_lab.llm.env import (
+from simple_long_horizon_agent.llm.env import (
     API_KIND_ENV,
     OPENAI_API_KIND_CHOICES,
     OPENAI_AUTH_ENV,
@@ -51,8 +51,8 @@ from simple_agent_lab.llm.env import (
 
 # Re-exported so the run entry (`runs/_benches/swebench.py`) keeps calling
 # `harness.load_dotenv`; the implementation is owned by `llm.env`.
-from simple_agent_lab.llm.env import load_dotenv as load_dotenv
-from simple_agent_lab.trace import read_jsonl
+from simple_long_horizon_agent.llm.env import load_dotenv as load_dotenv
+from simple_long_horizon_agent.trace import read_jsonl
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -75,7 +75,7 @@ DEFAULT_UV_BINARY = shutil.which("uv") or ""
 DEFAULT_LINUX_UV_ROOT = ROOT / "evals/out/uv-linux"
 API_KIND_CHOICES = OPENAI_API_KIND_CHOICES
 # The single agent selector (`--agent-flavor` / AGENT_FLAVOR). The vocabulary is
-# owned by `simple_agent_lab.agent_flavors` so host and container choices cannot
+# owned by `simple_long_horizon_agent.agent_flavors` so host and container choices cannot
 # drift.
 AGENT_FLAVOR_CHOICES = AGENT_FLAVORS
 DEFAULT_AGENT_FLAVOR = _DEFAULT_AGENT_FLAVOR
@@ -440,15 +440,15 @@ def prepare_project_wheel(
     ) as tmp:
         build_dir = Path(tmp)
         run(["uv", "build", "--wheel", "--out-dir", str(build_dir)])
-        wheels = sorted(build_dir.glob("simple_agent_lab-*.whl"))
+        wheels = sorted(build_dir.glob("simple_long_horizon_agent-*.whl"))
         if not wheels:
             raise RuntimeError(
-                f"uv build produced no simple-agent-lab wheel in {build_dir}"
+                f"uv build produced no simple-long-horizon-agent wheel in {build_dir}"
             )
         published_names = {wheel.name for wheel in wheels}
         for wheel in wheels:
             os.replace(wheel, path / wheel.name)
-        for stale in path.glob("simple_agent_lab-*.whl"):
+        for stale in path.glob("simple_long_horizon_agent-*.whl"):
             if stale.name not in published_names:
                 stale.unlink()
 
@@ -598,7 +598,7 @@ def _project_runtime_dependencies() -> list[str]:
 
     return [
         requirement
-        for requirement in (requires("simple-agent-lab") or [])
+        for requirement in (requires("simple-long-horizon-agent") or [])
         if "extra =="
         not in (requirement.split(";", 1)[1] if ";" in requirement else "")
     ]

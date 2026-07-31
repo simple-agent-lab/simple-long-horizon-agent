@@ -6,7 +6,7 @@ import argparse
 from collections.abc import Sequence
 from pathlib import Path
 
-from simple_agent_lab.evals import LocalDockerBackend, RunArtifacts
+from simple_long_horizon_agent.evals import LocalDockerBackend, RunArtifacts
 
 DEFAULT_SECURITY_OPTIONS = ("seccomp=unconfined",)
 _UNCONFINED_WARNING = (

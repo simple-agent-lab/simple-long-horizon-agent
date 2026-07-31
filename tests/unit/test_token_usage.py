@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import unittest
 
-from simple_agent_lab import (
+from simple_long_horizon_agent import (
     AssistantMessage,
     TokenUsage,
     assistant_message,
@@ -17,19 +17,19 @@ from simple_agent_lab import (
     runtime_message,
     user_message,
 )
-from simple_agent_lab import (
+from simple_long_horizon_agent import (
     State,
     make_llm_agent,
     run,
 )
-from simple_agent_lab.context_view import CHARS_PER_TOKEN
-from simple_agent_lab.llm import Provider as LLMProvider
-from simple_agent_lab.llm.bridge import (
+from simple_long_horizon_agent.context_view import CHARS_PER_TOKEN
+from simple_long_horizon_agent.llm import Provider as LLMProvider
+from simple_long_horizon_agent.llm.bridge import (
     _usage_or_none,
     llm_response_to_assistant_message,
 )
-from simple_agent_lab.llm.types import LLMResponse, TextBlock
-from simple_agent_lab.messages import tool_result_message
+from simple_long_horizon_agent.llm.types import LLMResponse, TextBlock
+from simple_long_horizon_agent.messages import tool_result_message
 
 
 class TokenUsageDataclassTest(unittest.TestCase):

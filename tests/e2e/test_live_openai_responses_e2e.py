@@ -6,10 +6,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from simple_agent_lab.agents.starter import make_bash_agent
-from simple_agent_lab.llm import Provider
-from simple_agent_lab.llm.env import load_dotenv, provider_from_env
-from simple_agent_lab.trace import event_stream, run_trace_from_state
+from simple_long_horizon_agent.agents.starter import make_bash_agent
+from simple_long_horizon_agent.llm import Provider
+from simple_long_horizon_agent.llm.env import load_dotenv, provider_from_env
+from simple_long_horizon_agent.trace import event_stream, run_trace_from_state
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -20,7 +20,7 @@ load_dotenv(ROOT / ".env")
 
 
 def build_live_openai_responses_provider() -> Provider:
-    # Single source of truth: `simple_agent_lab.llm.env`. Force the Responses
+    # Single source of truth: `simple_long_horizon_agent.llm.env`. Force the Responses
     # adapter and drop temperature (that endpoint rejects it); SkipTest lets
     # credential-less CI skip rather than fail.
     return provider_from_env(
@@ -78,7 +78,7 @@ class LiveOpenAIResponsesE2ETest(unittest.TestCase):
     def test_live_responses_multi_turn_bash_tool_calls(self) -> None:
         """The Responses adapter must support tool call -> result -> tool call."""
 
-        marker = "simple-agent-lab-responses-tool-ok"
+        marker = "simple-long-horizon-agent-responses-tool-ok"
         filename = "responses-tool.txt"
 
         with tempfile.TemporaryDirectory() as tmp:

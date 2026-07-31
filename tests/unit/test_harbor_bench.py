@@ -51,7 +51,7 @@ class HarborBenchTest(unittest.TestCase):
         self.assertEqual(command[:2], ["harbor", "run"])
         self.assertIn("--agent", command)
         self.assertIn(
-            "simple_agent_lab.evals.harbor.agent:SimpleAgentLabHarborAgent",
+            "simple_long_horizon_agent.evals.harbor.agent:SimpleAgentLabHarborAgent",
             command,
         )
         self.assertIn("--dataset", command)

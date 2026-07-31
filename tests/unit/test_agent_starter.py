@@ -14,7 +14,7 @@ from contextlib import ExitStack, asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable, Iterator, Sequence
 
-from simple_agent_lab.agents.starter import (
+from simple_long_horizon_agent.agents.starter import (
     BASH_AGENT_SYSTEM_PROMPT,
     BASH_TASK_ADDENDUM,
     GENERAL_PURPOSE_AGENT_DEFAULT_NAME,
@@ -30,14 +30,14 @@ from simple_agent_lab.agents.starter import (
     make_skill_agent,
     mcp_session,
 )
-from simple_agent_lab.agents.toolsets import MCPToolset, Toolset
-from simple_agent_lab.hooks import HookPoint
-from simple_agent_lab.llm import Provider
-from simple_agent_lab.messages import TextBlock
-from simple_agent_lab.skills import SkillRoot
-from simple_agent_lab.tools import AgentTool, ToolResult, text_result
-from simple_agent_lab.tools.bash import make_bash_tool
-from simple_agent_lab.tools.read import make_read_tool
+from simple_long_horizon_agent.agents.toolsets import MCPToolset, Toolset
+from simple_long_horizon_agent.hooks import HookPoint
+from simple_long_horizon_agent.llm import Provider
+from simple_long_horizon_agent.messages import TextBlock
+from simple_long_horizon_agent.skills import SkillRoot
+from simple_long_horizon_agent.tools import AgentTool, ToolResult, text_result
+from simple_long_horizon_agent.tools.bash import make_bash_tool
+from simple_long_horizon_agent.tools.read import make_read_tool
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -51,7 +51,7 @@ try:
         create_connected_server_and_client_session as connect_session,
     )
 
-    from simple_agent_lab.mcp import MCPConnection, MCPServerConfig
+    from simple_long_horizon_agent.mcp import MCPConnection, MCPServerConfig
 
     HAS_MCP = True
 except ImportError:  # pragma: no cover - exercised only without the extra

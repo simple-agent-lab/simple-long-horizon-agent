@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 from typing import Any
 
-import simple_agent_lab
-from simple_agent_lab import (
+import simple_long_horizon_agent
+from simple_long_horizon_agent import (
     Agent,
     AgentEndEvent,
     CompressionDecision,
@@ -26,12 +26,12 @@ from simple_agent_lab import (
     spans_from_events,
     tool_result_message,
 )
-from simple_agent_lab.compression import (
+from simple_long_horizon_agent.compression import (
     _active_context_tokens,
     maybe_compress_context,
 )
-from simple_agent_lab.llm import Provider
-from simple_agent_lab.tools import (
+from simple_long_horizon_agent.llm import Provider
+from simple_long_horizon_agent.tools import (
     AbortFlag,
     AgentTool,
     ToolResult,
@@ -182,7 +182,7 @@ class CoreTest(unittest.TestCase):
     def test_run_accepts_a_multimodal_content_list_task(self) -> None:
         """`Agent.run` takes `str` or content blocks; a text+image task is
         recorded as one user message carrying both blocks."""
-        from simple_agent_lab.messages import ImageBlock
+        from simple_long_horizon_agent.messages import ImageBlock
 
         task = [
             TextBlock("Describe this screenshot:"),
@@ -272,7 +272,7 @@ class CoreTest(unittest.TestCase):
         self.assertEqual(message_text(_latest_message(state, "final")), "done")
 
     def test_resume_continues_session_and_trace_with_a_rebuilt_agent(self) -> None:
-        from simple_agent_lab import AgentStartEvent
+        from simple_long_horizon_agent import AgentStartEvent
 
         seen: dict[str, Any] = {}
 
@@ -395,7 +395,7 @@ class CoreTest(unittest.TestCase):
 
         tool = task_tool(
             [Agent("reader", reader, role="Read delegated task context.")],
-            default_context="Repository: Simple Agent Lab.",
+            default_context="Repository: Simple Long Horizon Agent.",
         )
 
         result = _execute(
@@ -410,7 +410,7 @@ class CoreTest(unittest.TestCase):
             tool_result_text(result),
             "\n".join(
                 [
-                    "Repository: Simple Agent Lab.",
+                    "Repository: Simple Long Horizon Agent.",
                     "Caller: include the feedback signal.",
                     "Write the summary.",
                 ]
@@ -525,8 +525,8 @@ class CoreTest(unittest.TestCase):
             "usage_cost",
             "user_message",
         }
-        self.assertEqual(set(simple_agent_lab.__all__), expected)
-        self.assertEqual(len(simple_agent_lab.__all__), len(expected))
+        self.assertEqual(set(simple_long_horizon_agent.__all__), expected)
+        self.assertEqual(len(simple_long_horizon_agent.__all__), len(expected))
 
     def test_context_view_uses_single_agent_transcript(self) -> None:
         state = State("route test")
@@ -594,7 +594,7 @@ class CoreTest(unittest.TestCase):
         state.send("message", "user", "writer", "old " + ("x" * 120))
         state.send("message", "user", "writer", "recent note")
         compression_policy = ContextPolicy(
-            strategy=simple_agent_lab.SummarizeStrategy(
+            strategy=simple_long_horizon_agent.SummarizeStrategy(
                 compressor=Agent(
                     "compressor",
                     compressor,
@@ -619,7 +619,7 @@ class CoreTest(unittest.TestCase):
         summaries = [message for message in state.messages if message.kind == "summary"]
         self.assertEqual(len(summaries), 1)
         self.assertEqual(summaries[0].role, "user")
-        summary_text = simple_agent_lab.text_of(summaries[0].content)
+        summary_text = simple_long_horizon_agent.text_of(summaries[0].content)
         self.assertTrue(summary_text.startswith("[This session continues"))
         self.assertIn("compressed old context", summary_text)
         self.assertEqual(
@@ -650,7 +650,8 @@ class CoreTest(unittest.TestCase):
         summary_payloads = [
             payload
             for payload in writer_request.llm_payload
-            if "compressed old context" in simple_agent_lab.text_of(payload.content)
+            if "compressed old context"
+            in simple_long_horizon_agent.text_of(payload.content)
         ]
         self.assertEqual(len(summary_payloads), 1)
         self.assertEqual(summary_payloads[0].role, "user")
@@ -742,21 +743,21 @@ class CoreTest(unittest.TestCase):
             replacement=make_message("user", "x", kind="summary"),
         )
 
-        tiered = simple_agent_lab.TieredStrategy(
+        tiered = simple_long_horizon_agent.TieredStrategy(
             (make_stage("a", None), make_stage("b", decision))
         )
         self.assertIs(tiered([], "w"), decision)
         self.assertEqual(calls, ["a", "b"])
 
         calls.clear()
-        first_wins = simple_agent_lab.TieredStrategy(
+        first_wins = simple_long_horizon_agent.TieredStrategy(
             (make_stage("a", decision), make_stage("b", None))
         )
         self.assertIs(first_wins([], "w"), decision)
         self.assertEqual(calls, ["a"])
 
         self.assertIsNone(
-            simple_agent_lab.TieredStrategy((make_stage("a", None),))([], "w")
+            simple_long_horizon_agent.TieredStrategy((make_stage("a", None),))([], "w")
         )
 
     def test_tool_compact_folds_old_tool_exchanges(self) -> None:
@@ -786,7 +787,7 @@ class CoreTest(unittest.TestCase):
             )
 
         policy = ContextPolicy(
-            strategy=simple_agent_lab.ToolCompactStrategy(
+            strategy=simple_long_horizon_agent.ToolCompactStrategy(
                 threshold_tokens=1,
                 keep_recent_exchanges=1,
             ),
@@ -838,7 +839,7 @@ class CoreTest(unittest.TestCase):
         state.send("message", "user", "writer", "newest follow-up")
 
         policy = ContextPolicy(
-            strategy=simple_agent_lab.SummarizeStrategy(
+            strategy=simple_long_horizon_agent.SummarizeStrategy(
                 compressor=Agent("compressor", compressor),
                 threshold_tokens=50,
                 keep_recent=2,

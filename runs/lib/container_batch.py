@@ -6,7 +6,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from simple_agent_lab.evals import (
+from simple_long_horizon_agent.evals import (
     ArtifactStore,
     ContainerBackend,
     DatasetReport,

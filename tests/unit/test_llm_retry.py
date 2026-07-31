@@ -1,4 +1,4 @@
-"""Default LLM-layer retry (`simple_agent_lab.llm.retry`).
+"""Default LLM-layer retry (`simple_long_horizon_agent.llm.retry`).
 
 Retry for transient provider throttling lives in the LLM layer and is applied
 once, by default, where the LLM-backed `generate` is built (`make_llm_agent`) —
@@ -13,8 +13,8 @@ import unittest
 from typing import Iterator
 from unittest import mock
 
-from simple_agent_lab import make_llm_agent
-from simple_agent_lab.llm import (
+from simple_long_horizon_agent import make_llm_agent
+from simple_long_horizon_agent.llm import (
     LLMRequest,
     LLMResponse,
     LLMTool,
@@ -28,10 +28,10 @@ from simple_agent_lab.llm import (
     is_retryable_llm_error,
     register_adapter,
 )
-from simple_agent_lab.llm.adapters import fake as fake_adapter
-from simple_agent_lab.llm.types import RAW_ARGUMENTS_KEY
-from simple_agent_lab.messages import message_tool_calls, text_of
-from simple_agent_lab.tools.bash import make_bash_tool
+from simple_long_horizon_agent.llm.adapters import fake as fake_adapter
+from simple_long_horizon_agent.llm.types import RAW_ARGUMENTS_KEY
+from simple_long_horizon_agent.messages import message_tool_calls, text_of
+from simple_long_horizon_agent.tools.bash import make_bash_tool
 
 _PROVIDER = Provider(id="fake", api="fake", model="fake-model")
 
@@ -262,7 +262,7 @@ class MakeLlmAgentRetryWiringTest(unittest.TestCase):
         register_adapter("fake", flaky)
         agent = make_llm_agent(name="t", provider=_PROVIDER)
 
-        with mock.patch("simple_agent_lab.llm.retry.time.sleep") as sleep:
+        with mock.patch("simple_long_horizon_agent.llm.retry.time.sleep") as sleep:
             output = agent.generate([])
 
         self.assertEqual(attempts, 2)

@@ -1,7 +1,7 @@
 """Regenerate the registry-backed config table in the configuration reference.
 
 The env knobs that have moved into the central registry
-(`simple_agent_lab.config.REGISTRY`) are the source of truth for their name /
+(`simple_long_horizon_agent.config.REGISTRY`) are the source of truth for their name /
 default / docs. This script renders them into the marked block of
 `docs/configuration.md`, grouped by the `domain.subsystem`
 hierarchy, so the catalog cannot drift from the code.
@@ -19,7 +19,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from simple_agent_lab.config import REGISTRY, EnvVar
+from simple_long_horizon_agent.config import REGISTRY, EnvVar
 
 DOC_PATH = Path(__file__).resolve().parents[1] / "docs/configuration.md"
 BEGIN = "<!-- BEGIN GENERATED: config-registry (scripts/build_config_reference.py) -->"
@@ -39,7 +39,7 @@ def _render() -> str:
 
     lines = [
         BEGIN,
-        "<!-- Generated from simple_agent_lab.config.REGISTRY — do not edit by "
+        "<!-- Generated from simple_long_horizon_agent.config.REGISTRY — do not edit by "
         "hand; run scripts/build_config_reference.py. -->",
         "",
     ]

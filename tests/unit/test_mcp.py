@@ -21,15 +21,15 @@ import unittest
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from simple_agent_lab.core import Agent, run
-from simple_agent_lab.messages import (
+from simple_long_horizon_agent.core import Agent, run
+from simple_long_horizon_agent.messages import (
     ImageBlock,
     TextBlock,
     ToolCallBlock,
     assistant_message,
     tool_results_of,
 )
-from simple_agent_lab.state import State
+from simple_long_horizon_agent.state import State
 
 try:
     from mcp import ClientSession, types as mcp_types
@@ -38,7 +38,7 @@ try:
         create_connected_server_and_client_session as connect_session,
     )
 
-    from simple_agent_lab.mcp import (
+    from simple_long_horizon_agent.mcp import (
         MCPConnection,
         MCPError,
         MCPServerConfig,

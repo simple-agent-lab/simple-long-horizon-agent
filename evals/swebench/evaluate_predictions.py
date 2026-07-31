@@ -25,18 +25,18 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 from evals.swebench import harness
-from simple_agent_lab.trace import json_safe, read_jsonl, write_jsonl
-from simple_agent_lab.evals.backends.docker_local import (
+from simple_long_horizon_agent.trace import json_safe, read_jsonl, write_jsonl
+from simple_long_horizon_agent.evals.backends.docker_local import (
     ensure_docker_host_env,
 )
-from simple_agent_lab.evals.runner import canonical_run_id
+from simple_long_horizon_agent.evals.runner import canonical_run_id
 
 ROOT = Path(__file__).resolve().parents[2]
 
 DEFAULT_DATASET = "princeton-nlp/SWE-bench_Verified"
 DEFAULT_MULTILINGUAL_DATASET = "SWE-bench/SWE-bench_Multilingual"
 DEFAULT_SPLIT = "test"
-DEFAULT_RUN_ID = "simple-agent-lab-swebench"
+DEFAULT_RUN_ID = "simple-long-horizon-agent-swebench"
 DEFAULT_PREDICTIONS = ROOT / "evals/out/swebench_predictions.jsonl"
 DEFAULT_OFFICIAL_OUTPUT_DIR = ROOT / "evals/out/swebench_official"
 DEFAULT_MULTILINGUAL_PREDICTIONS = (
@@ -52,7 +52,7 @@ _PRO_REPO_URL = "https://github.com/scaleapi/SWE-bench_Pro-os.git"
 DEFAULT_PRO_EVAL_SCRIPT = _PRO_REPO_DIR / "swe_bench_pro_eval.py"
 DEFAULT_PRO_SCRIPTS_DIR = _PRO_REPO_DIR / "run_scripts"
 DEFAULT_DOCKERHUB_USERNAME = "jefzda"
-EVAL_SCHEMA = "simple-agent-lab.evaluation.v1"
+EVAL_SCHEMA = "simple-long-horizon-agent.evaluation.v1"
 
 
 @dataclass(frozen=True)
@@ -668,7 +668,7 @@ def reuse_eval_row(
     result: Mapping[str, Any],
     *,
     dataset_name: str = DEFAULT_DATASET,
-    model_name: str = "simple-agent-lab",
+    model_name: str = "simple-long-horizon-agent",
     namespace: str = "swebench",
     instance_image_tag: str = "latest",
     env_image_tag: str = "latest",
@@ -782,7 +782,7 @@ def predictions_from_run_dirs(
     run_root: str | Path,
     *,
     run_id: str | None = None,
-    model_name: str = "simple-agent-lab-containerized",
+    model_name: str = "simple-long-horizon-agent-containerized",
     dataset_name: str = DEFAULT_DATASET,
     expected_instance_ids: Sequence[str] | None = None,
 ) -> list[dict[str, Any]]:
@@ -998,7 +998,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--model-name",
-        default="simple-agent-lab-containerized",
+        default="simple-long-horizon-agent-containerized",
         help="model_name_or_path label written into collected predictions.",
     )
     parser.add_argument(

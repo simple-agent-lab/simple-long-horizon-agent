@@ -47,7 +47,9 @@ def _record_command_with_fake_wheel(calls: list[list[str]], command: list[str]) 
     if command[:3] == ["uv", "build", "--wheel"]:
         out_dir = Path(command[-1])
         out_dir.mkdir(parents=True, exist_ok=True)
-        (out_dir / "simple_agent_lab-0.1.0-py3-none-any.whl").write_bytes(b"wheel")
+        (out_dir / "simple_long_horizon_agent-0.1.0-py3-none-any.whl").write_bytes(
+            b"wheel"
+        )
 
 
 class SwebenchHarnessTest(unittest.TestCase):
@@ -228,13 +230,15 @@ class SwebenchHarnessTest(unittest.TestCase):
     def test_verified_prediction_record_matches_official_eval_shape(self) -> None:
         record = prediction_record(
             "sympy__sympy-23824",
-            "simple-agent-lab-verified",
+            "simple-long-horizon-agent-verified",
             "diff --git a/sympy/core.py b/sympy/core.py\n",
             dataset_name="princeton-nlp/SWE-bench_Verified",
         )
 
         self.assertEqual(record["instance_id"], "sympy__sympy-23824")
-        self.assertEqual(record["model_name_or_path"], "simple-agent-lab-verified")
+        self.assertEqual(
+            record["model_name_or_path"], "simple-long-horizon-agent-verified"
+        )
         self.assertEqual(
             record["model_patch"], "diff --git a/sympy/core.py b/sympy/core.py\n"
         )
@@ -244,7 +248,7 @@ class SwebenchHarnessTest(unittest.TestCase):
     def test_multilingual_prediction_record_matches_official_eval_shape(self) -> None:
         record = prediction_record(
             "kotlin__repo-123",
-            "simple-agent-lab-multilingual",
+            "simple-long-horizon-agent-multilingual",
             "diff --git a/src/App.kt b/src/App.kt\n",
             dataset_name="SWE-bench/SWE-bench_Multilingual",
         )
@@ -253,7 +257,9 @@ class SwebenchHarnessTest(unittest.TestCase):
             is_swebench_multilingual(dataset_name="SWE-bench/SWE-bench_Multilingual")
         )
         self.assertEqual(record["instance_id"], "kotlin__repo-123")
-        self.assertEqual(record["model_name_or_path"], "simple-agent-lab-multilingual")
+        self.assertEqual(
+            record["model_name_or_path"], "simple-long-horizon-agent-multilingual"
+        )
         self.assertEqual(
             record["model_patch"], "diff --git a/src/App.kt b/src/App.kt\n"
         )
@@ -263,13 +269,13 @@ class SwebenchHarnessTest(unittest.TestCase):
     def test_pro_prediction_record_matches_official_eval_shape(self) -> None:
         record = prediction_record(
             "instance_NodeBB__NodeBB-abc-vnan",
-            "simple-agent-lab-pro",
+            "simple-long-horizon-agent-pro",
             "diff --git a/src/api.js b/src/api.js\n",
             dataset_name="ScaleAI/SWE-bench_Pro",
         )
 
         self.assertEqual(record["instance_id"], "instance_NodeBB__NodeBB-abc-vnan")
-        self.assertEqual(record["prefix"], "simple-agent-lab-pro")
+        self.assertEqual(record["prefix"], "simple-long-horizon-agent-pro")
         self.assertEqual(record["patch"], "diff --git a/src/api.js b/src/api.js\n")
         self.assertNotIn("model_patch", record)
         self.assertNotIn("model_name_or_path", record)
@@ -458,7 +464,9 @@ class SwebenchHarnessTest(unittest.TestCase):
 
         self.assertEqual(calls[0][:4], ["uv", "build", "--wheel", "--out-dir"])
         self.assertNotEqual(calls[0][-1], tmp)
-        self.assertEqual(wheel_names, ["simple_agent_lab-0.1.0-py3-none-any.whl"])
+        self.assertEqual(
+            wheel_names, ["simple_long_horizon_agent-0.1.0-py3-none-any.whl"]
+        )
 
     def test_prepare_wheelhouse_for_run_refreshes_project_wheel_by_default(
         self,

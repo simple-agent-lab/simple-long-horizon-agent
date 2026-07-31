@@ -1,6 +1,6 @@
 ---
 name: docs-sync
-description: Keep Simple Agent Lab documentation in sync with the current repo. Use when the user asks to check whether docs match code, update docs after source/example/run changes, find missing docs, or propose small doc structure fixes. Start with a short evidence-backed report, then edit docs only when the user has asked or approved.
+description: Keep Simple Long Horizon Agent documentation in sync with the current repo. Use when the user asks to check whether docs match code, update docs after source/example/run changes, find missing docs, or propose small doc structure fixes. Start with a short evidence-backed report, then edit docs only when the user has asked or approved.
 ---
 
 # Docs Sync
@@ -17,12 +17,12 @@ doc sync should preserve the source of truth for future humans and agents.
 2. Check `git status --short --branch`. Work with the current dirty worktree;
    do not switch branches, revert files, or overwrite user edits.
 3. Compare the source of truth with the docs:
-   - source: `src/simple_agent_lab/`, `scripts/`, `runs/`, `tests/`,
+   - source: `src/simple_long_horizon_agent/`, `scripts/`, `runs/`, `tests/`,
      `evals/`, `pyproject.toml`, `.github/workflows/ci.yml`
    - docs: `README.md`, `AGENTS.md`, `CONTEXT.md`, `CONTRIBUTING.md`,
      `docs/README.md` and the guides it indexes, `runs/README.md`,
      `tests/README.md`, `evals/README.md`, `evals/swebench/README.md`,
-     `src/simple_agent_lab/llm/README.md`
+     `src/simple_long_horizon_agent/llm/README.md`
 4. Look for only practical mismatches: missing behavior, outdated paths,
    stale commands, conflicting architecture/status claims, or docs that promise
    more than the repo can verify.

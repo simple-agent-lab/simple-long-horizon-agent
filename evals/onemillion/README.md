@@ -4,7 +4,7 @@ OneMillion-Bench is a **rubric-graded Q&A** benchmark across professional domain
 
 - `suite.py` — `OneMillionSuite`. Drops the rubrics before the agent sees the case (`task_input`) and stages them as gold scoring inputs (`eval_inputs`) so the container-half `evaluate` hook grades the answer in the run environment.
 - `harness.py` — host-side helpers the suite and run entry share: dataset loading (single-object or list JSON files), agent-visible sanitization, dotenv loading, and the generator/judge environment.
-- The container half ships in the wheel at `simple_agent_lab.evals.suites.onemillion`:
+- The container half ships in the wheel at `simple_long_horizon_agent.evals.suites.onemillion`:
   - `container.py` — a tool-free LLM agent that answers the prompt and persists its answer to `model_response.txt`; `extract_result` collects it; `evaluate` grades it with the judge.
   - `grading.py` — the rubric prompt, response parser, and weighted scoring **ported verbatim** from `omb.grading` (stdlib-only), so the verdict matches upstream without depending on the vendored checkout.
 

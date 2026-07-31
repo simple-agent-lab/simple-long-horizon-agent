@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import unittest
 
-from simple_agent_lab import (
+from simple_long_horizon_agent import (
     Agent,
     ContextCompressionEvent,
     ContextPolicy,
@@ -26,16 +26,16 @@ from simple_agent_lab import (
     run,
     text_of,
 )
-from simple_agent_lab.compression import (
+from simple_long_horizon_agent.compression import (
     continuation_preamble,
     format_index_ranges,
 )
-from simple_agent_lab.messages import (
+from simple_long_horizon_agent.messages import (
     ToolResultBlock,
     make_message,
     tool_results_message,
 )
-from simple_agent_lab.tools import make_recall_tool, tool_result_text
+from simple_long_horizon_agent.tools import make_recall_tool, tool_result_text
 
 
 def _no_abort() -> bool:

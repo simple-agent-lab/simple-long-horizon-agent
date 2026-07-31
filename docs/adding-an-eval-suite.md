@@ -9,7 +9,7 @@ A suite is **two halves plus a registration**:
 
 ```text
 evals/<name>/suite.py                      ← host half (a Suite): which image, hide gold
-src/simple_agent_lab/evals/suites/<name>/  ← container half (ships in the wheel)
+src/simple_long_horizon_agent/evals/suites/<name>/  ← container half (ships in the wheel)
     container.py                             build_task / extract_result
 ```
 
@@ -21,7 +21,7 @@ into it — it is `pip install`ed at container start (see
 
 ## Container half
 
-Imports **only the standard library and the installed `simple_agent_lab`
+Imports **only the standard library and the installed `simple_long_horizon_agent`
 wheel** — it runs inside the image, where nothing else is guaranteed.
 
 Required:
@@ -36,7 +36,7 @@ Optional: `prepare` (pre-run setup; its return is threaded in as `context`),
 `agent_spec` / `build_agent`, `evaluate` (in-environment scoring), and
 `memory_artifacts` (durable products for persistent memory).
 
-Reference: `src/simple_agent_lab/evals/suites/swebench/container.py`. For a
+Reference: `src/simple_long_horizon_agent/evals/suites/swebench/container.py`. For a
 product that is the *whole workspace* rather than a diff, and for isolating each
 agent command's network, see
 [`evals/programbench/README.md`](../evals/programbench/README.md).

@@ -7,7 +7,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from simple_agent_lab.messages import MessageKind
+from simple_long_horizon_agent.messages import MessageKind
 
 DEFAULT_DATASET = "ScaleAI/SWE-bench_Pro"
 DEFAULT_SPLIT = "test"
@@ -20,7 +20,7 @@ DEFAULT_PRESERVE_KINDS: tuple[MessageKind, ...] = (
     "system",
     "context",
 )
-DEFAULT_MODEL_NAME = "simple-agent-lab-pro-repo-chain-bash-none"
+DEFAULT_MODEL_NAME = "simple-long-horizon-agent-pro-repo-chain-bash-none"
 
 
 def group_instances_by_repo(

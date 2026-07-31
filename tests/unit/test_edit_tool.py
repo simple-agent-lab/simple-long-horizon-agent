@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from simple_agent_lab import tool_result_text
-from simple_agent_lab.tools.edit import (
+from simple_long_horizon_agent import tool_result_text
+from simple_long_horizon_agent.tools.edit import (
     EDIT_TOOL_NAME,
     edit_file,
     make_edit_tool,

@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from simple_agent_lab.skills.discovery import (
+from simple_long_horizon_agent.skills.discovery import (
     BUNDLED_LIBRARY_DIR,
     SkillMetadata,
     SkillRoot,
@@ -108,7 +108,7 @@ class DiscoveryTest(unittest.TestCase):
         )
 
 
-from simple_agent_lab.skills.prompt import (  # noqa: E402
+from simple_long_horizon_agent.skills.prompt import (  # noqa: E402
     SKILLS_HOW_TO_USE,
     render_skills_instructions,
     skills_menu_message,
@@ -149,7 +149,7 @@ class PromptMenuTest(unittest.TestCase):
         self.assertIsNone(skills_menu_message([], target="agent"))
 
 
-from simple_agent_lab.skills.directives import (  # noqa: E402
+from simple_long_horizon_agent.skills.directives import (  # noqa: E402
     SkillDirectives,
     parse_skill_directives,
 )
@@ -203,10 +203,10 @@ class DirectivesTest(unittest.TestCase):
         self.assertIsInstance(parse_skill_directives("x", set()), SkillDirectives)
 
 
-from simple_agent_lab.agents.starter import make_bash_agent  # noqa: E402
-from simple_agent_lab.llm import Provider  # noqa: E402
-from simple_agent_lab.skills import init_state_with_skills  # noqa: E402
-from simple_agent_lab.skills.runtime import (  # noqa: E402
+from simple_long_horizon_agent.agents.starter import make_bash_agent  # noqa: E402
+from simple_long_horizon_agent.llm import Provider  # noqa: E402
+from simple_long_horizon_agent.skills import init_state_with_skills  # noqa: E402
+from simple_long_horizon_agent.skills.runtime import (  # noqa: E402
     run_with_skills,
     skill_body_messages,
 )
@@ -330,14 +330,14 @@ class RunWithSkillsTest(unittest.TestCase):
 
 class PackagingTest(unittest.TestCase):
     def test_top_level_reexports(self) -> None:
-        import simple_agent_lab as sal
+        import simple_long_horizon_agent as sal
 
         self.assertTrue(hasattr(sal, "run_with_skills"))
         self.assertTrue(hasattr(sal, "discover_skills"))
         self.assertTrue(hasattr(sal, "make_read_tool"))
 
     def test_bundled_library_dir_exists(self) -> None:
-        from simple_agent_lab.skills.discovery import BUNDLED_LIBRARY_DIR
+        from simple_long_horizon_agent.skills.discovery import BUNDLED_LIBRARY_DIR
 
         self.assertTrue(Path(BUNDLED_LIBRARY_DIR).is_dir())
         self.assertTrue((Path(BUNDLED_LIBRARY_DIR) / "README.md").is_file())
@@ -350,8 +350,8 @@ class SwebenchFlavorTest(unittest.TestCase):
         self.assertIn("bash_skills", harness.AGENT_FLAVOR_CHOICES)
 
     def test_build_bash_skills_agent_has_read_and_bash_tools(self) -> None:
-        from simple_agent_lab.evals.in_container import build_agent
-        from simple_agent_lab.evals.protocols import AgentSpec
+        from simple_long_horizon_agent.evals.in_container import build_agent
+        from simple_long_horizon_agent.evals.protocols import AgentSpec
 
         agent = build_agent(
             spec=AgentSpec(name="x", flavor="bash_skills"),
@@ -363,7 +363,7 @@ class SwebenchFlavorTest(unittest.TestCase):
         self.assertIn("read", tool_names)
 
     def test_skills_system_prompt_folds_in_discovered_menu(self) -> None:
-        from simple_agent_lab.skills import system_prompt_with_skills
+        from simple_long_horizon_agent.skills import system_prompt_with_skills
 
         with tempfile.TemporaryDirectory() as tmp:
             skill_root = Path(tmp) / ".agents" / "skills" / "demo"
@@ -382,7 +382,7 @@ class SwebenchFlavorTest(unittest.TestCase):
     def test_skills_system_prompt_unchanged_when_no_skills(self) -> None:
         from unittest import mock
 
-        from simple_agent_lab.skills import system_prompt_with_skills
+        from simple_long_horizon_agent.skills import system_prompt_with_skills
 
         # Isolate all three discovery scopes so "no skills" is actually true:
         # project (cwd) and user (home) point at empty temp dirs, and the
@@ -393,7 +393,7 @@ class SwebenchFlavorTest(unittest.TestCase):
             empty_library = Path(tmp) / "empty-library"
             empty_library.mkdir()
             with mock.patch(
-                "simple_agent_lab.skills.discovery.BUNDLED_LIBRARY_DIR",
+                "simple_long_horizon_agent.skills.discovery.BUNDLED_LIBRARY_DIR",
                 str(empty_library),
             ):
                 prompt = system_prompt_with_skills("BASE", cwd=Path(tmp), home=tmp)

@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from typing import Any
 
-from simple_agent_lab import (
+from simple_long_horizon_agent import (
     Agent,
     EventKind,
     HookContext,
@@ -19,8 +19,8 @@ from simple_agent_lab import (
     message_text,
     runtime_message,
 )
-from simple_agent_lab.hooks import HookMap
-from simple_agent_lab.tools import (
+from simple_long_horizon_agent.hooks import HookMap
+from simple_long_horizon_agent.tools import (
     AbortFlag,
     AgentTool,
     ToolResult,

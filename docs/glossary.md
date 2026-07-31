@@ -23,7 +23,7 @@ execution events record the rest of the run.
 
 A callable capability exposed to the agent, such as reading a file, searching
 data, calling an API, or running a calculation. In this repo, shared tool
-values live in `simple_agent_lab.tools`; each runtime owns its own dispatch
+values live in `simple_long_horizon_agent.tools`; each runtime owns its own dispatch
 semantics.
 
 ## State
@@ -40,4 +40,4 @@ A repeatable check that helps compare agent behavior, correctness, reliability, 
 
 ## Reference Architecture
 
-An external or internal architecture studied before deciding what Simple Agent Lab should borrow or avoid.
+An external or internal architecture studied before deciding what Simple Long Horizon Agent should borrow or avoid.

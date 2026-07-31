@@ -8,7 +8,7 @@ and the generator/judge environment the container half reads.
 OneMillion-Bench is a light, Docker-free suite, so there is no image build or
 wheelhouse here; runs go through ``LocalProcessBackend`` (in-process) by default.
 The grading logic itself is ported into the wheel under
-``simple_agent_lab.evals.suites.onemillion.grading`` so it ships with the
+``simple_long_horizon_agent.evals.suites.onemillion.grading`` so it ships with the
 container half; this module only prepares inputs and environment.
 """
 
@@ -19,9 +19,9 @@ from pathlib import Path
 from typing import Any
 
 # The OpenAI/Judge env-var names and the `.env` loader are owned by
-# `simple_agent_lab.llm.env` (single source of truth); this host-side harness
+# `simple_long_horizon_agent.llm.env` (single source of truth); this host-side harness
 # only forwards them into the container half.
-from simple_agent_lab.llm.env import (
+from simple_long_horizon_agent.llm.env import (
     API_KIND_ENV,
     JUDGE_API_KIND_ENV,
     JUDGE_AUTH_ENV,
@@ -41,7 +41,7 @@ from simple_agent_lab.llm.env import (
 
 # Re-exported so the run entry (`runs/_benches/onemillion.py`) keeps calling
 # `harness.load_dotenv`; the implementation is owned by `llm.env`.
-from simple_agent_lab.llm.env import load_dotenv as load_dotenv  # noqa: F401
+from simple_long_horizon_agent.llm.env import load_dotenv as load_dotenv  # noqa: F401
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -55,7 +55,7 @@ SUITE_NAME = "onemillion"
 
 # Generator (the model under test) uses the shared OpenAI-compatible env
 # contract; the judge uses the parallel JUDGE_* set (falling back to OPENAI_*).
-# Both name sets and the loader come from `simple_agent_lab.llm.env` (imported
+# Both name sets and the loader come from `simple_long_horizon_agent.llm.env` (imported
 # above); only the suite-local passthrough groupings live here.
 API_KIND_CHOICES = OPENAI_API_KIND_CHOICES
 

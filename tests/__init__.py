@@ -1,1 +1,1 @@
-"""Simple Agent Lab test package."""
+"""Simple Long Horizon Agent test package."""

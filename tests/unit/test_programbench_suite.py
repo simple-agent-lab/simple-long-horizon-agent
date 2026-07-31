@@ -31,28 +31,28 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from simple_agent_lab.agent_flavors import AGENT_FLAVOR_ENV
-from simple_agent_lab.compression import SummarizeStrategy
-from simple_agent_lab.core import Agent
-from simple_agent_lab.evals import (
+from simple_long_horizon_agent.agent_flavors import AGENT_FLAVOR_ENV
+from simple_long_horizon_agent.compression import SummarizeStrategy
+from simple_long_horizon_agent.core import Agent
+from simple_long_horizon_agent.evals import (
     RESULT_KEY,
     LocalDirStore,
     LocalProcessBackend,
     Suite,
     run_suite_instance,
 )
-from simple_agent_lab.evals.suites.programbench import container
-from simple_agent_lab.hooks import HookContext, HookPoint
-from simple_agent_lab.llm import Provider
-from simple_agent_lab.messages import ToolCallBlock
-from simple_agent_lab.protocols import ModelResponseEvent
-from simple_agent_lab.state import State
+from simple_long_horizon_agent.evals.suites.programbench import container
+from simple_long_horizon_agent.hooks import HookContext, HookPoint
+from simple_long_horizon_agent.llm import Provider
+from simple_long_horizon_agent.messages import ToolCallBlock
+from simple_long_horizon_agent.protocols import ModelResponseEvent
+from simple_long_horizon_agent.state import State
 
 from evals.programbench import harness
 from evals.programbench.evaluate_submissions import default_eval_dir
 from evals.programbench.suite import ProgrambenchSuite
 
-PROGRAMBENCH_CONTAINER = "simple_agent_lab.evals.suites.programbench.container"
+PROGRAMBENCH_CONTAINER = "simple_long_horizon_agent.evals.suites.programbench.container"
 FAKE_PROVIDER = Provider(id="fake", api="fake", model="fake-model")
 
 
@@ -255,7 +255,7 @@ class ProgrambenchContainerHalfTest(unittest.TestCase):
             self.assertTrue((ws / ".git").is_dir())
             # The identity is repo-local, written into .git/config — never global.
             local_config = (ws / ".git" / "config").read_text(encoding="utf-8")
-            self.assertIn("simple-agent-lab", local_config)
+            self.assertIn("simple-long-horizon-agent", local_config)
             head = subprocess.run(
                 ["git", "rev-parse", "--verify", "HEAD"],
                 cwd=ws,
@@ -384,7 +384,7 @@ class NetworkIsolationWiringTest(unittest.TestCase):
         would wrap the command) using a network-free observable wrapper: ``env``
         injecting a variable the inner ``bash -lc`` echoes back."""
 
-        from simple_agent_lab.tools.bash import run_bash
+        from simple_long_horizon_agent.tools.bash import run_bash
 
         with tempfile.TemporaryDirectory() as tmp:
             wrapped = run_bash(
@@ -407,7 +407,7 @@ class NetworkIsolationWiringTest(unittest.TestCase):
         up-lo step fails harmlessly without a private netns thanks to `2>/dev/null`
         and `;`."""
 
-        from simple_agent_lab.tools.bash import run_bash
+        from simple_long_horizon_agent.tools.bash import run_bash
 
         prefix = container.NET_ISOLATION_PREFIX
         self.assertEqual(prefix[:3], ("unshare", "--net", "--"))

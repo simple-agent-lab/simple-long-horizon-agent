@@ -9,7 +9,7 @@ using filesystem memory as the only cross-instance state:
 - Each issue in a chain runs as an ordinary, isolated SWE-bench Pro instance in
   a *fresh* agent context. Nothing about the previous instance's transcript is
   carried forward in-context. The only thing that crosses instance boundaries is
-  Simple Agent Lab filesystem memory, scoped per chain
+  Simple Long Horizon Agent filesystem memory, scoped per chain
   (``SAL_MEMORY_NAME=<chain_id>``): the model reads the chain's memory dir at the
   start of each instance and the run-end distiller updates it, so later issues in
   the chain can reuse earlier lessons.
@@ -396,7 +396,7 @@ def model_name_for_config(
         memory_tag = "memory-all"
     else:
         memory_tag = "memory"
-    return f"simple-agent-lab-pro-memory-chain-{agent_flavor}-{memory_tag}"
+    return f"simple-long-horizon-agent-pro-memory-chain-{agent_flavor}-{memory_tag}"
 
 
 def plan_manifest(
@@ -428,7 +428,7 @@ def plan_manifest(
         length_histogram[chain.length] += 1
 
     return {
-        "schema": "simple-agent-lab.swebench-pro-memory-chain-experiment.v1",
+        "schema": "simple-long-horizon-agent.swebench-pro-memory-chain-experiment.v1",
         "run_id": run_id,
         "config": config.as_record(),
         "parallel": parallel,

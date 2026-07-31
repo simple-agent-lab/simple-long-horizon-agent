@@ -5,10 +5,14 @@ import time
 import unittest
 from pathlib import Path
 
-from simple_agent_lab.messages import AssistantMessage, TextBlock
-from simple_agent_lab.protocols import AgentEndEvent, AgentStartEvent, MessageEvent
-from simple_agent_lab.state import State
-from simple_agent_lab.trace import (
+from simple_long_horizon_agent.messages import AssistantMessage, TextBlock
+from simple_long_horizon_agent.protocols import (
+    AgentEndEvent,
+    AgentStartEvent,
+    MessageEvent,
+)
+from simple_long_horizon_agent.state import State
+from simple_long_horizon_agent.trace import (
     LiveTraceSession,
     TraceMeta,
     read_jsonl,

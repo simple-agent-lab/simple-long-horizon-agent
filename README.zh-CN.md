@@ -1,4 +1,4 @@
-<h1 align="center">Simple Agent Lab</h1>
+<h1 align="center">Simple Long Horizon Agent</h1>
 
 <p align="center">
   <strong>设计上保持简单，在长程任务中依然有效。</strong>
@@ -13,8 +13,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/simple-agent-lab/simple-agent-lab/actions/workflows/ci.yml">
-    <img alt="CI" src="https://github.com/simple-agent-lab/simple-agent-lab/actions/workflows/ci.yml/badge.svg">
+  <a href="https://github.com/simple-agent-lab/simple-long-horizon-agent/actions/workflows/ci.yml">
+    <img alt="CI" src="https://github.com/simple-agent-lab/simple-long-horizon-agent/actions/workflows/ci.yml/badge.svg">
   </a>
   <a href="https://www.python.org/">
     <img alt="Python 3.10+" src="https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&amp;logoColor=white">
@@ -33,9 +33,9 @@
 
 ## 项目介绍
 
-Simple Agent Lab 足够小，可以被完整理解和自由修改；同时也足够有效，能够结合语言模型与工具处理真实任务。你可以从一个实用的 Agent 出发，学习它、实验它，并将它改造成适合自己的样子，而不必先引入一个庞大的框架。
+Simple Long Horizon Agent 足够小，可以被完整理解和自由修改；同时也足够有效，能够结合语言模型与工具处理真实任务。你可以从一个实用的 Agent 出发，学习它、实验它，并将它改造成适合自己的样子，而不必先引入一个庞大的框架。
 
-长程任务无法靠单轮回答完成，而是需要跨越多个步骤持续推进：规划、行动、检查结果，并不断迭代，直到真正完成目标。Simple Agent Lab 为这类任务而设计，同时保持项目清晰、易懂。
+长程任务无法靠单轮回答完成，而是需要跨越多个步骤持续推进：规划、行动、检查结果，并不断迭代，直到真正完成目标。Simple Long Horizon Agent 为这类任务而设计，同时保持项目清晰、易懂。
 
 ## 特点
 
@@ -65,11 +65,11 @@ Simple Agent Lab 足够小，可以被完整理解和自由修改；同时也足
 
 ## 快速开始
 
-Simple Agent Lab 支持 Python 3.10 及以上版本，并使用 [uv](https://docs.astral.sh/uv/) 管理环境。
+Simple Long Horizon Agent 支持 Python 3.10 及以上版本，并使用 [uv](https://docs.astral.sh/uv/) 管理环境。
 
 ```bash
-git clone https://github.com/simple-agent-lab/simple-agent-lab.git
-cd simple-agent-lab
+git clone https://github.com/simple-agent-lab/simple-long-horizon-agent.git
+cd simple-long-horizon-agent
 
 uv sync
 bash runs/demos/run_bash_agent_demo.sh
@@ -117,7 +117,7 @@ uv run python -m scripts.run_bash_agent_demo \
 
 ## 项目状态
 
-Simple Agent Lab 仍处于早期阶段并在持续演进。目前主要面向学习、研究和小团队实验，而不是生产级基础设施。
+Simple Long Horizon Agent 仍处于早期阶段并在持续演进。目前主要面向学习、研究和小团队实验，而不是生产级基础设施。
 
 ## 参与贡献
 

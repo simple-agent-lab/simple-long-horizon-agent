@@ -1,6 +1,6 @@
-# Simple Agent Lab Context
+# Simple Long Horizon Agent Context
 
-Simple Agent Lab is a teaching and experimentation context for small agent
+Simple Long Horizon Agent is a teaching and experimentation context for small agent
 runtimes. Its language should keep runtime concepts separate from provider API
 payloads so students and agents can reason about boundaries clearly.
 
@@ -65,7 +65,7 @@ _Avoid_: Primary message field, common protocol field
 - Assistant **Message** values preserve thinking as ordered **ThinkingBlock** entries in `content`; `AssistantMessage.thinking` is a derived view.
 - **ThinkingBlock** fields are `text`, `signature`, and `redacted`. The signature is provider-continuity metadata; provider identity belongs outside the block.
 - A **Message Type** should have one project-owned source of truth; example folders may demonstrate runtime behavior but should not become the long-term source of message protocol definitions.
-- Simple Agent Lab should align with pi-mono's message boundary semantics without copying its names: this project's **Message** corresponds to pi-mono's `AgentMessage`, and this project's **LLMMessage** corresponds to the provider-agnostic LLM message boundary.
+- Simple Long Horizon Agent should align with pi-mono's message boundary semantics without copying its names: this project's **Message** corresponds to pi-mono's `AgentMessage`, and this project's **LLMMessage** corresponds to the provider-agnostic LLM message boundary.
 - Custom runtime semantics should be represented on **Message** through `kind`, `channel`, and structured `data`, then filtered or projected at the **LLMMessage** boundary.
 - Frequently used message semantics should become explicit fields or named project-owned types. **Message Sidecar** is only for uncommon or still-experimental metadata.
 - Tool calls and tool-result identity are common protocol concepts, so they belong in explicit **Content Blocks** rather than in **Message Sidecar**.

@@ -3,8 +3,8 @@
 Operator contract for long SWE-bench Pro chain runs. Executable behavior lives
 in `evals/swebench/pro_chain_runner.py` (shared CLI, auth lanes, predictions),
 the two host runners under `runs/swebench/run_swebench_pro_*_chains.py`,
-`src/simple_agent_lab/evals/chain.py` (continuation, handoff, recovery), and
-`src/simple_agent_lab/evals/suites/swebench/container.py`.
+`src/simple_long_horizon_agent/evals/chain.py` (continuation, handoff, recovery), and
+`src/simple_long_horizon_agent/evals/suites/swebench/container.py`.
 
 ## Shape
 

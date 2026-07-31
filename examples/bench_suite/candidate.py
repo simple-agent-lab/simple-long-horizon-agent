@@ -24,7 +24,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from simple_agent_lab.evals.protocols import AgentSpec, LaunchSpec
+from simple_long_horizon_agent.evals.protocols import AgentSpec, LaunchSpec
 
 APP_FILE = "app.py"
 

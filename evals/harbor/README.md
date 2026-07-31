@@ -1,20 +1,20 @@
 # Harbor Eval Integration
 
-The `harbor` bench runs Simple Agent Lab agents through Harbor's own harness.
+The `harbor` bench runs Simple Long Horizon Agent agents through Harbor's own harness.
 Harbor resolves datasets and tasks, starts the task environment, runs the
 verifier, downloads logs/artifacts, and writes the canonical job `result.json`.
 
 SAL supplies one Harbor installed agent:
 
 ```text
-simple_agent_lab.evals.harbor.agent:SimpleAgentLabHarborAgent
+simple_long_horizon_agent.evals.harbor.agent:SimpleAgentLabHarborAgent
 ```
 
 That installed agent starts a SAL runner inside the Harbor task environment.
 The SAL runner then builds the normal SAL agent and executes bash/read/task
 tools locally in that same container.
 
-When the adapter is imported from a local Simple Agent Lab checkout, it uploads a
+When the adapter is imported from a local Simple Long Horizon Agent checkout, it uploads a
 minimal source archive (`pyproject.toml`, root metadata files, and `src/`) into
 the Harbor task environment and installs that source into the in-container venv.
 If no local checkout is available, it falls back to the configurable
@@ -84,7 +84,7 @@ uv run python -m runs.run_bench harbor \
 The JSON result includes a `command` array beginning with:
 
 ```text
-harbor run --dataset demo --n-tasks 1 --agent simple_agent_lab.evals.harbor.agent:SimpleAgentLabHarborAgent
+harbor run --dataset demo --n-tasks 1 --agent simple_long_horizon_agent.evals.harbor.agent:SimpleAgentLabHarborAgent
 ```
 
 ## Real Run
@@ -146,7 +146,7 @@ Within each Harbor trial's agent logs, SAL writes:
 sal-instruction.txt
 sal-summary.json
 sal-trajectory.jsonl
-simple-agent-lab.txt
+simple-long-horizon-agent.txt
 ```
 
 Harbor's `result.json` remains the score source of truth. The SAL summary and

@@ -10,10 +10,10 @@ For launching runs (`runs/run_bench.py`, `--profile` JSON bundles), see
 
 ## Declaring a new knob
 
-Declare it as an `EnvVar` in `src/simple_agent_lab/config.py` — a leaf module
+Declare it as an `EnvVar` in `src/simple_long_horizon_agent/config.py` — a leaf module
 that declares names and imports nothing internal, so layers depend on it and
 never the reverse. `scripts/env_lint.py` enforces this in CI: a direct
-`os.environ` read under `src/simple_agent_lab/` outside an owner module below
+`os.environ` read under `src/simple_long_horizon_agent/` outside an owner module below
 fails the build unless the line carries `# env-ok: <reason>`.
 
 Knobs not yet migrated stay with the layer that owns the concern (see the
@@ -26,7 +26,7 @@ into one module if it would couple unrelated layers.
 Generated from `REGISTRY` and validated in CI, so it cannot drift.
 
 <!-- BEGIN GENERATED: config-registry (scripts/build_config_reference.py) -->
-<!-- Generated from simple_agent_lab.config.REGISTRY — do not edit by hand; run scripts/build_config_reference.py. -->
+<!-- Generated from simple_long_horizon_agent.config.REGISTRY — do not edit by hand; run scripts/build_config_reference.py. -->
 
 ### `agent.compression`
 
@@ -87,7 +87,7 @@ Generated from `REGISTRY` and validated in CI, so it cannot drift.
 
 ## Provider / credentials
 
-Owner: `src/simple_agent_lab/llm/env.py` (single source of truth).
+Owner: `src/simple_long_horizon_agent/llm/env.py` (single source of truth).
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -111,15 +111,15 @@ The eval harnesses accept only `openai-chat` / `openai-responses` via their own
 
 | Variable | Owner | Default | Purpose |
 | --- | --- | --- | --- |
-| `MODEL_CONFIG` | `simple_agent_lab.llm.config` | unset | Path to a `models.json` mapping aliases (`strong`/`fast`) to provider specs. |
-| `MODEL_CONFIG_JSON` | `simple_agent_lab.llm.config` | unset | Same schema inline, for sandboxes where writing a file is awkward. |
-| `<ALIAS>_*` | `simple_agent_lab.llm.config` | falls back to `OPENAI_*` | Per-alias provider env (e.g. `STRONG_MODEL`); single-model setups collapse onto `OPENAI_*`. |
-| `SIMPLE_AGENT_LAB_PRICE_BOOK` | `simple_agent_lab.model_metadata` | built-in | JSON model→rate override, merged over the built-in price book. |
-| `SIMPLE_AGENT_LAB_CONTEXT_WINDOW_BOOK` | `simple_agent_lab.model_metadata` | built-in | Model metadata with context windows (LiteLLM / models.dev formats). |
-| `AGENT_FLAVOR` | `simple_agent_lab.agent_flavors` | `bash` | `bash`, `bash_task`, `bash_task_read`, `bash_skills`, `loop`, `pdr`. |
+| `MODEL_CONFIG` | `simple_long_horizon_agent.llm.config` | unset | Path to a `models.json` mapping aliases (`strong`/`fast`) to provider specs. |
+| `MODEL_CONFIG_JSON` | `simple_long_horizon_agent.llm.config` | unset | Same schema inline, for sandboxes where writing a file is awkward. |
+| `<ALIAS>_*` | `simple_long_horizon_agent.llm.config` | falls back to `OPENAI_*` | Per-alias provider env (e.g. `STRONG_MODEL`); single-model setups collapse onto `OPENAI_*`. |
+| `SIMPLE_LONG_HORIZON_AGENT_PRICE_BOOK` | `simple_long_horizon_agent.model_metadata` | built-in | JSON model→rate override, merged over the built-in price book. |
+| `SIMPLE_LONG_HORIZON_AGENT_CONTEXT_WINDOW_BOOK` | `simple_long_horizon_agent.model_metadata` | built-in | Model metadata with context windows (LiteLLM / models.dev formats). |
+| `AGENT_FLAVOR` | `simple_long_horizon_agent.agent_flavors` | `bash` | `bash`, `bash_task`, `bash_task_read`, `bash_skills`, `loop`, `pdr`. |
 | `PROGRAMBENCH_REQUIRE_NET_ISOLATION` | programbench suite | on | Require per-command network isolation (`unshare --net`). |
-| `SAL_MEMORY_HOME` | `simple_agent_lab.evals.protocols` | unset (off) | Filesystem memory root; presence opts the run into memory. See `docs/memory.md`. |
-| `SAL_MEMORY_NAME` | `simple_agent_lab.evals.protocols` | unset | Memory namespace. |
-| `SAL_MEMORY_RUN_ID` | `simple_agent_lab.evals.protocols` | unset | Run id scoping memory artifacts. |
+| `SAL_MEMORY_HOME` | `simple_long_horizon_agent.evals.protocols` | unset (off) | Filesystem memory root; presence opts the run into memory. See `docs/memory.md`. |
+| `SAL_MEMORY_NAME` | `simple_long_horizon_agent.evals.protocols` | unset | Memory namespace. |
+| `SAL_MEMORY_RUN_ID` | `simple_long_horizon_agent.evals.protocols` | unset | Run id scoping memory artifacts. |
 | `E2E_TRACE_PATH` | e2e tests | unset | Live e2e test trace output path (test-only, not in the registry). |
 

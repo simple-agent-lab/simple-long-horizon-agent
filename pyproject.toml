@@ -1,5 +1,5 @@
 [project]
-name = "simple-agent-lab"
+name = "simple-long-horizon-agent"
 version = "0.1.0"
 description = "A simple yet effective AI agent for long-horizon tasks, learning, and experimentation."
 readme = "README.md"
@@ -55,9 +55,9 @@ harbor = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/simple-agent-lab/simple-agent-lab"
-Repository = "https://github.com/simple-agent-lab/simple-agent-lab"
-Issues = "https://github.com/simple-agent-lab/simple-agent-lab/issues"
+Homepage = "https://github.com/simple-agent-lab/simple-long-horizon-agent"
+Repository = "https://github.com/simple-agent-lab/simple-long-horizon-agent"
+Issues = "https://github.com/simple-agent-lab/simple-long-horizon-agent/issues"
 
 [dependency-groups]
 dev = [
@@ -73,8 +73,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/simple_agent_lab"]
-# The bundled skill library (src/simple_agent_lab/skills/library) ships as
+packages = ["src/simple_long_horizon_agent"]
+# The bundled skill library (src/simple_long_horizon_agent/skills/library) ships as
 # package data: hatchling includes the non-Python files (README.md and any
 # SKILL.md/scripts added later) because they live inside the package tree.
-artifacts = ["src/simple_agent_lab/skills/library/**"]
+artifacts = ["src/simple_long_horizon_agent/skills/library/**"]

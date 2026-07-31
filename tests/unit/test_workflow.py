@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from simple_agent_lab import Agent, Message, assistant_message, text_of
-from simple_agent_lab.workflow import (
+from simple_long_horizon_agent import Agent, Message, assistant_message, text_of
+from simple_long_horizon_agent.workflow import (
     Route,
     run_chain,
     run_parallel,
@@ -12,7 +12,7 @@ from simple_agent_lab.workflow import (
     run_routing,
     select_route,
 )
-from simple_agent_lab.workflow.base import final_output, run_agent
+from simple_long_horizon_agent.workflow.base import final_output, run_agent
 
 
 def _task_text(visible: list[Message]) -> str:

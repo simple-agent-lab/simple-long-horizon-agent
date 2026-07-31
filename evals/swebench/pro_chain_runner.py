@@ -22,8 +22,8 @@ from evals.swebench.pro_memory_chain import (
     expand_auth_slots,
     lane_auth_slots,
 )
-from simple_agent_lab.evals.runner import prepare_new_run_directory
-from simple_agent_lab.llm.env import (
+from simple_long_horizon_agent.evals.runner import prepare_new_run_directory
+from simple_long_horizon_agent.llm.env import (
     API_KIND_ENV,
     OPENAI_AUTH_ENV,
     OPENAI_ENV,
@@ -31,7 +31,7 @@ from simple_agent_lab.llm.env import (
     REASONING_EFFORT_ENV,
     container_provider_env,
 )
-from simple_agent_lab.trace import write_jsonl_atomic
+from simple_long_horizon_agent.trace import write_jsonl_atomic
 
 ROOT = Path(__file__).resolve().parents[2]
 UnitT = TypeVar("UnitT")

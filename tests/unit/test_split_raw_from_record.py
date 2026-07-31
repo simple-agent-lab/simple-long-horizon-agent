@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import unittest
 
-from simple_agent_lab.trace import RAW_REF_KEY, split_raw_from_record
+from simple_long_horizon_agent.trace import RAW_REF_KEY, split_raw_from_record
 
 
 def _raw(n: int) -> dict:

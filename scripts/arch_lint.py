@@ -10,7 +10,7 @@ invariants that the codebase already satisfies; this script keeps them true:
 2. Provider isolation. Only provider adapters may import a provider SDK, so the
    runtime core stays provider-neutral.
 3. Optional-dependency confinement. Heavy optional dependencies stay inside the
-   one subpackage that owns them, so `import simple_agent_lab` needs none of
+   one subpackage that owns them, so `import simple_long_horizon_agent` needs none of
    them.
 4. Import-path integrity. Repository code uses installed packages and module
    entry points; it never mutates Python's import path or sets the import-path
@@ -29,7 +29,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE = "simple_agent_lab"
+PACKAGE = "simple_long_horizon_agent"
 PACKAGE_ROOT = ROOT / "src" / PACKAGE
 REPOSITORY_CODE_ROOTS = ("src", "evals", "runs", "scripts", "tests", "examples")
 

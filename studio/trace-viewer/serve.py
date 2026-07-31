@@ -53,7 +53,7 @@ PROJECT_ROOT = SCRIPT_DIR.parent.parent
 DEFAULT_SCAN_DIR = PROJECT_ROOT / "evals" / "out"
 
 MAX_PEEK_BYTES = 96 * 1024
-TRAJECTORY_SCHEMA_PREFIX = "simple-agent-lab.trajectory"
+TRAJECTORY_SCHEMA_PREFIX = "simple-long-horizon-agent.trajectory"
 SCANNED_EXTENSIONS = {".jsonl", ".json"}
 # Don't waste a stat() walking into these
 IGNORED_DIRS = {"wheelhouse", "docker-config", "__pycache__", ".git"}
@@ -319,7 +319,7 @@ def _safe_relative(path: Path, base: Path) -> Path:
 
 # Trajectories produced by the containerized SWE-bench runner land at
 # ``<scan>/<...>/<run_id>/<instance_id>/out/{trajectory,trace}.jsonl`` (the run
-# directory layout from ``simple_agent_lab.evals.runner``). Extract ``run_id``
+# directory layout from ``simple_long_horizon_agent.evals.runner``). Extract ``run_id``
 # from that shape so the viewer can aggregate the per-instance files back into a
 # single experiment row.
 _RUN_ARTIFACT_NAMES = {"trajectory.jsonl", "trace.jsonl"}

@@ -21,7 +21,7 @@ from hashlib import sha256
 from pathlib import Path
 from urllib.request import Request, urlopen
 
-from simple_agent_lab.llm.env import (
+from simple_long_horizon_agent.llm.env import (
     OPENAI_AUTH_ENV,
     OPENAI_BASE_URL_ENV,
     load_dotenv,

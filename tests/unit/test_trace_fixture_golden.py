@@ -17,7 +17,7 @@ import os
 import unittest
 from pathlib import Path
 
-from simple_agent_lab.messages import (
+from simple_long_horizon_agent.messages import (
     AssistantMessage,
     TextBlock,
     ThinkingBlock,
@@ -26,7 +26,7 @@ from simple_agent_lab.messages import (
     ToolResultBlock,
     UserMessage,
 )
-from simple_agent_lab.protocols import (
+from simple_long_horizon_agent.protocols import (
     AgentEndEvent,
     AgentStartEvent,
     ContextCompressionEvent,
@@ -39,14 +39,14 @@ from simple_agent_lab.protocols import (
     TurnEndEvent,
     TurnStartEvent,
 )
-from simple_agent_lab.state import State
-from simple_agent_lab.trace import (
+from simple_long_horizon_agent.state import State
+from simple_long_horizon_agent.trace import (
     collect_agents,
     event_record,
     run_trace_from_state,
     trace_header,
 )
-from simple_agent_lab.trace.jsonl import read_jsonl, write_jsonl
+from simple_long_horizon_agent.trace.jsonl import read_jsonl, write_jsonl
 
 _VIEWER_DIR = Path(__file__).resolve().parents[2] / "studio" / "trace-viewer"
 SAMPLE_PATH = _VIEWER_DIR / "sample-trace.jsonl"
@@ -282,7 +282,7 @@ def _sub_events() -> list[Event]:
             *_tool_exchange(
                 "sub_call_01",
                 "bash",
-                "src/simple_agent_lab/tools/wc.py:1:def wc_lines",
+                "src/simple_long_horizon_agent/tools/wc.py:1:def wc_lines",
                 target=SUB,
             ),
             TurnEndEvent(agent=SUB),
@@ -338,7 +338,7 @@ def _build_events() -> list[Event]:
                     ToolCallBlock(
                         id="call_01",
                         name="bash",
-                        arguments={"command": "ls src/simple_agent_lab"},
+                        arguments={"command": "ls src/simple_long_horizon_agent"},
                     ),
                 ),
                 include_message_usage=True,
@@ -544,7 +544,7 @@ class TraceFixtureGoldenTest(unittest.TestCase):
         stream = read_jsonl(SAMPLE_PATH)
         header, events = stream[0], stream[1:]
         for field, expected in {
-            "schema": "simple-agent-lab.trajectory.v5",
+            "schema": "simple-long-horizon-agent.trajectory.v5",
             "type": "trajectory",
         }.items():
             with self.subTest(field=field):

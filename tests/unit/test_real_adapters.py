@@ -18,7 +18,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest import mock
 
-from simple_agent_lab.llm import (
+from simple_long_horizon_agent.llm import (
     LLMMessage,
     LLMRequest,
     LLMTool,
@@ -1257,9 +1257,11 @@ class AnthropicReasoningReplayTest(unittest.TestCase):
 
 class BridgeThinkingPreservationTest(unittest.TestCase):
     def test_thinking_blocks_carry_signature_into_assistant_message(self) -> None:
-        from simple_agent_lab.llm.bridge import llm_response_to_assistant_message
-        from simple_agent_lab.llm.types import LLMResponse
-        from simple_agent_lab.messages import AssistantMessage
+        from simple_long_horizon_agent.llm.bridge import (
+            llm_response_to_assistant_message,
+        )
+        from simple_long_horizon_agent.llm.types import LLMResponse
+        from simple_long_horizon_agent.messages import AssistantMessage
 
         response = LLMResponse(
             content=[
@@ -1280,12 +1282,12 @@ class BridgeThinkingPreservationTest(unittest.TestCase):
         self.assertTrue(msg.thinking[1].redacted)
 
     def test_responses_reasoning_metadata_rides_in_message_extra(self) -> None:
-        from simple_agent_lab.llm.bridge import (
+        from simple_long_horizon_agent.llm.bridge import (
             llm_response_to_assistant_message,
             message_to_llm_message,
         )
-        from simple_agent_lab.llm.types import LLMResponse
-        from simple_agent_lab.messages import AssistantMessage
+        from simple_long_horizon_agent.llm.types import LLMResponse
+        from simple_long_horizon_agent.messages import AssistantMessage
 
         summary = [SimpleNamespace(type="summary_text", text="step 1")]
         expected_summary = [{"type": "summary_text", "text": "step 1"}]
@@ -1362,8 +1364,8 @@ class MessageExtraTest(unittest.TestCase):
             self.assertNotIn("cache_control", block)
 
     def test_bridge_lifts_runtime_data_extra_to_llm_message(self) -> None:
-        from simple_agent_lab.llm.bridge import message_to_llm_message
-        from simple_agent_lab.messages import user_message
+        from simple_long_horizon_agent.llm.bridge import message_to_llm_message
+        from simple_long_horizon_agent.messages import user_message
 
         msg = user_message(
             "hello",
@@ -1463,7 +1465,7 @@ class MultimodalToolResultTest(unittest.TestCase):
     IMAGE_DATA = "ZmFrZS1wbmctYnl0ZXM="  # base64 of "fake-png-bytes"
 
     def _request_with_image(self, provider: Provider) -> LLMRequest:
-        from simple_agent_lab.messages import ImageBlock
+        from simple_long_horizon_agent.messages import ImageBlock
 
         return LLMRequest(
             provider=provider,

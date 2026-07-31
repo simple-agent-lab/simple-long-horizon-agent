@@ -8,7 +8,7 @@ differences as **data**
 helpers in `harness` so behavior is consistent across the run entry and scoring.
 
 The *container half* (``build_task`` / ``prepare`` / ``extract_result``) ships
-in the wheel at ``simple_agent_lab.evals.suites.swebench.container`` and is
+in the wheel at ``simple_long_horizon_agent.evals.suites.swebench.container`` and is
 driven by the generic in-container runner — so the container needs no copied
 files. This suite is the reference for the "one Suite + two functions"
 integration shape.
@@ -19,7 +19,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from simple_agent_lab.evals.protocols import LaunchSpec
+from simple_long_horizon_agent.evals.protocols import LaunchSpec
 
 from . import harness
 
@@ -29,7 +29,7 @@ class SwebenchSuite:
 
     # Container half ships in the wheel; the generic runner imports it by
     # dotted path with zero file copying.
-    container_module = "simple_agent_lab.evals.suites.swebench.container"
+    container_module = "simple_long_horizon_agent.evals.suites.swebench.container"
 
     def __init__(
         self,

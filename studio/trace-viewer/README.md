@@ -1,6 +1,6 @@
 # Observatory — trace viewer
 
-A single-file HTML viewer for `simple-agent-lab.trajectory.v5` trace records.
+A single-file HTML viewer for `simple-long-horizon-agent.trajectory.v5` trace records.
 
 It is designed to make multi-layer agent traces (parent + sub-agents),
 context compressions, tool errors, and the raw event stream all
@@ -63,7 +63,7 @@ bash runs/demos/run_trace_viewer.sh --host 0.0.0.0      # expose on the network
 ```
 
 The server walks recursively and detects trajectories by JSON shape
-(`schema` field starts with `simple-agent-lab.trajectory`, or the
+(`schema` field starts with `simple-long-horizon-agent.trajectory`, or the
 record contains an `events` array). For very large traces whose first
 line exceeds the 96KB peek window it falls back to text-level
 fingerprinting so multi-MB trajectories still get classified
@@ -80,8 +80,8 @@ loader accepts:
 
 Each record only needs `events`; `spans` and `model_turns` are
 re-derived in the browser using the same logic as
-`src/simple_agent_lab/trace/spans.py` and
-`src/simple_agent_lab/trace/training.py`.
+`src/simple_long_horizon_agent/trace/spans.py` and
+`src/simple_long_horizon_agent/trace/training.py`.
 
 ## Layout
 
@@ -140,7 +140,7 @@ every other dashboard.
 
 ## Compatibility
 
-The viewer reads `simple-agent-lab.trajectory.v5` records produced by
-`simple_agent_lab.trace` (a header line followed by one JSON event per
+The viewer reads `simple-long-horizon-agent.trajectory.v5` records produced by
+`simple_long_horizon_agent.trace` (a header line followed by one JSON event per
 line). It re-derives spans and model turns from `events` in the browser,
 so records that ship only the event stream work fine.

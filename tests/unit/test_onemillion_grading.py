@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from simple_agent_lab.evals.suites.onemillion.grading import (
+from simple_long_horizon_agent.evals.suites.onemillion.grading import (
     build_grading_prompt,
     convert_scores,
     parse_grading_response,

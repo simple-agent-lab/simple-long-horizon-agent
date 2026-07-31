@@ -30,15 +30,15 @@ from evals.swebench.harness import (
     prepare_wheelhouse_for_run,
     resolve_api_kind,
 )
-import simple_agent_lab.config as config
-from simple_agent_lab.agent_flavors import (
+import simple_long_horizon_agent.config as config
+from simple_long_horizon_agent.agent_flavors import (
     AGENT_FLAVOR_ENV,
     DEFAULT_AGENT_FLAVOR,
 )
 
-# Provider / reasoning env-var names are owned by `simple_agent_lab.llm.env`.
+# Provider / reasoning env-var names are owned by `simple_long_horizon_agent.llm.env`.
 # This host-side harness only forwards them into the container.
-from simple_agent_lab.llm.env import (
+from simple_long_horizon_agent.llm.env import (
     API_KIND_ENV,
     OPENAI_API_KIND_CHOICES,
     OPENAI_AUTH_ENV,

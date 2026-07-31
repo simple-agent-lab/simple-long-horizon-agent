@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from simple_agent_lab import (
+from simple_long_horizon_agent import (
     State,
     TextBlock,
     Tool,
@@ -15,8 +15,11 @@ from simple_agent_lab import (
     assistant_message,
     tool_results_message,
 )
-from simple_agent_lab.messages import ImageBlock, ToolResultBlock
-from simple_agent_lab.trace import append_openai_training_record, openai_training_record
+from simple_long_horizon_agent.messages import ImageBlock, ToolResultBlock
+from simple_long_horizon_agent.trace import (
+    append_openai_training_record,
+    openai_training_record,
+)
 
 
 # Declaration-only: this suite serializes the wire shape and never

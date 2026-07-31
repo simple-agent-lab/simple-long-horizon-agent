@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from simple_agent_lab import (
+from simple_long_horizon_agent import (
     Agent,
     RunTrace,
     State,
@@ -21,16 +21,16 @@ from simple_agent_lab import (
     tool_results_of,
     user_message,
 )
-from simple_agent_lab.agents.starter import make_bash_agent
-from simple_agent_lab.llm import Provider
-from simple_agent_lab.messages import Message
-from simple_agent_lab.trace import (
+from simple_long_horizon_agent.agents.starter import make_bash_agent
+from simple_long_horizon_agent.llm import Provider
+from simple_long_horizon_agent.messages import Message
+from simple_long_horizon_agent.trace import (
     Span,
     event_stream,
     spans_from_events,
 )
-from simple_agent_lab.trace.spans import _collect_sub_events, _tree_sort
-from simple_agent_lab.tools.bash import (
+from simple_long_horizon_agent.trace.spans import _collect_sub_events, _tree_sort
+from simple_long_horizon_agent.tools.bash import (
     MAX_BASH_TIMEOUT_SECONDS,
     NON_INTERACTIVE_BASH_ENV,
     _resolve_timeout,
@@ -239,7 +239,7 @@ class TraceSpanTest(unittest.TestCase):
 
     def test_parent_id_returns_none_when_skip_exhausts_stack(self) -> None:
         """Parallel tool spans must share their turn parent."""
-        from simple_agent_lab.protocols import (
+        from simple_long_horizon_agent.protocols import (
             AgentStartEvent,
             ToolExecutionStartEvent,
             ToolExecutionEndEvent,
@@ -352,7 +352,7 @@ class MergedSpansTest(unittest.TestCase):
 
     def test_collect_sub_events_extracts_from_tool_result_message(self) -> None:
         """Collect nested events by tool call ID."""
-        from simple_agent_lab.protocols import AgentStartEvent, AgentEndEvent
+        from simple_long_horizon_agent.protocols import AgentStartEvent, AgentEndEvent
 
         fake_sub_events = [
             AgentStartEvent(index=0, elapsed=0.0),
@@ -462,7 +462,7 @@ def _make_delegating_generate(name: str, sub_name: str):
         call_count += 1
         if call_count == 1:
             task_msg = next(m for m in visible if m.kind == "task")
-            from simple_agent_lab.messages import ToolCallBlock
+            from simple_long_horizon_agent.messages import ToolCallBlock
 
             return assistant_message(
                 (

@@ -58,28 +58,28 @@ from evals.swebench.pro_repo_chain import (
     group_instances_by_repo,
 )
 from evals.swebench.suite import SwebenchSuite
-from simple_agent_lab.evals import LocalDirStore, LocalDockerBackend
-from simple_agent_lab.evals.protocols import RESULT_KEY
-from simple_agent_lab.evals.runner import (
+from simple_long_horizon_agent.evals import LocalDirStore, LocalDockerBackend
+from simple_long_horizon_agent.evals.protocols import RESULT_KEY
+from simple_long_horizon_agent.evals.runner import (
     canonical_run_id,
     container_name,
     prepare_run_directory,
     run_suite_instance,
     safe_path_part,
 )
-from simple_agent_lab.evals.chain import (
+from simple_long_horizon_agent.evals.chain import (
     CHAIN_CONFIG_KEY,
     CHAIN_STATE_INPUT_KEY,
     CHAIN_STATE_OUTPUT_KEY,
 )
-from simple_agent_lab.llm.env import (
+from simple_long_horizon_agent.llm.env import (
     OPENAI_MODEL_ENV,
     OPENAI_REASONING_EFFORT_ENV,
     REASONING_EFFORT_ENV,
 )
-from simple_agent_lab.trace import write_jsonl_atomic
+from simple_long_horizon_agent.trace import write_jsonl_atomic
 
-PRO_REPO_CHAIN_RUNNER_MODULE = "simple_agent_lab.evals.chain"
+PRO_REPO_CHAIN_RUNNER_MODULE = "simple_long_horizon_agent.evals.chain"
 REPO_CHAIN_AGENT_FLAVORS = ("bash", "loop", "pdr")
 
 
@@ -368,11 +368,9 @@ def _model_name_for_mode(
     *, agent_flavor: str, compression_strategy: str, task_tool: bool
 ) -> str:
     if agent_flavor == "bash" and not task_tool:
-        return f"simple-agent-lab-pro-repo-chain-bash-{compression_strategy}"
+        return f"simple-long-horizon-agent-pro-repo-chain-bash-{compression_strategy}"
     task = "task" if task_tool else "bash"
-    return (
-        f"simple-agent-lab-pro-repo-chain-{agent_flavor}-{task}-{compression_strategy}"
-    )
+    return f"simple-long-horizon-agent-pro-repo-chain-{agent_flavor}-{task}-{compression_strategy}"
 
 
 def _resolve_run_id(
@@ -441,7 +439,7 @@ def _plan_groups(
         )
 
     manifest = {
-        "schema": "simple-agent-lab.swebench-pro-repo-chain-experiment.v1",
+        "schema": "simple-long-horizon-agent.swebench-pro-repo-chain-experiment.v1",
         "plan_source": "memory_issue_chains",
         "chains_json": str(chains_path),
         "run_id": args.run_id,

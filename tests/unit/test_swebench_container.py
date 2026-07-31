@@ -28,26 +28,26 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from simple_agent_lab import Agent, Message, assistant_message
-from simple_agent_lab.agent_flavors import (
+from simple_long_horizon_agent import Agent, Message, assistant_message
+from simple_long_horizon_agent.agent_flavors import (
     AGENT_FLAVOR_ENV,
     AGENT_FLAVORS,
     SIMPLE_AGENT_FLAVORS,
     WORKFLOW_AGENT_FLAVORS,
 )
-from simple_agent_lab.agents import flavors as af
-from simple_agent_lab.agents.flavors import (
+from simple_long_horizon_agent.agents import flavors as af
+from simple_long_horizon_agent.agents.flavors import (
     build_flavor_agent,
     make_workflow_runner_for_flavor,
 )
-from simple_agent_lab.agents.starter import BASH_TASK_ADDENDUM
-from simple_agent_lab.compression import SummarizeStrategy
-from simple_agent_lab.evals.stores import container_store_from_env
-from simple_agent_lab.evals.suites.swebench import container as wc
-import simple_agent_lab.config as config
-from simple_agent_lab.llm import Provider
-from simple_agent_lab.state import State
-from simple_agent_lab.workflow import run_pdr
+from simple_long_horizon_agent.agents.starter import BASH_TASK_ADDENDUM
+from simple_long_horizon_agent.compression import SummarizeStrategy
+from simple_long_horizon_agent.evals.stores import container_store_from_env
+from simple_long_horizon_agent.evals.suites.swebench import container as wc
+import simple_long_horizon_agent.config as config
+from simple_long_horizon_agent.llm import Provider
+from simple_long_horizon_agent.state import State
+from simple_long_horizon_agent.workflow import run_pdr
 
 FAKE_PROVIDER = Provider(id="fake", api="fake", model="fake-model")
 
@@ -188,7 +188,7 @@ class FlavorSelectionTest(unittest.TestCase):
                 encoding="utf-8",
             )
             with mock.patch.dict(
-                os.environ, {"SIMPLE_AGENT_LAB_CONTEXT_WINDOW_BOOK": str(path)}
+                os.environ, {"SIMPLE_LONG_HORIZON_AGENT_CONTEXT_WINDOW_BOOK": str(path)}
             ):
                 agent = build_flavor_agent(
                     flavor="bash_task_read",
@@ -463,7 +463,7 @@ class ComposeTraceStateTest(unittest.TestCase):
         self.assertIs(agent.trace_state(state), state)
 
     def test_builds_one_tool_call_node_per_subagent(self) -> None:
-        from simple_agent_lab.trace import event_stream, run_trace_from_state
+        from simple_long_horizon_agent.trace import event_stream, run_trace_from_state
 
         overview = [
             {
@@ -488,7 +488,7 @@ class ComposeTraceStateTest(unittest.TestCase):
             },
         ]
 
-        from simple_agent_lab.workflow import compose_workflow_trace_state
+        from simple_long_horizon_agent.workflow import compose_workflow_trace_state
 
         composed = compose_workflow_trace_state(
             State(task="Solve it."),
@@ -515,7 +515,7 @@ class ComposeTraceStateTest(unittest.TestCase):
         self.assertLess(len(blob), 50_000)
 
     def test_workflow_agent_trace_state_uses_subagent_overview(self) -> None:
-        from simple_agent_lab.trace import run_trace_from_state
+        from simple_long_horizon_agent.trace import run_trace_from_state
 
         with mock.patch.dict(
             os.environ,

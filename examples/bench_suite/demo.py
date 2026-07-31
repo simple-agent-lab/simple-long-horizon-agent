@@ -38,7 +38,7 @@ from pathlib import Path
 
 from examples.bench_suite.candidate import APP_FILE, ExampleBenchSuite
 from examples.bench_suite.judge import JudgeSuite
-from simple_agent_lab.evals import (
+from simple_long_horizon_agent.evals import (
     RESULT_KEY,
     TRACE_KEY,
     LocalDirStore,
