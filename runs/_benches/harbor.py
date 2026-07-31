@@ -1,4 +1,4 @@
-"""Run Harbor datasets with Simple Agent Lab as a Harbor installed agent.
+"""Run Harbor datasets with Simple Long Horizon Agent as a Harbor installed agent.
 
 This is a thin host wrapper over ``harbor run``. Harbor owns dataset/task
 resolution, environment lifecycle, verification, artifacts, and aggregate
@@ -16,17 +16,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from simple_agent_lab.agent_flavors import SIMPLE_AGENT_FLAVORS
-from simple_agent_lab.evals.harbor import (
+from simple_long_horizon_agent.agent_flavors import SIMPLE_AGENT_FLAVORS
+from simple_long_horizon_agent.evals.harbor import (
     AGENT_IMPORT_PATH,
     DEFAULT_API_KIND,
     DEFAULT_MAX_TURNS,
 )
-from simple_agent_lab.evals.harbor.results import (
+from simple_long_horizon_agent.evals.harbor.results import (
     find_latest_job_dir,
     summarize_result_file,
 )
-from simple_agent_lab.llm.env import load_dotenv
+from simple_long_horizon_agent.llm.env import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[2]
 NAME = "harbor"
@@ -39,7 +39,7 @@ DEFAULT_JOBS_DIR = ROOT / "evals/out/harbor/jobs"
 _AGENT_LOG_INCLUDES = (
     "sal-*.json",
     "sal-*.jsonl",
-    "simple-agent-lab.txt",
+    "simple-long-horizon-agent.txt",
 )
 _PASS_ENV_KEYS = (
     "OPENAI_MODEL",

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import unittest
 
-from simple_agent_lab import Agent, Message, assistant_message, text_of
-from simple_agent_lab.state import State
-from simple_agent_lab.workflow import CompletionResult, run_pdr
+from simple_long_horizon_agent import Agent, Message, assistant_message, text_of
+from simple_long_horizon_agent.state import State
+from simple_long_horizon_agent.workflow import CompletionResult, run_pdr
 
 
 def _task_text(visible: list[Message]) -> str:

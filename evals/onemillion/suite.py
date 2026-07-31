@@ -8,7 +8,7 @@ answer in the run environment.
 
 The *container half* (``build_agent`` / ``build_task`` / ``extract_result`` /
 ``evaluate``) ships in the wheel at
-``simple_agent_lab.evals.suites.onemillion.container`` and is driven by the
+``simple_long_horizon_agent.evals.suites.onemillion.container`` and is driven by the
 generic in-container runner — so no files are copied into the run environment.
 
 Unlike SWE-bench, OneMillion-Bench needs no Docker image: it is a tool-free Q&A
@@ -22,7 +22,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from simple_agent_lab.evals.protocols import LaunchSpec
+from simple_long_horizon_agent.evals.protocols import LaunchSpec
 
 from . import harness
 
@@ -31,7 +31,7 @@ class OneMillionSuite:
     """`Suite` for OneMillion-Bench rubric-graded Q&A cases."""
 
     name = harness.SUITE_NAME
-    container_module = "simple_agent_lab.evals.suites.onemillion.container"
+    container_module = "simple_long_horizon_agent.evals.suites.onemillion.container"
 
     def __init__(
         self,

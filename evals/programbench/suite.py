@@ -13,7 +13,7 @@ encode the benchmark boundary:
 
 The container half (``build_task`` / ``build_agent`` / ``prepare`` /
 ``extract_result``) ships in the wheel at
-``simple_agent_lab.evals.suites.programbench.container``. Scoring is the official
+``simple_long_horizon_agent.evals.suites.programbench.container``. Scoring is the official
 official ProgramBench evaluator, run on the host by ``evaluate_submissions.py`` (no
 in-environment ``evaluate`` hook, so ``eval_inputs`` returns ``None``).
 """
@@ -23,7 +23,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from simple_agent_lab.evals.protocols import LaunchSpec
+from simple_long_horizon_agent.evals.protocols import LaunchSpec
 
 from . import harness
 
@@ -34,7 +34,7 @@ class ProgrambenchSuite:
     name = "programbench"
     # Container half ships in the wheel; the generic runner imports it by
     # dotted path with zero file copying.
-    container_module = "simple_agent_lab.evals.suites.programbench.container"
+    container_module = "simple_long_horizon_agent.evals.suites.programbench.container"
 
     def __init__(
         self,

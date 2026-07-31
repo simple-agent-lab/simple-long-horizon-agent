@@ -4,9 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from simple_agent_lab import tool_result_text
-from simple_agent_lab.messages import ImageBlock
-from simple_agent_lab.tools.read import (
+from simple_long_horizon_agent import tool_result_text
+from simple_long_horizon_agent.messages import ImageBlock
+from simple_long_horizon_agent.tools.read import (
     DEFAULT_MAX_BYTES,
     DEFAULT_MAX_LINES,
     READ_TOOL_NAME,
@@ -163,7 +163,7 @@ class ReadToolTest(unittest.TestCase):
         self.assertFalse(any(isinstance(b, ImageBlock) for b in result.content))
 
     def test_budget_is_more_generous_than_bash(self) -> None:
-        from simple_agent_lab.tools.bash import DEFAULT_BASH_MAX_OUTPUT_CHARS
+        from simple_long_horizon_agent.tools.bash import DEFAULT_BASH_MAX_OUTPUT_CHARS
 
         # The read tool exists partly so a real SKILL.md is not mangled by the
         # bash tool's aggressive truncation, so its byte budget must be larger.

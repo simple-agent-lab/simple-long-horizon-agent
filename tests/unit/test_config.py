@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import unittest
 
-from simple_agent_lab import config
-from simple_agent_lab.config import EnvVar, as_bool, as_int
+from simple_long_horizon_agent import config
+from simple_long_horizon_agent.config import EnvVar, as_bool, as_int
 
 
 class EnvVarResolverTest(unittest.TestCase):

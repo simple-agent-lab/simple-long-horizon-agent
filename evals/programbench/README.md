@@ -22,7 +22,7 @@ the SWE-bench adapter:
   `result.json`, decode the submission, and run the official ProgramBench
   evaluator.
 - The container half ships in the wheel at
-  `simple_agent_lab.evals.suites.programbench` (`build_task`, `build_agent`,
+  `simple_long_horizon_agent.evals.suites.programbench` (`build_task`, `build_agent`,
   `prepare`, `extract_result`).
 
 ## What differs from SWE-bench

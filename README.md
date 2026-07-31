@@ -1,4 +1,4 @@
-<h1 align="center">Simple Agent Lab</h1>
+<h1 align="center">Simple Long Horizon Agent</h1>
 
 <p align="center">
   <strong>Simple by design. Effective over long horizons.</strong>
@@ -14,8 +14,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/simple-agent-lab/simple-agent-lab/actions/workflows/ci.yml">
-    <img alt="CI" src="https://github.com/simple-agent-lab/simple-agent-lab/actions/workflows/ci.yml/badge.svg">
+  <a href="https://github.com/simple-agent-lab/simple-long-horizon-agent/actions/workflows/ci.yml">
+    <img alt="CI" src="https://github.com/simple-agent-lab/simple-long-horizon-agent/actions/workflows/ci.yml/badge.svg">
   </a>
   <a href="https://www.python.org/">
     <img alt="Python 3.10+" src="https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&amp;logoColor=white">
@@ -34,14 +34,14 @@
 
 ## Overview
 
-Simple Agent Lab is small enough to understand and change, while capable
+Simple Long Horizon Agent is small enough to understand and change, while capable
 enough to take on real tasks with language models and tools. It gives you a
 practical agent to learn from, experiment with, and adapt—without requiring a
 large framework first.
 
 Long-horizon work cannot be completed in a single response. It requires
 sustained progress across many steps: planning, acting, checking results, and
-iterating until the goal is complete. Simple Agent Lab is designed for that
+iterating until the goal is complete. Simple Long Horizon Agent is designed for that
 shape of work while keeping the project clear and approachable.
 
 ## Highlights
@@ -81,12 +81,12 @@ An em dash means “not published yet,” not zero.
 
 ## Quick Start
 
-Simple Agent Lab supports Python 3.10 and newer and uses
+Simple Long Horizon Agent supports Python 3.10 and newer and uses
 [uv](https://docs.astral.sh/uv/) for its environment.
 
 ```bash
-git clone https://github.com/simple-agent-lab/simple-agent-lab.git
-cd simple-agent-lab
+git clone https://github.com/simple-agent-lab/simple-long-horizon-agent.git
+cd simple-long-horizon-agent
 
 uv sync
 bash runs/demos/run_bash_agent_demo.sh
@@ -135,7 +135,7 @@ See [.env.example](.env.example) for the supported provider settings.
 
 ## Project Status
 
-Simple Agent Lab is early-stage and actively evolving. It is designed for
+Simple Long Horizon Agent is early-stage and actively evolving. It is designed for
 learning, research, and small-team experimentation rather than production-scale
 infrastructure.
 

@@ -16,7 +16,7 @@ Each note should describe:
 - How it handles tools.
 - How it handles memory or state.
 - What is worth borrowing.
-- What should be avoided for Simple Agent Lab.
+- What should be avoided for Simple Long Horizon Agent.
 
 Use [template.md](template.md) for new entries.
 

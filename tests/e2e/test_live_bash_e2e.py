@@ -4,9 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from simple_agent_lab.agents.starter import make_bash_agent
-from simple_agent_lab.llm import Provider
-from simple_agent_lab.llm.env import load_dotenv, provider_from_env
+from simple_long_horizon_agent.agents.starter import make_bash_agent
+from simple_long_horizon_agent.llm import Provider
+from simple_long_horizon_agent.llm.env import load_dotenv, provider_from_env
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -16,7 +16,7 @@ load_dotenv(ROOT / ".env")
 
 
 def build_live_openai_provider() -> Provider:
-    # Single source of truth: `simple_agent_lab.llm.env`. `missing_exc=SkipTest`
+    # Single source of truth: `simple_long_horizon_agent.llm.env`. `missing_exc=SkipTest`
     # makes credential-less CI skip rather than fail; `reexport_auth` cleans the
     # token for the adapter, which reads os.environ directly.
     return provider_from_env(
@@ -34,7 +34,7 @@ class LiveBashAgentE2ETest(unittest.TestCase):
         throwaway temp dir, and assert the file exists on disk with the
         expected content. That's the real proof bash was used end-to-end.
         """
-        marker = "SIMPLE_AGENT_LAB_E2E_42"
+        marker = "SIMPLE_LONG_HORIZON_AGENT_E2E_42"
         filename = "hello.txt"
 
         with tempfile.TemporaryDirectory() as tmp:

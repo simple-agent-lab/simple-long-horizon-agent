@@ -18,15 +18,15 @@ from evals.programbench.suite import ProgrambenchSuite
 from evals.swebench.harness import ensure_linux_uv
 from runs.lib.container_batch import run_container_batch
 from runs.lib import docker_cli
-from simple_agent_lab.evals import (
+from simple_long_horizon_agent.evals import (
     LocalDirStore,
     run_suite_instance,
 )
-from simple_agent_lab.evals.suites.programbench import container
-from simple_agent_lab.evals.backends.docker_local import (
+from simple_long_horizon_agent.evals.suites.programbench import container
+from simple_long_horizon_agent.evals.backends.docker_local import (
     DEFAULT_DOCKER_TIMEOUT_S,
 )
-from simple_agent_lab.evals.runner import canonical_run_id, container_name
+from simple_long_horizon_agent.evals.runner import canonical_run_id, container_name
 
 ROOT = Path(__file__).resolve().parents[2]
 NAME = "programbench"

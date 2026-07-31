@@ -14,7 +14,7 @@ imported inside the container; the *heavy* host-side half (Docker SDK, official
 scorers) stays out of the wheel.
 
 ```
-src/simple_agent_lab/evals/     ← the ENGINE — ships in the wheel
+src/simple_long_horizon_agent/evals/     ← the ENGINE — ships in the wheel
     protocols.py runner.py batch.py dataset.py in_container.py chain.py bootstrap.py
     backends/   where a run executes (LocalProcess / LocalDocker / RemoteDocker / Fake)
     stores/     where bytes live   (LocalDir / HostHttp)
@@ -31,15 +31,15 @@ evals/                          ← HOST side — does NOT ship in the wheel
 ```
 
 **One suite = one host half (`evals/<suite>/`) + one container half
-(`src/simple_agent_lab/evals/suites/<suite>/`).** They are two different
+(`src/simple_long_horizon_agent/evals/suites/<suite>/`).** They are two different
 programs, not a copy: the host half orchestrates Docker and scoring; the
 container half is the thing the agent runs inside the image. The host `suite.py`
 is the readable entry point and names its container half via `container_module`.
 The reference pair is `evals/swebench/suite.py` +
-`simple_agent_lab.evals.suites.swebench.container`.
+`simple_long_horizon_agent.evals.suites.swebench.container`.
 
 Ordered multi-instance runs use the generic chain module in the engine:
-`simple_agent_lab.evals.chain` restores `input/chain_state.json`, runs one
+`simple_long_horizon_agent.evals.chain` restores `input/chain_state.json`, runs one
 instance, and writes `out/chain_state.json`; suites keep only their
 chain-specific hooks in their container half.
 
@@ -93,7 +93,7 @@ Record types:
 
 ## Adding a Containerized Suite
 
-The generic framework lives in `simple_agent_lab.evals`. It supplies the
+The generic framework lives in `simple_long_horizon_agent.evals`. It supplies the
 container lifecycle, the Python/uv bootstrap, the run-directory convention,
 and the one artifact seam, so a new Docker benchmark only implements what is
 genuinely suite-specific:
@@ -118,14 +118,14 @@ genuinely suite-specific:
    prompt/role and bash-vs-bash_task flavor, `memory_artifacts(...)` to expose
    run products to persistent memory, or `build_agent(...)` for full control.
    It **ships in the wheel** under
-   `src/simple_agent_lab/evals/suites/<suite>/` (importing only stdlib + the
+   `src/simple_long_horizon_agent/evals/suites/<suite>/` (importing only stdlib + the
    installed runtime), so the in-container runner imports it with zero copying.
 
 Then drive one instance. The same call runs locally or across machines — swap
 the backend, not the code:
 
 ```python
-from simple_agent_lab.evals import (
+from simple_long_horizon_agent.evals import (
     run_suite_instance, LocalProcessBackend, LocalDockerBackend, LocalDirStore,
 )
 
@@ -173,7 +173,7 @@ The same suite runs against a remote daemon by swapping `backend` / `store` —
 both are `Protocol`s, so the suite and runner do not change. `HostHttpStore`
 needs **no third-party middleware** (the host runs a stdlib HTTP server).
 Reference: `evals/swebench/suite.py` (host half) +
-`simple_agent_lab.evals.suites.swebench.container` (the two functions).
+`simple_long_horizon_agent.evals.suites.swebench.container` (the two functions).
 `FakeBackend` runs the whole flow without Docker for tests. Still follow the
 shared output convention described in [Output artifacts](#output-artifacts).
 
@@ -211,7 +211,7 @@ The fast inner loop while writing a suite is `LocalProcessBackend` + a fake
 provider — it runs the *exact* container half, no image build:
 
 ```python
-from simple_agent_lab.evals import (
+from simple_long_horizon_agent.evals import (
     run_suite_instance, LocalProcessBackend, LocalDirStore,
 )
 
@@ -243,7 +243,7 @@ outcomes. The suite, backend, and store are unchanged — concurrency is just
 result bus.
 
 ```python
-from simple_agent_lab.evals import run_dataset, LocalDockerBackend, LocalDirStore
+from simple_long_horizon_agent.evals import run_dataset, LocalDockerBackend, LocalDirStore
 
 report = run_dataset(
     suite=MySuite(),
@@ -280,7 +280,7 @@ the host process open for hours. With a backend whose work outlives the host (a
 detached container — `LocalDockerBackend`), split it in two:
 
 ```python
-from simple_agent_lab.evals import (
+from simple_long_horizon_agent.evals import (
     submit_dataset, reconcile_dataset, LocalDockerBackend, LocalDirStore,
 )
 
@@ -330,7 +330,7 @@ shapes depending on where it belongs:
   No second phase — the verdict lives next to the product.
 
   ```python
-  from simple_agent_lab.evals import run_dataset, LocalDirStore
+  from simple_long_horizon_agent.evals import run_dataset, LocalDirStore
 
   report = run_dataset(suite=suite, instances=dataset, ...)  # verdict already in result.json
   store = LocalDirStore(run_root)
@@ -368,8 +368,8 @@ framework preserves the viewer's three on-disk expectations:
 - **Layout** `<run_root>/<run_id>/<instance_id>/out/trajectory.jsonl` — the
   viewer parses `run_id` / `instance_id` from exactly this shape.
 - **Filename** `trajectory.jsonl` (the `out/trajectory.jsonl` artifact key).
-- **Schema** `simple-agent-lab.trajectory.v5`, written by
-  `simple_agent_lab.trace.trace_record(...)`.
+- **Schema** `simple-long-horizon-agent.trajectory.v5`, written by
+  `simple_long_horizon_agent.trace.trace_record(...)`.
 
 Live updates work because the in-container runner re-`put`s the trajectory key
 on a cadence and `LocalDirStore` writes it atomically (`os.replace`), so a

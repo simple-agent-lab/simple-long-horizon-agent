@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from simple_agent_lab.evals.harbor.results import (
+from simple_long_horizon_agent.evals.harbor.results import (
     find_latest_job_dir,
     summarize_result_file,
 )
@@ -27,7 +27,7 @@ class HarborResultsTest(unittest.TestCase):
                             "n_completed": 2,
                             "n_errors": 1,
                             "evals": {
-                                "simple-agent-lab__gpt-test__demo": {
+                                "simple-long-horizon-agent__gpt-test__demo": {
                                     "n_trials": 2,
                                     "n_errors": 1,
                                     "metrics": [{"reward": 0.5}],

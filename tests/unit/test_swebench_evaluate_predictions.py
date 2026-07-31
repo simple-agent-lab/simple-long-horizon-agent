@@ -210,7 +210,7 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
                     [
                         {
                             "instance_id": "instance_NodeBB__NodeBB-abc-vnan",
-                            "prefix": "simple-agent-lab-pro",
+                            "prefix": "simple-long-horizon-agent-pro",
                             "patch": "diff --git a/api.js b/api.js\n",
                         }
                     ]
@@ -220,7 +220,7 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
 
             records = evaluate_predictions.load_predictions(path)
 
-        self.assertEqual(records[0]["prefix"], "simple-agent-lab-pro")
+        self.assertEqual(records[0]["prefix"], "simple-long-horizon-agent-pro")
         self.assertEqual(records[0]["patch"], "diff --git a/api.js b/api.js\n")
 
     def test_results_from_summary_accepts_pro_eval_results_map(self) -> None:
@@ -253,7 +253,7 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
         result = evaluate_predictions.eval_result_from_official(
             {
                 "instance_id": "instance_NodeBB__NodeBB-abc-vnan",
-                "prefix": "simple-agent-lab-pro",
+                "prefix": "simple-long-horizon-agent-pro",
                 "patch": "diff --git a/api.js b/api.js\n",
             },
             {
@@ -264,7 +264,9 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
         )
 
         self.assertEqual(result.scorer, "swebench_pro.official_harness.v1")
-        self.assertEqual(result.metrics["model_name_or_path"], "simple-agent-lab-pro")
+        self.assertEqual(
+            result.metrics["model_name_or_path"], "simple-long-horizon-agent-pro"
+        )
         self.assertEqual(result.metrics["patch_chars"], 29)
         self.assertIsNotNone(result.meta)
         assert result.meta is not None
@@ -274,7 +276,7 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
         result = evaluate_predictions.eval_result_from_official(
             {
                 "instance_id": "kotlin__repo-123",
-                "model_name_or_path": "simple-agent-lab-multilingual",
+                "model_name_or_path": "simple-long-horizon-agent-multilingual",
                 "model_patch": "diff --git a/src/App.kt b/src/App.kt\n",
             },
             {
@@ -288,7 +290,7 @@ class SwebenchEvaluatePredictionsTest(unittest.TestCase):
         self.assertEqual(result.scorer, "swebench_multilingual.official_harness.v1")
         self.assertEqual(
             result.metrics["model_name_or_path"],
-            "simple-agent-lab-multilingual",
+            "simple-long-horizon-agent-multilingual",
         )
         self.assertIsNotNone(result.meta)
         assert result.meta is not None

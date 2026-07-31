@@ -1,7 +1,7 @@
 """Focused tests for the bash + task delegation agent preset.
 
 The fake LLM adapter is bash-aware but not task-aware (see
-``simple_agent_lab.llm.adapters.fake``), so these tests drive the
+``simple_long_horizon_agent.llm.adapters.fake``), so these tests drive the
 parent's ``generate`` callable directly with a small stub. That keeps
 the focus on the wiring this preset introduces:
 
@@ -18,21 +18,21 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from simple_agent_lab import (
+from simple_long_horizon_agent import (
     Message,
     ToolCallBlock,
     assistant_message,
     message_text,
     tool_results_of,
 )
-from simple_agent_lab.agents.starter import (
+from simple_long_horizon_agent.agents.starter import (
     BASH_AGENT_SYSTEM_PROMPT,
     BASH_TASK_AGENT_SYSTEM_PROMPT,
     BASH_TASK_ADDENDUM,
     GENERAL_PURPOSE_AGENT_DEFAULT_NAME,
     make_bash_task_agent,
 )
-from simple_agent_lab.llm import Provider
+from simple_long_horizon_agent.llm import Provider
 
 
 ROOT = Path(__file__).resolve().parents[2]

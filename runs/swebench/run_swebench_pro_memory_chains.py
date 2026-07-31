@@ -3,7 +3,7 @@
 This is the *memory-based* peer of ``run_swebench_pro_repo_chains.py``. Each
 issue runs as an ordinary, isolated SWE-bench Pro instance in a *fresh* agent
 context (no transcript/handoff is carried in-context), and the only thing that
-crosses instance boundaries is Simple Agent Lab filesystem memory scoped per
+crosses instance boundaries is Simple Long Horizon Agent filesystem memory scoped per
 chain. Within a chain the memory dir is shared (``SAL_MEMORY_NAME=<chain_id>``);
 the run-end distiller updates it, so a later issue in the same chain can reuse an
 earlier one's lessons. Each container bind-mounts only that chain's namespaced
@@ -66,32 +66,32 @@ from evals.swebench.pro_memory_chain import (
     plan_memory_chains,
 )
 from evals.swebench.suite import SwebenchSuite
-from simple_agent_lab.agent_flavors import AGENT_FLAVOR_ENV
-from simple_agent_lab.evals import LocalDirStore, LocalDockerBackend
-from simple_agent_lab.evals.protocols import (
+from simple_long_horizon_agent.agent_flavors import AGENT_FLAVOR_ENV
+from simple_long_horizon_agent.evals import LocalDirStore, LocalDockerBackend
+from simple_long_horizon_agent.evals.protocols import (
     DEFAULT_MEMORY_CONTAINER_HOME,
     MEMORY_NAME_ENV,
     MEMORY_RUN_ID_ENV,
     RESULT_KEY,
 )
-from simple_agent_lab.evals.runner import (
+from simple_long_horizon_agent.evals.runner import (
     canonical_run_id,
     container_name,
     prepare_run_directory,
     run_suite_instance,
     safe_path_part,
 )
-from simple_agent_lab.llm.env import (
+from simple_long_horizon_agent.llm.env import (
     OPENAI_MODEL_ENV,
     OPENAI_REASONING_EFFORT_ENV,
     REASONING_EFFORT_ENV,
 )
-from simple_agent_lab.memory import (
+from simple_long_horizon_agent.memory import (
     FilesystemMemory,
     FilesystemMemoryLimits,
 )
-from simple_agent_lab.memory.filesystem import safe_memory_name
-from simple_agent_lab.trace import write_jsonl_atomic
+from simple_long_horizon_agent.memory.filesystem import safe_memory_name
+from simple_long_horizon_agent.trace import write_jsonl_atomic
 
 
 def build_parser() -> argparse.ArgumentParser:

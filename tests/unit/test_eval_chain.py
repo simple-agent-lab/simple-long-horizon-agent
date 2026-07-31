@@ -4,9 +4,9 @@ import unittest
 from types import ModuleType
 from unittest.mock import patch
 
-from simple_agent_lab import Agent, State, message_text
-from simple_agent_lab.compression import SummarizeStrategy
-from simple_agent_lab.evals.chain import (
+from simple_long_horizon_agent import Agent, State, message_text
+from simple_long_horizon_agent.compression import SummarizeStrategy
+from simple_long_horizon_agent.evals.chain import (
     CHAIN_DATA_KEY,
     CHAIN_HANDOFF_CONTEXT_PREFACE,
     INVALID_PROMPT_TOOL_REMINDER,
@@ -19,9 +19,9 @@ from simple_agent_lab.evals.chain import (
     state_from_chain_payload,
     state_to_chain_payload,
 )
-from simple_agent_lab.evals.protocols import AgentSpec
-from simple_agent_lab.llm.env import FAKE_PROVIDER
-from simple_agent_lab.messages import (
+from simple_long_horizon_agent.evals.protocols import AgentSpec
+from simple_long_horizon_agent.llm.env import FAKE_PROVIDER
+from simple_long_horizon_agent.messages import (
     ImageBlock,
     Message,
     TextBlock,
@@ -35,7 +35,7 @@ from simple_agent_lab.messages import (
     text_of,
     tool_results_message,
 )
-from simple_agent_lab.protocols import ContextCompressionEvent
+from simple_long_horizon_agent.protocols import ContextCompressionEvent
 
 
 class ChainStateCodecTest(unittest.TestCase):
@@ -104,7 +104,7 @@ class ChainStateCodecTest(unittest.TestCase):
 
     def test_rejects_unknown_message_and_block_kinds(self) -> None:
         base = {
-            "schema": "simple-agent-lab.eval-chain-state.v1",
+            "schema": "simple-long-horizon-agent.eval-chain-state.v1",
             "task": "",
             "data": {},
         }
@@ -268,7 +268,7 @@ class ChainHandoffTest(unittest.TestCase):
         )
 
         with patch(
-            "simple_agent_lab.evals.chain._generate_handoff_doc",
+            "simple_long_horizon_agent.evals.chain._generate_handoff_doc",
             return_value="durable notes",
         ):
             did_reset, generated_turns, before_tokens = _apply_context_window_handoff(
@@ -301,7 +301,7 @@ class ChainHandoffTest(unittest.TestCase):
 
         with (
             patch(
-                "simple_agent_lab.evals.chain.make_llm_agent",
+                "simple_long_horizon_agent.evals.chain.make_llm_agent",
                 return_value=Agent("solver", fail),
             ),
             self.assertRaisesRegex(RuntimeError, "provider unavailable"),

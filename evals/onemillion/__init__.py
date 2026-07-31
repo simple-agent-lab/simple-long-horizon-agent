@@ -4,5 +4,5 @@
 case onto the generic `Suite` framework; ``harness.py`` holds the shared
 host-side helpers (dataset loading, sanitization, dotenv, generator/judge env).
 The container half ships in the wheel at
-``simple_agent_lab.evals.suites.onemillion``.
+``simple_long_horizon_agent.evals.suites.onemillion``.
 """

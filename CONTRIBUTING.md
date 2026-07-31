@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for your interest in Simple Agent Lab. This is a small, docs-first
+Thanks for your interest in Simple Long Horizon Agent. This is a small, docs-first
 project — the goal is to keep the agent loop readable and modifiable by
 students, small teams, and learners. Contributions that preserve that goal
 are very welcome.

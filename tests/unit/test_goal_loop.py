@@ -4,16 +4,16 @@ from __future__ import annotations
 
 import unittest
 
-from simple_agent_lab.core import Agent
-from simple_agent_lab.messages import (
+from simple_long_horizon_agent.core import Agent
+from simple_long_horizon_agent.messages import (
     AssistantMessage,
     TextBlock,
     TokenUsage,
     ToolCallBlock,
     text_of,
 )
-from simple_agent_lab.protocols import GoalStatusEvent
-from simple_agent_lab.workflow import (
+from simple_long_horizon_agent.protocols import GoalStatusEvent
+from simple_long_horizon_agent.workflow import (
     CompletionResult,
     GoalBudgets,
     command_verifier_check,
@@ -25,8 +25,8 @@ from simple_agent_lab.workflow import (
     update_goal_tool,
     verified_completion_check,
 )
-from simple_agent_lab.workflow.goal_checks import _parse_judge_json
-from simple_agent_lab.workflow.goal_loop import (
+from simple_long_horizon_agent.workflow.goal_checks import _parse_judge_json
+from simple_long_horizon_agent.workflow.goal_loop import (
     UNTRUSTED_OBJECTIVE_PREAMBLE,
     _continuation_prompt,
     _goal_prompt,

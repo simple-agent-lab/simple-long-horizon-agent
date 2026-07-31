@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from simple_agent_lab.evals.profile import (
+from simple_long_horizon_agent.evals.profile import (
     apply_profile_env,
     load_run_profile,
     parse_with_profile,

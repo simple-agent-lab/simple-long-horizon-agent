@@ -1,1 +1,1 @@
-"""Runnable examples for Simple Agent Lab."""
+"""Runnable examples for Simple Long Horizon Agent."""

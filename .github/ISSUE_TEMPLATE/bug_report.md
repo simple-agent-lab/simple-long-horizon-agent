@@ -24,7 +24,7 @@ labels: ["bug"]
 ## Environment
 
 - Python version: <!-- output of `uv run python --version` -->
-- `simple-agent-lab` version / commit: <!-- e.g. 0.1.0 or git SHA -->
+- `simple-long-horizon-agent` version / commit: <!-- e.g. 0.1.0 or git SHA -->
 - OS:
 
 ## Anything else

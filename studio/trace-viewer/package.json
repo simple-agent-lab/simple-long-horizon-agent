@@ -2,7 +2,7 @@
   "name": "trace-viewer",
   "private": true,
   "version": "1.0.0",
-  "description": "A single-file HTML viewer for simple-agent-lab.trajectory.v5 trace records.",
+  "description": "A single-file HTML viewer for simple-long-horizon-agent.trajectory.v5 trace records.",
   "scripts": {
     "test": "node --test"
   },

@@ -19,23 +19,23 @@ from evals.swebench import harness
 from evals.swebench.suite import SwebenchSuite
 from runs.lib.container_batch import run_container_batch
 from runs.lib import docker_cli
-from simple_agent_lab.agent_flavors import (
+from simple_long_horizon_agent.agent_flavors import (
     AGENT_FLAVOR_ENV,
     WORKFLOW_AGENT_FLAVORS,
 )
-import simple_agent_lab.config as config
-from simple_agent_lab.evals import (
+import simple_long_horizon_agent.config as config
+from simple_long_horizon_agent.evals import (
     LocalDirStore,
     run_suite_instance,
 )
-from simple_agent_lab.evals.runner import (
+from simple_long_horizon_agent.evals.runner import (
     canonical_run_id,
     clear_run_outputs,
     container_name,
     prepare_run_directory,
 )
-from simple_agent_lab.evals.suites.swebench.patch import instance_language
-from simple_agent_lab.trace import write_jsonl
+from simple_long_horizon_agent.evals.suites.swebench.patch import instance_language
+from simple_long_horizon_agent.trace import write_jsonl
 
 ROOT = Path(__file__).resolve().parents[2]
 NAME = "swebench"
@@ -423,7 +423,7 @@ def run_batch(args: argparse.Namespace) -> dict:
         predictions_from_run_dirs(
             run_root,
             run_id=args.run_id,
-            model_name=f"simple-agent-lab-{args.variant}",
+            model_name=f"simple-long-horizon-agent-{args.variant}",
             dataset_name=args.dataset_name,
             expected_instance_ids=instance_ids,
         ),

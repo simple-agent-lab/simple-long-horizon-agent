@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from simple_agent_lab.evals.harbor import runner
+from simple_long_horizon_agent.evals.harbor import runner
 
 
 class HarborRunnerTest(unittest.TestCase):
@@ -55,6 +55,6 @@ class HarborRunnerTest(unittest.TestCase):
             self.assertEqual(data["agent_flavor"], "bash_task_read")
             self.assertTrue(trace.exists())
             self.assertIn(
-                "simple-agent-lab.trajectory",
+                "simple-long-horizon-agent.trajectory",
                 trace.read_text(encoding="utf-8"),
             )

@@ -30,14 +30,14 @@ import time
 from pathlib import Path
 from typing import Any
 
-from simple_agent_lab.messages import (
+from simple_long_horizon_agent.messages import (
     AssistantMessage,
     TextBlock,
     ToolCallBlock,
     ToolResultBlock,
     make_message,
 )
-from simple_agent_lab.protocols import (
+from simple_long_horizon_agent.protocols import (
     AgentEndEvent,
     AgentStartEvent,
     ModelRequestEvent,
@@ -47,8 +47,8 @@ from simple_agent_lab.protocols import (
     TurnEndEvent,
     TurnStartEvent,
 )
-from simple_agent_lab.state import State
-from simple_agent_lab.trace import (
+from simple_long_horizon_agent.state import State
+from simple_long_horizon_agent.trace import (
     LiveTraceSession,
     TraceMeta,
     default_stderr_flush_error,
@@ -68,7 +68,7 @@ TEXT_SAMPLES = [
 TOOL_RESULT_SAMPLES = [
     "agents/\ncore.py\ncontext_view.py\nllm/\nmessages.py\nprotocols.py\nstate.py\ntools/\ntrace/",
     "def wc_lines(path):\n    with open(path) as f:\n        return len(f.read().split('\\n')) - 1",
-    "src/simple_agent_lab/tools/wc.py:1:def wc_lines(path):\ntests/unit/test_wc.py:8:    assert wc_lines('fixtures/3lines.txt') == 3",
+    "src/simple_long_horizon_agent/tools/wc.py:1:def wc_lines(path):\ntests/unit/test_wc.py:8:    assert wc_lines('fixtures/3lines.txt') == 3",
     "============= 1 passed in 0.34s ==============",
     "Fix applied and verified.",
 ]
@@ -239,7 +239,7 @@ def main() -> None:
                 content=(
                     TextBlock(
                         text=(
-                            "Fixed the off-by-one in src/simple_agent_lab/tools/wc.py "
+                            "Fixed the off-by-one in src/simple_long_horizon_agent/tools/wc.py "
                             "and confirmed the focused test passes. Suggest adding a "
                             "fixture without a trailing newline before shipping."
                         ),

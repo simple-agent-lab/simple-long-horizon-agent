@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from simple_agent_lab import (
+from simple_long_horizon_agent import (
     Agent,
     AssistantMessage,
     Message,
@@ -14,7 +14,7 @@ from simple_agent_lab import (
     estimate_message_tokens,
     run,
 )
-from simple_agent_lab.llm import Provider
+from simple_long_horizon_agent.llm import Provider
 
 REAL_PROVIDER = Provider(id="test", api="openai-chat", model="test-model")
 

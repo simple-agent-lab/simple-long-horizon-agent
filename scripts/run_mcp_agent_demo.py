@@ -27,7 +27,7 @@ import base64
 import sys
 from pathlib import Path
 
-from simple_agent_lab import (
+from simple_long_horizon_agent import (
     Agent,
     ImageBlock,
     State,
@@ -39,7 +39,7 @@ from simple_agent_lab import (
     text_of,
     tool_results_of,
 )
-from simple_agent_lab.mcp import MCPServerConfig, connect_mcp
+from simple_long_horizon_agent.mcp import MCPServerConfig, connect_mcp
 
 
 ROOT = Path(__file__).resolve().parents[1]

@@ -6,8 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from simple_agent_lab.evals.suites.onemillion import container
-from simple_agent_lab.llm import Provider
+from simple_long_horizon_agent.evals.suites.onemillion import container
+from simple_long_horizon_agent.llm import Provider
 
 RUBRICS = [
     {"rubric_number": 1, "rubric_detail": "Defines the concept.", "rubric_weight": 10},

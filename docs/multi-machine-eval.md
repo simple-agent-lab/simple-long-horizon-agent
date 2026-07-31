@@ -11,7 +11,7 @@ backend and a k8s backend are sketches below, **not** runnable APIs here.
 
 A "worker" is just a machine running a Docker daemon. It runs no long-lived
 agent and no installed copy of this project. The host drives each worker's
-daemon remotely, and the container `pip install`s `simple-agent-lab` into an
+daemon remotely, and the container `pip install`s `simple-long-horizon-agent` into an
 isolated `/opt/agent-venv` at startup — never touching the image's own (conda)
 environment that the benchmark depends on. So deploying a worker is two things:
 **a daemon the host can reach, and the images in place.**

@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from simple_agent_lab import (
+from simple_long_horizon_agent import (
     ContextWindowBook,
     CostBreakdown,
     ModelPrice,
@@ -19,7 +19,7 @@ from simple_agent_lab import (
     default_price_book,
     usage_cost,
 )
-from simple_agent_lab.model_metadata import (
+from simple_long_horizon_agent.model_metadata import (
     CACHE_READ_RATIO,
     CACHE_WRITE_RATIO,
     CONTEXT_WINDOW_BOOK_ENV,
@@ -27,7 +27,7 @@ from simple_agent_lab.model_metadata import (
     PRICE_BOOK_ENV,
     default_context_window_book,
 )
-from simple_agent_lab.trace.run_trace import RunTrace
+from simple_long_horizon_agent.trace.run_trace import RunTrace
 
 
 class ModelPriceTest(unittest.TestCase):

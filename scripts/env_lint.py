@@ -1,9 +1,9 @@
 """Lint: environment knobs go through the config registry, not scattered reads.
 
-A new behavioral env knob belongs in `simple_agent_lab.config` — one `EnvVar`
+A new behavioral env knob belongs in `simple_long_horizon_agent.config` — one `EnvVar`
 with one precedence rule. To keep knobs from scattering back into ad-hoc
 `os.environ` / `os.getenv` reads across the package, this lint forbids direct
-environment access in `src/simple_agent_lab/` except:
+environment access in `src/simple_long_horizon_agent/` except:
 
 - in the designated env-owner modules (ALLOWLIST below) — the registry itself
   and the provider / model-alias env layer; and
@@ -24,7 +24,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src" / "simple_agent_lab"
+SRC = ROOT / "src" / "simple_long_horizon_agent"
 
 # Modules whose job IS to read the environment (paths relative to SRC). These
 # are the documented env owners (see docs/configuration.md's
@@ -63,7 +63,7 @@ def main() -> int:
     if violations:
         print("env_lint: direct environment access outside the config registry.")
         print(
-            "Declare the knob in `simple_agent_lab.config` (an EnvVar), or — for "
+            "Declare the knob in `simple_long_horizon_agent.config` (an EnvVar), or — for "
             "a genuine\none-off infra read — add an inline `# env-ok: <reason>`.\n"
         )
         for rel, lineno, snippet in violations:

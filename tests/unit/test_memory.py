@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-from simple_agent_lab import (
+from simple_long_horizon_agent import (
     Agent,
     HookFiredEvent,
     HookPoint,
@@ -18,8 +18,8 @@ from simple_agent_lab import (
     message_text,
     text_of,
 )
-from simple_agent_lab.llm import Provider
-from simple_agent_lab.memory import (
+from simple_long_horizon_agent.llm import Provider
+from simple_long_horizon_agent.memory import (
     FilesystemArtifact,
     FilesystemMemory,
     FilesystemMemoryLimits,
@@ -27,15 +27,15 @@ from simple_agent_lab.memory import (
     Memory,
     MemoryContext,
 )
-from simple_agent_lab.memory.filesystem import (
+from simple_long_horizon_agent.memory.filesystem import (
     DEFAULT_MAX_HANDBOOK_CHARS,
     filesystem_distillation_prompt,
     sanitize_summary,
 )
-from simple_agent_lab.memory.transcript import extract_memory_text
-from simple_agent_lab.messages import runtime_message
-from simple_agent_lab.protocols import ModelRequestEvent
-from simple_agent_lab.tools import AgentTool, text_result
+from simple_long_horizon_agent.memory.transcript import extract_memory_text
+from simple_long_horizon_agent.messages import runtime_message
+from simple_long_horizon_agent.protocols import ModelRequestEvent
+from simple_long_horizon_agent.tools import AgentTool, text_result
 
 
 def _memory_context(
@@ -710,7 +710,7 @@ class FilesystemMemoryTest(unittest.TestCase):
             self.assertTrue((shared / run_id / ".complete").is_file())
 
     def test_atomic_write_replaces_or_leaves_previous_file_intact(self) -> None:
-        from simple_agent_lab.memory import filesystem
+        from simple_long_horizon_agent.memory import filesystem
 
         path = self.root / "memory.md"
         path.write_text("before")
@@ -734,8 +734,10 @@ class FilesystemMemoryTest(unittest.TestCase):
         self.assertEqual(path.read_text(), "after")
 
     def test_child_namespace_mount_uses_the_shared_root_lock_directory(self) -> None:
-        from simple_agent_lab.evals.backends.docker_local import with_local_mounts
-        from simple_agent_lab.evals.protocols import ContainerBinding
+        from simple_long_horizon_agent.evals.backends.docker_local import (
+            with_local_mounts,
+        )
+        from simple_long_horizon_agent.evals.protocols import ContainerBinding
 
         root = self.root / "memory"
         lock_dir = root / ".memory-lock"
@@ -836,7 +838,9 @@ class FilesystemMemoryTest(unittest.TestCase):
         # Minor: memory's own recalled policy/summary block is framework
         # scaffolding, not run evidence, and must not be echoed back to the
         # distiller (which is told to ignore instructions in the transcript).
-        from simple_agent_lab.memory.transcript import render_transcript_markdown
+        from simple_long_horizon_agent.memory.transcript import (
+            render_transcript_markdown,
+        )
 
         messages = [
             runtime_message(

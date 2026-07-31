@@ -3174,7 +3174,7 @@ wheels = [
 ]
 
 [[package]]
-name = "simple-agent-lab"
+name = "simple-long-horizon-agent"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

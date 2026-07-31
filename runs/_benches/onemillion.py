@@ -9,7 +9,7 @@ answer against the case's rubrics with a judge model.
 Generation strategy is chosen with the shared ``--agent-flavor`` knob (like
 SWE-bench): ``single`` (default) is one tool-free model turn; a workflow flavor
 (``reflection`` / ``planner_executor`` / ``parallel`` / ``chain`` / ``routing``
-/ ``pdr``) produces the answer with a multi-agent ``simple_agent_lab.workflow``
+/ ``pdr``) produces the answer with a multi-agent ``simple_long_horizon_agent.workflow``
 orchestration. There is one OneMillion entry — the flavor picks the strategy.
 
 Usage (a downloaded dataset under ``datasets/OneMillion-Bench/``):
@@ -34,18 +34,18 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-import simple_agent_lab.config as config
+import simple_long_horizon_agent.config as config
 from evals.onemillion import harness
 from evals.onemillion.suite import OneMillionSuite
-from simple_agent_lab.agent_flavors import AGENT_FLAVOR_ENV
-from simple_agent_lab.evals import (
+from simple_long_horizon_agent.agent_flavors import AGENT_FLAVOR_ENV
+from simple_long_horizon_agent.evals import (
     LocalDirStore,
     LocalProcessBackend,
     parse_with_profile,
     run_dataset,
     run_suite_instance,
 )
-from simple_agent_lab.evals.suites.onemillion.container import OMB_FLAVORS
+from simple_long_horizon_agent.evals.suites.onemillion.container import OMB_FLAVORS
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -81,7 +81,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Generation strategy (default: single). A workflow flavor "
             "(reflection|planner_executor|parallel|chain|routing|pdr) answers via "
-            "a multi-agent simple_agent_lab.workflow orchestration."
+            "a multi-agent simple_long_horizon_agent.workflow orchestration."
         ),
     )
     parser.add_argument(

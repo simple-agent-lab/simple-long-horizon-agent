@@ -1,6 +1,6 @@
 # Filesystem Memory
 
-Implementation guide for `src/simple_agent_lab/memory/`. Code and
+Implementation guide for `src/simple_long_horizon_agent/memory/`. Code and
 `tests/unit/test_memory.py` remain the source of truth for behavior; this file
 holds the decisions that are not visible in either.
 

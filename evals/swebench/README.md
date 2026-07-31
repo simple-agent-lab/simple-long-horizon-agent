@@ -15,13 +15,13 @@ The adapter maps SWE-bench onto the generic `Suite` protocol:
   Docker Hub image naming, instance loading, dotenv + provider environment, the
   offline wheelhouse build, and official prediction shaping.
 - The in-container agent loop and patch extraction ship in the wheel
-  (`simple_agent_lab.evals.in_container` and
-  `simple_agent_lab.evals.suites.swebench`): the SWE-bench container half builds
+  (`simple_long_horizon_agent.evals.in_container` and
+  `simple_long_horizon_agent.evals.suites.swebench`): the SWE-bench container half builds
   the task, records the trajectory, and writes `result.json` with the final
   collected `model_patch` after filtering generated files. The model edits and
   verifies the workspace; it does not spend turns formatting a second patch for
   submission. Incremental traces for the host viewer use the live-trace helpers
-  in `simple_agent_lab.trace` — see
+  in `simple_long_horizon_agent.trace` — see
   `docs/docker-live-trace.md`.
 - `evaluate_predictions.py` collects per-run `result.json` files into an official
   predictions JSONL (`--collect-predictions`) and runs or normalizes the official
@@ -199,7 +199,7 @@ uv run python -m unittest \
 SWE-bench patch generation runs inside the SWE-bench instance container, driven
 through the generic `Suite` framework: `run_suite_instance(SwebenchSuite,
 LocalDockerBackend, LocalDirStore)` mounts a run directory and optional
-wheelhouse, installs the `simple-agent-lab` wheel, passes model environment
+wheelhouse, installs the `simple-long-horizon-agent` wheel, passes model environment
 variables, and collects `result.json` plus `trajectory.jsonl`.
 
 From the agent's point of view, `/testbed` is a normal local repository and the
@@ -226,11 +226,11 @@ prepare_wheelhouse(Path("evals/out/swebench/wheelhouse/cp311-manylinux"))
 PY
 ```
 
-The direct run entry refreshes the local `simple-agent-lab` wheel before it
+The direct run entry refreshes the local `simple-long-horizon-agent` wheel before it
 mounts a wheelhouse. This keeps cached third-party wheels reusable while
 preventing the container from installing an older build of the current
 checkout. If you see an import error for a symbol that exists in
-`src/simple_agent_lab/`, rerun the command; the run entry rebuilds the project
+`src/simple_long_horizon_agent/`, rerun the command; the run entry rebuilds the project
 wheel before starting Docker.
 Batch scripts prepare and atomically publish that wheel once before starting
 workers; workers reuse the immutable wheelhouse rather than concurrently
@@ -327,7 +327,7 @@ this for you with `predictions_from_run_dirs`):
 uv run python -m evals.swebench.evaluate_predictions --collect-predictions \
   --run-root evals/out/swebench --run-id my-run \
   --dataset-name princeton-nlp/SWE-bench_Verified \
-  --model-name simple-agent-lab \
+  --model-name simple-long-horizon-agent \
   --predictions evals/out/swebench/my-run_predictions.jsonl
 ```
 
@@ -398,7 +398,7 @@ bash runs/swebench/eval_swebench.sh --pro --run-official \
 Official prediction rows must contain:
 
 ```json
-{"instance_id": "sympy__sympy-23824", "model_name_or_path": "simple-agent-lab", "model_patch": "diff --git ..."}
+{"instance_id": "sympy__sympy-23824", "model_name_or_path": "simple-long-horizon-agent", "model_patch": "diff --git ..."}
 ```
 
 Official harness outputs are intentionally run from

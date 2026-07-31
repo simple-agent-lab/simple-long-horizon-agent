@@ -21,7 +21,7 @@ from types import SimpleNamespace
 from typing import Any, Mapping
 from unittest import mock
 
-from simple_agent_lab.evals import (
+from simple_long_horizon_agent.evals import (
     AgentSpec,
     ContainerBinding,
     DEFAULT_MEMORY_CONTAINER_HOME,
@@ -45,15 +45,15 @@ from simple_agent_lab.evals import (
     run_suite_instance,
     submit_dataset,
 )
-from simple_agent_lab.evals.bootstrap import bootstrap_script
-from simple_agent_lab.llm import Provider
-from simple_agent_lab.memory import FilesystemArtifact
+from simple_long_horizon_agent.evals.bootstrap import bootstrap_script
+from simple_long_horizon_agent.llm import Provider
+from simple_long_horizon_agent.memory import FilesystemArtifact
 
 # Internal helpers live in their own modules, not the top-level facade.
-from simple_agent_lab.evals.runner import build_command, container_name
-from simple_agent_lab.evals.stores import HttpArtifactClient
+from simple_long_horizon_agent.evals.runner import build_command, container_name
+from simple_long_horizon_agent.evals.stores import HttpArtifactClient
 
-SWEBENCH_CONTAINER = "simple_agent_lab.evals.suites.swebench.container"
+SWEBENCH_CONTAINER = "simple_long_horizon_agent.evals.suites.swebench.container"
 
 
 class _DemoSuite:
@@ -195,7 +195,7 @@ class OrchestrationTest(_TempDirTest):
         )
         cmd = build_command(spec)
         self.assertEqual(cmd[:2], ("bash", "-lc"))
-        self.assertIn("simple_agent_lab.evals.in_container", cmd[-1])
+        self.assertIn("simple_long_horizon_agent.evals.in_container", cmd[-1])
         self.assertIn("--find-links /wh", cmd[-1])
 
     def test_build_command_installs_mcp_extra_when_requested(self) -> None:
@@ -207,7 +207,7 @@ class OrchestrationTest(_TempDirTest):
         )
         cmd = build_command(spec)
 
-        self.assertIn("simple-agent-lab[mcp]", cmd[-1])
+        self.assertIn("simple-long-horizon-agent[mcp]", cmd[-1])
 
 
 class BootstrapScriptTest(unittest.TestCase):
@@ -690,7 +690,7 @@ class SubmitReconcileTest(_TempDirTest):
 
     def test_mid_submit_crash_leaves_recoverable_manifest(self) -> None:
         """A crash partway through submit still records every started container."""
-        from simple_agent_lab.evals.batch import BATCH_KEY, _batch_store
+        from simple_long_horizon_agent.evals.batch import BATCH_KEY, _batch_store
 
         class _CrashAtThird(FakeBackend):
             def __init__(self) -> None:
@@ -762,7 +762,7 @@ class ReviewFixesTest(_TempDirTest):
     """Docker-path guards (no real Docker): exit-code parsing, atomic put, names."""
 
     def test_exit_status_guards_null_and_nonint(self) -> None:
-        from simple_agent_lab.evals.backends.docker_local import exit_status
+        from simple_long_horizon_agent.evals.backends.docker_local import exit_status
 
         for state, expected in [
             ({"ExitCode": 0}, 0),
@@ -786,7 +786,7 @@ class ReviewFixesTest(_TempDirTest):
 
         store = HostHttpStore(self.root, container_host="127.0.0.1")
         with mock.patch(
-            "simple_agent_lab.evals.stores.host_http.os.replace", spy_replace
+            "simple_long_horizon_agent.evals.stores.host_http.os.replace", spy_replace
         ):
             with store:
                 bound = store.bind(self.root / "r" / "i")
@@ -833,7 +833,7 @@ class ReviewFixesTest(_TempDirTest):
     def test_docker_backends_import_without_docker_and_error_clearly(self) -> None:
         """The optional `docker` dep is import-guarded: the module loads without it,
         and using a docker backend gives an actionable install hint, not ImportError."""
-        from simple_agent_lab.evals.backends import docker_local
+        from simple_long_horizon_agent.evals.backends import docker_local
 
         if docker_local.docker is not None:
             self.skipTest("docker is installed; can't exercise the missing-dep path")
@@ -844,7 +844,7 @@ class ReviewFixesTest(_TempDirTest):
     def test_wheelhouse_and_uv_are_bind_mounted_read_only(self) -> None:
         """The offline path: a host wheelhouse + uv binary become read-only mounts
         at the in-container find-links path and /tmp/uv, beside the store mount."""
-        from simple_agent_lab.evals.backends.docker_local import (
+        from simple_long_horizon_agent.evals.backends.docker_local import (
             UV_CONTAINER_PATH,
             with_local_mounts,
         )
@@ -874,7 +874,9 @@ class ReviewFixesTest(_TempDirTest):
         )
 
     def test_memory_home_is_bind_mounted_read_write(self) -> None:
-        from simple_agent_lab.evals.backends.docker_local import with_local_mounts
+        from simple_long_horizon_agent.evals.backends.docker_local import (
+            with_local_mounts,
+        )
 
         memory_home = self.root / "memory"
         bound = with_local_mounts(
@@ -898,7 +900,7 @@ class ReviewFixesTest(_TempDirTest):
         )
 
     def test_memory_home_from_env_reads_optional_mount_path(self) -> None:
-        from simple_agent_lab.evals.in_container import memory_home_from_env
+        from simple_long_horizon_agent.evals.in_container import memory_home_from_env
 
         self.assertIsNone(memory_home_from_env(env={}))
         self.assertEqual(
@@ -908,7 +910,9 @@ class ReviewFixesTest(_TempDirTest):
 
     def test_wheelhouse_without_mount_path_fails_clearly(self) -> None:
         """A wheelhouse with no in-container find-links path is a misconfiguration."""
-        from simple_agent_lab.evals.backends.docker_local import with_local_mounts
+        from simple_long_horizon_agent.evals.backends.docker_local import (
+            with_local_mounts,
+        )
 
         with self.assertRaises(ValueError) as ctx:
             with_local_mounts(
@@ -920,7 +924,9 @@ class ReviewFixesTest(_TempDirTest):
         self.assertIn("wheelhouse_mount", str(ctx.exception))
 
     def test_no_offline_inputs_leaves_binding_untouched(self) -> None:
-        from simple_agent_lab.evals.backends.docker_local import with_local_mounts
+        from simple_long_horizon_agent.evals.backends.docker_local import (
+            with_local_mounts,
+        )
 
         binding = ContainerBinding(
             mounts={"/host/run": {"bind": "/agent/run", "mode": "rw"}}
@@ -936,8 +942,10 @@ class ReviewFixesTest(_TempDirTest):
         )
 
     def test_local_docker_backend_sets_client_timeout(self) -> None:
-        from simple_agent_lab.evals.backends import docker_local
-        from simple_agent_lab.evals.backends.docker_local import LocalDockerBackend
+        from simple_long_horizon_agent.evals.backends import docker_local
+        from simple_long_horizon_agent.evals.backends.docker_local import (
+            LocalDockerBackend,
+        )
 
         fake_client = object()
         fake_docker = SimpleNamespace(from_env=mock.Mock(return_value=fake_client))
@@ -952,7 +960,7 @@ class ReviewFixesTest(_TempDirTest):
         fake_docker.from_env.assert_called_once_with(timeout=180.0)
 
     def test_docker_host_probe_finds_docker_desktop_socket(self) -> None:
-        from simple_agent_lab.evals.backends import docker_local
+        from simple_long_horizon_agent.evals.backends import docker_local
 
         fake_stat = mock.Mock(st_mode=1)
         home = Path("/tmp/sal-docker-home")
@@ -967,8 +975,10 @@ class ReviewFixesTest(_TempDirTest):
         self.assertEqual(resolved, f"unix://{home}/.docker/run/docker.sock")
 
     def test_force_existing_removes_named_container_before_start(self) -> None:
-        from simple_agent_lab.evals.backends import docker_local
-        from simple_agent_lab.evals.backends.docker_local import LocalDockerBackend
+        from simple_long_horizon_agent.evals.backends import docker_local
+        from simple_long_horizon_agent.evals.backends.docker_local import (
+            LocalDockerBackend,
+        )
 
         existing = mock.Mock()
         containers = SimpleNamespace(get=mock.Mock(return_value=existing))
@@ -988,7 +998,7 @@ class ReviewFixesTest(_TempDirTest):
         start.assert_called_once()
 
     def test_remote_docker_backend_sets_client_timeout(self) -> None:
-        from simple_agent_lab.evals.backends import remote_docker
+        from simple_long_horizon_agent.evals.backends import remote_docker
 
         fake_client = SimpleNamespace()
         fake_docker = SimpleNamespace(
@@ -1010,8 +1020,10 @@ class ReviewFixesTest(_TempDirTest):
 
     def test_start_container_removes_created_container_on_timeout(self) -> None:
         """A Docker SDK timeout after create() must not leave a named container."""
-        from simple_agent_lab.evals.backends import docker_local
-        from simple_agent_lab.evals.backends.docker_local import start_container
+        from simple_long_horizon_agent.evals.backends import docker_local
+        from simple_long_horizon_agent.evals.backends.docker_local import (
+            start_container,
+        )
 
         class FakeImageNotFound(Exception):
             pass
@@ -1048,9 +1060,11 @@ class ReviewFixesTest(_TempDirTest):
 
     def test_local_docker_run_removes_container_when_wait_times_out(self) -> None:
         """A blocking run timeout after submit() must force-remove the container."""
-        from simple_agent_lab.evals.backends import docker_local
-        from simple_agent_lab.evals.backends.docker_local import LocalDockerBackend
-        from simple_agent_lab.evals.protocols import RunHandle
+        from simple_long_horizon_agent.evals.backends import docker_local
+        from simple_long_horizon_agent.evals.backends.docker_local import (
+            LocalDockerBackend,
+        )
+        from simple_long_horizon_agent.evals.protocols import RunHandle
 
         class FakeNotFound(Exception):
             pass
@@ -1112,11 +1126,11 @@ class RemoteDockerHostPullTest(_TempDirTest):
     """Host-pull copy logic without a daemon: push instance in, pull out/ back."""
 
     def test_push_inputs_then_pull_outputs(self) -> None:
-        from simple_agent_lab.evals.backends._archive import (
+        from simple_long_horizon_agent.evals.backends._archive import (
             pack_file_to_root,
             unpack_members,
         )
-        from simple_agent_lab.evals.backends.remote_docker import (
+        from simple_long_horizon_agent.evals.backends.remote_docker import (
             RUN_MOUNT,
             pull_outputs,
             push_inputs,
@@ -1179,7 +1193,7 @@ class SwebenchSuiteDriverTest(unittest.TestCase):
 
 class SafePartTest(unittest.TestCase):
     def test_distinct_ids_never_collide_after_sanitization(self) -> None:
-        from simple_agent_lab.evals.runner import _safe_part
+        from simple_long_horizon_agent.evals.runner import _safe_part
 
         # Plain ids (alnum / _.-) are unchanged — SWE-bench ids stay readable.
         self.assertEqual(_safe_part("sympy__sympy-23824"), "sympy__sympy-23824")
@@ -1192,7 +1206,7 @@ class SafePartTest(unittest.TestCase):
 
 class CreateKwargsTest(unittest.TestCase):
     def test_shared_create_kwargs_carries_plan_fields(self) -> None:
-        from simple_agent_lab.evals.backends.docker_local import _create_kwargs
+        from simple_long_horizon_agent.evals.backends.docker_local import _create_kwargs
 
         spec = _run_spec(
             launch_spec=LaunchSpec(
@@ -1225,7 +1239,7 @@ class RequestExtraFromEnvTest(unittest.TestCase):
     provider so adapters map it per-model (no API-kind branching here)."""
 
     def test_request_extra_contains_only_session_headers(self) -> None:
-        from simple_agent_lab.evals.in_container import request_extra_from_env
+        from simple_long_horizon_agent.evals.in_container import request_extra_from_env
 
         cases = [
             ({}, {}),
@@ -1252,7 +1266,7 @@ class ProviderReasoningFromEnvTest(unittest.TestCase):
     _BASE = {"OPENAI_MODEL": "gpt-x", "OPENAI_AUTH_TOKEN": "tok"}
 
     def _provider(self, **extra: str):
-        from simple_agent_lab.evals.in_container import provider_from_env
+        from simple_long_horizon_agent.evals.in_container import provider_from_env
 
         return provider_from_env(kind="openai", env={**self._BASE, **extra})
 
@@ -1278,7 +1292,7 @@ class ProviderReasoningFromEnvTest(unittest.TestCase):
             self._provider(REASONING_EFFORT="ultra")
 
     def test_effort_is_api_kind_independent(self) -> None:
-        from simple_agent_lab.evals.in_container import provider_from_env
+        from simple_long_horizon_agent.evals.in_container import provider_from_env
 
         for api_kind in ("openai-chat", "openai-responses"):
             prov = provider_from_env(
@@ -1293,7 +1307,7 @@ class RunInContainerMemoryWiringTest(_TempDirTest):
     """memory.finish runs at SESSION_END with the suite's artifact_builder."""
 
     def _run(self, module: types.ModuleType, memory_home: str):
-        from simple_agent_lab.evals.in_container import run_in_container
+        from simple_long_horizon_agent.evals.in_container import run_in_container
 
         sys.modules[module.__name__] = module
         self.addCleanup(lambda: sys.modules.pop(module.__name__, None))

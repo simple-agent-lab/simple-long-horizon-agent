@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from simple_agent_lab.mcp.config_file import (
+from simple_long_horizon_agent.mcp.config_file import (
     load_mcp_server_configs,
     mcp_server_configs_from_json,
 )

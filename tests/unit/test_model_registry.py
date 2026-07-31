@@ -12,7 +12,7 @@ import warnings
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from simple_agent_lab.llm import (
+from simple_long_horizon_agent.llm import (
     DEFAULT_MODEL_ALIASES,
     DEFAULT_RESPONSES_MAX_OUTPUT_TOKENS,
     FAKE_PROVIDER,

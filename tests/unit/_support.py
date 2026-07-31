@@ -8,7 +8,7 @@ from types import ModuleType
 from typing import Any
 import zlib
 
-from simple_agent_lab import AgentTool, ToolResult
+from simple_long_horizon_agent import AgentTool, ToolResult
 
 
 def load_module(path: Path, name: str) -> ModuleType:

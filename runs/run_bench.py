@@ -57,7 +57,7 @@ from runs._benches import harbor as _harbor
 from runs._benches import onemillion as _onemillion
 from runs._benches import programbench as _programbench
 from runs._benches import swebench as _swebench
-from simple_agent_lab.evals import parse_with_profile
+from simple_long_horizon_agent.evals import parse_with_profile
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent

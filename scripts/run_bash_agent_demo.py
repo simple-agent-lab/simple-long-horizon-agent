@@ -24,7 +24,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from simple_agent_lab import (
+from simple_long_horizon_agent import (
     AssistantMessage,
     Event,
     Message,
@@ -35,17 +35,17 @@ from simple_agent_lab import (
     text_of,
     tool_results_of,
 )
-from simple_agent_lab.agents.starter import (
+from simple_long_horizon_agent.agents.starter import (
     BASH_AGENT_SYSTEM_PROMPT,
     make_bash_agent,
 )
-from simple_agent_lab.llm import Provider
-from simple_agent_lab.llm.env import FAKE_PROVIDER, provider_from_env
+from simple_long_horizon_agent.llm import Provider
+from simple_long_horizon_agent.llm.env import FAKE_PROVIDER, provider_from_env
 
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BASH_DEMO_COMMAND = (
-    "pwd && find src/simple_agent_lab -maxdepth 1 -type f -name '*.py' | sort"
+    "pwd && find src/simple_long_horizon_agent -maxdepth 1 -type f -name '*.py' | sort"
 )
 
 
@@ -58,7 +58,7 @@ def bash_task_for_command(command: str) -> str:
 
 
 def build_openai_provider() -> Provider:
-    # Single source of truth in `simple_agent_lab.llm.env`; `reexport_auth`
+    # Single source of truth in `simple_long_horizon_agent.llm.env`; `reexport_auth`
     # strips the token back into os.environ for the adapter to read.
     return provider_from_env(label="--provider openai", reexport_auth=True)
 
@@ -160,8 +160,8 @@ def main() -> None:
         print_trace(state, raw=args.raw)
 
     if args.save_trace:
-        from simple_agent_lab import append_openai_training_record  # noqa: E402
-        from simple_agent_lab.tools.bash import make_bash_tool  # noqa: E402
+        from simple_long_horizon_agent import append_openai_training_record  # noqa: E402
+        from simple_long_horizon_agent.tools.bash import make_bash_tool  # noqa: E402
 
         out = append_openai_training_record(
             state,
