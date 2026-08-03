@@ -1,11 +1,3 @@
-<p align="center">
-  <img
-    src="docs/assets/simple-long-horizon-agent-hero.png"
-    alt="Simple Long Horizon Agent - A simple yet effective AI agent for learning, experimentation, and long horizon work."
-    width="100%"
-  >
-</p>
-
 <h1 align="center">Simple Long Horizon Agent</h1>
 
 <p align="center">
@@ -38,6 +30,14 @@
   <a href="#results">Results</a> ·
   <a href="#quick-start">Quick Start</a> ·
   <a href="#documentation">Documentation</a>
+</p>
+
+<p align="center">
+  <img
+    src="docs/assets/simple-long-horizon-agent-hero.png"
+    alt="Simple Long Horizon Agent - A simple yet effective AI agent for learning, experimentation, and long horizon work."
+    width="100%"
+  >
 </p>
 
 ## Overview
