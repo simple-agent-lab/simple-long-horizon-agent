@@ -32,6 +32,14 @@
   <a href="#documentation">Documentation</a>
 </p>
 
+<p align="center">
+  <img
+    src="docs/assets/simple-long-horizon-agent-hero.png"
+    alt="Simple Long Horizon Agent - A simple yet effective AI agent for learning, experimentation, and long horizon work."
+    width="100%"
+  >
+</p>
+
 ## Overview
 
 Simple Long Horizon Agent is small enough to understand and change, while capable
